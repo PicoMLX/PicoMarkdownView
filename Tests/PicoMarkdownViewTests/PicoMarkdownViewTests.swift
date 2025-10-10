@@ -1,28 +1,23 @@
 import Testing
 @testable import PicoMarkdownView
 
-@Test func example() async throws {
-    let stream = await MainActor.run { PicoMarkdownStream() }
-    await MainActor.run {
-        stream.append(markdown: "Hello ")
-        stream.append(markdown: "**World**")
-    }
+@Test func example() {
+    let renderer = StreamingMarkdownRenderer()
+    renderer.appendMarkdown("Hello ")
+    renderer.appendMarkdown("**World**")
 
-    let rendered = await MainActor.run { stream.renderedText.string }
-    #expect(rendered == "Hello World")
+    #expect(renderer.attributedText.string == "Hello World")
 }
 
-@Test func resetClearsContent() async throws {
-    let stream = await MainActor.run { PicoMarkdownStream(initialText: "Initial") }
-    await MainActor.run {
-        stream.reset(markdown: "")
-    }
+@Test func resetClearsContent() {
+    let renderer = StreamingMarkdownRenderer()
+    renderer.load(markdown: "Initial")
+    renderer.load(markdown: "")
 
-    let rendered = await MainActor.run { stream.renderedText.string }
-    #expect(rendered.isEmpty)
+    #expect(renderer.attributedText.string.isEmpty)
 }
 
-@Test func rendersTablesUsingMonospacedLayout() async throws {
+@Test func rendersTablesUsingMonospacedLayout() {
     let markdown = """
     | size | material | color |
     | ---- | -------- | ----- |
@@ -30,14 +25,20 @@ import Testing
     | 10   | canvas   | natural |
     """
 
-    let stream = await MainActor.run { PicoMarkdownStream() }
-    await MainActor.run {
-        stream.append(markdown: markdown)
-    }
+    let renderer = StreamingMarkdownRenderer()
+    renderer.appendMarkdown(markdown)
 
-    let rendered = await MainActor.run { stream.renderedText.string }
+    let rendered = renderer.attributedText.string
     #expect(rendered.contains("| size | material |"))
     #expect(rendered.contains("| 9"))
+}
+
+@Test func rendererHandlesNonAppendGracefully() {
+    let renderer = StreamingMarkdownRenderer()
+    renderer.appendMarkdown("Hello World")
+    renderer.load(markdown: "Hello")
+
+    #expect(renderer.attributedText.string == "Hello")
 }
 
 @Test func boundaryDetectionPrefersBlankLines() {

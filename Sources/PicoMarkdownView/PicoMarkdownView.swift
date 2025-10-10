@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import Observation
 
 #if canImport(UIKit)
 import UIKit
@@ -29,57 +28,65 @@ public struct PicoMarkdownViewConfiguration {
     public static var `default`: PicoMarkdownViewConfiguration { .init() }
 }
 
-@Observable
-@MainActor
-public final class PicoMarkdownStream {
-    @ObservationIgnored
-    private let renderer: StreamingMarkdownRenderer
-
-    public private(set) var renderedText: NSAttributedString
-
-    public init(
-        initialText: String = "",
-        parsingOptions: AttributedString.MarkdownParsingOptions = .init(interpretedSyntax: .full)
-    ) {
-        _ = parsingOptions
-        self.renderer = StreamingMarkdownRenderer()
-
-        if initialText.isEmpty {
-            self.renderedText = NSAttributedString()
-        } else {
-            let mutation = renderer.load(markdown: initialText)
-            self.renderedText = mutation.replacement
-        }
-    }
-
-    @MainActor
-    public func append(markdown chunk: String) {
-        renderer.appendMarkdown(chunk)
-        renderedText = renderer.attributedText
-    }
-
-    @MainActor
-    public func reset(markdown text: String = "") {
-        let mutation = renderer.load(markdown: text)
-        renderedText = mutation.replacement
-    }
-}
-
 public struct PicoMarkdownView: View {
-    @Bindable private var stream: PicoMarkdownStream
+    private let text: String
     private let configuration: PicoMarkdownViewConfiguration
 
+    @State private var renderedText: NSAttributedString = NSAttributedString()
+    @State private var rendererState = RendererState()
+
+    private struct RendererState {
+        var renderer = StreamingMarkdownRenderer()
+        var previousText: String = ""
+    }
+
     public init(
-        stream: PicoMarkdownStream,
+        _ text: String,
         configuration: PicoMarkdownViewConfiguration = .default
     ) {
-        self._stream = Bindable(stream)
+        self.text = text
         self.configuration = configuration
     }
 
     public var body: some View {
-        PlatformTextView(attributedText: stream.renderedText, configuration: configuration)
+        PlatformTextView(attributedText: renderedText, configuration: configuration)
             .background(configuration.backgroundColor)
+            .task(id: text) {
+                await refreshRenderer(with: text)
+            }
+    }
+
+    @MainActor
+    private func refreshRenderer(with newText: String) async {
+        if newText == rendererState.previousText {
+            return
+        }
+
+        let previous = rendererState.previousText
+        let isAppend = newText.hasPrefix(previous)
+
+        let delta: String
+        if isAppend,
+           let start = newText.index(newText.startIndex, offsetBy: previous.count, limitedBy: newText.endIndex) {
+            delta = String(newText[start...])
+        } else {
+            delta = newText
+        }
+
+        var state = rendererState
+        let renderer = state.renderer
+
+        if isAppend, delta != newText {
+            if !delta.isEmpty {
+                renderer.appendMarkdown(delta)
+            }
+        } else {
+            renderer.load(markdown: newText)
+        }
+
+        state.previousText = newText
+        rendererState = state
+        renderedText = renderer.attributedText
     }
 }
 
