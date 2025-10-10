@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Observation
 
 #if canImport(UIKit)
 import UIKit
@@ -28,11 +29,13 @@ public struct PicoMarkdownViewConfiguration {
     public static var `default`: PicoMarkdownViewConfiguration { .init() }
 }
 
+@Observable
 @MainActor
-public final class PicoMarkdownStream: ObservableObject {
+public final class PicoMarkdownStream {
+    @ObservationIgnored
     private let renderer: StreamingMarkdownRenderer
 
-    @Published public private(set) var renderedText: NSAttributedString
+    public private(set) var renderedText: NSAttributedString
 
     public init(
         initialText: String = "",
@@ -63,14 +66,14 @@ public final class PicoMarkdownStream: ObservableObject {
 }
 
 public struct PicoMarkdownView: View {
-    @ObservedObject private var stream: PicoMarkdownStream
+    @Bindable private var stream: PicoMarkdownStream
     private let configuration: PicoMarkdownViewConfiguration
 
     public init(
         stream: PicoMarkdownStream,
         configuration: PicoMarkdownViewConfiguration = .default
     ) {
-        self.stream = stream
+        self._stream = Bindable(stream)
         self.configuration = configuration
     }
 
