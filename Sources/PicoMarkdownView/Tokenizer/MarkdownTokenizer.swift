@@ -73,9 +73,9 @@ public struct ChunkResult: Sendable, Equatable {
     }
 }
 
-public protocol StreamingMarkdownTokenizer {
-    mutating func feed(_ chunk: String) -> ChunkResult
-    mutating func finish() -> ChunkResult
+public protocol StreamingMarkdownTokenizer: Actor {
+    func feed(_ chunk: String) -> ChunkResult
+    func finish() -> ChunkResult
 }
 
 public actor MarkdownTokenizer: StreamingMarkdownTokenizer {
