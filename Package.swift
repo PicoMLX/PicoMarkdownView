@@ -32,5 +32,12 @@ let package = Package(
             name: "PicoMarkdownViewTests",
             dependencies: ["PicoMarkdownView"]
         ),
+        .testTarget(
+            name: "PicoMarkdownViewBenchmarks",
+            dependencies: ["PicoMarkdownView"],
+            resources: [
+                .process("Benchmarks/sample1.md")
+            ]
+        ),
     ]
 )
