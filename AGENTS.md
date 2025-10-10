@@ -26,7 +26,7 @@ This goal of this project is to create a SwiftUI view that displays plain text, 
 - Renderer. Optimized for streaming.
 - Themes. Support light and dark mode, and code themes
 - Interaction support. E.g. URL selections that can be handled by the main app using PicoMarkdownView
-- If it makes sense, use existing libraries, but sparingly. Maybe cmark-gfm is a good candidate.
+- If it makes sense, use existing libraries, but sparingly. Maybe the streaming part of cmark-gfm is a good candidate. Maybe it makes sense to create a simple incremental diff layer and only change the attributes on screen when needed. 
 
 ## Supported standards
 
