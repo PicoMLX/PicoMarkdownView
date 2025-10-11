@@ -26,12 +26,14 @@ struct StreamingParser {
         var fenceJustOpened: Bool
         var linePrefixToStrip: Int
         var headingPendingSuffix: String
+        var eventStartIndex: Int
     }
 
     private struct TableState {
         enum Stage { case header, separatorPending, rows }
         var stage: Stage = .header
         var alignments: [TableAlignment] = []
+        var bufferedLines: [String] = []
     }
 
     private struct FenceInfo {
@@ -347,7 +349,7 @@ struct StreamingParser {
                     closeCurrentBlock()
                 }
             case .table:
-                handleTableLine(rawLine: rawLine, trimmed: trimmed, force: force)
+                handleTableLine(rawLine: rawLine, trimmed: trimmed, terminated: terminated, force: force)
             }
             if var updated = currentBlock {
                 updated.fenceJustOpened = false
@@ -499,7 +501,7 @@ struct StreamingParser {
         }
     }
 
-    private mutating func handleTableLine(rawLine: String, trimmed: String, force: Bool) {
+    private mutating func handleTableLine(rawLine: String, trimmed: String, terminated: Bool, force: Bool) {
         guard var ctx = currentBlock, var table = ctx.tableState else {
             if force { closeCurrentBlock() }
             return
@@ -507,14 +509,17 @@ struct StreamingParser {
 
         switch table.stage {
         case .header:
+            table.bufferedLines.append(rawLine)
             table.stage = .separatorPending
         case .separatorPending:
+            table.bufferedLines.append(rawLine)
             if let alignments = parseAlignment(trimmed) {
                 table.alignments = alignments
                 events.append(.tableHeaderConfirmed(id: ctx.id, alignments: alignments))
                 table.stage = .rows
-            } else if force {
-                closeCurrentBlock()
+                table.bufferedLines.removeAll(keepingCapacity: true)
+            } else {
+                degradeTableCandidate(context: &ctx, table: table, terminated: terminated || force)
                 return
             }
         case .rows:
@@ -529,9 +534,43 @@ struct StreamingParser {
         ctx.tableState = table
         currentBlock = ctx
 
-        if force {
+        if force, table.stage != .rows {
+            degradeTableCandidate(context: &ctx, table: table, terminated: true)
+        } else if force {
             closeCurrentBlock()
         }
+    }
+
+    private mutating func degradeTableCandidate(context ctx: inout BlockContext, table: TableState, terminated: Bool) {
+        let removalRange = ctx.eventStartIndex..<events.count
+        events.removeSubrange(removalRange)
+
+        let text: String = {
+            guard !table.bufferedLines.isEmpty else { return "" }
+            var joined = table.bufferedLines.joined(separator: "\n")
+            if terminated {
+                joined.append("\n")
+            }
+            return joined
+        }()
+
+        let fallbackContext = BlockContext(
+            id: ctx.id,
+            kind: .unknown,
+            inlineParser: nil,
+            tableState: nil,
+            fenceInfo: nil,
+            literal: "",
+            fenceJustOpened: false,
+            linePrefixToStrip: 0,
+            headingPendingSuffix: "",
+            eventStartIndex: ctx.eventStartIndex
+        )
+
+        currentBlock = fallbackContext
+        events.append(.blockStart(id: fallbackContext.id, kind: .unknown))
+        appendUnknownLiteral(text)
+        closeCurrentBlock()
     }
 
     private mutating func closeCurrentBlock() {
@@ -559,7 +598,8 @@ struct StreamingParser {
             literal: "",
             fenceJustOpened: false,
             linePrefixToStrip: prefixToStrip,
-            headingPendingSuffix: ""
+            headingPendingSuffix: "",
+            eventStartIndex: events.count
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: kind))
@@ -576,7 +616,8 @@ struct StreamingParser {
             literal: "",
             fenceJustOpened: false,
             linePrefixToStrip: 0,
-            headingPendingSuffix: ""
+            headingPendingSuffix: "",
+            eventStartIndex: events.count
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .unknown))
@@ -593,7 +634,8 @@ struct StreamingParser {
             literal: "",
             fenceJustOpened: true,
             linePrefixToStrip: 0,
-            headingPendingSuffix: ""
+            headingPendingSuffix: "",
+            eventStartIndex: events.count
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .fencedCode(language: fence.language)))
@@ -610,13 +652,14 @@ struct StreamingParser {
             literal: "",
             fenceJustOpened: false,
             linePrefixToStrip: 0,
-            headingPendingSuffix: ""
+            headingPendingSuffix: "",
+            eventStartIndex: events.count
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .table))
         let headerCells = splitCells(line).map { InlineRun(text: $0) }
         events.append(.tableHeaderCandidate(id: context.id, cells: headerCells))
-        context.tableState = TableState(stage: .header)
+        context.tableState = TableState(stage: .header, alignments: [], bufferedLines: [])
         currentBlock = context
     }
 
