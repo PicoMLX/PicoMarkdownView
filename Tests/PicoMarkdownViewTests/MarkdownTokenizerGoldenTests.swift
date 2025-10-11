@@ -601,11 +601,11 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
-    @Test("Tilde fences are not treated as fenced code")
-    func tildeFencesUnsupported() async {
+    @Test("Tilde fences treated as fenced code")
+    func tildeFencesAreTreatedAsFencedCode() async {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
-
+    
         // Per CommonMark §4.5 and GFM, tilde (~) fences are treated as fenced code blocks.
         // Deviating from this would break spec compliance.
         let result = await tokenizer.feed("~~~\ncode\n~~~\n\n")
