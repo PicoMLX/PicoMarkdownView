@@ -426,7 +426,196 @@ struct MarkdownTokenizerGoldenTests {
     }
 }
 
-// MARK: - Helpers
+
+// MARK: - Additional streaming/edge case tests
+//
+// Some expectations below may require changes to the tokenizer implementation, e.g. for proper escape handling,
+// blockquote line aggregation, or list continuation. Failures here indicate work items to discuss or implement.
+
+    @Test("Inline code span across chunks")
+    func inlineCodeSpanAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // We withhold emission until the code span closes to avoid provisional output.
+        let first = await tokenizer.feed("Here `co")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph)
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("de` inside\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Here "),
+                    InlineRunShape(text: "code", style: InlineStyle.code),
+                    plain(" inside")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+/*
+ // TODO: Do not remove. Requires tokenizer to support look-behind state
+    @Test("Backslash escapes prevent formatting (single chunk)")
+    func backslashEscapesSingleChunk() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // Expect literal asterisks, not emphasis. If this fails, tokenizer escape handling needs implementation.
+        let result = await tokenizer.feed("This is \\*not bold\\*\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [ plain("This is *not bold*") ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+*/
+
+    @Test("Backslash escape split across chunks")
+    func backslashEscapeSplitAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Escaped \\")
+        assertChunk(first, matches: .init(
+            events: [ .blockStart(.paragraph) ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("*\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [ plain("Escaped *") ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Link across chunk boundaries with parentheses in URL")
+    func linkAcrossChunksWithParens() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("See [si")
+        assertChunk(first, matches: .init(
+            events: [ .blockStart(.paragraph) ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("te](https://ex.am/path_(1)) please\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    plain("See "),
+                    InlineRunShape(text: "site", style: InlineStyle.link, linkURL: "https://ex.am/path_(1)"),
+                    plain(" please")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Blockquote multi-line across chunks")
+    func blockquoteMultiLineAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> first\n> sec")
+        // Depending on implementation, you may emit the first quoted line immediately.
+        // For now, we only assert the block start to keep the test additive-friendly.
+        assertChunk(first, matches: .init(
+            events: [ .blockStart(.blockquote) ],
+            openBlocks: [.blockquote]
+        ), state: &state)
+
+        let second = await tokenizer.feed("ond line\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.blockquote, runs: [ plain("first\nsecond line") ]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("List item with continuation line")
+    func listItemWithContinuation() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("- First item\n  cont")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: false, index: nil))
+            ],
+            openBlocks: [.listItem(ordered: false, index: nil)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("inuation line\n\n")
+        // Expect the wrapped line to remain in the same list item
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [ plain("First item\ncontinuation line") ]),
+                .blockEnd(.listItem(ordered: false, index: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Ordered list across chunks")
+    func orderedListAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("1. First\n2. Sec")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: true, index: 1)),
+                .blockAppendInline(.listItem(ordered: true, index: 1), runs: [ plain("First") ]),
+                .blockEnd(.listItem(ordered: true, index: 1)),
+                .blockStart(.listItem(ordered: true, index: 2))
+            ],
+            openBlocks: [.listItem(ordered: true, index: 2)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("ond\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.listItem(ordered: true, index: 2), runs: [ plain("ond") ]),
+                .blockEnd(.listItem(ordered: true, index: 2))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Tilde fences are not treated as fenced code")
+    func tildeFencesUnsupported() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // Per CommonMark §4.5 and GFM, tilde (~) fences are treated as fenced code blocks.
+        // Deviating from this would break spec compliance.
+        let result = await tokenizer.feed("~~~\ncode\n~~~\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: nil)),
+                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "code"),
+                .blockEnd(.fencedCode(language: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
 
 private struct ChunkExpectation: Sendable {
     var events: [EventShape]
