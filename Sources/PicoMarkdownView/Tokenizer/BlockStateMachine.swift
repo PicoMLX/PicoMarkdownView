@@ -604,14 +604,39 @@ struct StreamingParser {
     }
 
     private func splitCells(_ line: String) -> [String] {
-        var parts = line.split(separator: "|", omittingEmptySubsequences: false)
-        if let first = parts.first, first.trimmingCharacters(in: .whitespaces).isEmpty {
-            parts.removeFirst()
+        var cells: [String] = []
+        var current = ""
+        var escaping = false
+        var index = line.startIndex
+        while index < line.endIndex {
+            let character = line[index]
+            if escaping {
+                current.append(character)
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else if character == "|" {
+                cells.append(current)
+                current.removeAll(keepingCapacity: true)
+            } else {
+                current.append(character)
+            }
+            index = line.index(after: index)
         }
-        if let last = parts.last, last.trimmingCharacters(in: .whitespaces).isEmpty {
-            parts.removeLast()
+        if escaping {
+            current.append("\\")
         }
-        return parts.map { $0.trimmingCharacters(in: .whitespaces) }
+        cells.append(current)
+
+        let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+        var result = cells
+        if trimmedLine.hasPrefix("|") && !result.isEmpty {
+            result.removeFirst()
+        }
+        if trimmedLine.hasSuffix("|") && !result.isEmpty {
+            result.removeLast()
+        }
+        return result.map { $0.trimmingCharacters(in: .whitespaces) }
     }
 
     private func parseAlignment(_ line: String) -> [TableAlignment]? {

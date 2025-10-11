@@ -46,6 +46,81 @@ struct InlineParser {
             plainStart = end
         }
 
+        func isAlphanumeric(_ character: Character) -> Bool {
+            character.unicodeScalars.allSatisfy { CharacterSet.alphanumerics.contains($0) }
+        }
+
+        func isWhitespace(_ character: Character) -> Bool {
+            character.unicodeScalars.allSatisfy { CharacterSet.whitespacesAndNewlines.contains($0) }
+        }
+
+        func character(before index: String.Index) -> Character? {
+            guard index > text.startIndex else { return nil }
+            let prior = text.index(before: index)
+            return text[prior]
+        }
+
+        func character(after index: String.Index, offset: Int = 0) -> Character? {
+            var current = index
+            for _ in 0..<offset {
+                guard current < text.endIndex else { return nil }
+                current = text.index(after: current)
+            }
+            guard current < text.endIndex else { return nil }
+            return text[current]
+        }
+
+        func canOpenEmphasis(at index: String.Index, delimiter: Character, length: Int) -> Bool {
+            guard delimiter == "_" else { return true }
+            if let prev = character(before: index), isAlphanumeric(prev) {
+                return false
+            }
+            guard let next = character(after: index, offset: length) else {
+                return false
+            }
+            return !isWhitespace(next)
+        }
+
+        func canCloseEmphasis(at index: String.Index, delimiter: Character, length: Int) -> Bool {
+            guard delimiter == "_" else { return true }
+            guard let before = character(before: index), !isWhitespace(before) else {
+                return false
+            }
+            if let after = character(after: index, offset: length) {
+                if isAlphanumeric(after) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        func findClosingDelimiter(delimiter: Character, length: Int, from start: String.Index) -> Range<String.Index>? {
+            let token = String(repeating: delimiter, count: length)
+            var search = start
+            while search < text.endIndex {
+                guard let range = text[search...].range(of: token) else { return nil }
+                if canCloseEmphasis(at: range.lowerBound, delimiter: delimiter, length: length) {
+                    return range
+                }
+                search = text.index(after: range.lowerBound)
+            }
+            return nil
+        }
+
+        func findCodeClosing(delimiterLength: Int, from start: String.Index) -> Range<String.Index>? {
+            let token = String(repeating: "`", count: delimiterLength)
+            var search = start
+            while search < text.endIndex {
+                guard let range = text[search...].range(of: token) else { return nil }
+                if range.upperBound < text.endIndex, text[range.upperBound] == "`" {
+                    search = range.upperBound
+                    continue
+                }
+                return range
+            }
+            return nil
+        }
+
         parsing: while index < text.endIndex {
             let ch = text[index]
             switch ch {
@@ -127,52 +202,24 @@ struct InlineParser {
                 consumedEnd = afterClose
                 index = afterClose
                 plainStart = afterClose
-            case "*":
+            case "*", "_":
+                let delimiter = ch
                 let nextIndex = text.index(after: index)
-                let isBold = nextIndex < text.endIndex && text[nextIndex] == "*"
-                if isBold {
-                    let searchStart = text.index(after: nextIndex)
-                    guard let closingRange = text[searchStart..<text.endIndex].range(of: "**") else {
-                        if includeUnterminated {
-                            plainStart = index
-                            index = nextIndex
-                            continue parsing
-                        } else {
-                            consumedAll = false
-                            break parsing
-                        }
-                    }
-                    flushPlain(upTo: index)
-                    let inner = String(text[searchStart..<closingRange.lowerBound])
-                    runs.append(InlineRun(text: inner, style: [.bold]))
-                    let afterClose = closingRange.upperBound
-                    consumedEnd = afterClose
-                    index = afterClose
-                    plainStart = afterClose
-                } else {
-                    guard let closing = text[text.index(after: index)..<text.endIndex].firstIndex(of: "*") else {
-                        if includeUnterminated {
-                            plainStart = index
-                            index = text.index(after: index)
-                            continue parsing
-                        } else {
-                            consumedAll = false
-                            break parsing
-                        }
-                    }
-                    flushPlain(upTo: index)
-                    let inner = String(text[text.index(after: index)..<closing])
-                    runs.append(InlineRun(text: inner, style: [.italic]))
-                    let afterClose = text.index(after: closing)
-                    consumedEnd = afterClose
-                    index = afterClose
-                    plainStart = afterClose
+                let isDouble = nextIndex < text.endIndex && text[nextIndex] == delimiter
+                let markerLength = isDouble ? 2 : 1
+                if !canOpenEmphasis(at: index, delimiter: delimiter, length: markerLength) {
+                    index = text.index(after: index)
+                    continue parsing
                 }
-            case "`":
-                guard let closing = text[text.index(after: index)..<text.endIndex].firstIndex(of: "`") else {
+                let searchStart = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
+                guard searchStart <= text.endIndex else {
+                    index = text.index(after: index)
+                    continue parsing
+                }
+                guard let closingRange = findClosingDelimiter(delimiter: delimiter, length: markerLength, from: searchStart) else {
                     if includeUnterminated {
                         plainStart = index
-                        index = text.index(after: index)
+                        index = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
                         continue parsing
                     } else {
                         consumedAll = false
@@ -180,9 +227,36 @@ struct InlineParser {
                     }
                 }
                 flushPlain(upTo: index)
-                let inner = String(text[text.index(after: index)..<closing])
+                let innerStart = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
+                let inner = String(text[innerStart..<closingRange.lowerBound])
+                let style: InlineStyle = isDouble ? [.bold] : [.italic]
+                runs.append(InlineRun(text: inner, style: style))
+                let afterClose = closingRange.upperBound
+                consumedEnd = afterClose
+                index = afterClose
+                plainStart = afterClose
+            case "`":
+                var delimiterLength = 1
+                var cursor = text.index(after: index)
+                while cursor < text.endIndex && text[cursor] == "`" {
+                    delimiterLength += 1
+                    cursor = text.index(after: cursor)
+                }
+                let contentStart = cursor
+                guard let closingRange = findCodeClosing(delimiterLength: delimiterLength, from: contentStart) else {
+                    if includeUnterminated {
+                        plainStart = index
+                        index = cursor
+                        continue parsing
+                    } else {
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                flushPlain(upTo: index)
+                let inner = String(text[contentStart..<closingRange.lowerBound])
                 runs.append(InlineRun(text: inner, style: [.code]))
-                let afterClose = text.index(after: closing)
+                let afterClose = closingRange.upperBound
                 consumedEnd = afterClose
                 index = afterClose
                 plainStart = afterClose

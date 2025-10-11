@@ -97,6 +97,27 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Underscore emphasis handling")
+    func underscoreEmphasisHandling() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("_em_ and __strong__ plus mid_word\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    InlineRunShape(text: "em", style: InlineStyle.italic),
+                    plain(" and "),
+                    InlineRunShape(text: "strong", style: InlineStyle.bold),
+                    plain(" plus mid_word")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Fenced code streaming")
     func fencedCodeStreaming() async {
         let tokenizer = MarkdownTokenizer()
@@ -209,6 +230,38 @@ struct MarkdownTokenizerGoldenTests {
             events: [
                 .tableAppendRow(.table, cells: [[plain("a1")], [plain("b1")]]),
                 .tableAppendRow(.table, cells: [[plain("a2")], [plain("b2")]]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table cells treat escaped pipes as literal content")
+    func tableEscapedPipes() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| Name | Value |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("Name"), plain("Value")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| --- | --- |\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .tableHeaderConfirmed(.table, alignments: [.left, .left])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let row = await tokenizer.feed("| a \\| b | c |\n\n")
+        assertChunk(row, matches: .init(
+            events: [
+                .tableAppendRow(.table, cells: [[plain("a | b")], [plain("c")]]),
                 .blockEnd(.table)
             ],
             openBlocks: []
@@ -356,6 +409,32 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Autolinks are treated as plain text")
+    func autolinksRemainPlain() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("<https://example.com>\n\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("<https://example.com>")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+
+        let second = await tokenizer.feed("https://example.com/path\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("https://example.com/path")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Streaming output matches single-shot parse across chunk boundaries")
     func streamingMatchesSingleShotParse() async {
         let source = """
@@ -386,6 +465,38 @@ struct MarkdownTokenizerGoldenTests {
             let secondPass = summarizeBlocks(from: await collectEvents(chunks: chunks))
             #expect(firstPass == secondPass, "Chunking with seed \(seed) produced nondeterministic results")
         }
+    }
+
+    @Test("Very long line without newline terminator")
+    func veryLongLineWithoutNewline() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+        let longLine = String(repeating: "a", count: 16_384)
+
+        let first = await tokenizer.feed(longLine)
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain(longLine)])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed(" tail")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain(" tail")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let third = await tokenizer.feed("\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
     }
 
     @Test("Stress long paragraph incremental appends")
@@ -453,6 +564,31 @@ struct MarkdownTokenizerGoldenTests {
                     plain("Here "),
                     InlineRunShape(text: "code", style: InlineStyle.code),
                     plain(" inside")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Inline code with multiple backticks across chunks")
+    func inlineCodeMultipleBackticksAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Before ``co")
+        assertChunk(first, matches: .init(
+            events: [ .blockStart(.paragraph) ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("de ` inner`` after\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Before "),
+                    InlineRunShape(text: "code ` inner", style: InlineStyle.code),
+                    plain(" after")
                 ]),
                 .blockEnd(.paragraph)
             ],
@@ -543,6 +679,30 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(second, matches: .init(
             events: [
                 .blockAppendInline(.blockquote, runs: [ plain("ond line"), plain("\n") ]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Blockquote containing list item with continuation")
+    func blockquoteNestedListContinuation() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> - item\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("- item"), plain("\n")])
+            ],
+            openBlocks: [.blockquote]
+        ), state: &state)
+
+        let second = await tokenizer.feed(">   continuation\n> second line\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.blockquote, runs: [plain("  continuation"), plain("\n"), plain("second line"), plain("\n")]),
                 .blockEnd(.blockquote)
             ],
             openBlocks: []
