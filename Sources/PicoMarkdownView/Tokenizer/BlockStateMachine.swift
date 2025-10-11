@@ -1,6 +1,21 @@
 import Foundation
 
 struct StreamingParser {
+    static let defaultMaxLookBehind = 1024
+
+    private let maxLineLookBehind: Int
+    private let lookBehindSlack: Int
+
+    init(maxLookBehind: Int = StreamingParser.defaultMaxLookBehind) {
+        let capped = max(0, maxLookBehind)
+        self.maxLineLookBehind = capped
+        if capped == 0 {
+            self.lookBehindSlack = 0
+        } else {
+            self.lookBehindSlack = max(32, capped / 2)
+        }
+    }
+
     private struct BlockContext {
         var id: BlockID
         var kind: BlockKind
@@ -277,6 +292,7 @@ struct StreamingParser {
         append(delta, context: &context)
         currentBlock = context
         emittedCount = lineBuffer.count
+        enforceLineBufferBudget()
     }
 
     private mutating func finalizeLine(terminated: Bool, force: Bool) {
@@ -427,6 +443,20 @@ struct StreamingParser {
         guard !text.isEmpty, var ctx = currentBlock, ctx.kind == .unknown else { return }
         ctx.literal.append(text)
         currentBlock = ctx
+    }
+
+    private mutating func enforceLineBufferBudget() {
+        guard lineAnalyzed else { return }
+        guard maxLineLookBehind > 0 else { return }
+        guard lineBuffer.count > maxLineLookBehind + lookBehindSlack else { return }
+        guard let ctx = currentBlock, ctx.kind != .table else { return }
+
+        let overflow = lineBuffer.count - maxLineLookBehind
+        let trimCount = min(overflow, emittedCount)
+        guard trimCount > 0 else { return }
+
+        lineBuffer.removeFirst(trimCount)
+        emittedCount = max(0, emittedCount - trimCount)
     }
 
     private mutating func trimTrailingSpace(for context: inout BlockContext) {

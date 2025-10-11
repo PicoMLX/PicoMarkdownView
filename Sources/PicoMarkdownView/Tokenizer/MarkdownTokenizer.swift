@@ -79,9 +79,11 @@ public protocol StreamingMarkdownTokenizer: Actor {
 }
 
 public actor MarkdownTokenizer: StreamingMarkdownTokenizer {
-    private var parser = StreamingParser()
+    private var parser: StreamingParser
 
-    public init() {}
+    public init(maxLookBehind: Int? = nil) {
+        parser = StreamingParser(maxLookBehind: maxLookBehind ?? StreamingParser.defaultMaxLookBehind)
+    }
 
     public func feed(_ chunk: String) -> ChunkResult {
         parser.feed(chunk)

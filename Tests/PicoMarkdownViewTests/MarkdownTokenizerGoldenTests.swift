@@ -531,6 +531,30 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Long line respects look-behind cap")
+    func longLineRespectsLookBehindCap() async {
+        let tokenizer = MarkdownTokenizer(maxLookBehind: 16)
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed(String(repeating: "a", count: 200))
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain(String(repeating: "a", count: 200))])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed(String(repeating: "b", count: 60) + "\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain(String(repeating: "b", count: 60))]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Stress long paragraph incremental appends")
     func stressLongParagraph() async {
         let tokenizer = MarkdownTokenizer()
