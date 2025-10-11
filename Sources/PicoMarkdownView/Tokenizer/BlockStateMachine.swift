@@ -10,6 +10,7 @@ struct StreamingParser {
         var literal: String
         var fenceJustOpened: Bool
         var linePrefixToStrip: Int
+        var headingPendingSuffix: String
     }
 
     private struct TableState {
@@ -287,6 +288,10 @@ struct StreamingParser {
         if var ctx = currentBlock {
             switch ctx.kind {
             case .paragraph:
+                if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
+                    trimTrailingSpace(for: &ctx)
+                    currentBlock = ctx
+                }
                 if isBlank {
                     closeCurrentBlock()
                 } else if force {
@@ -295,12 +300,20 @@ struct StreamingParser {
             case .heading:
                 closeCurrentBlock()
             case .listItem:
+                if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
+                    trimTrailingSpace(for: &ctx)
+                    currentBlock = ctx
+                }
                 if isBlank || force {
                     closeCurrentBlock()
                 } else {
                     appendToCurrent("\n")
                 }
             case .blockquote:
+                if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
+                    trimTrailingSpace(for: &ctx)
+                    currentBlock = ctx
+                }
                 if isBlank || force {
                     closeCurrentBlock()
                 } else {
@@ -344,7 +357,7 @@ struct StreamingParser {
     private mutating func append(_ text: String, context ctx: inout BlockContext) {
         guard !text.isEmpty else { return }
         switch ctx.kind {
-        case .paragraph, .heading, .listItem, .blockquote:
+        case .paragraph, .listItem, .blockquote:
             if var parser = ctx.inlineParser {
                 let runs = parser.append(text)
                 if !runs.isEmpty {
@@ -355,6 +368,37 @@ struct StreamingParser {
                         events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
                     } else {
                         events.append(.blockAppendInline(id: ctx.id, runs: runs))
+                    }
+                }
+                ctx.inlineParser = parser
+            }
+        case .heading:
+            if var parser = ctx.inlineParser {
+                var emitted = ""
+                var pending = ctx.headingPendingSuffix
+                for character in text {
+                    if character == " " || character == "#" {
+                        pending.append(character)
+                    } else {
+                        if !pending.isEmpty {
+                            emitted.append(contentsOf: pending)
+                            pending.removeAll(keepingCapacity: true)
+                        }
+                        emitted.append(character)
+                    }
+                }
+                ctx.headingPendingSuffix = pending
+                if !emitted.isEmpty {
+                    let runs = parser.append(emitted)
+                    if !runs.isEmpty {
+                        if let lastIndex = events.indices.last,
+                           case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
+                           existingID == ctx.id {
+                            existingRuns.append(contentsOf: runs)
+                            events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
+                        } else {
+                            events.append(.blockAppendInline(id: ctx.id, runs: runs))
+                        }
                     }
                 }
                 ctx.inlineParser = parser
@@ -383,6 +427,46 @@ struct StreamingParser {
         guard !text.isEmpty, var ctx = currentBlock, ctx.kind == .unknown else { return }
         ctx.literal.append(text)
         currentBlock = ctx
+    }
+
+    private mutating func trimTrailingSpace(for context: inout BlockContext) {
+        var eventIndex = events.count
+        while eventIndex > 0 {
+            eventIndex -= 1
+            switch events[eventIndex] {
+            case .blockAppendInline(let eventID, var runs) where eventID == context.id:
+                var modified = false
+                var runIndex = runs.count
+                while runIndex > 0 {
+                    runIndex -= 1
+                    var run = runs[runIndex]
+                    if run.text.isEmpty {
+                        runs.remove(at: runIndex)
+                        continue
+                    }
+                    if run.style.isEmpty && run.linkURL == nil && run.text.hasSuffix(" ") {
+                        run.text.removeLast()
+                        if run.text.isEmpty {
+                            runs.remove(at: runIndex)
+                        } else {
+                            runs[runIndex] = run
+                        }
+                        modified = true
+                    }
+                    break
+                }
+                if modified {
+                    if runs.isEmpty {
+                        events.remove(at: eventIndex)
+                    } else {
+                        events[eventIndex] = .blockAppendInline(id: eventID, runs: runs)
+                    }
+                }
+                return
+            default:
+                continue
+            }
+        }
     }
 
     private mutating func handleTableLine(rawLine: String, trimmed: String, force: Bool) {
@@ -444,7 +528,8 @@ struct StreamingParser {
             fenceInfo: nil,
             literal: "",
             fenceJustOpened: false,
-            linePrefixToStrip: prefixToStrip
+            linePrefixToStrip: prefixToStrip,
+            headingPendingSuffix: ""
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: kind))
@@ -460,7 +545,8 @@ struct StreamingParser {
             fenceInfo: nil,
             literal: "",
             fenceJustOpened: false,
-            linePrefixToStrip: 0
+            linePrefixToStrip: 0,
+            headingPendingSuffix: ""
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .unknown))
@@ -476,7 +562,8 @@ struct StreamingParser {
             fenceInfo: fence,
             literal: "",
             fenceJustOpened: true,
-            linePrefixToStrip: 0
+            linePrefixToStrip: 0,
+            headingPendingSuffix: ""
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .fencedCode(language: fence.language)))
@@ -492,7 +579,8 @@ struct StreamingParser {
             fenceInfo: nil,
             literal: "",
             fenceJustOpened: false,
-            linePrefixToStrip: 0
+            linePrefixToStrip: 0,
+            headingPendingSuffix: ""
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .table))

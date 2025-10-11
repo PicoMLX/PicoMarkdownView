@@ -176,6 +176,22 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Heading trailing hashes are ignored")
+    func headingTrailingHashes() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("# Title ###\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.heading(level: 1)),
+                .blockAppendInline(.heading(level: 1), runs: [plain("Title")]),
+                .blockEnd(.heading(level: 1))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Unordered list across chunks")
     func unorderedListAcrossChunks() async {
         let tokenizer = MarkdownTokenizer()
@@ -330,6 +346,22 @@ struct MarkdownTokenizerGoldenTests {
                     plain("\n"),
                     plain("line 2")
                 ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Single trailing spaces before newline are dropped")
+    func singleTrailingSpaceDropped() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("Trailing space \n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Trailing space")]),
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
