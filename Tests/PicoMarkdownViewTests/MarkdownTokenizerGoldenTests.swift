@@ -252,6 +252,31 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Unconfirmed table header falls back to unknown block")
+    func unconfirmedTableHeaderFallback() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("| Col A | Col B |\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("Col A"), plain("Col B")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let second = await tokenizer.feed("Paragraph continuation\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| Col A | Col B |\nParagraph continuation\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Table cells treat escaped pipes as literal content")
     func tableEscapedPipes() async {
         let tokenizer = MarkdownTokenizer()
