@@ -8,6 +8,7 @@ struct StreamingParser {
         var tableState: TableState?
         var fenceInfo: FenceInfo?
         var literal: String
+        var fenceJustOpened: Bool
     }
 
     private struct TableState {
@@ -46,16 +47,19 @@ struct StreamingParser {
         for character in text {
             if character == "\n" {
                 analyzeLineIfNeeded()
+                appendDeltaIfNeeded()
                 finalizeLine(terminated: true, force: false)
             } else {
                 lineBuffer.append(character)
                 analyzeLineIfNeeded()
-                appendDeltaIfNeeded()
             }
         }
 
+        appendDeltaIfNeeded()
+
         if isFinal {
             analyzeLineIfNeeded()
+            appendDeltaIfNeeded()
             finalizeLine(terminated: true, force: true)
             closeCurrentBlock()
         }
@@ -66,7 +70,7 @@ struct StreamingParser {
 
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
-        if var ctx = currentBlock {
+        if let ctx = currentBlock {
             if ctx.kind == .paragraph {
                 if let fence = detectFenceOpening(lineBuffer) {
                     closeCurrentBlock()
@@ -78,7 +82,7 @@ struct StreamingParser {
                 if let (level, content) = detectHeading(lineBuffer) {
                     closeCurrentBlock()
                     openInlineBlock(kind: .heading(level: level))
-                    append(content)
+                    appendToCurrent(content)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -86,7 +90,7 @@ struct StreamingParser {
                 if let list = detectList(lineBuffer) {
                     closeCurrentBlock()
                     openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index))
-                    append(list.content)
+                    appendToCurrent(list.content)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -94,7 +98,7 @@ struct StreamingParser {
                 if let quote = detectBlockquote(lineBuffer) {
                     closeCurrentBlock()
                     openInlineBlock(kind: .blockquote)
-                    append(quote)
+                    appendToCurrent(quote)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -109,7 +113,7 @@ struct StreamingParser {
                 if lineBuffer.hasPrefix(":::") {
                     closeCurrentBlock()
                     openUnknown()
-                    append(lineBuffer)
+                    appendToCurrent(lineBuffer)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -133,7 +137,7 @@ struct StreamingParser {
 
         if let (level, content) = detectHeading(lineBuffer) {
             openInlineBlock(kind: .heading(level: level))
-            append(content)
+            appendToCurrent(content)
             emittedCount = lineBuffer.count
             lineAnalyzed = true
             return
@@ -141,7 +145,7 @@ struct StreamingParser {
 
         if let list = detectList(lineBuffer) {
             openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index))
-            append(list.content)
+            appendToCurrent(list.content)
             emittedCount = lineBuffer.count
             lineAnalyzed = true
             return
@@ -149,7 +153,7 @@ struct StreamingParser {
 
         if let quote = detectBlockquote(lineBuffer) {
             openInlineBlock(kind: .blockquote)
-            append(quote)
+            appendToCurrent(quote)
             emittedCount = lineBuffer.count
             lineAnalyzed = true
             return
@@ -164,7 +168,7 @@ struct StreamingParser {
 
         if lineBuffer.hasPrefix(":::") {
             openUnknown()
-            append(lineBuffer)
+            appendToCurrent(lineBuffer)
             emittedCount = lineBuffer.count
             lineAnalyzed = true
             return
@@ -175,16 +179,17 @@ struct StreamingParser {
     }
 
     private mutating func appendDeltaIfNeeded() {
-        guard var ctx = currentBlock else { return }
+        guard let ctx = currentBlock else { return }
         if ctx.kind == .table {
             emittedCount = lineBuffer.count
-            currentBlock = ctx
             return
         }
+        var context = ctx
         guard emittedCount < lineBuffer.count else { return }
         let start = lineBuffer.index(lineBuffer.startIndex, offsetBy: emittedCount)
         let delta = String(lineBuffer[start...])
-        append(delta)
+        append(delta, context: &context)
+        currentBlock = context
         emittedCount = lineBuffer.count
     }
 
@@ -208,11 +213,11 @@ struct StreamingParser {
                 if isBlank || force {
                     closeCurrentBlock()
                 } else {
-                    append("\n")
+                    appendToCurrent("\n")
                 }
             case .unknown:
                 if !isBlank {
-                    append("\n")
+                    append("\n", context: &ctx)
                 }
                 if isBlank || force {
                     closeCurrentBlock()
@@ -220,11 +225,15 @@ struct StreamingParser {
             case .fencedCode:
                 if isClosingFence(trimmed, fence: ctx.fenceInfo) || force {
                     closeCurrentBlock()
-                } else {
-                    append("\n")
+                } else if !ctx.fenceJustOpened {
+                    append("\n", context: &ctx)
                 }
             case .table:
                 handleTableLine(rawLine: rawLine, trimmed: trimmed, force: force)
+            }
+            if currentBlock != nil {
+                ctx.fenceJustOpened = false
+                currentBlock = ctx
             }
         }
 
@@ -237,8 +246,14 @@ struct StreamingParser {
         lineAnalyzed = false
     }
 
-    private mutating func append(_ text: String) {
-        guard !text.isEmpty, var ctx = currentBlock else { return }
+    private mutating func appendToCurrent(_ text: String) {
+        guard var ctx = currentBlock else { return }
+        append(text, context: &ctx)
+        currentBlock = ctx
+    }
+
+    private mutating func append(_ text: String, context ctx: inout BlockContext) {
+        guard !text.isEmpty else { return }
         switch ctx.kind {
         case .paragraph, .heading, .listItem, .blockquote:
             if var parser = ctx.inlineParser {
@@ -252,11 +267,11 @@ struct StreamingParser {
             ctx.literal.append(text)
         case .fencedCode:
             events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+            ctx.fenceJustOpened = false
         case .table:
             // table text handled at line boundaries
             break
         }
-        currentBlock = ctx
     }
 
     private mutating func handleTableLine(rawLine: String, trimmed: String, force: Bool) {
@@ -279,8 +294,6 @@ struct StreamingParser {
             }
         case .rows:
             if trimmed.isEmpty {
-                ctx.tableState = table
-                currentBlock = ctx
                 closeCurrentBlock()
                 return
             }
@@ -318,7 +331,8 @@ struct StreamingParser {
             inlineParser: InlineParser(),
             tableState: nil,
             fenceInfo: nil,
-            literal: ""
+            literal: "",
+            fenceJustOpened: false
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: kind))
@@ -332,7 +346,8 @@ struct StreamingParser {
             inlineParser: nil,
             tableState: nil,
             fenceInfo: nil,
-            literal: ""
+            literal: "",
+            fenceJustOpened: false
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .unknown))
@@ -346,7 +361,8 @@ struct StreamingParser {
             inlineParser: nil,
             tableState: nil,
             fenceInfo: fence,
-            literal: ""
+            literal: "",
+            fenceJustOpened: true
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .fencedCode(language: fence.language)))
@@ -360,7 +376,8 @@ struct StreamingParser {
             inlineParser: nil,
             tableState: TableState(),
             fenceInfo: nil,
-            literal: ""
+            literal: "",
+            fenceJustOpened: false
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .table))

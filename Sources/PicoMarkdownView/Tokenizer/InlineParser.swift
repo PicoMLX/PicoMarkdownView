@@ -19,10 +19,11 @@ struct InlineParser {
         guard !pending.isEmpty else { return [] }
 
         var runs: [InlineRun] = []
-        var text = pending
+        let text = pending
         var index = text.startIndex
         var plainStart = text.startIndex
         var consumedEnd = text.startIndex
+        var consumedAll = true
 
         func flushPlain(upTo end: String.Index) {
             guard plainStart < end else { return }
@@ -44,6 +45,7 @@ struct InlineParser {
                         index = text.index(after: index)
                         continue parsing
                     } else {
+                        consumedAll = false
                         break parsing
                     }
                 }
@@ -54,6 +56,7 @@ struct InlineParser {
                         index = text.index(after: index)
                         continue parsing
                     } else {
+                        consumedAll = false
                         break parsing
                     }
                 }
@@ -72,6 +75,7 @@ struct InlineParser {
                         index = text.index(after: index)
                         continue parsing
                     } else {
+                        consumedAll = false
                         break parsing
                     }
                 }
@@ -95,6 +99,7 @@ struct InlineParser {
                             index = nextIndex
                             continue parsing
                         } else {
+                            consumedAll = false
                             break parsing
                         }
                     }
@@ -112,6 +117,7 @@ struct InlineParser {
                             index = text.index(after: index)
                             continue parsing
                         } else {
+                            consumedAll = false
                             break parsing
                         }
                     }
@@ -130,6 +136,7 @@ struct InlineParser {
                         index = text.index(after: index)
                         continue parsing
                     } else {
+                        consumedAll = false
                         break parsing
                     }
                 }
@@ -145,7 +152,7 @@ struct InlineParser {
             }
         }
 
-        if includeUnterminated || consumedEnd == text.endIndex {
+        if includeUnterminated || consumedAll {
             flushPlain(upTo: text.endIndex)
             consumedEnd = text.endIndex
         }

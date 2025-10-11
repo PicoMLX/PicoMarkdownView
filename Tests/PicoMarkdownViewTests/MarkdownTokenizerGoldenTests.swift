@@ -7,6 +7,7 @@ struct MarkdownTokenizerGoldenTests {
     @Test("Simple paragraph across chunks")
     func simpleParagraph() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("Hello ")
         assertChunk(first, matches: .init(
@@ -15,7 +16,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(.paragraph, runs: [plain("Hello ")])
             ],
             openBlocks: [.paragraph]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("world")
         assertChunk(second, matches: .init(
@@ -23,7 +24,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(.paragraph, runs: [plain("world")])
             ],
             openBlocks: [.paragraph]
-        ))
+        ), state: &state)
 
         let third = await tokenizer.feed("\n\n")
         assertChunk(third, matches: .init(
@@ -31,12 +32,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Emphasis split across chunks")
     func emphasisSplitAcrossChunks() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("**bo")
         assertChunk(first, matches: .init(
@@ -44,7 +46,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockStart(.paragraph)
             ],
             openBlocks: [.paragraph]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("ld** and more\n\n")
         assertChunk(second, matches: .init(
@@ -56,12 +58,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Fenced code streaming")
     func fencedCodeStreaming() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("```swift\nlet x = 1")
         assertChunk(first, matches: .init(
@@ -70,7 +73,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendFencedCode(.fencedCode(language: "swift"), textChunk: "let x = 1")
             ],
             openBlocks: [.fencedCode(language: "swift")]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("\nprint(x)\n")
         assertChunk(second, matches: .init(
@@ -78,7 +81,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendFencedCode(.fencedCode(language: "swift"), textChunk: "\nprint(x)\n")
             ],
             openBlocks: [.fencedCode(language: "swift")]
-        ))
+        ), state: &state)
 
         let third = await tokenizer.feed("```\n\n")
         assertChunk(third, matches: .init(
@@ -86,12 +89,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.fencedCode(language: "swift"))
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Heading then paragraph")
     func headingThenParagraph() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("# Title\nNext line of para")
         assertChunk(first, matches: .init(
@@ -103,7 +107,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(.paragraph, runs: [plain("Next line of para")])
             ],
             openBlocks: [.paragraph]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("graph\n\n")
         assertChunk(second, matches: .init(
@@ -112,12 +116,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Unordered list across chunks")
     func unorderedListAcrossChunks() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("- First item\n- Sec")
         assertChunk(first, matches: .init(
@@ -129,7 +134,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("Sec")])
             ],
             openBlocks: [.listItem(ordered: false, index: nil)]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("ond item\n\n")
         assertChunk(second, matches: .init(
@@ -138,12 +143,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.listItem(ordered: false, index: nil))
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Table with delayed separator")
     func tableWithDelayedSeparator() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("| Col A | Col B |\n")
         assertChunk(first, matches: .init(
@@ -152,7 +158,7 @@ struct MarkdownTokenizerGoldenTests {
                 .tableHeaderCandidate(.table, cells: [plain("Col A"), plain("Col B")])
             ],
             openBlocks: [.table]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("| --- | :---: |\n")
         assertChunk(second, matches: .init(
@@ -160,7 +166,7 @@ struct MarkdownTokenizerGoldenTests {
                 .tableHeaderConfirmed(.table, alignments: [.left, .center])
             ],
             openBlocks: [.table]
-        ))
+        ), state: &state)
 
         let third = await tokenizer.feed("| a1 | b1 |\n| a2 | b2 |\n\n")
         assertChunk(third, matches: .init(
@@ -170,12 +176,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.table)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Unknown block fallback")
     func unknownBlockFallback() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let result = await tokenizer.feed(":::note\nCustom ext\n:::\n\n")
         assertChunk(result, matches: .init(
@@ -185,12 +192,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.unknown)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Hard line break handling")
     func hardLineBreakHandling() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let result = await tokenizer.feed("line 1  \nline 2\n\n")
         assertChunk(result, matches: .init(
@@ -204,12 +212,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Paragraph, fence, paragraph mixed")
     func paragraphFenceParagraphMixed() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("Intro\n```js\nconst a=1")
         assertChunk(first, matches: .init(
@@ -221,7 +230,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendFencedCode(.fencedCode(language: "js"), textChunk: "const a=1")
             ],
             openBlocks: [.fencedCode(language: "js")]
-        ))
+        ), state: &state)
 
         let second = await tokenizer.feed("\n```\nOutro\n\n")
         assertChunk(second, matches: .init(
@@ -233,12 +242,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Finish closes open fence")
     func finishClosesOpenFence() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let first = await tokenizer.feed("```python\nprint(1)")
         assertChunk(first, matches: .init(
@@ -247,7 +257,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendFencedCode(.fencedCode(language: "python"), textChunk: "print(1)")
             ],
             openBlocks: [.fencedCode(language: "python")]
-        ))
+        ), state: &state)
 
         let final = await tokenizer.finish()
         assertChunk(final, matches: .init(
@@ -255,12 +265,13 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.fencedCode(language: "python"))
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Link inline run")
     func linkInlineRun() async {
         let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
 
         let result = await tokenizer.feed("See [site](https://ex.am) please\n\n")
         assertChunk(result, matches: .init(
@@ -274,13 +285,14 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 
     @Test("Stress long paragraph incremental appends")
     func stressLongParagraph() async {
         let tokenizer = MarkdownTokenizer()
         var expectations: [ChunkExpectation] = []
+        var state = EventNormalizationState()
 
         for index in 0..<100 {
             let chunk = String(repeating: "a", count: 1000)
@@ -301,7 +313,7 @@ struct MarkdownTokenizerGoldenTests {
                     openBlocks: [.paragraph]
                 ))
             }
-            assertChunk(result, matches: expectations[index])
+            assertChunk(result, matches: expectations[index], state: &state)
         }
 
         let terminator = await tokenizer.feed("\n\n")
@@ -310,7 +322,7 @@ struct MarkdownTokenizerGoldenTests {
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
-        ))
+        ), state: &state)
     }
 }
 
@@ -353,33 +365,36 @@ private func plain(_ text: String) -> InlineRunShape {
     InlineRunShape(text: text)
 }
 
-private func normalizeEvents(_ events: [BlockEvent]) -> [EventShape] {
+private struct EventNormalizationState {
     var map: [BlockID: BlockKind] = [:]
+}
+
+private func normalizeEvents(_ events: [BlockEvent], state: inout EventNormalizationState) -> [EventShape] {
     var shapes: [EventShape] = []
     for event in events {
         switch event {
         case .blockStart(let id, let kind):
-            map[id] = kind
+            state.map[id] = kind
             shapes.append(.blockStart(kind))
         case .blockAppendInline(let id, let runs):
-            let kind = map[id] ?? .unknown
+            let kind = state.map[id] ?? .unknown
             shapes.append(.blockAppendInline(kind, runs: runs.map(InlineRunShape.init)))
         case .blockAppendFencedCode(let id, let text):
-            let kind = map[id] ?? .unknown
+            let kind = state.map[id] ?? .unknown
             shapes.append(.blockAppendFencedCode(kind, textChunk: text))
         case .tableHeaderCandidate(let id, let cells):
-            let kind = map[id] ?? .table
+            let kind = state.map[id] ?? .table
             shapes.append(.tableHeaderCandidate(kind, cells: cells.map(InlineRunShape.init)))
         case .tableHeaderConfirmed(let id, let alignments):
-            let kind = map[id] ?? .table
+            let kind = state.map[id] ?? .table
             shapes.append(.tableHeaderConfirmed(kind, alignments: alignments))
         case .tableAppendRow(let id, let cells):
-            let kind = map[id] ?? .table
+            let kind = state.map[id] ?? .table
             let shapedCells = cells.map { $0.map(InlineRunShape.init) }
             shapes.append(.tableAppendRow(kind, cells: shapedCells))
         case .blockEnd(let id):
-            let kind = map[id] ?? .unknown
-            map[id] = nil
+            let kind = state.map[id] ?? .unknown
+            state.map[id] = nil
             shapes.append(.blockEnd(kind))
         }
     }
@@ -392,8 +407,10 @@ private func normalizeOpenBlocks(_ openBlocks: [OpenBlockState]) -> [BlockKind] 
 
 private func assertChunk(
     _ chunk: ChunkResult,
-    matches expectation: ChunkExpectation
+    matches expectation: ChunkExpectation,
+    state: inout EventNormalizationState
 ) {
-    #expect(normalizeEvents(chunk.events) == expectation.events)
+    #expect(normalizeEvents(chunk.events, state: &state) == expectation.events)
     // Temporarily skip strict openBlocks assertion until parser implementation is complete.
+    state.map = Dictionary(uniqueKeysWithValues: chunk.openBlocks.map { ($0.id, $0.kind) })
 }
