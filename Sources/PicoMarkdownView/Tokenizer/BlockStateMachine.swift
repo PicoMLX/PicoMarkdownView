@@ -388,7 +388,7 @@ struct StreamingParser {
     }
 
     private mutating func closeCurrentBlock() {
-        guard var ctx = currentBlock else { return }
+        guard let ctx = currentBlock else { return }
         if var parser = ctx.inlineParser {
             let runs = parser.finish()
             if !runs.isEmpty {

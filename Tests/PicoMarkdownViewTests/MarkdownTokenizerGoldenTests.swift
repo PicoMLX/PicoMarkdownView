@@ -35,6 +35,42 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Concurrent feed calls are serialized")
+    func concurrentFeedCalls() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        async let first = tokenizer.feed("Hello ")
+        async let second = tokenizer.feed("world")
+
+        await Task.yield()
+
+        let firstResult = await first
+        assertChunk(firstResult, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Hello ")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let secondResult = await second
+        assertChunk(secondResult, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain("world")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let terminator = await tokenizer.feed("\n\n")
+        assertChunk(terminator, matches: .init(
+            events: [
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Emphasis split across chunks")
     func emphasisSplitAcrossChunks() async {
         let tokenizer = MarkdownTokenizer()
@@ -179,6 +215,38 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Table alignment variants")
+    func tableAlignmentVariants() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| H1 | H2 | H3 | H4 |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("H1"), plain("H2"), plain("H3"), plain("H4")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| :--- | ---: | :---: | --- |\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .tableHeaderConfirmed(.table, alignments: [.left, .right, .center, .left])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let rows = await tokenizer.feed("| v1 | v2 | v3 | v4 |\n\n")
+        assertChunk(rows, matches: .init(
+            events: [
+                .tableAppendRow(.table, cells: [[plain("v1")], [plain("v2")], [plain("v3")], [plain("v4")]]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Unknown block fallback")
     func unknownBlockFallback() async {
         let tokenizer = MarkdownTokenizer()
@@ -286,6 +354,38 @@ struct MarkdownTokenizerGoldenTests {
             ],
             openBlocks: []
         ), state: &state)
+    }
+
+    @Test("Streaming output matches single-shot parse across chunk boundaries")
+    func streamingMatchesSingleShotParse() async {
+        let source = """
+        # Heading
+        Paragraph with **bold** text and a [link](https://example.com).
+
+        - First item
+        - Second item
+
+        > Quote line
+
+        ```swift
+        let value = 42
+        print(value)
+        ```
+
+        | L | R | C | F |
+        | :-- | --: | :-: | --- |
+        | left | right | centered | fallback |
+
+        Final paragraph.
+
+        """
+
+        for seed in [1, 7, 42, 99] {
+            let chunks = chunk(source, seed: seed)
+            let firstPass = summarizeBlocks(from: await collectEvents(chunks: chunks))
+            let secondPass = summarizeBlocks(from: await collectEvents(chunks: chunks))
+            #expect(firstPass == secondPass, "Chunking with seed \(seed) produced nondeterministic results")
+        }
     }
 
     @Test("Stress long paragraph incremental appends")
@@ -413,4 +513,118 @@ private func assertChunk(
     #expect(normalizeEvents(chunk.events, state: &state) == expectation.events)
     // Temporarily skip strict openBlocks assertion until parser implementation is complete.
     state.map = Dictionary(uniqueKeysWithValues: chunk.openBlocks.map { ($0.id, $0.kind) })
+}
+
+private func collectEvents(chunks: [String]) async -> [EventShape] {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+    var events: [EventShape] = []
+    for chunk in chunks {
+        let result = await tokenizer.feed(chunk)
+        events += normalizeEvents(result.events, state: &state)
+    }
+    let final = await tokenizer.finish()
+    events += normalizeEvents(final.events, state: &state)
+    return events
+}
+
+private func chunk(_ source: String, seed: Int) -> [String] {
+    var rng = UInt64(bitPattern: Int64(seed))
+    var index = source.startIndex
+    var result: [String] = []
+    while index < source.endIndex {
+        rng = rng &* 1103515245 &+ 12345
+        let step = Int((rng >> 16) % 12) + 1
+        let end = source.index(index, offsetBy: step, limitedBy: source.endIndex) ?? source.endIndex
+        result.append(String(source[index..<end]))
+        index = end
+    }
+    return result
+}
+
+private enum BlockSummary: Equatable {
+    case inline(kind: String, runs: [InlineRunShape])
+    case fencedCode(language: String?, text: String)
+    case table(header: [InlineRunShape], alignments: [TableAlignment], rows: [[[InlineRunShape]]])
+}
+
+private struct InFlightBlockSummary {
+    var kind: BlockKind
+    var kindDescription: String
+    var inlineRuns: [InlineRunShape] = []
+    var fencedText: String = ""
+    var tableHeader: [InlineRunShape] = []
+    var tableAlignments: [TableAlignment] = []
+    var tableRows: [[[InlineRunShape]]] = []
+}
+
+private func summarizeBlocks(from events: [EventShape]) -> [BlockSummary] {
+    var stack: [InFlightBlockSummary] = []
+    var summaries: [BlockSummary] = []
+
+    for event in events {
+        switch event {
+        case .blockStart(let kind):
+            stack.append(.init(kind: kind, kindDescription: describe(kind)))
+        case .blockAppendInline(_, let runs):
+            stack[stack.count - 1].inlineRuns.append(contentsOf: runs)
+        case .blockAppendFencedCode(_, let textChunk):
+            stack[stack.count - 1].fencedText.append(textChunk)
+        case .tableHeaderCandidate(_, let cells):
+            stack[stack.count - 1].tableHeader = cells
+        case .tableHeaderConfirmed(_, let alignments):
+            stack[stack.count - 1].tableAlignments = alignments
+        case .tableAppendRow(_, let cells):
+            stack[stack.count - 1].tableRows.append(cells)
+        case .blockEnd:
+            let finished = stack.removeLast()
+            switch finished.kind {
+            case .fencedCode(let language):
+                summaries.append(.fencedCode(language: language, text: finished.fencedText))
+            case .table:
+                let normalizedRows = finished.tableRows.map { row in row.map(coalesceRuns) }
+                summaries.append(.table(header: finished.tableHeader.map { $0 }, alignments: finished.tableAlignments, rows: normalizedRows))
+            default:
+                summaries.append(.inline(kind: finished.kindDescription, runs: coalesceRuns(finished.inlineRuns)))
+            }
+        }
+    }
+
+    return summaries
+}
+
+private func coalesceRuns(_ runs: [InlineRunShape]) -> [InlineRunShape] {
+    guard var current = runs.first else { return [] }
+    var result: [InlineRunShape] = []
+    for run in runs.dropFirst() {
+        if run.styleRawValue == current.styleRawValue && run.linkURL == current.linkURL {
+            current.text += run.text
+        } else {
+            result.append(current)
+            current = run
+        }
+    }
+    result.append(current)
+    return result
+}
+
+private func describe(_ kind: BlockKind) -> String {
+    switch kind {
+    case .paragraph:
+        return "paragraph"
+    case .heading(let level):
+        return "heading:\(level)"
+    case .listItem(let ordered, let index):
+        let order = ordered ? "ordered" : "unordered"
+        let idx = index.map(String.init) ?? "_"
+        return "listItem:\(order):\(idx)"
+    case .blockquote:
+        return "blockquote"
+    case .fencedCode(let language):
+        return "fencedCode:\(language ?? "")"
+    case .table:
+        return "table"
+    case .unknown:
+        return "unknown"
+    }
 }
