@@ -25,10 +25,23 @@ struct InlineParser {
         var consumedEnd = text.startIndex
         var consumedAll = true
 
+        func appendPlain(_ substring: String) {
+            guard !substring.isEmpty else { return }
+            let newRuns = makePlainRuns(from: substring)
+            guard !newRuns.isEmpty else { return }
+            if let last = runs.last, last.style.isEmpty, last.linkURL == nil,
+               let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil {
+                runs[runs.count - 1].text += lastPlain.text
+                runs.append(contentsOf: newRuns.dropFirst())
+            } else {
+                runs.append(contentsOf: newRuns)
+            }
+        }
+
         func flushPlain(upTo end: String.Index) {
             guard plainStart < end else { return }
             let substring = String(text[plainStart..<end])
-            runs.append(contentsOf: makePlainRuns(from: substring))
+            appendPlain(substring)
             consumedEnd = end
             plainStart = end
         }
@@ -36,6 +49,24 @@ struct InlineParser {
         parsing: while index < text.endIndex {
             let ch = text[index]
             switch ch {
+            case "\\":
+                let nextIndex = text.index(after: index)
+                if nextIndex >= text.endIndex {
+                    if includeUnterminated {
+                        plainStart = index
+                        index = nextIndex
+                        continue parsing
+                    } else {
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                flushPlain(upTo: index)
+                appendPlain(String(text[nextIndex]))
+                let after = text.index(after: nextIndex)
+                consumedEnd = after
+                index = after
+                plainStart = after
             case "[":
                 flushPlain(upTo: index)
                 guard let closingBracket = text[text.index(after: index)..<text.endIndex].firstIndex(of: "]") else {
@@ -62,10 +93,18 @@ struct InlineParser {
                 }
                 var closingParen: String.Index?
                 var cursor = text.index(after: afterBracket)
+                var depth = 0
                 while cursor < text.endIndex {
-                    if text[cursor] == ")" {
-                        closingParen = cursor
-                        break
+                    let currentChar = text[cursor]
+                    if currentChar == "(" {
+                        depth += 1
+                    } else if currentChar == ")" {
+                        if depth == 0 {
+                            closingParen = cursor
+                            break
+                        } else {
+                            depth -= 1
+                        }
                     }
                     cursor = text.index(after: cursor)
                 }

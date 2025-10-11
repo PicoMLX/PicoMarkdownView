@@ -164,7 +164,7 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.listItem(ordered: false, index: nil)),
-                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("First item")]),
+                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("First item"), plain("\n")]),
                 .blockEnd(.listItem(ordered: false, index: nil)),
                 .blockStart(.listItem(ordered: false, index: nil)),
                 .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("Sec")])
@@ -175,7 +175,7 @@ struct MarkdownTokenizerGoldenTests {
         let second = await tokenizer.feed("ond item\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("ond item")]),
+                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("ond item"), plain("\n")]),
                 .blockEnd(.listItem(ordered: false, index: nil))
             ],
             openBlocks: []
@@ -460,8 +460,6 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
-/*
- // TODO: Do not remove. Requires tokenizer to support look-behind state
     @Test("Backslash escapes prevent formatting (single chunk)")
     func backslashEscapesSingleChunk() async {
         let tokenizer = MarkdownTokenizer()
@@ -478,7 +476,6 @@ struct MarkdownTokenizerGoldenTests {
             openBlocks: []
         ), state: &state)
     }
-*/
 
     @Test("Backslash escape split across chunks")
     func backslashEscapeSplitAcrossChunks() async {
@@ -508,7 +505,10 @@ struct MarkdownTokenizerGoldenTests {
 
         let first = await tokenizer.feed("See [si")
         assertChunk(first, matches: .init(
-            events: [ .blockStart(.paragraph) ],
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [ plain("See ") ])
+            ],
             openBlocks: [.paragraph]
         ), state: &state)
 
@@ -516,7 +516,6 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(second, matches: .init(
             events: [
                 .blockAppendInline(.paragraph, runs: [
-                    plain("See "),
                     InlineRunShape(text: "site", style: InlineStyle.link, linkURL: "https://ex.am/path_(1)"),
                     plain(" please")
                 ]),
@@ -532,17 +531,18 @@ struct MarkdownTokenizerGoldenTests {
         var state = EventNormalizationState()
 
         let first = await tokenizer.feed("> first\n> sec")
-        // Depending on implementation, you may emit the first quoted line immediately.
-        // For now, we only assert the block start to keep the test additive-friendly.
         assertChunk(first, matches: .init(
-            events: [ .blockStart(.blockquote) ],
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [ plain("first"), plain("\n"), plain("sec") ])
+            ],
             openBlocks: [.blockquote]
         ), state: &state)
 
         let second = await tokenizer.feed("ond line\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.blockquote, runs: [ plain("first\nsecond line") ]),
+                .blockAppendInline(.blockquote, runs: [ plain("ond line"), plain("\n") ]),
                 .blockEnd(.blockquote)
             ],
             openBlocks: []
@@ -557,7 +557,8 @@ struct MarkdownTokenizerGoldenTests {
         let first = await tokenizer.feed("- First item\n  cont")
         assertChunk(first, matches: .init(
             events: [
-                .blockStart(.listItem(ordered: false, index: nil))
+                .blockStart(.listItem(ordered: false, index: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [ plain("First item"), plain("\n"), plain("cont") ])
             ],
             openBlocks: [.listItem(ordered: false, index: nil)]
         ), state: &state)
@@ -566,7 +567,7 @@ struct MarkdownTokenizerGoldenTests {
         // Expect the wrapped line to remain in the same list item
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [ plain("First item\ncontinuation line") ]),
+                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [ plain("inuation line"), plain("\n") ]),
                 .blockEnd(.listItem(ordered: false, index: nil))
             ],
             openBlocks: []
@@ -582,9 +583,10 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.listItem(ordered: true, index: 1)),
-                .blockAppendInline(.listItem(ordered: true, index: 1), runs: [ plain("First") ]),
+                .blockAppendInline(.listItem(ordered: true, index: 1), runs: [ plain("First"), plain("\n") ]),
                 .blockEnd(.listItem(ordered: true, index: 1)),
-                .blockStart(.listItem(ordered: true, index: 2))
+                .blockStart(.listItem(ordered: true, index: 2)),
+                .blockAppendInline(.listItem(ordered: true, index: 2), runs: [ plain("Sec") ])
             ],
             openBlocks: [.listItem(ordered: true, index: 2)]
         ), state: &state)
@@ -592,7 +594,7 @@ struct MarkdownTokenizerGoldenTests {
         let second = await tokenizer.feed("ond\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: true, index: 2), runs: [ plain("ond") ]),
+                .blockAppendInline(.listItem(ordered: true, index: 2), runs: [ plain("ond"), plain("\n") ]),
                 .blockEnd(.listItem(ordered: true, index: 2))
             ],
             openBlocks: []
@@ -610,7 +612,7 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(result, matches: .init(
             events: [
                 .blockStart(.fencedCode(language: nil)),
-                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "code"),
+                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "code\n"),
                 .blockEnd(.fencedCode(language: nil))
             ],
             openBlocks: []

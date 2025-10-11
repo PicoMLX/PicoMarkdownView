@@ -207,12 +207,38 @@ struct StreamingParser {
                 // heading handled on first line only
                 break
             case .listItem:
-                break
+                if let list = detectList(lineBuffer) {
+                    if shouldStartNewListItem(currentKind: ctx.kind, list: list, emittedCount: emittedCount) {
+                        closeCurrentBlock()
+                        openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index), prefixToStrip: list.prefixLength)
+                        emittedCount = min(lineBuffer.count, list.prefixLength)
+                    } else {
+                        ctx.linePrefixToStrip = list.prefixLength
+                        currentBlock = ctx
+                        if emittedCount < list.prefixLength {
+                            emittedCount = min(lineBuffer.count, list.prefixLength)
+                        }
+                    }
+                    lineAnalyzed = true
+                    return
+                }
+                let continuation = listContinuationPrefixLength(lineBuffer)
+                if continuation > 0 {
+                    ctx.linePrefixToStrip = continuation
+                    currentBlock = ctx
+                    if emittedCount < continuation {
+                        emittedCount = min(lineBuffer.count, continuation)
+                    }
+                    lineAnalyzed = true
+                    return
+                }
             case .blockquote:
                 if let quote = detectBlockquote(lineBuffer) {
                     ctx.linePrefixToStrip = quote.prefixLength
                     currentBlock = ctx
-                    emittedCount = min(lineBuffer.count, quote.prefixLength)
+                    if emittedCount < quote.prefixLength {
+                        emittedCount = min(lineBuffer.count, quote.prefixLength)
+                    }
                 } else {
                     ctx.linePrefixToStrip = 0
                     currentBlock = ctx
@@ -241,6 +267,7 @@ struct StreamingParser {
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         if case .fencedCode = context.kind,
+           !context.fenceJustOpened,
            isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
             emittedCount = lineBuffer.count
             currentBlock = context
@@ -265,8 +292,14 @@ struct StreamingParser {
                 } else if force {
                     closeCurrentBlock()
                 }
-            case .heading, .listItem:
+            case .heading:
                 closeCurrentBlock()
+            case .listItem:
+                if isBlank || force {
+                    closeCurrentBlock()
+                } else {
+                    appendToCurrent("\n")
+                }
             case .blockquote:
                 if isBlank || force {
                     closeCurrentBlock()
@@ -281,7 +314,7 @@ struct StreamingParser {
                     closeCurrentBlock()
                 }
             case .fencedCode:
-                if isClosingFence(trimmed, fence: ctx.fenceInfo) || force {
+                if (!ctx.fenceJustOpened && isClosingFence(trimmed, fence: ctx.fenceInfo)) || force {
                     closeCurrentBlock()
                 }
             case .table:
@@ -532,6 +565,36 @@ struct StreamingParser {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("> ") else { return nil }
         return BlockquoteInfo(prefixLength: 2)
+    }
+
+    private func listContinuationPrefixLength(_ line: String) -> Int {
+        var count = 0
+        for character in line {
+            if character == " " || character == "\t" {
+                count += 1
+            } else {
+                break
+            }
+        }
+        return count >= 2 ? count : 0
+    }
+
+    private func shouldStartNewListItem(currentKind: BlockKind, list: ListInfo, emittedCount: Int) -> Bool {
+        guard case .listItem(let currentOrdered, let currentIndex) = currentKind else { return true }
+        if emittedCount > list.prefixLength {
+            if list.ordered == currentOrdered,
+               list.index == currentIndex {
+                return false
+            }
+        }
+        if list.ordered != currentOrdered {
+            return true
+        }
+        if list.ordered {
+            return list.index != currentIndex
+        }
+        // Unordered list items reuse the same marker; treat as new item when we hit the marker again.
+        return emittedCount <= list.prefixLength
     }
 
     private func detectTableCandidate(_ line: String) -> Bool {
