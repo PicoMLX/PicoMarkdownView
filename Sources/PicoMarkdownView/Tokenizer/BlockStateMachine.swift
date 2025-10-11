@@ -9,6 +9,7 @@ struct StreamingParser {
         var fenceInfo: FenceInfo?
         var literal: String
         var fenceJustOpened: Bool
+        var linePrefixToStrip: Int
     }
 
     private struct TableState {
@@ -20,6 +21,21 @@ struct StreamingParser {
     private struct FenceInfo {
         var marker: String
         var language: String?
+    }
+
+    private struct HeadingInfo {
+        var level: Int
+        var prefixLength: Int
+    }
+
+    private struct ListInfo {
+        var ordered: Bool
+        var index: Int?
+        var prefixLength: Int
+    }
+
+    private struct BlockquoteInfo {
+        var prefixLength: Int
     }
 
     private var nextID: BlockID = 1
@@ -46,32 +62,104 @@ struct StreamingParser {
     private mutating func process(_ text: String, isFinal: Bool) {
         for character in text {
             if character == "\n" {
-                analyzeLineIfNeeded()
-                appendDeltaIfNeeded()
+                analyzeLineIfNeeded(isLineComplete: true)
+                let includeNewline = shouldIncludeTerminatingNewline()
+                appendDeltaIfNeeded(includeTerminatingNewline: includeNewline)
                 finalizeLine(terminated: true, force: false)
             } else {
                 lineBuffer.append(character)
-                analyzeLineIfNeeded()
+                lineAnalyzed = false
             }
         }
 
+        analyzeLineIfNeeded(isLineComplete: false)
         appendDeltaIfNeeded()
 
         if isFinal {
-            analyzeLineIfNeeded()
+            analyzeLineIfNeeded(isLineComplete: true)
             appendDeltaIfNeeded()
             finalizeLine(terminated: true, force: true)
             closeCurrentBlock()
         }
     }
 
-    private mutating func analyzeLineIfNeeded() {
+    private func shouldIncludeTerminatingNewline() -> Bool {
+        guard let ctx = currentBlock else { return false }
+        switch ctx.kind {
+        case .paragraph, .heading, .listItem, .blockquote:
+            return lineBuffer.hasSuffix("  ")
+        case .fencedCode:
+            return !ctx.fenceJustOpened
+        case .unknown:
+            return !lineBuffer.isEmpty
+        case .table:
+            return false
+        }
+    }
+
+    private mutating func analyzeLineIfNeeded(isLineComplete: Bool) {
         if lineAnalyzed { return }
 
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
-        if let ctx = currentBlock {
-            if ctx.kind == .paragraph {
+        if trimmed.isEmpty {
+            lineAnalyzed = true
+            return
+        }
+
+        if currentBlock == nil {
+            if let fence = detectFenceOpening(lineBuffer) {
+                openFencedCode(fence)
+                emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return
+            }
+
+            if let heading = detectHeading(lineBuffer) {
+                openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
+                emittedCount = min(lineBuffer.count, heading.prefixLength)
+                lineAnalyzed = true
+                return
+            }
+
+            if let list = detectList(lineBuffer) {
+                openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index), prefixToStrip: list.prefixLength)
+                emittedCount = min(lineBuffer.count, list.prefixLength)
+                lineAnalyzed = true
+                return
+            }
+
+            if let quote = detectBlockquote(lineBuffer) {
+                openInlineBlock(kind: .blockquote, prefixToStrip: quote.prefixLength)
+                emittedCount = min(lineBuffer.count, quote.prefixLength)
+                lineAnalyzed = true
+                return
+            }
+
+            if isLineComplete, detectTableCandidate(lineBuffer) {
+                openTable(lineBuffer)
+                emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return
+            }
+
+            if isLineComplete, lineBuffer.hasPrefix(":::") {
+                openUnknown()
+                appendUnknownLiteral(lineBuffer)
+                emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return
+            }
+
+            openInlineBlock(kind: .paragraph)
+            emittedCount = 0
+            lineAnalyzed = true
+            return
+        }
+
+        if var ctx = currentBlock {
+            switch ctx.kind {
+            case .paragraph:
                 if let fence = detectFenceOpening(lineBuffer) {
                     closeCurrentBlock()
                     openFencedCode(fence)
@@ -79,115 +167,85 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let (level, content) = detectHeading(lineBuffer) {
+                if let heading = detectHeading(lineBuffer) {
                     closeCurrentBlock()
-                    openInlineBlock(kind: .heading(level: level))
-                    appendToCurrent(content)
-                    emittedCount = lineBuffer.count
+                    openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
+                    emittedCount = min(lineBuffer.count, heading.prefixLength)
                     lineAnalyzed = true
                     return
                 }
                 if let list = detectList(lineBuffer) {
                     closeCurrentBlock()
-                    openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index))
-                    appendToCurrent(list.content)
-                    emittedCount = lineBuffer.count
+                    openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index), prefixToStrip: list.prefixLength)
+                    emittedCount = min(lineBuffer.count, list.prefixLength)
                     lineAnalyzed = true
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
                     closeCurrentBlock()
-                    openInlineBlock(kind: .blockquote)
-                    appendToCurrent(quote)
-                    emittedCount = lineBuffer.count
+                    openInlineBlock(kind: .blockquote, prefixToStrip: quote.prefixLength)
+                    emittedCount = min(lineBuffer.count, quote.prefixLength)
                     lineAnalyzed = true
                     return
                 }
-                if detectTableCandidate(lineBuffer) {
+                if isLineComplete, detectTableCandidate(lineBuffer) {
                     closeCurrentBlock()
                     openTable(lineBuffer)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
                 }
-                if lineBuffer.hasPrefix(":::") {
+                if isLineComplete, lineBuffer.hasPrefix(":::") {
                     closeCurrentBlock()
                     openUnknown()
-                    appendToCurrent(lineBuffer)
+                    appendUnknownLiteral(lineBuffer)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
                 }
+            case .heading:
+                // heading handled on first line only
+                break
+            case .listItem:
+                break
+            case .blockquote:
+                if let quote = detectBlockquote(lineBuffer) {
+                    ctx.linePrefixToStrip = quote.prefixLength
+                    currentBlock = ctx
+                    emittedCount = min(lineBuffer.count, quote.prefixLength)
+                } else {
+                    ctx.linePrefixToStrip = 0
+                    currentBlock = ctx
+                }
+            case .fencedCode:
+                break
+            case .table:
+                break
+            case .unknown:
+                break
             }
-            lineAnalyzed = true
-            return
         }
 
-        if trimmed.isEmpty {
-            lineAnalyzed = true
-            return
-        }
-
-        if let fence = detectFenceOpening(lineBuffer) {
-            openFencedCode(fence)
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return
-        }
-
-        if let (level, content) = detectHeading(lineBuffer) {
-            openInlineBlock(kind: .heading(level: level))
-            appendToCurrent(content)
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return
-        }
-
-        if let list = detectList(lineBuffer) {
-            openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index))
-            appendToCurrent(list.content)
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return
-        }
-
-        if let quote = detectBlockquote(lineBuffer) {
-            openInlineBlock(kind: .blockquote)
-            appendToCurrent(quote)
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return
-        }
-
-        if detectTableCandidate(lineBuffer) {
-            openTable(lineBuffer)
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return
-        }
-
-        if lineBuffer.hasPrefix(":::") {
-            openUnknown()
-            appendToCurrent(lineBuffer)
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return
-        }
-
-        openInlineBlock(kind: .paragraph)
         lineAnalyzed = true
     }
 
-    private mutating func appendDeltaIfNeeded() {
+    private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false) {
         guard let ctx = currentBlock else { return }
         if ctx.kind == .table {
             emittedCount = lineBuffer.count
             return
         }
         var context = ctx
-        guard emittedCount < lineBuffer.count else { return }
-        let start = lineBuffer.index(lineBuffer.startIndex, offsetBy: emittedCount)
-        let delta = String(lineBuffer[start...])
+        let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
+        guard emittedCount < sourceLine.count else { return }
+        let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
+        let delta = String(sourceLine[start...])
+        if case .fencedCode = context.kind,
+           isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
+            emittedCount = lineBuffer.count
+            currentBlock = context
+            return
+        }
         append(delta, context: &context)
         currentBlock = context
         emittedCount = lineBuffer.count
@@ -225,15 +283,13 @@ struct StreamingParser {
             case .fencedCode:
                 if isClosingFence(trimmed, fence: ctx.fenceInfo) || force {
                     closeCurrentBlock()
-                } else if !ctx.fenceJustOpened {
-                    append("\n", context: &ctx)
                 }
             case .table:
                 handleTableLine(rawLine: rawLine, trimmed: trimmed, force: force)
             }
-            if currentBlock != nil {
-                ctx.fenceJustOpened = false
-                currentBlock = ctx
+            if var updated = currentBlock {
+                updated.fenceJustOpened = false
+                currentBlock = updated
             }
         }
 
@@ -259,19 +315,41 @@ struct StreamingParser {
             if var parser = ctx.inlineParser {
                 let runs = parser.append(text)
                 if !runs.isEmpty {
-                    events.append(.blockAppendInline(id: ctx.id, runs: runs))
+                    if let lastIndex = events.indices.last,
+                       case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
+                       existingID == ctx.id {
+                        existingRuns.append(contentsOf: runs)
+                        events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
+                    } else {
+                        events.append(.blockAppendInline(id: ctx.id, runs: runs))
+                    }
                 }
                 ctx.inlineParser = parser
             }
         case .unknown:
             ctx.literal.append(text)
         case .fencedCode:
-            events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+            if let lastIndex = events.indices.last {
+                if case .blockAppendFencedCode(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
+                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + text)
+                } else {
+                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+                }
+            } else {
+                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+            }
             ctx.fenceJustOpened = false
         case .table:
             // table text handled at line boundaries
             break
         }
+        ctx.linePrefixToStrip = 0
+    }
+
+    private mutating func appendUnknownLiteral(_ text: String) {
+        guard !text.isEmpty, var ctx = currentBlock, ctx.kind == .unknown else { return }
+        ctx.literal.append(text)
+        currentBlock = ctx
     }
 
     private mutating func handleTableLine(rawLine: String, trimmed: String, force: Bool) {
@@ -324,7 +402,7 @@ struct StreamingParser {
         currentBlock = nil
     }
 
-    private mutating func openInlineBlock(kind: BlockKind) {
+    private mutating func openInlineBlock(kind: BlockKind, prefixToStrip: Int = 0) {
         let context = BlockContext(
             id: nextID,
             kind: kind,
@@ -332,7 +410,8 @@ struct StreamingParser {
             tableState: nil,
             fenceInfo: nil,
             literal: "",
-            fenceJustOpened: false
+            fenceJustOpened: false,
+            linePrefixToStrip: prefixToStrip
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: kind))
@@ -347,7 +426,8 @@ struct StreamingParser {
             tableState: nil,
             fenceInfo: nil,
             literal: "",
-            fenceJustOpened: false
+            fenceJustOpened: false,
+            linePrefixToStrip: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .unknown))
@@ -362,7 +442,8 @@ struct StreamingParser {
             tableState: nil,
             fenceInfo: fence,
             literal: "",
-            fenceJustOpened: true
+            fenceJustOpened: true,
+            linePrefixToStrip: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .fencedCode(language: fence.language)))
@@ -377,7 +458,8 @@ struct StreamingParser {
             tableState: TableState(),
             fenceInfo: nil,
             literal: "",
-            fenceJustOpened: false
+            fenceJustOpened: false,
+            linePrefixToStrip: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .table))
@@ -408,7 +490,7 @@ struct StreamingParser {
         return remainder.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    private func detectHeading(_ line: String) -> (Int, String)? {
+    private func detectHeading(_ line: String) -> HeadingInfo? {
         var index = line.startIndex
         var level = 0
         while index < line.endIndex, line[index] == "#", level < 6 {
@@ -416,36 +498,46 @@ struct StreamingParser {
             index = line.index(after: index)
         }
         guard level > 0, index < line.endIndex, line[index] == " " else { return nil }
-        let contentStart = line.index(after: index)
-        return (level, String(line[contentStart...]))
+        let prefixLength = level + 1 // heading markers + following space
+        guard line.count > prefixLength else { return nil }
+        return HeadingInfo(level: level, prefixLength: prefixLength)
     }
 
-    private func detectList(_ line: String) -> (ordered: Bool, index: Int?, content: String)? {
+    private func detectList(_ line: String) -> ListInfo? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix("- ") { return (false, nil, String(trimmed.dropFirst(2))) }
-        if trimmed.hasPrefix("* ") { return (false, nil, String(trimmed.dropFirst(2))) }
-        if trimmed.hasPrefix("+ ") { return (false, nil, String(trimmed.dropFirst(2))) }
+        if trimmed.hasPrefix("- ") {
+            return ListInfo(ordered: false, index: nil, prefixLength: 2)
+        }
+        if trimmed.hasPrefix("* ") {
+            return ListInfo(ordered: false, index: nil, prefixLength: 2)
+        }
+        if trimmed.hasPrefix("+ ") {
+            return ListInfo(ordered: false, index: nil, prefixLength: 2)
+        }
         if let dot = trimmed.firstIndex(of: "."), dot != trimmed.startIndex {
             let numberPart = trimmed[..<dot]
             if let number = Int(numberPart) {
                 let afterDot = trimmed.index(after: dot)
                 if afterDot < trimmed.endIndex, trimmed[afterDot] == " " {
-                    let contentStart = trimmed.index(after: afterDot)
-                    return (true, number, String(trimmed[contentStart...]))
+                    let digitCount = numberPart.count
+                    let prefixLength = digitCount + 2 // digits + ". "
+                    return ListInfo(ordered: true, index: number, prefixLength: prefixLength)
                 }
             }
         }
         return nil
     }
 
-    private func detectBlockquote(_ line: String) -> String? {
+    private func detectBlockquote(_ line: String) -> BlockquoteInfo? {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("> ") else { return nil }
-        return String(trimmed.dropFirst(2))
+        return BlockquoteInfo(prefixLength: 2)
     }
 
     private func detectTableCandidate(_ line: String) -> Bool {
-        line.contains("|")
+        guard line.first == "|" else { return false }
+        let pipeCount = line.filter { $0 == "|" }.count
+        return pipeCount >= 2
     }
 
     private func splitCells(_ line: String) -> [String] {
@@ -475,7 +567,7 @@ struct StreamingParser {
             } else if trimmed.hasSuffix(":") {
                 result.append(.right)
             } else {
-                result.append(.none)
+                result.append(.left)
             }
         }
         return result
