@@ -17,6 +17,7 @@ public struct InlineStyle: OptionSet, Sendable {
     public static let link = InlineStyle(rawValue: 1 << 3)
     public static let strikethrough = InlineStyle(rawValue: 1 << 4)
     public static let image = InlineStyle(rawValue: 1 << 5)
+    public static let math = InlineStyle(rawValue: 1 << 6)    
 }
 
 public struct InlineRun: Sendable, Equatable {
