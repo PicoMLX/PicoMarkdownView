@@ -44,6 +44,20 @@ public struct InlineImage: Sendable, Equatable {
     }
 }
 
+public enum MarkdownMath {
+    public static func isMathLanguage(_ language: String?) -> Bool {
+        guard let lang = language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !lang.isEmpty else {
+            return false
+        }
+        switch lang {
+        case "math", "latex":
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 public struct TaskListState: Sendable, Equatable {
     public var checked: Bool
 
@@ -60,6 +74,15 @@ public enum BlockKind: Sendable, Equatable {
     case fencedCode(language: String?)
     case table
     case unknown
+}
+
+public extension BlockKind {
+    var isMathFence: Bool {
+        if case let .fencedCode(language) = self {
+            return MarkdownMath.isMathLanguage(language)
+        }
+        return false
+    }
 }
 
 public enum TableAlignment: Sendable, Equatable {
