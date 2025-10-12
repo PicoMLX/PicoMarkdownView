@@ -374,6 +374,234 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Table separator near-miss hyphen counts fallback")
+    func tableSeparatorNearMissHyphenCountsFallback() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| A | B |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| - | -- |\n\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| A | B |\n| - | -- |\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table separator colons with too few hyphens fallback")
+    func tableSeparatorColonsTooFewHyphensFallback() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| A | B |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| :-- | --: |\n\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| A | B |\n| :-- | --: |\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table separator invalid characters fallback")
+    func tableSeparatorInvalidCharactersFallback() async {
+        func assertFallback(for separatorLine: String) async {
+            let tokenizer = MarkdownTokenizer()
+            var state = EventNormalizationState()
+
+            let header = await tokenizer.feed("| A | B |\n")
+            assertChunk(header, matches: .init(
+                events: [
+                    .blockStart(.table),
+                    .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
+                ],
+                openBlocks: [.table]
+            ), state: &state)
+
+            let separator = await tokenizer.feed("\(separatorLine)\n\n")
+            assertChunk(separator, matches: .init(
+                events: [
+                    .blockStart(.unknown),
+                    .blockAppendInline(.unknown, runs: [plain("| A | B |\n\(separatorLine)\n")]),
+                    .blockEnd(.unknown)
+                ],
+                openBlocks: []
+            ), state: &state)
+        }
+
+        await assertFallback(for: "| -a- | --- |")
+        await assertFallback(for: "| --=-- | --- |")
+    }
+
+    @Test("Table separator internal spaces fallback")
+    func tableSeparatorInternalSpacesFallback() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| A | B |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| : -- : | --- |\n\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| A | B |\n| : -- : | --- |\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table minimal alignment confirmation edge cases")
+    func tableMinimalAlignmentConfirmationEdgeCases() async {
+        do {
+            let tokenizer = MarkdownTokenizer()
+            var state = EventNormalizationState()
+
+            let header = await tokenizer.feed("| L | R |\n")
+            assertChunk(header, matches: .init(
+                events: [
+                    .blockStart(.table),
+                    .tableHeaderCandidate(.table, cells: [plain("L"), plain("R")])
+                ],
+                openBlocks: [.table]
+            ), state: &state)
+
+            let separator = await tokenizer.feed("| :--- | ---: |\n\n")
+            assertChunk(separator, matches: .init(
+                events: [
+                    .tableHeaderConfirmed(.table, alignments: [.left, .right]),
+                    .blockEnd(.table)
+                ],
+                openBlocks: []
+            ), state: &state)
+        }
+
+        do {
+            let tokenizer = MarkdownTokenizer()
+            var state = EventNormalizationState()
+
+            let header = await tokenizer.feed("| C1 | C2 |\n")
+            assertChunk(header, matches: .init(
+                events: [
+                    .blockStart(.table),
+                    .tableHeaderCandidate(.table, cells: [plain("C1"), plain("C2")])
+                ],
+                openBlocks: [.table]
+            ), state: &state)
+
+            let separator = await tokenizer.feed("| :---: | :---: |\n\n")
+            assertChunk(separator, matches: .init(
+                events: [
+                    .tableHeaderConfirmed(.table, alignments: [.center, .center]),
+                    .blockEnd(.table)
+                ],
+                openBlocks: []
+            ), state: &state)
+        }
+    }
+
+    @Test("Table header with escaped pipes confirms")
+    func tableHeaderWithEscapedPipesConfirms() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| a \\| b | c |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("a | b"), plain("c")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| --- | --- |\n\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .tableHeaderConfirmed(.table, alignments: [.left, .left]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table candidate degrades on row without separator")
+    func tableCandidateDegradesOnRowWithoutSeparator() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| H1 | H2 |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("H1"), plain("H2")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let row = await tokenizer.feed("| foo | bar |\n\n")
+        assertChunk(row, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| H1 | H2 |\n| foo | bar |\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table invalid separator across chunks degrades")
+    func tableInvalidSeparatorAcrossChunksDegrades() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| X | Y |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("X"), plain("Y")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| -- | -- |\n\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| X | Y |\n| -- | -- |\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Table alignment variants")
     func tableAlignmentVariants() async {
         let tokenizer = MarkdownTokenizer()
