@@ -954,21 +954,28 @@ struct StreamingParser {
     private func parseAlignment(_ line: String) -> [TableAlignment]? {
         let cells = splitCells(line)
         guard !cells.isEmpty else { return nil }
+
         var result: [TableAlignment] = []
-        for cell in cells {
-            let trimmed = cell.trimmingCharacters(in: .whitespaces)
-            guard !trimmed.isEmpty else { return nil }
-            let hyphenCount = trimmed.filter { $0 == "-" }.count
-            guard hyphenCount >= 3 else { return nil }
-            if trimmed.hasPrefix(":") && trimmed.hasSuffix(":") {
-                result.append(.center)
-            } else if trimmed.hasPrefix(":") {
-                result.append(.left)
-            } else if trimmed.hasSuffix(":") {
-                result.append(.right)
-            } else {
-                result.append(.left)
-            }
+        for raw in cells {
+            var s = raw.trimmingCharacters(in: .whitespaces)
+
+            // Only colons and hyphens are allowed
+            guard s.allSatisfy({ $0 == ":" || $0 == "-" }) else { return nil }
+
+            let leftColon  = s.first == ":"
+            let rightColon = s.last  == ":"
+
+            if leftColon { s.removeFirst() }
+            if rightColon, !s.isEmpty { s.removeLast() }
+
+            // Must be a run of ≥ 3 hyphens (no other chars)
+            guard !s.isEmpty, s.allSatisfy({ $0 == "-" }), s.count >= 3 else { return nil }
+
+            // Map to alignment
+            if leftColon && rightColon { result.append(.center) }
+            else if leftColon         { result.append(.left) }
+            else if rightColon        { result.append(.right) }
+            else                      { result.append(.left) } // default
         }
         return result
     }
