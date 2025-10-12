@@ -35,6 +35,29 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Unterminated strikethrough flushed on finish")
+    func unterminatedStrikethroughFlushedOnFinish() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Start ~~partial")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph)
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let final = await tokenizer.finish()
+        assertChunk(final, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain("~~partial")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Concurrent feed calls are serialized")
     func concurrentFeedCalls() async {
         let tokenizer = MarkdownTokenizer()
@@ -130,6 +153,32 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(.paragraph, runs: [
                     InlineRunShape(text: "old", style: InlineStyle.strikethrough),
                     plain(" new")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Strikethrough across chunks")
+    func strikethroughAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("~~ol")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph)
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("d~~ more\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    InlineRunShape(text: "old", style: InlineStyle.strikethrough),
+                    plain(" more")
                 ]),
                 .blockEnd(.paragraph)
             ],
@@ -831,6 +880,26 @@ struct MarkdownTokenizerGoldenTests {
                 .blockStart(.paragraph),
                 .blockAppendInline(.paragraph, runs: [
                     InlineRunShape(text: "www.example.org/resource", style: InlineStyle.link, linkURL: "https://www.example.org/resource")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Autolink angle bracket form")
+    func autolinkAngleBracketForm() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("See <https://example.com> please\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("See "),
+                    InlineRunShape(text: "https://example.com", style: InlineStyle.link, linkURL: "https://example.com"),
+                    plain(" please")
                 ]),
                 .blockEnd(.paragraph)
             ],
