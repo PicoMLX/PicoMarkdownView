@@ -913,7 +913,7 @@ struct StreamingParser {
             let trimmed = cell.trimmingCharacters(in: .whitespaces)
             guard !trimmed.isEmpty else { return nil }
             let hyphenCount = trimmed.filter { $0 == "-" }.count
-            guard hyphenCount >= 1 else { return nil }
+            guard hyphenCount >= 3 else { return nil }
             if trimmed.hasPrefix(":") && trimmed.hasSuffix(":") {
                 result.append(.center)
             } else if trimmed.hasPrefix(":") {
