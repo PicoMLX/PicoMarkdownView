@@ -596,8 +596,10 @@ struct StreamingParser {
     }
 
     private mutating func degradeTableCandidate(context ctx: inout BlockContext, table: TableState, terminated: Bool) {
-        let removalRange = ctx.eventStartIndex..<events.count
-        events.removeSubrange(removalRange)
+        let startIndex = min(ctx.eventStartIndex, events.count)
+        if startIndex < events.count {
+            events.removeSubrange(startIndex..<events.count)
+        }
 
         let text: String = {
             guard !table.bufferedLines.isEmpty else { return "" }
