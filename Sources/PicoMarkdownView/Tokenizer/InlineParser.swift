@@ -202,6 +202,110 @@ struct InlineParser {
             return .handled(nextIndex: afterClose)
         }
 
+        enum AutolinkParseResult {
+            case handled(nextIndex: String.Index, display: String, url: String)
+            case needMore
+        }
+
+        func isAutolinkPrefix(at index: String.Index) -> (scheme: String, prefixLength: Int)? {
+            let remaining = text[index...]
+            if remaining.hasPrefix("http://") || remaining.hasPrefix("HTTP://") {
+                return ("http://", 7)
+            }
+            if remaining.hasPrefix("https://") || remaining.hasPrefix("HTTPS://") {
+                return ("https://", 8)
+            }
+            if remaining.hasPrefix("www.") || remaining.hasPrefix("WWW.") {
+                return ("www.", 4)
+            }
+            return nil
+        }
+
+        func isAutolinkBoundaryBefore(_ index: String.Index) -> Bool {
+            guard let prev = character(before: index) else { return true }
+            if isAlphanumeric(prev) { return false }
+            return true
+        }
+
+        func parseAutolink(at index: String.Index) -> AutolinkParseResult? {
+            guard isAutolinkBoundaryBefore(index), let prefix = isAutolinkPrefix(at: index) else {
+                return nil
+            }
+
+            var cursor = text.index(index, offsetBy: prefix.prefixLength)
+            var lastAcceptable = cursor
+            var parenDepth = 0
+            var consumedCharacters = 0
+            var sawDot = false
+
+            while cursor < text.endIndex {
+                let ch = text[cursor]
+                if ch == "(" {
+                    parenDepth += 1
+                    cursor = text.index(after: cursor)
+                    lastAcceptable = cursor
+                    consumedCharacters += 1
+                    continue
+                }
+                if ch == ")" {
+                    if parenDepth == 0 {
+                        break
+                    }
+                    parenDepth -= 1
+                    cursor = text.index(after: cursor)
+                    lastAcceptable = cursor
+                    consumedCharacters += 1
+                    continue
+                }
+                if ch == "<" || ch == ">" || ch == "\"" || ch == "'" {
+                    break
+                }
+                if ch.isWhitespace || ch.isNewline {
+                    break
+                }
+                if ch == "." || ch == "/" || ch == "#" || ch == "?" {
+                    sawDot = true
+                }
+                cursor = text.index(after: cursor)
+                lastAcceptable = cursor
+                consumedCharacters += 1
+            }
+
+            if cursor == text.endIndex && !includeUnterminated {
+                return .needMore
+            }
+
+            var endIndex = lastAcceptable
+            while endIndex > index {
+                let prevIndex = text.index(before: endIndex)
+                let prevChar = text[prevIndex]
+                if ".,:;!?".contains(prevChar) {
+                    endIndex = prevIndex
+                    continue
+                }
+                break
+            }
+
+            guard endIndex > index else { return nil }
+            if consumedCharacters == 0 {
+                return nil
+            }
+
+            let display = String(text[index..<endIndex])
+            if prefix.scheme.lowercased().hasPrefix("www") && !sawDot {
+                return nil
+            }
+
+            let url: String
+            if prefix.scheme.lowercased().hasPrefix("www") {
+                url = "https://" + display
+            } else {
+                url = display
+            }
+
+            return .handled(nextIndex: endIndex, display: display, url: url)
+        }
+
         parsing: while index < text.endIndex {
             let ch = text[index]
             switch ch {
@@ -356,6 +460,23 @@ struct InlineParser {
                 consumedEnd = afterClose
                 index = afterClose
                 plainStart = afterClose
+            case "h", "H", "w", "W":
+                if let result = parseAutolink(at: index) {
+                    switch result {
+                    case .handled(let nextIndex, let display, let url):
+                        flushPlain(upTo: index)
+                        runs.append(InlineRun(text: display, style: [.link], linkURL: url))
+                        consumedEnd = nextIndex
+                        index = nextIndex
+                        plainStart = nextIndex
+                        continue parsing
+                    case .needMore:
+                        flushPlain(upTo: index)
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                index = text.index(after: index)
             default:
                 index = text.index(after: index)
             }

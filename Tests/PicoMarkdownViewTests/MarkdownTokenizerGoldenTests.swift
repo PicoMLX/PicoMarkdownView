@@ -578,26 +578,59 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
-    @Test("Autolinks are treated as plain text")
-    func autolinksRemainPlain() async {
+    @Test("Autolinks become link runs")
+    func autolinksBecomeLinkRuns() async {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
-        let first = await tokenizer.feed("<https://example.com>\n\n")
+        let first = await tokenizer.feed("Visit https://example.com/path(1) now\n\n")
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.paragraph),
-                .blockAppendInline(.paragraph, runs: [plain("<https://example.com>")]),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Visit "),
+                    InlineRunShape(text: "https://example.com/path(1)", style: InlineStyle.link, linkURL: "https://example.com/path(1)"),
+                    plain(" now")
+                ]),
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
         ), state: &state)
 
-        let second = await tokenizer.feed("https://example.com/path\n\n")
+        let second = await tokenizer.feed("www.example.org/resource\n\n")
         assertChunk(second, matches: .init(
             events: [
                 .blockStart(.paragraph),
-                .blockAppendInline(.paragraph, runs: [plain("https://example.com/path")]),
+                .blockAppendInline(.paragraph, runs: [
+                    InlineRunShape(text: "www.example.org/resource", style: InlineStyle.link, linkURL: "https://www.example.org/resource")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Autolink spans chunk boundary")
+    func autolinkSpansChunkBoundary() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Check https://exam")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Check ")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("ple.com/path today\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    InlineRunShape(text: "https://example.com/path", style: InlineStyle.link, linkURL: "https://example.com/path"),
+                    plain(" today")
+                ]),
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
@@ -1197,7 +1230,7 @@ private func coalesceRuns(_ runs: [InlineRunShape]) -> [InlineRunShape] {
     guard var current = runs.first else { return [] }
     var result: [InlineRunShape] = []
     for run in runs.dropFirst() {
-        if run.styleRawValue == current.styleRawValue && run.linkURL == current.linkURL {
+        if run.styleRawValue == current.styleRawValue && run.linkURL == current.linkURL && run.imageSource == current.imageSource && run.imageTitle == current.imageTitle {
             current.text += run.text
         } else {
             result.append(current)
