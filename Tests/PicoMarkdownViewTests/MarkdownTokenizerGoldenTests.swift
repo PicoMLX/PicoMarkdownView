@@ -43,7 +43,8 @@ struct MarkdownTokenizerGoldenTests {
         let first = await tokenizer.feed("Start ~~partial")
         assertChunk(first, matches: .init(
             events: [
-                .blockStart(.paragraph)
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Start ")])
             ],
             openBlocks: [.paragraph]
         ), state: &state)

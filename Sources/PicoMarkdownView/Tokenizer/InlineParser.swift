@@ -227,6 +227,41 @@ struct InlineParser {
             return true
         }
 
+        func normalizeAutolink(display: String, prefix: (scheme: String, prefixLength: Int)) -> (display: String, url: String)? {
+            guard !display.isEmpty else { return nil }
+            var sawDot = false
+            var parenDepth = 0
+            for character in display {
+                if character == "(" {
+                    parenDepth += 1
+                } else if character == ")" {
+                    if parenDepth == 0 {
+                        return nil
+                    }
+                    parenDepth -= 1
+                }
+                if character == "." || character == "/" || character == "#" || character == "?" {
+                    sawDot = true
+                }
+                if character.isWhitespace || character == "<" || character == ">" || character == "\"" || character == "'" {
+                    return nil
+                }
+            }
+            if parenDepth != 0 {
+                return nil
+            }
+            if prefix.scheme.lowercased().hasPrefix("www") && !sawDot {
+                return nil
+            }
+            let url: String
+            if prefix.scheme.lowercased().hasPrefix("www") {
+                url = "https://" + display
+            } else {
+                url = display
+            }
+            return (display, url)
+        }
+
         func parseAutolink(at index: String.Index) -> AutolinkParseResult? {
             guard isAutolinkBoundaryBefore(index), let prefix = isAutolinkPrefix(at: index) else {
                 return nil
@@ -236,7 +271,6 @@ struct InlineParser {
             var lastAcceptable = cursor
             var parenDepth = 0
             var consumedCharacters = 0
-            var sawDot = false
 
             while cursor < text.endIndex {
                 let ch = text[cursor]
@@ -262,9 +296,6 @@ struct InlineParser {
                 }
                 if ch.isWhitespace || ch.isNewline {
                     break
-                }
-                if ch == "." || ch == "/" || ch == "#" || ch == "?" {
-                    sawDot = true
                 }
                 cursor = text.index(after: cursor)
                 lastAcceptable = cursor
@@ -292,18 +323,24 @@ struct InlineParser {
             }
 
             let display = String(text[index..<endIndex])
-            if prefix.scheme.lowercased().hasPrefix("www") && !sawDot {
+            guard let normalized = normalizeAutolink(display: display, prefix: prefix) else {
                 return nil
             }
 
-            let url: String
-            if prefix.scheme.lowercased().hasPrefix("www") {
-                url = "https://" + display
-            } else {
-                url = display
-            }
+            return .handled(nextIndex: endIndex, display: normalized.display, url: normalized.url)
+        }
 
-            return .handled(nextIndex: endIndex, display: display, url: url)
+        func parseAngleAutolink(at index: String.Index) -> AutolinkParseResult? {
+            let start = text.index(after: index)
+            guard start < text.endIndex else { return .needMore }
+            guard let closing = text[start...].firstIndex(of: ">") else {
+                return includeUnterminated ? nil : .needMore
+            }
+            let candidate = String(text[start..<closing])
+            guard let prefix = isAutolinkPrefix(at: start) else { return nil }
+            guard let normalized = normalizeAutolink(display: candidate, prefix: prefix) else { return nil }
+            let afterClose = text.index(after: closing)
+            return .handled(nextIndex: afterClose, display: normalized.display, url: normalized.url)
         }
 
         parsing: while index < text.endIndex {
@@ -412,29 +449,38 @@ struct InlineParser {
                 index = afterClose
                 plainStart = afterClose
             case "~":
+                // GFM Strikethrough: require a leading "~~" and a matching closing "~~".
                 let nextIndex = text.index(after: index)
-                guard nextIndex < text.endIndex, text[nextIndex] == "~" else {
-                    index = nextIndex
-                    continue parsing
-                }
-                let searchStart = text.index(after: nextIndex)
-                guard let closingRange = findClosingDelimiter(delimiter: "~", length: 2, from: searchStart) else {
-                    if includeUnterminated {
-                        plainStart = index
-                        index = searchStart
+                if nextIndex < text.endIndex && text[nextIndex] == "~" {
+                    let searchStart = text.index(after: nextIndex)
+                    if let closeAfter = findStrikethroughClosing(in: text, from: searchStart) {
+                        // Flush any accumulated plain text before the styled run
+                        flushPlain(upTo: index)
+
+                        // Extract inner text between the opening and closing tildes
+                        let innerStart = text.index(after: nextIndex)
+                        let innerEndExclusive = text.index(closeAfter, offsetBy: -2) // index of the first tilde in the closing "~~"
+                        let inner = innerStart <= innerEndExclusive ? String(text[innerStart..<innerEndExclusive]) : ""
+
+                        runs.append(InlineRun(text: inner, style: [.strikethrough]))
+
+                        // Advance past the closing delimiter and reset plainStart
+                        consumedEnd = closeAfter
+                        index = closeAfter
+                        plainStart = closeAfter
                         continue parsing
-                    } else {
+                    } else if !includeUnterminated {
+                        // Streaming: we haven’t seen the closing "~~" yet. Emit all unambiguous
+                        // plain text *before* the opener, then pause so we don’t emit provisional runs.
+                        flushPlain(upTo: index)
+                        consumedEnd = index
+                        plainStart = index
                         consumedAll = false
                         break parsing
                     }
                 }
-                flushPlain(upTo: index)
-                let inner = String(text[searchStart..<closingRange.lowerBound])
-                runs.append(InlineRun(text: inner, style: [.strikethrough]))
-                let afterClose = closingRange.upperBound
-                consumedEnd = afterClose
-                index = afterClose
-                plainStart = afterClose
+                // No "~~" or still incomplete: treat the first "~" as plain and keep scanning.
+                index = nextIndex
             case "`":
                 var delimiterLength = 1
                 var cursor = text.index(after: index)
@@ -477,6 +523,22 @@ struct InlineParser {
                     }
                 }
                 index = text.index(after: index)
+            case "<":
+                if let result = parseAngleAutolink(at: index) {
+                    switch result {
+                    case .handled(let nextIndex, let display, let url):
+                        flushPlain(upTo: index)
+                        runs.append(InlineRun(text: display, style: [.link], linkURL: url))
+                        consumedEnd = nextIndex
+                        index = nextIndex
+                        plainStart = nextIndex
+                        continue parsing
+                    case .needMore:
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                index = text.index(after: index)
             default:
                 index = text.index(after: index)
             }
@@ -500,6 +562,27 @@ struct InlineParser {
         var parser = InlineParser()
         parser.pending = text
         return parser.consume(includeUnterminated: true)
+    }
+    
+    // MARK: - Strikethrough helper (GFM)
+    private func findStrikethroughClosing(in s: String, from: String.Index) -> String.Index? {
+        var i = from
+        while i < s.endIndex {
+            let ch = s[i]
+            if ch == "\\" { // skip escaped next char
+                i = s.index(after: i)
+                if i < s.endIndex { i = s.index(after: i) }
+                continue
+            }
+            if ch == "~" {
+                let n = s.index(after: i)
+                if n < s.endIndex, s[n] == "~" {
+                    return s.index(after: n) // index after the closing "~~"
+                }
+            }
+            i = s.index(after: i)
+        }
+        return nil
     }
 }
 
