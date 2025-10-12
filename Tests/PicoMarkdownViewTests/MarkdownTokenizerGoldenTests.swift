@@ -219,6 +219,52 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Nested unordered list maintains hierarchical blocks")
+    func nestedUnorderedList() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("- Parent\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: false, index: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil), runs: [plain("Parent"), plain("\n")])
+            ],
+            openBlocks: [.listItem(ordered: false, index: nil)]
+        ), state: &state)
+        #expect(normalizeOpenBlocks(first.openBlocks) == [.listItem(ordered: false, index: nil)])
+
+        let second = await tokenizer.feed("  - Child\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: false, index: nil)),
+                .blockAppendInline(
+                    .listItem(ordered: false, index: nil),
+                    runs: [plain("  "), plain("Child"), plain("\n")]
+                )
+            ]
+        ), state: &state)
+        #expect(normalizeOpenBlocks(second.openBlocks) == [
+            .listItem(ordered: false, index: nil),
+            .listItem(ordered: false, index: nil)
+        ])
+
+        let third = await tokenizer.feed("- Sibling\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockEnd(.listItem(ordered: false, index: nil)),
+                .blockEnd(.listItem(ordered: false, index: nil)),
+                .blockStart(.listItem(ordered: false, index: nil)),
+                .blockAppendInline(
+                    .listItem(ordered: false, index: nil),
+                    runs: [plain("Sibling"), plain("\n")]
+                ),
+                .blockEnd(.listItem(ordered: false, index: nil))
+            ]
+        ), state: &state)
+        #expect(normalizeOpenBlocks(third.openBlocks).isEmpty)
+    }
+
     @Test("Table with delayed separator")
     func tableWithDelayedSeparator() async {
         let tokenizer = MarkdownTokenizer()

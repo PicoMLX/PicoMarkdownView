@@ -27,6 +27,7 @@ struct StreamingParser {
         var linePrefixToStrip: Int
         var headingPendingSuffix: String
         var eventStartIndex: Int
+        var listIndent: Int
     }
 
     private struct TableState {
@@ -49,7 +50,11 @@ struct StreamingParser {
     private struct ListInfo {
         var ordered: Bool
         var index: Int?
-        var prefixLength: Int
+        var indent: Int
+        var markerLength: Int
+        var indentText: String
+
+        var prefixLength: Int { indent + markerLength }
     }
 
     private struct BlockquoteInfo {
@@ -57,7 +62,34 @@ struct StreamingParser {
     }
 
     private var nextID: BlockID = 1
-    private var currentBlock: BlockContext?
+    private var contextStack: [BlockContext] = []
+
+    private var currentBlock: BlockContext? {
+        contextStack.last
+    }
+
+    private mutating func pushBlock(_ context: BlockContext) {
+        contextStack.append(context)
+    }
+
+    private mutating func setCurrentBlock(_ context: BlockContext) {
+        guard !contextStack.isEmpty else {
+            contextStack.append(context)
+            return
+        }
+        contextStack[contextStack.count - 1] = context
+    }
+
+    @discardableResult
+    private mutating func popBlock() -> BlockContext? {
+        contextStack.popLast()
+    }
+    private mutating func closeListContexts(deeperThan indent: Int) {
+        while let ctx = currentBlock {
+            guard case .listItem = ctx.kind, ctx.listIndent > indent else { break }
+            closeCurrentBlock()
+        }
+    }
     private var lineBuffer: String = ""
     private var emittedCount: Int = 0
     private var lineAnalyzed: Bool = false
@@ -125,7 +157,7 @@ struct StreamingParser {
             return
         }
 
-        if currentBlock == nil {
+        if contextStack.isEmpty {
             if let fence = detectFenceOpening(lineBuffer) {
                 openFencedCode(fence)
                 emittedCount = lineBuffer.count
@@ -141,7 +173,7 @@ struct StreamingParser {
             }
 
             if let list = detectList(lineBuffer) {
-                openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index), prefixToStrip: list.prefixLength)
+                openListItem(list)
                 emittedCount = min(lineBuffer.count, list.prefixLength)
                 lineAnalyzed = true
                 return
@@ -194,7 +226,7 @@ struct StreamingParser {
                 }
                 if let list = detectList(lineBuffer) {
                     closeCurrentBlock()
-                    openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index), prefixToStrip: list.prefixLength)
+                    openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
                     lineAnalyzed = true
                     return
@@ -226,40 +258,62 @@ struct StreamingParser {
                 break
             case .listItem:
                 if let list = detectList(lineBuffer) {
-                    if shouldStartNewListItem(currentKind: ctx.kind, list: list, emittedCount: emittedCount) {
-                        closeCurrentBlock()
-                        openInlineBlock(kind: .listItem(ordered: list.ordered, index: list.index), prefixToStrip: list.prefixLength)
-                        emittedCount = min(lineBuffer.count, list.prefixLength)
-                    } else {
-                        ctx.linePrefixToStrip = list.prefixLength
-                        currentBlock = ctx
-                        if emittedCount < list.prefixLength {
+                    closeListContexts(deeperThan: list.indent)
+
+                    if let current = currentBlock, case .listItem = current.kind {
+                        if list.indent > current.listIndent {
+                            openListItem(list)
+                            emittedCount = min(lineBuffer.count, list.prefixLength)
+                        } else if list.indent == current.listIndent {
+                            if shouldStartNewListItem(currentContext: current, list: list, emittedCount: emittedCount) {
+                                closeCurrentBlock()
+                                openListItem(list)
+                                emittedCount = min(lineBuffer.count, list.prefixLength)
+                            } else {
+                                var updated = current
+                                updated.linePrefixToStrip = list.prefixLength
+                                setCurrentBlock(updated)
+                                if emittedCount < list.prefixLength {
+                                    emittedCount = min(lineBuffer.count, list.prefixLength)
+                                }
+                            }
+                        } else {
+                            closeCurrentBlock()
+                            openListItem(list)
                             emittedCount = min(lineBuffer.count, list.prefixLength)
                         }
+                    } else {
+                        openListItem(list)
+                        emittedCount = min(lineBuffer.count, list.prefixLength)
                     }
+
                     lineAnalyzed = true
                     return
                 }
-                let continuation = listContinuationPrefixLength(lineBuffer)
-                if continuation > 0 {
-                    ctx.linePrefixToStrip = continuation
-                    currentBlock = ctx
-                    if emittedCount < continuation {
-                        emittedCount = min(lineBuffer.count, continuation)
+
+                if var current = currentBlock, case .listItem = current.kind {
+                    let continuation = listContinuationPrefixLength(lineBuffer, currentIndent: current.listIndent)
+                    if continuation > 0 {
+                        current.linePrefixToStrip = continuation
+                        setCurrentBlock(current)
+                        if emittedCount < continuation {
+                            emittedCount = min(lineBuffer.count, continuation)
+                        }
+                        lineAnalyzed = true
+                        return
                     }
-                    lineAnalyzed = true
-                    return
+                    setCurrentBlock(current)
                 }
             case .blockquote:
                 if let quote = detectBlockquote(lineBuffer) {
                     ctx.linePrefixToStrip = quote.prefixLength
-                    currentBlock = ctx
+                    setCurrentBlock(ctx)
                     if emittedCount < quote.prefixLength {
                         emittedCount = min(lineBuffer.count, quote.prefixLength)
                     }
                 } else {
                     ctx.linePrefixToStrip = 0
-                    currentBlock = ctx
+                    setCurrentBlock(ctx)
                 }
             case .fencedCode:
                 break
@@ -288,11 +342,11 @@ struct StreamingParser {
            !context.fenceJustOpened,
            isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
             emittedCount = lineBuffer.count
-            currentBlock = context
+            setCurrentBlock(context)
             return
         }
         append(delta, context: &context)
-        currentBlock = context
+        setCurrentBlock(context)
         emittedCount = lineBuffer.count
         enforceLineBufferBudget()
     }
@@ -308,7 +362,7 @@ struct StreamingParser {
             case .paragraph:
                 if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
                     trimTrailingSpace(for: &ctx)
-                    currentBlock = ctx
+                    setCurrentBlock(ctx)
                 }
                 if isBlank {
                     closeCurrentBlock()
@@ -320,7 +374,7 @@ struct StreamingParser {
             case .listItem:
                 if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
                     trimTrailingSpace(for: &ctx)
-                    currentBlock = ctx
+                    setCurrentBlock(ctx)
                 }
                 if isBlank || force {
                     closeCurrentBlock()
@@ -330,7 +384,7 @@ struct StreamingParser {
             case .blockquote:
                 if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
                     trimTrailingSpace(for: &ctx)
-                    currentBlock = ctx
+                    setCurrentBlock(ctx)
                 }
                 if isBlank || force {
                     closeCurrentBlock()
@@ -353,7 +407,7 @@ struct StreamingParser {
             }
             if var updated = currentBlock {
                 updated.fenceJustOpened = false
-                currentBlock = updated
+                setCurrentBlock(updated)
             }
         }
 
@@ -369,7 +423,7 @@ struct StreamingParser {
     private mutating func appendToCurrent(_ text: String) {
         guard var ctx = currentBlock else { return }
         append(text, context: &ctx)
-        currentBlock = ctx
+        setCurrentBlock(ctx)
     }
 
     private mutating func append(_ text: String, context ctx: inout BlockContext) {
@@ -444,7 +498,7 @@ struct StreamingParser {
     private mutating func appendUnknownLiteral(_ text: String) {
         guard !text.isEmpty, var ctx = currentBlock, ctx.kind == .unknown else { return }
         ctx.literal.append(text)
-        currentBlock = ctx
+        setCurrentBlock(ctx)
     }
 
     private mutating func enforceLineBufferBudget() {
@@ -532,7 +586,7 @@ struct StreamingParser {
         }
 
         ctx.tableState = table
-        currentBlock = ctx
+        setCurrentBlock(ctx)
 
         if force, table.stage != .rows {
             degradeTableCandidate(context: &ctx, table: table, terminated: true)
@@ -564,10 +618,11 @@ struct StreamingParser {
             fenceJustOpened: false,
             linePrefixToStrip: 0,
             headingPendingSuffix: "",
-            eventStartIndex: ctx.eventStartIndex
+            eventStartIndex: ctx.eventStartIndex,
+            listIndent: 0
         )
 
-        currentBlock = fallbackContext
+        setCurrentBlock(fallbackContext)
         events.append(.blockStart(id: fallbackContext.id, kind: .unknown))
         appendUnknownLiteral(text)
         closeCurrentBlock()
@@ -585,7 +640,7 @@ struct StreamingParser {
             events.append(.blockAppendInline(id: ctx.id, runs: [InlineRun(text: ctx.literal)]))
         }
         events.append(.blockEnd(id: ctx.id))
-        currentBlock = nil
+        _ = popBlock()
     }
 
     private mutating func openInlineBlock(kind: BlockKind, prefixToStrip: Int = 0) {
@@ -599,11 +654,38 @@ struct StreamingParser {
             fenceJustOpened: false,
             linePrefixToStrip: prefixToStrip,
             headingPendingSuffix: "",
-            eventStartIndex: events.count
+            eventStartIndex: events.count,
+            listIndent: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: kind))
-        currentBlock = context
+        pushBlock(context)
+    }
+
+    private mutating func openListItem(_ info: ListInfo) {
+        let context = BlockContext(
+            id: nextID,
+            kind: .listItem(ordered: info.ordered, index: info.index),
+            inlineParser: InlineParser(),
+            tableState: nil,
+            fenceInfo: nil,
+            literal: "",
+            fenceJustOpened: false,
+            linePrefixToStrip: info.prefixLength,
+            headingPendingSuffix: "",
+            eventStartIndex: events.count,
+            listIndent: info.indent
+        )
+        nextID &+= 1
+        events.append(.blockStart(id: context.id, kind: .listItem(ordered: info.ordered, index: info.index)))
+        pushBlock(context)
+        if !info.indentText.isEmpty {
+            appendToCurrent(info.indentText)
+            if var updated = currentBlock {
+                updated.linePrefixToStrip = info.prefixLength
+                setCurrentBlock(updated)
+            }
+        }
     }
 
     private mutating func openUnknown() {
@@ -617,11 +699,12 @@ struct StreamingParser {
             fenceJustOpened: false,
             linePrefixToStrip: 0,
             headingPendingSuffix: "",
-            eventStartIndex: events.count
+            eventStartIndex: events.count,
+            listIndent: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .unknown))
-        currentBlock = context
+        pushBlock(context)
     }
 
     private mutating func openFencedCode(_ fence: FenceInfo) {
@@ -635,11 +718,12 @@ struct StreamingParser {
             fenceJustOpened: true,
             linePrefixToStrip: 0,
             headingPendingSuffix: "",
-            eventStartIndex: events.count
+            eventStartIndex: events.count,
+            listIndent: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .fencedCode(language: fence.language)))
-        currentBlock = context
+        pushBlock(context)
     }
 
     private mutating func openTable(_ line: String) {
@@ -653,14 +737,15 @@ struct StreamingParser {
             fenceJustOpened: false,
             linePrefixToStrip: 0,
             headingPendingSuffix: "",
-            eventStartIndex: events.count
+            eventStartIndex: events.count,
+            listIndent: 0
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .table))
         let headerCells = splitCells(line).map { InlineRun(text: $0) }
         events.append(.tableHeaderCandidate(id: context.id, cells: headerCells))
         context.tableState = TableState(stage: .header, alignments: [], bufferedLines: [])
-        currentBlock = context
+        pushBlock(context)
     }
 
     private func detectFenceOpening(_ line: String) -> FenceInfo? {
@@ -698,27 +783,44 @@ struct StreamingParser {
     }
 
     private func detectList(_ line: String) -> ListInfo? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.hasPrefix("- ") {
-            return ListInfo(ordered: false, index: nil, prefixLength: 2)
+        var index = line.startIndex
+        var indent = 0
+        while index < line.endIndex {
+            let character = line[index]
+            if character == " " {
+                indent += 1
+            } else if character == "\t" {
+                indent += 4
+            } else {
+                break
+            }
+            index = line.index(after: index)
         }
-        if trimmed.hasPrefix("* ") {
-            return ListInfo(ordered: false, index: nil, prefixLength: 2)
+
+        guard index < line.endIndex else { return nil }
+        let remainder = line[index...]
+        let indentText = String(line[line.startIndex..<index])
+
+        if remainder.hasPrefix("- ") || remainder.hasPrefix("* ") || remainder.hasPrefix("+ ") {
+            return ListInfo(ordered: false, index: nil, indent: indent, markerLength: 2, indentText: indentText)
         }
-        if trimmed.hasPrefix("+ ") {
-            return ListInfo(ordered: false, index: nil, prefixLength: 2)
+
+        var numberEnd = index
+        var digits = 0
+        while numberEnd < line.endIndex, let scalar = line[numberEnd].unicodeScalars.first, CharacterSet.decimalDigits.contains(scalar) {
+            digits += 1
+            numberEnd = line.index(after: numberEnd)
         }
-        if let dot = trimmed.firstIndex(of: "."), dot != trimmed.startIndex {
-            let numberPart = trimmed[..<dot]
-            if let number = Int(numberPart) {
-                let afterDot = trimmed.index(after: dot)
-                if afterDot < trimmed.endIndex, trimmed[afterDot] == " " {
-                    let digitCount = numberPart.count
-                    let prefixLength = digitCount + 2 // digits + ". "
-                    return ListInfo(ordered: true, index: number, prefixLength: prefixLength)
+        if digits > 0, numberEnd < line.endIndex, line[numberEnd] == "." {
+            let afterDot = line.index(after: numberEnd)
+            if afterDot < line.endIndex, line[afterDot] == " " {
+                let numberPart = line[index..<numberEnd]
+                if let number = Int(numberPart) {
+                    return ListInfo(ordered: true, index: number, indent: indent, markerLength: digits + 2, indentText: indentText)
                 }
             }
         }
+
         return nil
     }
 
@@ -728,20 +830,23 @@ struct StreamingParser {
         return BlockquoteInfo(prefixLength: 2)
     }
 
-    private func listContinuationPrefixLength(_ line: String) -> Int {
+    private func listContinuationPrefixLength(_ line: String, currentIndent: Int) -> Int {
         var count = 0
         for character in line {
-            if character == " " || character == "\t" {
+            if character == " " {
                 count += 1
+            } else if character == "\t" {
+                count += 4
             } else {
                 break
             }
         }
-        return count >= 2 ? count : 0
+        let relative = count - currentIndent
+        return relative >= 2 ? count : 0
     }
 
-    private func shouldStartNewListItem(currentKind: BlockKind, list: ListInfo, emittedCount: Int) -> Bool {
-        guard case .listItem(let currentOrdered, let currentIndex) = currentKind else { return true }
+    private func shouldStartNewListItem(currentContext: BlockContext, list: ListInfo, emittedCount: Int) -> Bool {
+        guard case .listItem(let currentOrdered, let currentIndex) = currentContext.kind else { return true }
         if emittedCount > list.prefixLength {
             if list.ordered == currentOrdered,
                list.index == currentIndex {
@@ -827,8 +932,7 @@ struct StreamingParser {
     }
 
     private func snapshotOpenBlocks() -> [OpenBlockState] {
-        guard let ctx = currentBlock else { return [] }
-        return [OpenBlockState(id: ctx.id, kind: ctx.kind)]
+        contextStack.map { OpenBlockState(id: $0.id, kind: $0.kind) }
     }
 
     private func normalizeLineEndings(_ text: String) -> String {
