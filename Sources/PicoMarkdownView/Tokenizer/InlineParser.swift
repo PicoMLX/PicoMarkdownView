@@ -235,6 +235,30 @@ struct InlineParser {
                 consumedEnd = afterClose
                 index = afterClose
                 plainStart = afterClose
+            case "~":
+                let nextIndex = text.index(after: index)
+                guard nextIndex < text.endIndex, text[nextIndex] == "~" else {
+                    index = nextIndex
+                    continue parsing
+                }
+                let searchStart = text.index(after: nextIndex)
+                guard let closingRange = findClosingDelimiter(delimiter: "~", length: 2, from: searchStart) else {
+                    if includeUnterminated {
+                        plainStart = index
+                        index = searchStart
+                        continue parsing
+                    } else {
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                flushPlain(upTo: index)
+                let inner = String(text[searchStart..<closingRange.lowerBound])
+                runs.append(InlineRun(text: inner, style: [.strikethrough]))
+                let afterClose = closingRange.upperBound
+                consumedEnd = afterClose
+                index = afterClose
+                plainStart = afterClose
             case "`":
                 var delimiterLength = 1
                 var cursor = text.index(after: index)

@@ -15,6 +15,7 @@ public struct InlineStyle: OptionSet, Sendable {
     public static let italic = InlineStyle(rawValue: 1 << 1)
     public static let code = InlineStyle(rawValue: 1 << 2)
     public static let link = InlineStyle(rawValue: 1 << 3)
+    public static let strikethrough = InlineStyle(rawValue: 1 << 4)
 }
 
 public struct InlineRun: Sendable, Equatable {
@@ -29,10 +30,18 @@ public struct InlineRun: Sendable, Equatable {
     }
 }
 
+public struct TaskListState: Sendable, Equatable {
+    public var checked: Bool
+
+    public init(checked: Bool) {
+        self.checked = checked
+    }
+}
+
 public enum BlockKind: Sendable, Equatable {
     case paragraph
     case heading(level: Int)
-    case listItem(ordered: Bool, index: Int?)
+    case listItem(ordered: Bool, index: Int?, task: TaskListState?)
     case blockquote
     case fencedCode(language: String?)
     case table

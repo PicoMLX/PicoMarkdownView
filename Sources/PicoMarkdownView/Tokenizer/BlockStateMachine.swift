@@ -53,8 +53,10 @@ struct StreamingParser {
         var indent: Int
         var markerLength: Int
         var indentText: String
+        var task: TaskListState?
+        var taskMarkerLength: Int
 
-        var prefixLength: Int { indent + markerLength }
+        var prefixLength: Int { indent + markerLength + taskMarkerLength }
     }
 
     private struct BlockquoteInfo {
@@ -667,7 +669,7 @@ struct StreamingParser {
     private mutating func openListItem(_ info: ListInfo) {
         let context = BlockContext(
             id: nextID,
-            kind: .listItem(ordered: info.ordered, index: info.index),
+            kind: .listItem(ordered: info.ordered, index: info.index, task: info.task),
             inlineParser: InlineParser(),
             tableState: nil,
             fenceInfo: nil,
@@ -679,7 +681,7 @@ struct StreamingParser {
             listIndent: info.indent
         )
         nextID &+= 1
-        events.append(.blockStart(id: context.id, kind: .listItem(ordered: info.ordered, index: info.index)))
+        events.append(.blockStart(id: context.id, kind: .listItem(ordered: info.ordered, index: info.index, task: info.task)))
         pushBlock(context)
         if !info.indentText.isEmpty {
             appendToCurrent(info.indentText)
@@ -800,30 +802,67 @@ struct StreamingParser {
         }
 
         guard index < line.endIndex else { return nil }
-        let remainder = line[index...]
         let indentText = String(line[line.startIndex..<index])
 
-        if remainder.hasPrefix("- ") || remainder.hasPrefix("* ") || remainder.hasPrefix("+ ") {
-            return ListInfo(ordered: false, index: nil, indent: indent, markerLength: 2, indentText: indentText)
-        }
+        var markerLength = 0
+        var ordered = false
+        var listIndex: Int? = nil
 
-        var numberEnd = index
-        var digits = 0
-        while numberEnd < line.endIndex, let scalar = line[numberEnd].unicodeScalars.first, CharacterSet.decimalDigits.contains(scalar) {
-            digits += 1
-            numberEnd = line.index(after: numberEnd)
-        }
-        if digits > 0, numberEnd < line.endIndex, line[numberEnd] == "." {
-            let afterDot = line.index(after: numberEnd)
-            if afterDot < line.endIndex, line[afterDot] == " " {
-                let numberPart = line[index..<numberEnd]
-                if let number = Int(numberPart) {
-                    return ListInfo(ordered: true, index: number, indent: indent, markerLength: digits + 2, indentText: indentText)
+        if line[index...].hasPrefix("- ") || line[index...].hasPrefix("* ") || line[index...].hasPrefix("+ ") {
+            markerLength = 2
+        } else {
+            var numberEnd = index
+            var digits = 0
+            while numberEnd < line.endIndex,
+                  let scalar = line[numberEnd].unicodeScalars.first,
+                  CharacterSet.decimalDigits.contains(scalar) {
+                digits += 1
+                numberEnd = line.index(after: numberEnd)
+            }
+            if digits > 0, numberEnd < line.endIndex, line[numberEnd] == "." {
+                let afterDot = line.index(after: numberEnd)
+                if afterDot < line.endIndex, line[afterDot] == " " {
+                    let numberPart = line[index..<numberEnd]
+                    if let number = Int(numberPart) {
+                        ordered = true
+                        listIndex = number
+                        markerLength = digits + 2 // digits + ". "
+                    }
                 }
             }
         }
 
-        return nil
+        guard markerLength > 0 else { return nil }
+
+        let markerEnd = line.index(index, offsetBy: markerLength)
+        var task: TaskListState? = nil
+        var taskMarkerLength = 0
+        if markerEnd < line.endIndex, line[markerEnd] == "[" {
+            let statusIndex = line.index(after: markerEnd)
+            if statusIndex < line.endIndex {
+                let closingIndex = line.index(after: statusIndex)
+                if closingIndex < line.endIndex, line[closingIndex] == "]" {
+                    let postClosing = line.index(after: closingIndex)
+                    if postClosing < line.endIndex, line[postClosing] == " " {
+                        let statusChar = line[statusIndex]
+                        if statusChar == " " || statusChar == "x" || statusChar == "X" {
+                            task = TaskListState(checked: statusChar == "x" || statusChar == "X")
+                            taskMarkerLength = line.distance(from: markerEnd, to: line.index(after: postClosing))
+                        }
+                    }
+                }
+            }
+        }
+
+        return ListInfo(
+            ordered: ordered,
+            index: listIndex,
+            indent: indent,
+            markerLength: markerLength,
+            indentText: indentText,
+            task: task,
+            taskMarkerLength: taskMarkerLength
+        )
     }
 
     private func detectBlockquote(_ line: String) -> BlockquoteInfo? {
@@ -848,10 +887,11 @@ struct StreamingParser {
     }
 
     private func shouldStartNewListItem(currentContext: BlockContext, list: ListInfo, emittedCount: Int) -> Bool {
-        guard case .listItem(let currentOrdered, let currentIndex) = currentContext.kind else { return true }
+        guard case .listItem(let currentOrdered, let currentIndex, let currentTask) = currentContext.kind else { return true }
         if emittedCount > list.prefixLength {
             if list.ordered == currentOrdered,
-               list.index == currentIndex {
+               list.index == currentIndex,
+               list.task == currentTask {
                 return false
             }
         }
@@ -859,9 +899,13 @@ struct StreamingParser {
             return true
         }
         if list.ordered {
-            return list.index != currentIndex
+            return list.index != currentIndex || list.task != currentTask
         }
-        // Unordered list items reuse the same marker; treat as new item when we hit the marker again.
+        // Unordered list items reuse the same marker; treat as new item when we hit the marker again unless
+        // the marker is a continuation line and task metadata matches the current item.
+        if list.task != currentTask {
+            return true
+        }
         return emittedCount <= list.prefixLength
     }
 
