@@ -29,8 +29,8 @@ struct InlineParser {
             guard !substring.isEmpty else { return }
             let newRuns = makePlainRuns(from: substring)
             guard !newRuns.isEmpty else { return }
-            if let last = runs.last, last.style.isEmpty, last.linkURL == nil,
-               let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil {
+            if let last = runs.last, last.style.isEmpty, last.linkURL == nil, last.image == nil,
+               let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil, lastPlain.image == nil {
                 runs[runs.count - 1].text += lastPlain.text
                 runs.append(contentsOf: newRuns.dropFirst())
             } else {
@@ -121,6 +121,87 @@ struct InlineParser {
             return nil
         }
 
+        enum BracketParseResult {
+            case handled(nextIndex: String.Index)
+            case literal
+            case incomplete
+        }
+
+        func splitDestinationAndTitle(_ segment: String) -> (String, String?) {
+            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return ("", nil) }
+
+            let withoutAngles: String
+            if trimmed.hasPrefix("<"), trimmed.hasSuffix(">"), trimmed.count >= 2 {
+                withoutAngles = String(trimmed.dropFirst().dropLast())
+            } else {
+                withoutAngles = trimmed
+            }
+
+            var url = withoutAngles
+            var title: String? = nil
+
+            if let spaceIndex = withoutAngles.firstIndex(where: { $0 == " " || $0 == "\t" }) {
+                let urlPart = withoutAngles[..<spaceIndex]
+                let remainder = withoutAngles[spaceIndex...].trimmingCharacters(in: .whitespacesAndNewlines)
+                if let first = remainder.first, first == "\"" || first == "'" {
+                    let quote = first
+                    let contentStart = remainder.index(after: remainder.startIndex)
+                    if let closing = remainder[contentStart...].firstIndex(of: quote) {
+                        url = String(urlPart)
+                        title = String(remainder[contentStart..<closing])
+                    }
+                }
+            }
+
+            return (url, title)
+        }
+
+        func parseBracketSequence(openBracketIndex: String.Index, treatAsImage: Bool) -> BracketParseResult {
+            guard let closingBracket = text[text.index(after: openBracketIndex)..<text.endIndex].firstIndex(of: "]") else {
+                return .incomplete
+            }
+            let afterBracket = text.index(after: closingBracket)
+            guard afterBracket < text.endIndex, text[afterBracket] == "(" else {
+                return .literal
+            }
+            var closingParen: String.Index?
+            var cursor = text.index(after: afterBracket)
+            var depth = 0
+            while cursor < text.endIndex {
+                let currentChar = text[cursor]
+                if currentChar == "(" {
+                    depth += 1
+                } else if currentChar == ")" {
+                    if depth == 0 {
+                        closingParen = cursor
+                        break
+                    } else {
+                        depth -= 1
+                    }
+                }
+                cursor = text.index(after: cursor)
+            }
+            guard let closing = closingParen else {
+                return .incomplete
+            }
+            let labelStart = text.index(after: openBracketIndex)
+            let label = String(text[labelStart..<closingBracket])
+            let urlStart = text.index(after: afterBracket)
+            let (destination, title) = splitDestinationAndTitle(String(text[urlStart..<closing]))
+
+            if treatAsImage {
+                runs.append(InlineRun(text: label, style: [.image], image: InlineImage(source: destination, title: title)))
+            } else {
+                runs.append(InlineRun(text: label, style: [.link], linkURL: destination))
+            }
+
+            let afterClose = text.index(after: closing)
+            consumedEnd = afterClose
+            plainStart = afterClose
+            return .handled(nextIndex: afterClose)
+        }
+
         parsing: while index < text.endIndex {
             let ch = text[index]
             switch ch {
@@ -142,21 +223,48 @@ struct InlineParser {
                 consumedEnd = after
                 index = after
                 plainStart = after
+            case "!":
+                let nextIndex = text.index(after: index)
+                guard nextIndex < text.endIndex else {
+                    if includeUnterminated {
+                        plainStart = index
+                        index = nextIndex
+                        continue parsing
+                    } else {
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                guard text[nextIndex] == "[" else {
+                    index = nextIndex
+                    continue parsing
+                }
+                flushPlain(upTo: index)
+                switch parseBracketSequence(openBracketIndex: nextIndex, treatAsImage: true) {
+                case .handled(let next):
+                    index = next
+                case .literal:
+                    plainStart = index
+                    index = nextIndex
+                case .incomplete:
+                    if includeUnterminated {
+                        plainStart = index
+                        index = nextIndex
+                        continue parsing
+                    } else {
+                        consumedAll = false
+                        break parsing
+                    }
+                }
             case "[":
                 flushPlain(upTo: index)
-                guard let closingBracket = text[text.index(after: index)..<text.endIndex].firstIndex(of: "]") else {
-                    if includeUnterminated {
-                        // Treat as literal and continue.
-                        plainStart = index
-                        index = text.index(after: index)
-                        continue parsing
-                    } else {
-                        consumedAll = false
-                        break parsing
-                    }
-                }
-                let afterBracket = text.index(after: closingBracket)
-                guard afterBracket < text.endIndex, text[afterBracket] == "(" else {
+                switch parseBracketSequence(openBracketIndex: index, treatAsImage: false) {
+                case .handled(let next):
+                    index = next
+                case .literal:
+                    plainStart = index
+                    index = text.index(after: index)
+                case .incomplete:
                     if includeUnterminated {
                         plainStart = index
                         index = text.index(after: index)
@@ -166,42 +274,6 @@ struct InlineParser {
                         break parsing
                     }
                 }
-                var closingParen: String.Index?
-                var cursor = text.index(after: afterBracket)
-                var depth = 0
-                while cursor < text.endIndex {
-                    let currentChar = text[cursor]
-                    if currentChar == "(" {
-                        depth += 1
-                    } else if currentChar == ")" {
-                        if depth == 0 {
-                            closingParen = cursor
-                            break
-                        } else {
-                            depth -= 1
-                        }
-                    }
-                    cursor = text.index(after: cursor)
-                }
-                guard let closing = closingParen else {
-                    if includeUnterminated {
-                        plainStart = index
-                        index = text.index(after: index)
-                        continue parsing
-                    } else {
-                        consumedAll = false
-                        break parsing
-                    }
-                }
-                let labelStart = text.index(after: index)
-                let label = String(text[labelStart..<closingBracket])
-                let urlStart = text.index(after: afterBracket)
-                let url = String(text[urlStart..<closing])
-                runs.append(InlineRun(text: label, style: [.link], linkURL: url))
-                let afterClose = text.index(after: closing)
-                consumedEnd = afterClose
-                index = afterClose
-                plainStart = afterClose
             case "*", "_":
                 let delimiter = ch
                 let nextIndex = text.index(after: index)
@@ -299,7 +371,7 @@ struct InlineParser {
             pending.removeFirst(consumedCount)
         }
 
-        runs.removeAll(where: { $0.text.isEmpty })
+        runs.removeAll(where: { $0.text.isEmpty && $0.style.isEmpty && $0.linkURL == nil && $0.image == nil })
         return runs
     }
 

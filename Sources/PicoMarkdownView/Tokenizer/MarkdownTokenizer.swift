@@ -16,17 +16,30 @@ public struct InlineStyle: OptionSet, Sendable {
     public static let code = InlineStyle(rawValue: 1 << 2)
     public static let link = InlineStyle(rawValue: 1 << 3)
     public static let strikethrough = InlineStyle(rawValue: 1 << 4)
+    public static let image = InlineStyle(rawValue: 1 << 5)
 }
 
 public struct InlineRun: Sendable, Equatable {
     public var text: String
     public var style: InlineStyle
     public var linkURL: String?
+    public var image: InlineImage?
 
-    public init(text: String, style: InlineStyle = [], linkURL: String? = nil) {
+    public init(text: String, style: InlineStyle = [], linkURL: String? = nil, image: InlineImage? = nil) {
         self.text = text
         self.style = style
         self.linkURL = linkURL
+        self.image = image
+    }
+}
+
+public struct InlineImage: Sendable, Equatable {
+    public var source: String
+    public var title: String?
+
+    public init(source: String, title: String? = nil) {
+        self.source = source
+        self.title = title
     }
 }
 

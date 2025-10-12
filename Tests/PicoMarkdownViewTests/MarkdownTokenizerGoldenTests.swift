@@ -531,6 +531,53 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Inline image emits image run")
+    func inlineImageEmitsImageRun() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("Look ![alt text](https://example.com/image.png) done\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Look "),
+                    image("alt text", source: "https://example.com/image.png"),
+                    plain(" done")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Image marker spans chunks")
+    func imageMarkerSpansChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Start ![alt")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Start ")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed(" text](https://cdn.example.com/pic.jpg \"Caption\") end\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    image("alt text", source: "https://cdn.example.com/pic.jpg", title: "Caption"),
+                    plain(" end")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Autolinks are treated as plain text")
     func autolinksRemainPlain() async {
         let tokenizer = MarkdownTokenizer()
@@ -990,22 +1037,32 @@ private struct InlineRunShape: Equatable {
     var text: String
     var styleRawValue: UInt8
     var linkURL: String?
+    var imageSource: String?
+    var imageTitle: String?
 
-    init(text: String, style: InlineStyle = [], linkURL: String? = nil) {
+    init(text: String, style: InlineStyle = [], linkURL: String? = nil, imageSource: String? = nil, imageTitle: String? = nil) {
         self.text = text
         self.styleRawValue = style.rawValue
         self.linkURL = linkURL
+        self.imageSource = imageSource
+        self.imageTitle = imageTitle
     }
 
     init(_ run: InlineRun) {
         self.text = run.text
         self.styleRawValue = run.style.rawValue
         self.linkURL = run.linkURL
+        self.imageSource = run.image?.source
+        self.imageTitle = run.image?.title
     }
 }
 
 private func plain(_ text: String) -> InlineRunShape {
     InlineRunShape(text: text)
+}
+
+private func image(_ alt: String, source: String, title: String? = nil) -> InlineRunShape {
+    InlineRunShape(text: alt, style: InlineStyle.image, imageSource: source, imageTitle: title)
 }
 
 private struct EventNormalizationState {

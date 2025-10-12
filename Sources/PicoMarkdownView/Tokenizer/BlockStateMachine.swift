@@ -532,7 +532,7 @@ struct StreamingParser {
                         runs.remove(at: runIndex)
                         continue
                     }
-                    if run.style.isEmpty && run.linkURL == nil && run.text.hasSuffix(" ") {
+                    if run.style.isEmpty && run.linkURL == nil && run.image == nil && run.text.hasSuffix(" ") {
                         run.text.removeLast()
                         if run.text.isEmpty {
                             runs.remove(at: runIndex)
