@@ -273,8 +273,14 @@ actor MarkdownRenderer {
             var headerCells: [AttributedString] = []
             for (index, cell) in headers.enumerated() {
                 let inline = renderInline(cell, font: font)
-                headerLine.append(inline)
-                headerCells.append(AttributedString(inline))
+                let headerAttributes: [NSAttributedString.Key: Any] = [
+                    .font: boldFont(from: font),
+                    .foregroundColor: attrs[.foregroundColor] ?? PlatformColor.rendererLabel
+                ]
+                let attributed = NSMutableAttributedString(attributedString: inline)
+                attributed.addAttributes(headerAttributes, range: NSRange(location: 0, length: attributed.length))
+                headerLine.append(attributed)
+                headerCells.append(AttributedString(attributed))
                 if index < headers.count - 1 {
                     let separator = NSAttributedString(string: " | ", attributes: attrs)
                     headerLine.append(separator)
@@ -355,6 +361,23 @@ actor MarkdownRenderer {
 #endif
         return font
     }
+}
+
+private func boldFont(from base: PlatformFont) -> PlatformFont {
+#if canImport(UIKit)
+    if let descriptor = base.fontDescriptor.withSymbolicTraits(.traitBold) {
+        return PlatformFont(descriptor: descriptor, size: base.pointSize)
+    }
+    return PlatformFont.systemFont(ofSize: base.pointSize, weight: .bold)
+#else
+    var traits = base.fontDescriptor.symbolicTraits
+    traits.insert(.bold)
+    let descriptor = base.fontDescriptor.withSymbolicTraits(traits)
+    if let font = PlatformFont(descriptor: descriptor, size: base.pointSize) {
+        return font
+    }
+    return PlatformFont.boldSystemFont(ofSize: base.pointSize)
+#endif
 }
 
 struct RenderedBlock: Sendable, Identifiable {
