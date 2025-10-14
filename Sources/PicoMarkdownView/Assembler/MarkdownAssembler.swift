@@ -34,18 +34,27 @@ public actor MarkdownAssembler {
 
     public func apply(_ chunk: ChunkResult) -> AssemblerDiff {
         var changes: [AssemblerDiff.Change] = []
+        let finalOpenIDs = chunk.openBlocks.map { $0.id }
 
         for event in chunk.events {
             switch event {
             case .blockStart(let id, let kind):
-                let position = blocks.count
-                blocks.append(BlockEntry(id: id, kind: kind))
-                indexByID[id] = position
+                let position = insertionPosition(for: id, finalOpenIDs: finalOpenIDs)
+                let entry = BlockEntry(id: id, kind: kind)
+                if position >= blocks.count {
+                    blocks.append(entry)
+                } else {
+                    blocks.insert(entry, at: position)
+                }
+                for pos in position..<blocks.count {
+                    indexByID[blocks[pos].id] = pos
+                }
                 changes.append(.blockStarted(id: id, kind: kind, position: position))
 
             case .blockAppendInline(let id, let runs):
                 guard let index = indexByID[id] else { continue }
                 var entry = blocks[index]
+                if entry.isClosed { continue }
                 let (addedRuns, addedBytes) = entry.appendInline(runs, allowCoalescing: config.coalescePlainRuns)
                 blocks[index] = entry
                 approximateBytes += addedBytes
@@ -56,6 +65,7 @@ public actor MarkdownAssembler {
             case .blockAppendFencedCode(let id, let textChunk):
                 guard let index = indexByID[id] else { continue }
                 var entry = blocks[index]
+                if entry.isClosed { continue }
                 let addedBytes = entry.appendFencedCode(textChunk)
                 blocks[index] = entry
                 if addedBytes > 0 {
@@ -66,6 +76,7 @@ public actor MarkdownAssembler {
             case .tableHeaderCandidate(let id, let cells):
                 guard let index = indexByID[id] else { continue }
                 var entry = blocks[index]
+                if entry.isClosed { continue }
                 let delta = entry.setTableHeaderCandidate(cells, allowCoalescing: config.coalescePlainRuns)
                 blocks[index] = entry
                 approximateBytes += delta
@@ -74,6 +85,7 @@ public actor MarkdownAssembler {
             case .tableHeaderConfirmed(let id, let alignments):
                 guard let index = indexByID[id] else { continue }
                 var entry = blocks[index]
+                if entry.isClosed { continue }
                 entry.confirmTableHeader(alignments: alignments)
                 blocks[index] = entry
                 changes.append(.tableHeaderConfirmed(id: id))
@@ -81,6 +93,7 @@ public actor MarkdownAssembler {
             case .tableAppendRow(let id, let cells):
                 guard let index = indexByID[id] else { continue }
                 var entry = blocks[index]
+                if entry.isClosed { continue }
                 let (rowIndex, addedBytes) = entry.appendTableRow(cells, allowCoalescing: config.coalescePlainRuns)
                 blocks[index] = entry
                 if addedBytes > 0 {
@@ -101,6 +114,10 @@ public actor MarkdownAssembler {
 
         if let truncation = enforceTruncationIfNeeded() {
             changes.append(.blocksDiscarded(range: truncation))
+        }
+
+        guard !changes.isEmpty else {
+            return AssemblerDiff(documentVersion: documentVersion, changes: [])
         }
 
         documentVersion &+= 1
@@ -174,6 +191,33 @@ public actor MarkdownAssembler {
             return start..<(start + removalCount)
         }
         return nil
+    }
+}
+
+private extension MarkdownAssembler {
+    func insertionPosition(for id: BlockID, finalOpenIDs: [BlockID]) -> Int {
+        guard !blocks.isEmpty else { return 0 }
+        if let targetIndex = finalOpenIDs.firstIndex(of: id) {
+            var searchIndex = targetIndex + 1
+            while searchIndex < finalOpenIDs.count {
+                let nextID = finalOpenIDs[searchIndex]
+                if let nextPosition = indexByID[nextID] {
+                    return nextPosition
+                }
+                searchIndex += 1
+            }
+
+            var reverseIndex = targetIndex
+            while reverseIndex > 0 {
+                reverseIndex -= 1
+                let prevID = finalOpenIDs[reverseIndex]
+                if let prevPosition = indexByID[prevID] {
+                    return prevPosition + 1
+                }
+            }
+        }
+
+        return blocks.count
     }
 }
 

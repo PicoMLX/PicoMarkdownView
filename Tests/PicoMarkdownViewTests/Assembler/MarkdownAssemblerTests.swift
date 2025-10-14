@@ -140,6 +140,135 @@ struct MarkdownAssemblerTests {
         #expect(snapshot.isClosed)
     }
 
+    @Test("Coalescing disabled keeps runs separate")
+    func coalescingDisabledKeepsRunsSeparate() async {
+        let assembler = MarkdownAssembler(config: AssemblerConfig(coalescePlainRuns: false))
+
+        let start = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 3, kind: .paragraph)
+            ],
+            openBlocks: [OpenBlockState(id: 3, kind: .paragraph)]
+        ))
+        #expect(start.documentVersion == 1)
+        #expect(start.changes == [
+            .blockStarted(id: 3, kind: .paragraph, position: 0)
+        ])
+
+        let firstAppend = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 3, runs: [InlineRun(text: "Hello ")])
+            ],
+            openBlocks: [OpenBlockState(id: 3, kind: .paragraph)]
+        ))
+        #expect(firstAppend.documentVersion == 2)
+        #expect(firstAppend.changes == [
+            .runsAppended(id: 3, added: 1)
+        ])
+
+        let secondAppend = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 3, runs: [InlineRun(text: "world")])
+            ],
+            openBlocks: [OpenBlockState(id: 3, kind: .paragraph)]
+        ))
+        #expect(secondAppend.documentVersion == 3)
+        #expect(secondAppend.changes == [
+            .runsAppended(id: 3, added: 1)
+        ])
+
+        let end = await assembler.apply(.init(
+            events: [
+                .blockEnd(id: 3)
+            ],
+            openBlocks: []
+        ))
+        #expect(end.documentVersion == 4)
+        #expect(end.changes == [
+            .blockEnded(id: 3)
+        ])
+
+        let snapshot = await assembler.block(3)
+        #expect(snapshot.inlineRuns == [InlineRun(text: "Hello "), InlineRun(text: "world")])
+    }
+
+    @Test("Style and link changes prevent coalescing")
+    func noCoalesceAcrossStyles() async {
+        let assembler = MarkdownAssembler()
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 4, kind: .paragraph)
+            ],
+            openBlocks: [OpenBlockState(id: 4, kind: .paragraph)]
+        ))
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 4, runs: [InlineRun(text: "a")])
+            ],
+            openBlocks: [OpenBlockState(id: 4, kind: .paragraph)]
+        ))
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 4, runs: [InlineRun(text: "b", style: [.link], linkURL: "https://example.com")])
+            ],
+            openBlocks: [OpenBlockState(id: 4, kind: .paragraph)]
+        ))
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 4, runs: [InlineRun(text: "c")])
+            ],
+            openBlocks: [OpenBlockState(id: 4, kind: .paragraph)]
+        ))
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockEnd(id: 4)
+            ],
+            openBlocks: []
+        ))
+
+        let snapshot = await assembler.block(4)
+        #expect(snapshot.inlineRuns == [
+            InlineRun(text: "a"),
+            InlineRun(text: "b", style: [.link], linkURL: "https://example.com"),
+            InlineRun(text: "c")
+        ])
+    }
+
+    @Test("Fenced code addedBytes matches UTF-8 length")
+    func utf8AddedBytesMatches() async {
+        let assembler = MarkdownAssembler()
+        let text = "print(\"👋\")\n"
+
+        let diff = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 5, kind: .fencedCode(language: "swift")),
+                .blockAppendFencedCode(id: 5, textChunk: text)
+            ],
+            openBlocks: [OpenBlockState(id: 5, kind: .fencedCode(language: "swift"))]
+        ))
+
+        #expect(diff.documentVersion == 1)
+        #expect(diff.changes == [
+            .blockStarted(id: 5, kind: .fencedCode(language: "swift"), position: 0),
+            .codeAppended(id: 5, addedBytes: text.utf8.count)
+        ])
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockEnd(id: 5)
+            ],
+            openBlocks: []
+        ))
+
+        let snapshot = await assembler.block(5)
+        #expect(snapshot.codeText == text)
+    }
+
     @Test("Table assembly confirms header and rows")
     func tableAssembly() async {
         let assembler = MarkdownAssembler()
@@ -356,5 +485,207 @@ struct MarkdownAssemblerTests {
         let finalSnapshot = await assembler.makeSnapshot()
         let reconstructed = replayOrder.compactMap { replay[$0] }
         #expect(reconstructed == finalSnapshot)
+    }
+
+    @Test("Illegal events are ignored without advancing version")
+    func illegalEventsAreIgnored() async {
+        let assembler = MarkdownAssembler()
+
+        let orphan = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 99, runs: [InlineRun(text: "orphan")])
+            ],
+            openBlocks: []
+        ))
+
+        #expect(orphan.changes.isEmpty)
+        #expect(orphan.documentVersion == 0)
+        #expect(await assembler.blockCount() == 0)
+
+        let start = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 100, kind: .paragraph)
+            ],
+            openBlocks: [OpenBlockState(id: 100, kind: .paragraph)]
+        ))
+        #expect(start.documentVersion == 1)
+
+        let end = await assembler.apply(.init(
+            events: [
+                .blockEnd(id: 100)
+            ],
+            openBlocks: []
+        ))
+        #expect(end.documentVersion == 2)
+
+        let afterClose = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 100, runs: [InlineRun(text: "ignored")])
+            ],
+            openBlocks: []
+        ))
+
+        #expect(afterClose.changes.isEmpty)
+        #expect(afterClose.documentVersion == 2)
+        #expect((await assembler.block(100)).inlineRuns == nil)
+    }
+
+    @Test("documentVersion advances only when state mutates")
+    func documentVersionOnlyAdvancesOnMutation() async {
+        let assembler = MarkdownAssembler()
+
+        let empty = await assembler.apply(.init(events: [], openBlocks: []))
+        #expect(empty.documentVersion == 0)
+        #expect(empty.changes.isEmpty)
+
+        let start = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 200, kind: .paragraph)
+            ],
+            openBlocks: [OpenBlockState(id: 200, kind: .paragraph)]
+        ))
+        #expect(start.documentVersion == 1)
+
+        let append = await assembler.apply(.init(
+            events: [
+                .blockAppendInline(id: 200, runs: [InlineRun(text: "text")])
+            ],
+            openBlocks: [OpenBlockState(id: 200, kind: .paragraph)]
+        ))
+        #expect(append.documentVersion == 2)
+
+        let idle = await assembler.apply(.init(events: [], openBlocks: []))
+        #expect(idle.documentVersion == 2)
+        #expect(idle.changes.isEmpty)
+    }
+
+    @Test("Block start inserts at computed position")
+    func blockStartInsertionPosition() async {
+        let assembler = MarkdownAssembler()
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 300, kind: .paragraph)
+            ],
+            openBlocks: [OpenBlockState(id: 300, kind: .paragraph)]
+        ))
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 301, kind: .paragraph)
+            ],
+            openBlocks: [
+                OpenBlockState(id: 300, kind: .paragraph),
+                OpenBlockState(id: 301, kind: .paragraph)
+            ]
+        ))
+
+        let insert = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 302, kind: .paragraph)
+            ],
+            openBlocks: [
+                OpenBlockState(id: 300, kind: .paragraph),
+                OpenBlockState(id: 302, kind: .paragraph),
+                OpenBlockState(id: 301, kind: .paragraph)
+            ]
+        ))
+
+        #expect(insert.changes == [
+            .blockStarted(id: 302, kind: .paragraph, position: 1)
+        ])
+
+        let order = await assembler.makeSnapshot().map { $0.id }
+        #expect(order == [300, 302, 301])
+    }
+
+    @Test("Truncation reports accurate ranges")
+    func truncationReportingUsesAccurateRanges() async {
+        let assembler = MarkdownAssembler(config: AssemblerConfig(maxClosedBlocks: 2))
+
+        func emitBlock(_ id: BlockID) async -> AssemblerDiff {
+            await assembler.apply(.init(
+                events: [
+                    .blockStart(id: id, kind: .paragraph),
+                    .blockAppendInline(id: id, runs: [InlineRun(text: "x")]),
+                    .blockEnd(id: id)
+                ],
+                openBlocks: []
+            ))
+        }
+
+        let first = await emitBlock(400)
+        #expect(!first.changes.contains { if case .blocksDiscarded = $0 { return true } else { return false } })
+
+        let second = await emitBlock(401)
+        #expect(!second.changes.contains { if case .blocksDiscarded = $0 { return true } else { return false } })
+
+        let third = await emitBlock(402)
+        #expect(third.changes.last == .blocksDiscarded(range: 0..<1))
+        #expect(await assembler.makeSnapshot().map { $0.id } == [401, 402])
+
+        let fourth = await emitBlock(403)
+        #expect(fourth.changes.last == .blocksDiscarded(range: 0..<1))
+        #expect(await assembler.makeSnapshot().map { $0.id } == [402, 403])
+    }
+
+    @Test("Table tracks multiple appended rows")
+    func tableHandlesMultipleRows() async {
+        let assembler = MarkdownAssembler()
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockStart(id: 500, kind: .table),
+                .tableHeaderCandidate(id: 500, cells: [InlineRun(text: "H1"), InlineRun(text: "H2")])
+            ],
+            openBlocks: [OpenBlockState(id: 500, kind: .table)]
+        ))
+
+        _ = await assembler.apply(.init(
+            events: [
+                .tableHeaderConfirmed(id: 500, alignments: [.left, .right])
+            ],
+            openBlocks: [OpenBlockState(id: 500, kind: .table)]
+        ))
+
+        let row1 = await assembler.apply(.init(
+            events: [
+                .tableAppendRow(id: 500, cells: [[InlineRun(text: "r1c1")], [InlineRun(text: "r1c2")]])
+            ],
+            openBlocks: [OpenBlockState(id: 500, kind: .table)]
+        ))
+        #expect(row1.changes == [
+            .tableRowAppended(id: 500, rowIndex: 0)
+        ])
+
+        let row2 = await assembler.apply(.init(
+            events: [
+                .tableAppendRow(id: 500, cells: [[InlineRun(text: "r2c1")], [InlineRun(text: "r2c2")]])
+            ],
+            openBlocks: [OpenBlockState(id: 500, kind: .table)]
+        ))
+        #expect(row2.changes == [
+            .tableRowAppended(id: 500, rowIndex: 1)
+        ])
+
+        let row3 = await assembler.apply(.init(
+            events: [
+                .tableAppendRow(id: 500, cells: [[InlineRun(text: "r3c1")], [InlineRun(text: "r3c2")]])
+            ],
+            openBlocks: [OpenBlockState(id: 500, kind: .table)]
+        ))
+        #expect(row3.changes == [
+            .tableRowAppended(id: 500, rowIndex: 2)
+        ])
+
+        _ = await assembler.apply(.init(
+            events: [
+                .blockEnd(id: 500)
+            ],
+            openBlocks: []
+        ))
+
+        let snapshot = await assembler.block(500)
+        #expect(snapshot.table?.rows.count == 3)
     }
 }
