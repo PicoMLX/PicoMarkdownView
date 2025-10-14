@@ -36,7 +36,8 @@ final class MarkdownStreamingViewModel {
         for chunk in chunks {
             await applyChunk(chunk)
         }
-        if let final = await pipeline.finish(), final != attributedText {
+        let (final, mutated) = await pipeline.finish()
+        if mutated, let final, final != attributedText {
             attributedText = final
         }
     }
@@ -45,7 +46,8 @@ final class MarkdownStreamingViewModel {
         for await chunk in stream {
             await applyChunk(chunk)
         }
-        if let final = await pipeline.finish(), final != attributedText {
+        let (final, mutated) = await pipeline.finish()
+        if mutated, let final, final != attributedText {
             attributedText = final
         }
     }
@@ -60,7 +62,8 @@ final class MarkdownStreamingViewModel {
             }
         }
 
-        if let final = await newPipeline.finish() {
+        let (final, mutated) = await newPipeline.finish()
+        if mutated, let final {
             latest = final
         }
 

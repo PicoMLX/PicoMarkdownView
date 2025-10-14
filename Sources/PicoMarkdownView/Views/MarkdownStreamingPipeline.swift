@@ -23,13 +23,14 @@ actor MarkdownStreamingPipeline {
         return await renderer.apply(diff)
     }
 
-    func finish() async -> AttributedString? {
+    func finish() async -> (AttributedString?, Bool) {
         let result = await tokenizer.finish()
         let diff = await assembler.apply(result)
         if let updated = await renderer.apply(diff) {
-            return updated
+            return (updated, !diff.changes.isEmpty)
         }
-        return await renderer.currentAttributedString()
+        let snapshot = await renderer.currentAttributedString()
+        return (snapshot, !diff.changes.isEmpty)
     }
 
     func snapshot() async -> AttributedString {
