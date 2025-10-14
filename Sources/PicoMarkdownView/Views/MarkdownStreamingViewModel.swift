@@ -36,7 +36,7 @@ final class MarkdownStreamingViewModel {
         for chunk in chunks {
             await applyChunk(chunk)
         }
-        if let final = await pipeline.finish() {
+        if let final = await pipeline.finish(), final != attributedText {
             attributedText = final
         }
     }
@@ -45,7 +45,7 @@ final class MarkdownStreamingViewModel {
         for await chunk in stream {
             await applyChunk(chunk)
         }
-        if let final = await pipeline.finish() {
+        if let final = await pipeline.finish(), final != attributedText {
             attributedText = final
         }
     }
@@ -65,7 +65,9 @@ final class MarkdownStreamingViewModel {
         }
 
         pipeline = newPipeline
-        attributedText = latest
+        if latest != attributedText {
+            attributedText = latest
+        }
     }
 
     private func applyChunk(_ chunk: String) async {
