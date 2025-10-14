@@ -10,7 +10,7 @@ typealias PlatformFont = NSFont
 typealias PlatformColor = NSColor
 #endif
 
-struct MarkdownRenderTheme {
+struct MarkdownRenderTheme: @unchecked Sendable {
     var bodyFont: PlatformFont
     var codeFont: PlatformFont
     var blockquoteColor: PlatformColor
