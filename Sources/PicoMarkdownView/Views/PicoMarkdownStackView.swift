@@ -26,8 +26,10 @@ public struct PicoMarkdownStackView: View {
     public var body: some View {
         let bindable = Bindable(viewModel)
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(bindable.blocks.wrappedValue) { block in
-                blockView(for: block)
+            let blocks = bindable.blocks.wrappedValue
+            ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
+                let previous = index > 0 ? blocks[index - 1] : nil
+                blockView(for: block, previous: previous)
             }
         }
         .task(id: input.id) {
@@ -36,17 +38,21 @@ public struct PicoMarkdownStackView: View {
     }
 
     @ViewBuilder
-    private func blockView(for block: RenderedBlock) -> some View {
-        let spacing = spacing(for: block.kind)
+    private func blockView(for block: RenderedBlock, previous: RenderedBlock?) -> some View {
+        let spacing = bottomSpacing(for: block.kind)
+        let topPadding = topSpacing(for: block.kind, previous: previous?.kind)
         if isHorizontalRule(block) {
             Divider()
-                .padding(.vertical, 6)
+                .padding(.top, max(topPadding, 6))
+                .padding(.bottom, max(spacing, 6))
         } else if block.kind == .table, let table = block.table {
             MarkdownTableView(table: table)
+                .padding(.top, topPadding)
                 .padding(.bottom, spacing)
         } else {
             Text(trimmedContent(for: block))
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, topPadding)
                 .padding(.bottom, spacing)
         }
     }
@@ -72,7 +78,7 @@ public struct PicoMarkdownStackView: View {
         return stripped.allSatisfy { $0 == first }
     }
 
-    private func spacing(for kind: BlockKind) -> CGFloat {
+    private func bottomSpacing(for kind: BlockKind) -> CGFloat {
         switch kind {
         case .heading(let level):
             return level <= 2 ? 8 : 6
@@ -89,6 +95,43 @@ public struct PicoMarkdownStackView: View {
         case .unknown:
             return 8
         }
+    }
+
+    private func topSpacing(for kind: BlockKind, previous: BlockKind?) -> CGFloat {
+        guard let previous else { return 0 }
+        switch kind {
+        case .heading(let level):
+            switch level {
+            case 1: return previous.isHeading ? 14 : 18
+            case 2: return previous.isHeading ? 12 : 16
+            case 3: return previous.isHeading ? 10 : 14
+            default: return previous.isHeading ? 8 : 12
+            }
+        case .listItem:
+            return previous.isListItem ? 2 : 6
+        case .blockquote:
+            return 8
+        case .paragraph:
+            return previous == .paragraph ? 6 : 8
+        case .fencedCode:
+            return 10
+        case .table:
+            return 12
+        case .unknown:
+            return 8
+        }
+    }
+}
+
+private extension BlockKind {
+    var isHeading: Bool {
+        if case .heading = self { return true }
+        return false
+    }
+
+    var isListItem: Bool {
+        if case .listItem = self { return true }
+        return false
     }
 }
 
