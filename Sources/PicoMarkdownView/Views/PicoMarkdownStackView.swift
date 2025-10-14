@@ -112,7 +112,7 @@ private struct MarkdownTableView: View {
             }
 
             ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
-                HStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
                         Text(cell)
                             .frame(maxWidth: .infinity, alignment: alignment(for: column))
