@@ -107,6 +107,10 @@ actor MarkdownRenderer {
         makeSnapshot()
     }
 
+    func renderedBlocks() -> [RenderedBlock] {
+        blocks
+    }
+
     private func makeSnapshot() -> AttributedString {
         guard !blocks.isEmpty else { return AttributedString() }
         var result = AttributedString()
@@ -321,7 +325,7 @@ actor MarkdownRenderer {
     }
 }
 
-private struct RenderedBlock {
+struct RenderedBlock: Sendable, Identifiable {
     var id: BlockID
     var kind: BlockKind
     var content: AttributedString

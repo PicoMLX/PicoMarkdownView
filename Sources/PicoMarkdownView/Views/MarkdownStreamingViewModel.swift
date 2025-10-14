@@ -9,6 +9,7 @@ final class MarkdownStreamingViewModel {
     private let theme: MarkdownRenderTheme
 
     var attributedText: AttributedString = AttributedString()
+    var blocks: [RenderedBlock] = []
 
     init(theme: MarkdownRenderTheme = .default()) {
         self.theme = theme
@@ -40,6 +41,7 @@ final class MarkdownStreamingViewModel {
         if mutated, let final, final != attributedText {
             attributedText = final
         }
+        blocks = await pipeline.blocksSnapshot()
     }
 
     private func consume(stream: AsyncStream<String>) async {
@@ -50,6 +52,7 @@ final class MarkdownStreamingViewModel {
         if mutated, let final, final != attributedText {
             attributedText = final
         }
+        blocks = await pipeline.blocksSnapshot()
     }
 
     private func replace(with value: String) async {
@@ -71,6 +74,7 @@ final class MarkdownStreamingViewModel {
         if latest != attributedText {
             attributedText = latest
         }
+        blocks = await pipeline.blocksSnapshot()
     }
 
     private func applyChunk(_ chunk: String) async {
@@ -78,5 +82,6 @@ final class MarkdownStreamingViewModel {
         if let updated = await pipeline.feed(chunk) {
             attributedText = updated
         }
+        blocks = await pipeline.blocksSnapshot()
     }
 }

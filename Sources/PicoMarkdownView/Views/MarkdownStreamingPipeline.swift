@@ -36,4 +36,8 @@ actor MarkdownStreamingPipeline {
     func snapshot() async -> AttributedString {
         await renderer.currentAttributedString()
     }
+
+    func blocksSnapshot() async -> [RenderedBlock] {
+        await renderer.renderedBlocks()
+    }
 }
