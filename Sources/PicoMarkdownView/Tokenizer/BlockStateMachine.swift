@@ -155,6 +155,10 @@ struct StreamingParser {
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
         if trimmed.isEmpty {
+            if var ctx = currentBlock, case .listItem = ctx.kind {
+                ctx.linePrefixToStrip = 0
+                setCurrentBlock(ctx)
+            }
             lineAnalyzed = true
             return
         }
@@ -211,7 +215,7 @@ struct StreamingParser {
 
         if var ctx = currentBlock {
             switch ctx.kind {
-            case .paragraph:
+        case .paragraph:
                 if let fence = detectFenceOpening(lineBuffer) {
                     closeCurrentBlock()
                     openFencedCode(fence)
@@ -240,14 +244,38 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if isLineComplete, detectTableCandidate(lineBuffer) {
+            if isLineComplete, detectTableCandidate(lineBuffer) {
                     closeCurrentBlock()
                     openTable(lineBuffer)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
                 }
-                if isLineComplete, lineBuffer.hasPrefix(":::") {
+            if isLineComplete, detectHorizontalRule(lineBuffer, indent: 0) {
+                let rule = lineBuffer.trimmingCharacters(in: .whitespaces)
+                appendToCurrent(rule)
+                closeCurrentBlock()
+                let divider = BlockContext(
+                    id: nextID,
+                    kind: .paragraph,
+                    inlineParser: InlineParser(),
+                    tableState: nil,
+                    fenceInfo: nil,
+                    literal: "",
+                    fenceJustOpened: false,
+                    linePrefixToStrip: 0,
+                    headingPendingSuffix: "",
+                    eventStartIndex: events.count,
+                    listIndent: 0
+                )
+                nextID &+= 1
+                events.append(.blockStart(id: divider.id, kind: .paragraph))
+                appendToCurrent(rule)
+                closeCurrentBlock()
+                lineAnalyzed = true
+                return
+            }
+            if isLineComplete, lineBuffer.hasPrefix(":::") {
                     closeCurrentBlock()
                     openUnknown()
                     appendUnknownLiteral(lineBuffer)
@@ -295,6 +323,23 @@ struct StreamingParser {
 
                 if var current = currentBlock, case .listItem = current.kind {
                     let continuation = listContinuationPrefixLength(lineBuffer, currentIndent: current.listIndent)
+                    if isLineComplete, detectTableCandidate(lineBuffer) {
+                        closeCurrentBlock()
+                        openTable(lineBuffer)
+                        emittedCount = lineBuffer.count
+                        lineAnalyzed = true
+                        return
+                    }
+                    if isLineComplete, detectHorizontalRule(lineBuffer, indent: current.listIndent) {
+                        closeCurrentBlock()
+                        closeListContexts(deeperThan: current.listIndent - 1)
+                        openInlineBlock(kind: .paragraph)
+                        emittedCount = 0
+                        appendToCurrent(lineBuffer)
+                        closeCurrentBlock()
+                        lineAnalyzed = true
+                        return
+                    }
                     if continuation > 0 {
                         current.linePrefixToStrip = continuation
                         setCurrentBlock(current)
@@ -910,9 +955,23 @@ struct StreamingParser {
     }
 
     private func detectTableCandidate(_ line: String) -> Bool {
-        guard line.first == "|" else { return false }
-        let pipeCount = line.filter { $0 == "|" }.count
+        let trimmed = line.drop(while: { $0 == " " })
+        guard trimmed.first == "|" else { return false }
+        let pipeCount = trimmed.filter { $0 == "|" }.count
         return pipeCount >= 2
+    }
+
+    private func detectHorizontalRule(_ line: String, indent: Int) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 3 else { return false }
+        let stripped = trimmed.replacingOccurrences(of: " ", with: "")
+        guard let first = stripped.first, ["-", "*", "_"].contains(first) else { return false }
+        guard stripped.allSatisfy({ $0 == first }) else { return false }
+        let leadingSpaces = line.prefix { $0 == " " }.count
+        if indent > 0 {
+            return leadingSpaces >= indent
+        }
+        return true
     }
 
     private func splitCells(_ line: String) -> [String] {
