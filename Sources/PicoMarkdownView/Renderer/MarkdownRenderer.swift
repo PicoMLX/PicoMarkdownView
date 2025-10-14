@@ -123,8 +123,7 @@ actor MarkdownRenderer {
     private func insertBlock(id: BlockID, at position: Int) async {
         guard indexByID[id] == nil else { return }
         let snapshot = await snapshotProvider(id)
-        let rendered = render(snapshot: snapshot)
-        let block = RenderedBlock(id: id, kind: snapshot.kind, content: rendered)
+        let block = buildRenderedBlock(id: id, snapshot: snapshot)
         let index = max(0, min(position, blocks.count))
         blocks.insert(block, at: index)
         rebuildIndex(startingAt: index)
@@ -133,8 +132,11 @@ actor MarkdownRenderer {
     private func refreshBlock(id: BlockID) async {
         guard let index = indexByID[id] else { return }
         let snapshot = await snapshotProvider(id)
+        let rendered = renderContent(snapshot: snapshot)
         blocks[index].kind = snapshot.kind
-        blocks[index].content = render(snapshot: snapshot)
+        blocks[index].snapshot = snapshot
+        blocks[index].content = rendered.content
+        blocks[index].table = rendered.table
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -158,9 +160,24 @@ actor MarkdownRenderer {
         }
     }
 
-    private func render(snapshot: BlockSnapshot) -> AttributedString {
-        let ns = render(nsSnapshot: snapshot)
-        return AttributedString(ns)
+    private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot) -> RenderedBlock {
+        let rendered = renderContent(snapshot: snapshot)
+        return RenderedBlock(id: id,
+                             kind: snapshot.kind,
+                             content: rendered.content,
+                             snapshot: snapshot,
+                             table: rendered.table)
+    }
+
+    private func renderContent(snapshot: BlockSnapshot) -> (content: AttributedString, table: RenderedTable?) {
+        switch snapshot.kind {
+        case .table:
+            let (fallback, table) = renderTable(snapshot.table, font: theme.bodyFont)
+            return (AttributedString(fallback), table)
+        default:
+            let ns = render(nsSnapshot: snapshot)
+            return (AttributedString(ns), nil)
+        }
     }
 
     private func render(nsSnapshot snapshot: BlockSnapshot) -> NSAttributedString {
@@ -206,7 +223,8 @@ actor MarkdownRenderer {
             content.append(NSAttributedString(string: "\n\n", attributes: attributes))
             return content
         case .table:
-            return renderTable(snapshot.table, font: theme.bodyFont)
+            let (fallback, _) = renderTable(snapshot.table, font: theme.bodyFont)
+            return fallback
         case .unknown:
             if snapshot.inlineRuns != nil {
                 return renderInlineBlock(snapshot, prefix: nil, suffix: "\n\n", font: theme.bodyFont)
@@ -241,39 +259,53 @@ actor MarkdownRenderer {
         return output
     }
 
-    private func renderTable(_ table: TableSnapshot?, font: PlatformFont) -> NSAttributedString {
-        guard let table else { return NSAttributedString() }
+    private func renderTable(_ table: TableSnapshot?, font: PlatformFont) -> (NSAttributedString, RenderedTable?) {
+        guard let table else { return (NSAttributedString(), nil) }
         let result = NSMutableAttributedString()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font
         ]
 
+        var renderedTable = RenderedTable(headers: nil, rows: [], alignments: table.alignments)
+
         if let headers = table.headerCells {
             let headerLine = NSMutableAttributedString()
+            var headerCells: [AttributedString] = []
             for (index, cell) in headers.enumerated() {
-                headerLine.append(renderInline(cell, font: font))
+                let inline = renderInline(cell, font: font)
+                headerLine.append(inline)
+                headerCells.append(AttributedString(inline))
                 if index < headers.count - 1 {
-                    headerLine.append(NSAttributedString(string: " | ", attributes: attrs))
+                    let separator = NSAttributedString(string: " | ", attributes: attrs)
+                    headerLine.append(separator)
                 }
             }
             headerLine.append(NSAttributedString(string: "\n", attributes: attrs))
             result.append(headerLine)
+            renderedTable.headers = headerCells
         }
 
+        var renderedRows: [[AttributedString]] = []
         for row in table.rows {
             let rowLine = NSMutableAttributedString()
+            var renderedCells: [AttributedString] = []
             for (index, cell) in row.enumerated() {
-                rowLine.append(renderInline(cell, font: font))
+                let inline = renderInline(cell, font: font)
+                rowLine.append(inline)
+                renderedCells.append(AttributedString(inline))
                 if index < row.count - 1 {
-                    rowLine.append(NSAttributedString(string: " | ", attributes: attrs))
+                    let separator = NSAttributedString(string: " | ", attributes: attrs)
+                    rowLine.append(separator)
                 }
             }
             rowLine.append(NSAttributedString(string: "\n", attributes: attrs))
             result.append(rowLine)
+            renderedRows.append(renderedCells)
         }
 
+        renderedTable.rows = renderedRows
         result.append(NSAttributedString(string: "\n", attributes: attrs))
-        return result
+        return (result, renderedTable)
     }
 
     private func render(run: InlineRun, baseFont: PlatformFont) -> NSAttributedString {
@@ -329,6 +361,14 @@ struct RenderedBlock: Sendable, Identifiable {
     var id: BlockID
     var kind: BlockKind
     var content: AttributedString
+    var snapshot: BlockSnapshot
+    var table: RenderedTable?
+}
+
+struct RenderedTable: Sendable, Equatable {
+    var headers: [AttributedString]?
+    var rows: [[AttributedString]]
+    var alignments: [TableAlignment]?
 }
 
 private extension PlatformColor {
