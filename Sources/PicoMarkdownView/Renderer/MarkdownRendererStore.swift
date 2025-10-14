@@ -1,9 +1,10 @@
 import Foundation
-import Combine
+import Observation
 
 @MainActor
-public final class MarkdownRendererStore: ObservableObject {
-    @Published public private(set) var attributedText: AttributedString
+@Observable
+final class MarkdownRendererStore {
+    private(set) var attributedText: AttributedString
 
     private let renderer: MarkdownRenderer
 
@@ -19,13 +20,13 @@ public final class MarkdownRendererStore: ObservableObject {
         }
     }
 
-    public func apply(_ diff: AssemblerDiff) async {
+    func apply(_ diff: AssemblerDiff) async {
         if let updated = await renderer.apply(diff) {
             self.attributedText = updated
         }
     }
 
-    public func refresh() async {
+    func refresh() async {
         let snapshot = await renderer.currentAttributedString()
         self.attributedText = snapshot
     }

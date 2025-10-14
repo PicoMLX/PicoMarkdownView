@@ -64,12 +64,11 @@ struct MarkdownRenderTheme {
 }
 
 actor MarkdownRenderer {
-    typealias SnapshotProvider = @Sendable (BlockID) async -> BlockSnapshot?
+    typealias SnapshotProvider = @Sendable (BlockID) async -> BlockSnapshot
 
     private let theme: MarkdownRenderTheme
     private let snapshotProvider: SnapshotProvider
-    private var storage = NSMutableAttributedString()
-    private var blocks: [BlockRenderState] = []
+    private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
 
     init(theme: MarkdownRenderTheme = .default(), snapshotProvider: @escaping SnapshotProvider) {
@@ -81,64 +80,57 @@ actor MarkdownRenderer {
     func apply(_ diff: AssemblerDiff) async -> AttributedString? {
         guard !diff.changes.isEmpty else { return nil }
 
-        var dirtyBlocks = Set<BlockID>()
+        var mutated = false
 
         for change in diff.changes {
             switch change {
             case .blockStarted(let id, _, let position):
                 await insertBlock(id: id, at: position)
+                mutated = true
             case .runsAppended(let id, _),
                  .codeAppended(let id, _),
                  .tableHeaderConfirmed(let id),
                  .tableRowAppended(let id, _),
                  .blockEnded(let id):
-                dirtyBlocks.insert(id)
+                await refreshBlock(id: id)
+                mutated = true
             case .blocksDiscarded(let range):
                 removeBlocks(in: range)
+                mutated = true
             }
         }
 
-        for id in dirtyBlocks {
-            await refreshBlock(id: id)
-        }
-
-        return makeSnapshot()
+        return mutated ? makeSnapshot() : nil
     }
 
     func currentAttributedString() -> AttributedString {
-        makeSnapshot() ?? AttributedString()
+        makeSnapshot()
     }
 
-    private func makeSnapshot() -> AttributedString? {
-        let copy = storage.copy() as! NSAttributedString
-        return AttributedString(copy)
+    private func makeSnapshot() -> AttributedString {
+        guard !blocks.isEmpty else { return AttributedString() }
+        var result = AttributedString()
+        for block in blocks {
+            result.append(block.content)
+        }
+        return result
     }
 
     private func insertBlock(id: BlockID, at position: Int) async {
         guard indexByID[id] == nil else { return }
-        guard let snapshot = await snapshotProvider(id) else { return }
+        let snapshot = await snapshotProvider(id)
         let rendered = render(snapshot: snapshot)
+        let block = RenderedBlock(id: id, kind: snapshot.kind, content: rendered)
         let index = max(0, min(position, blocks.count))
-        let location = index < blocks.count ? blocks[index].range.location : storage.length
-        storage.insert(rendered, at: location)
-        let range = NSRange(location: location, length: rendered.length)
-        blocks.insert(.init(id: id, range: range, kind: snapshot.kind), at: index)
-        indexByID[id] = index
-        adjustRanges(startingAt: index + 1, delta: rendered.length)
+        blocks.insert(block, at: index)
+        rebuildIndex(startingAt: index)
     }
 
     private func refreshBlock(id: BlockID) async {
         guard let index = indexByID[id] else { return }
-        guard let snapshot = await snapshotProvider(id) else { return }
-        let rendered = render(snapshot: snapshot)
-        let oldRange = blocks[index].range
-        storage.replaceCharacters(in: oldRange, with: rendered)
-        let delta = rendered.length - oldRange.length
-        blocks[index].range = NSRange(location: oldRange.location, length: rendered.length)
+        let snapshot = await snapshotProvider(id)
         blocks[index].kind = snapshot.kind
-        if delta != 0 {
-            adjustRanges(startingAt: index + 1, delta: delta)
-        }
+        blocks[index].content = render(snapshot: snapshot)
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -147,32 +139,27 @@ actor MarkdownRenderer {
         let upper = min(range.upperBound, blocks.count)
         guard lower < upper else { return }
         let removalRange = lower..<upper
-        let location = blocks[lower].range.location
-        let endLocation = blocks[upper - 1].range.upperBound
-        let length = endLocation - location
-        if length > 0 {
-            storage.deleteCharacters(in: NSRange(location: location, length: length))
-        }
         let removed = blocks[removalRange]
         blocks.removeSubrange(removalRange)
         for block in removed {
             indexByID[block.id] = nil
         }
-        for idx in lower..<blocks.count {
-            indexByID[blocks[idx].id] = idx
-            blocks[idx].range.location -= length
-        }
+        rebuildIndex(startingAt: lower)
     }
 
-    private func adjustRanges(startingAt index: Int, delta: Int) {
-        guard delta != 0, index < blocks.count else { return }
-        for idx in index..<blocks.count {
-            blocks[idx].range.location += delta
+    private func rebuildIndex(startingAt start: Int) {
+        let startIndex = max(0, start)
+        for idx in startIndex..<blocks.count {
             indexByID[blocks[idx].id] = idx
         }
     }
 
-    private func render(snapshot: BlockSnapshot) -> NSAttributedString {
+    private func render(snapshot: BlockSnapshot) -> AttributedString {
+        let ns = render(nsSnapshot: snapshot)
+        return AttributedString(ns)
+    }
+
+    private func render(nsSnapshot snapshot: BlockSnapshot) -> NSAttributedString {
         switch snapshot.kind {
         case .paragraph:
             return renderInlineBlock(snapshot, prefix: nil, suffix: "\n\n", font: theme.bodyFont)
@@ -334,20 +321,10 @@ actor MarkdownRenderer {
     }
 }
 
-private struct BlockRenderState {
+private struct RenderedBlock {
     var id: BlockID
-    var range: NSRange
-    var kind: BlockKind = .paragraph
-}
-
-private extension NSRange {
-    var upperBound: Int { location + length }
-}
-
-private extension NSMutableAttributedString {
-    func insert(_ attrString: NSAttributedString, at index: Int) {
-        self.replaceCharacters(in: NSRange(location: index, length: 0), with: attrString)
-    }
+    var kind: BlockKind
+    var content: AttributedString
 }
 
 private extension PlatformColor {
