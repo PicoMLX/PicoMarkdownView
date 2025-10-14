@@ -144,6 +144,8 @@ private struct MarkdownTableView: View {
                 HStack(spacing: 12) {
                     ForEach(Array(headers.enumerated()), id: \.offset) { index, header in
                         Text(header)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity, alignment: alignment(for: index))
                     }
@@ -158,6 +160,8 @@ private struct MarkdownTableView: View {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
                         Text(cell)
+                            .lineLimit(nil)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: alignment(for: column))
                     }
                 }

@@ -367,6 +367,38 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Table cell retains inline line breaks")
+    func tableCellRetainsInlineLineBreaks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| Timeline |\n")
+        assertChunk(header, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("Timeline")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| --- |\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .tableHeaderConfirmed(.table, alignments: [.left])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let row = await tokenizer.feed("| item 1<br>item 2 |\n\n")
+        assertChunk(row, matches: .init(
+            events: [
+                .tableAppendRow(.table, cells: [[plain("item 1"), plain("\n"), plain("item 2")]]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Unconfirmed table header falls back to unknown block")
     func unconfirmedTableHeaderFallback() async {
         let tokenizer = MarkdownTokenizer()

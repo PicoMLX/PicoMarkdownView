@@ -2,6 +2,10 @@ import Foundation
 
 /// Minimal streaming inline parser supporting CommonMark emphasis, code spans, links, and hard breaks.
 struct InlineParser {
+    private enum LineBreakParseResult {
+        case handled(nextIndex: String.Index)
+        case needMore
+    }
     private var pending: String = ""
 
     mutating func append(_ text: String) -> [InlineRun] {
@@ -30,7 +34,8 @@ struct InlineParser {
             let newRuns = makePlainRuns(from: substring)
             guard !newRuns.isEmpty else { return }
             if let last = runs.last, last.style.isEmpty, last.linkURL == nil, last.image == nil,
-               let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil, lastPlain.image == nil {
+               let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil, lastPlain.image == nil,
+               !last.text.hasSuffix("\n"), !(lastPlain.text.hasPrefix("\n")) {
                 runs[runs.count - 1].text += lastPlain.text
                 runs.append(contentsOf: newRuns.dropFirst())
             } else {
@@ -126,6 +131,7 @@ struct InlineParser {
             case literal
             case incomplete
         }
+
 
         func splitDestinationAndTitle(_ segment: String) -> (String, String?) {
             let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -343,6 +349,39 @@ struct InlineParser {
             return .handled(nextIndex: afterClose, display: normalized.display, url: normalized.url)
         }
 
+        func parseLineBreakTag(at index: String.Index) -> LineBreakParseResult? {
+            let remaining = text[index...]
+            if remaining.count < 4 {
+                return includeUnterminated ? .needMore : nil
+            }
+
+            var cursor = text.index(after: index)
+            guard cursor < text.endIndex else { return includeUnterminated ? .needMore : nil }
+            let first = text[cursor].lowercased()
+            guard first == "b" else { return nil }
+            cursor = text.index(after: cursor)
+            guard cursor < text.endIndex else { return includeUnterminated ? .needMore : nil }
+            let second = text[cursor].lowercased()
+            guard second == "r" else { return nil }
+            cursor = text.index(after: cursor)
+
+            while cursor < text.endIndex, text[cursor].isWhitespace {
+                cursor = text.index(after: cursor)
+            }
+
+            if cursor < text.endIndex, text[cursor] == "/" {
+                cursor = text.index(after: cursor)
+                while cursor < text.endIndex, text[cursor].isWhitespace {
+                    cursor = text.index(after: cursor)
+                }
+            }
+
+            guard cursor < text.endIndex else { return includeUnterminated ? .needMore : nil }
+            guard text[cursor] == ">" else { return nil }
+            let nextIndex = text.index(after: cursor)
+            return .handled(nextIndex: nextIndex)
+        }
+
         parsing: while index < text.endIndex {
             let ch = text[index]
             switch ch {
@@ -524,6 +563,20 @@ struct InlineParser {
                 }
                 index = text.index(after: index)
             case "<":
+                if let breakResult = parseLineBreakTag(at: index) {
+                    switch breakResult {
+                    case .handled(let nextIndex):
+                        flushPlain(upTo: index)
+                        runs.append(InlineRun(text: "\n"))
+                        consumedEnd = nextIndex
+                        index = nextIndex
+                        plainStart = nextIndex
+                        continue parsing
+                    case .needMore:
+                        consumedAll = false
+                        break parsing
+                    }
+                }
                 if let result = parseAngleAutolink(at: index) {
                     switch result {
                     case .handled(let nextIndex, let display, let url):
@@ -584,6 +637,7 @@ struct InlineParser {
         }
         return nil
     }
+
 }
 
 private func makePlainRuns(from text: String) -> [InlineRun] {
