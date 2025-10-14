@@ -51,16 +51,21 @@ final class MarkdownStreamingViewModel {
     }
 
     private func replace(with value: String) async {
-        pipeline = MarkdownStreamingPipeline(theme: theme)
-        attributedText = AttributedString()
+        let newPipeline = MarkdownStreamingPipeline(theme: theme)
+        var latest = AttributedString()
+
         if !value.isEmpty {
-            if let updated = await pipeline.feed(value) {
-                attributedText = updated
+            if let updated = await newPipeline.feed(value) {
+                latest = updated
             }
         }
-        if let final = await pipeline.finish() {
-            attributedText = final
+
+        if let final = await newPipeline.finish() {
+            latest = final
         }
+
+        pipeline = newPipeline
+        attributedText = latest
     }
 
     private func applyChunk(_ chunk: String) async {
