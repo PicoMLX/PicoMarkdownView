@@ -144,6 +144,12 @@ public struct PicoMarkdownStackView: View {
             }
             fallthrough
         default:
+            if block.kind == .paragraph, isHorizontalRule(block) {
+                return AnyView(
+                    Divider()
+                        .frame(maxWidth: .infinity)
+                )
+            }
             return AnyView(
                 Text(trimmedContent(for: block))
                     .frame(maxWidth: .infinity, alignment: .leading)
