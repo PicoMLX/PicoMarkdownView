@@ -32,6 +32,9 @@ struct MarkdownExample: Identifiable, Hashable {
         MarkdownExample(
             localFilename: "markdown-it",
             webURL: "https://markdown-it.github.io"),
+        MarkdownExample(
+            localFilename: "KaTeX-tests",
+            webURL: "https://github.com/just-the-docs/just-the-docs-tests/blob/main/collections/_components/math/katex/tests.md")
     ]
 }
 
