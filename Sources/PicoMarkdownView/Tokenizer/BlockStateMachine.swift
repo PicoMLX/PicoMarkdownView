@@ -911,9 +911,37 @@ struct StreamingParser {
     }
 
     private func detectBlockquote(_ line: String) -> BlockquoteInfo? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("> ") else { return nil }
-        return BlockquoteInfo(prefixLength: 2)
+        var prefixLength = 0
+        var index = line.startIndex
+        var sawMarker = false
+        var consumedTrailingSpace = false
+
+        while index < line.endIndex {
+            let character = line[index]
+            if character == " " || character == "\t" {
+                if sawMarker {
+                    if consumedTrailingSpace {
+                        break
+                    }
+                    consumedTrailingSpace = true
+                    prefixLength += 1
+                    index = line.index(after: index)
+                } else {
+                    prefixLength += 1
+                    index = line.index(after: index)
+                }
+            } else if character == ">" {
+                sawMarker = true
+                consumedTrailingSpace = false
+                prefixLength += 1
+                index = line.index(after: index)
+            } else {
+                break
+            }
+        }
+
+        guard sawMarker else { return nil }
+        return BlockquoteInfo(prefixLength: prefixLength)
     }
 
     private func listContinuationPrefixLength(_ line: String, currentIndent: Int) -> Int {

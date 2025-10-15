@@ -135,8 +135,10 @@ actor MarkdownRenderer {
         let rendered = renderContent(snapshot: snapshot)
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
-        blocks[index].content = rendered.content
+        blocks[index].content = rendered.attributed
         blocks[index].table = rendered.table
+        blocks[index].listItem = rendered.listItem
+        blocks[index].blockquote = rendered.blockquote
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -164,55 +166,39 @@ actor MarkdownRenderer {
         let rendered = renderContent(snapshot: snapshot)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
-                             content: rendered.content,
+                             content: rendered.attributed,
                              snapshot: snapshot,
-                             table: rendered.table)
+                             table: rendered.table,
+                             listItem: rendered.listItem,
+                             blockquote: rendered.blockquote)
     }
 
-    private func renderContent(snapshot: BlockSnapshot) -> (content: AttributedString, table: RenderedTable?) {
+    private func renderContent(snapshot: BlockSnapshot) -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
             let (fallback, table) = renderTable(snapshot.table, font: theme.bodyFont)
-            return (AttributedString(fallback), table)
+            return RenderedContentResult(attributed: AttributedString(fallback),
+                                        table: table,
+                                        listItem: nil,
+                                        blockquote: nil)
         default:
-            let ns = render(nsSnapshot: snapshot)
-            return (AttributedString(ns), nil)
+            return renderInlineContent(snapshot: snapshot)
         }
     }
 
-    private func render(nsSnapshot snapshot: BlockSnapshot) -> NSAttributedString {
+    private func renderInlineContent(snapshot: BlockSnapshot) -> RenderedContentResult {
         switch snapshot.kind {
         case .paragraph:
-            return renderInlineBlock(snapshot, prefix: nil, suffix: "\n\n", font: theme.bodyFont)
+            let ns = renderInlineBlock(snapshot, prefix: nil, suffix: "\n\n", font: theme.bodyFont)
+            return RenderedContentResult(attributed: AttributedString(ns), table: nil, listItem: nil, blockquote: nil)
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
-            return renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
+            let ns = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
+            return RenderedContentResult(attributed: AttributedString(ns), table: nil, listItem: nil, blockquote: nil)
         case .listItem(let ordered, let index, let task):
-            let bullet: String
-            if let task {
-                bullet = task.checked ? "☑︎ " : "☐ "
-            } else if ordered {
-                let number = index ?? 1
-                bullet = "\(number). "
-            } else {
-                bullet = "• "
-            }
-            return renderInlineBlock(snapshot, prefix: bullet, suffix: "\n", font: theme.bodyFont)
+            return renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
         case .blockquote:
-            let body = renderInline(snapshot.inlineRuns ?? [], font: theme.bodyFont)
-            let mutable = NSMutableAttributedString()
-            let paragraphStyle = NSMutableParagraphStyle()
-            paragraphStyle.headIndent = 16
-            paragraphStyle.firstLineHeadIndent = 16
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: theme.bodyFont,
-                .foregroundColor: theme.blockquoteColor,
-                .paragraphStyle: paragraphStyle
-            ]
-            mutable.append(NSAttributedString(string: "› ", attributes: attributes))
-            mutable.append(body)
-            mutable.append(NSAttributedString(string: "\n", attributes: attributes))
-            return mutable
+            return renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
             let attributes: [NSAttributedString.Key: Any] = [
@@ -221,16 +207,17 @@ actor MarkdownRenderer {
             ]
             let content = NSMutableAttributedString(string: text, attributes: attributes)
             content.append(NSAttributedString(string: "\n\n", attributes: attributes))
-            return content
+            return RenderedContentResult(attributed: AttributedString(content), table: nil, listItem: nil, blockquote: nil)
         case .table:
-            let (fallback, _) = renderTable(snapshot.table, font: theme.bodyFont)
-            return fallback
+            let (fallback, table) = renderTable(snapshot.table, font: theme.bodyFont)
+            return RenderedContentResult(attributed: AttributedString(fallback), table: table, listItem: nil, blockquote: nil)
         case .unknown:
             if snapshot.inlineRuns != nil {
-                return renderInlineBlock(snapshot, prefix: nil, suffix: "\n\n", font: theme.bodyFont)
+                let ns = renderInlineBlock(snapshot, prefix: nil, suffix: "\n\n", font: theme.bodyFont)
+                return RenderedContentResult(attributed: AttributedString(ns), table: nil, listItem: nil, blockquote: nil)
             }
             let text = snapshot.codeText ?? ""
-            return NSAttributedString(string: text)
+            return RenderedContentResult(attributed: AttributedString(text), table: nil, listItem: nil, blockquote: nil)
         }
     }
 
@@ -257,6 +244,85 @@ actor MarkdownRenderer {
             output.append(render(run: run, baseFont: font))
         }
         return output
+    }
+
+    private func renderListItem(snapshot: BlockSnapshot,
+                                 ordered: Bool,
+                                 index: Int?,
+                                 task: TaskListState?) -> RenderedContentResult {
+        let bulletText: String
+        if let task {
+            bulletText = task.checked ? "☑︎" : "☐"
+        } else if ordered {
+            let number = index ?? 1
+            bulletText = "\(number)."
+        } else {
+            bulletText = "•"
+        }
+
+        let body = renderInline(snapshot.inlineRuns ?? [], font: theme.bodyFont)
+        let rendered = NSMutableAttributedString(string: bulletText + " ", attributes: [.font: theme.bodyFont])
+        rendered.append(body)
+        rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont]))
+
+        let metadata = RenderedListItem(bullet: bulletText,
+                                        content: AttributedString(body),
+                                        ordered: ordered,
+                                        index: index,
+                                        task: task)
+
+        return RenderedContentResult(attributed: AttributedString(rendered),
+                                     table: nil,
+                                     listItem: metadata,
+                                     blockquote: nil)
+    }
+
+    private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
+        let body = renderInline(snapshot.inlineRuns ?? [], font: theme.bodyFont)
+        let paragraphStyle = makeBlockquoteParagraphStyle()
+        let lineColor = theme.blockquoteColor.withAlphaComponent(0.6)
+
+        let prefixAttributes: [NSAttributedString.Key: Any] = [
+            .font: theme.bodyFont,
+            .foregroundColor: lineColor,
+            .paragraphStyle: paragraphStyle
+        ]
+
+        let result = NSMutableAttributedString(string: "│ ", attributes: prefixAttributes)
+        let styledBody = NSMutableAttributedString(attributedString: body)
+        if styledBody.length > 0 {
+            styledBody.addAttributes(prefixAttributes, range: NSRange(location: 0, length: styledBody.length))
+        }
+        result.append(styledBody)
+
+        let mutableString = result.mutableString
+        let prefixLength = ("│ " as NSString).length
+        var searchLocation = prefixLength
+        while searchLocation < mutableString.length {
+            let range = mutableString.range(of: "\n", options: [], range: NSRange(location: searchLocation, length: mutableString.length - searchLocation))
+            if range.location == NSNotFound { break }
+            let insertLocation = range.location + range.length
+            result.insert(NSAttributedString(string: "│ ", attributes: prefixAttributes), at: insertLocation)
+            searchLocation = insertLocation + prefixLength
+        }
+
+        result.append(NSAttributedString(string: "\n", attributes: prefixAttributes))
+        result.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: result.length))
+
+        return RenderedContentResult(attributed: AttributedString(result),
+                                     table: nil,
+                                     listItem: nil,
+                                     blockquote: RenderedBlockquote(content: AttributedString(styledBody)))
+    }
+
+    private func makeBlockquoteParagraphStyle() -> NSMutableParagraphStyle {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineBreakMode = .byWordWrapping
+        paragraphStyle.firstLineHeadIndent = 0
+        paragraphStyle.headIndent = 0
+        paragraphStyle.paragraphSpacing = 8
+        paragraphStyle.paragraphSpacingBefore = 4
+        return paragraphStyle
     }
 
     private func renderTable(_ table: TableSnapshot?, font: PlatformFont) -> (NSAttributedString, RenderedTable?) {
@@ -363,6 +429,13 @@ actor MarkdownRenderer {
     }
 }
 
+private struct RenderedContentResult {
+    var attributed: AttributedString
+    var table: RenderedTable?
+    var listItem: RenderedListItem?
+    var blockquote: RenderedBlockquote?
+}
+
 private func boldFont(from base: PlatformFont) -> PlatformFont {
 #if canImport(UIKit)
     if let descriptor = base.fontDescriptor.withSymbolicTraits(.traitBold) {
@@ -386,12 +459,26 @@ struct RenderedBlock: Sendable, Identifiable {
     var content: AttributedString
     var snapshot: BlockSnapshot
     var table: RenderedTable?
+    var listItem: RenderedListItem?
+    var blockquote: RenderedBlockquote?
 }
 
 struct RenderedTable: Sendable, Equatable {
     var headers: [AttributedString]?
     var rows: [[AttributedString]]
     var alignments: [TableAlignment]?
+}
+
+struct RenderedListItem: Sendable, Equatable {
+    var bullet: String
+    var content: AttributedString
+    var ordered: Bool
+    var index: Int?
+    var task: TaskListState?
+}
+
+struct RenderedBlockquote: Sendable, Equatable {
+    var content: AttributedString
 }
 
 private extension PlatformColor {

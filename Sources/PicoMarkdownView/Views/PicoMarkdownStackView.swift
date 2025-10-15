@@ -27,33 +27,14 @@ public struct PicoMarkdownStackView: View {
         let bindable = Bindable(viewModel)
         VStack(alignment: .leading, spacing: 0) {
             let blocks = bindable.blocks.wrappedValue
-            ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
-                let previous = index > 0 ? blocks[index - 1] : nil
-                blockView(for: block, previous: previous)
+            let segments = buildSegments(from: blocks)
+            ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                let previousKind = index > 0 ? segments[index - 1].lastKind : nil
+                segmentView(segment, previousKind: previousKind)
             }
         }
         .task(id: input.id) {
             await viewModel.consume(input)
-        }
-    }
-
-    @ViewBuilder
-    private func blockView(for block: RenderedBlock, previous: RenderedBlock?) -> some View {
-        let spacing = bottomSpacing(for: block.kind)
-        let topPadding = topSpacing(for: block.kind, previous: previous?.kind)
-        if isHorizontalRule(block) {
-            Divider()
-                .padding(.top, max(topPadding, 6))
-                .padding(.bottom, max(spacing, 6))
-        } else if block.kind == .table, let table = block.table {
-            MarkdownTableView(table: table)
-                .padding(.top, topPadding)
-                .padding(.bottom, spacing)
-        } else {
-            Text(trimmedContent(for: block))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, topPadding)
-                .padding(.bottom, spacing)
         }
     }
 
@@ -65,6 +46,62 @@ public struct PicoMarkdownStackView: View {
             content.removeSubrange(previous..<end)
         }
         return content
+    }
+
+    private func buildSegments(from blocks: [RenderedBlock]) -> [RenderedSegment] {
+        var result: [RenderedSegment] = []
+        var index = 0
+        while index < blocks.count {
+            let block = blocks[index]
+            if block.kind.isListItem {
+                var group: [RenderedBlock] = []
+                while index < blocks.count, blocks[index].kind.isListItem {
+                    group.append(blocks[index])
+                    index += 1
+                }
+                result.append(.list(group))
+            } else {
+                result.append(.block(block))
+                index += 1
+            }
+        }
+        return result
+    }
+
+    @ViewBuilder
+    private func segmentView(_ segment: RenderedSegment, previousKind: BlockKind?) -> some View {
+        switch segment {
+        case .list(let items):
+            let firstKind = items.first?.kind ?? .listItem(ordered: false, index: nil, task: nil)
+            let lastKind = items.last?.kind ?? firstKind
+            MarkdownListGroupView(items: items)
+                .padding(.top, topSpacing(for: firstKind, previous: previousKind))
+                .padding(.bottom, bottomSpacing(for: lastKind))
+        case .block(let block):
+            let top = topSpacing(for: block.kind, previous: previousKind)
+            let bottom = bottomSpacing(for: block.kind)
+            let minTop = isHorizontalRule(block) ? max(top, 6) : top
+            let minBottom = isHorizontalRule(block) ? max(bottom, 6) : bottom
+            blockContent(for: block)
+                .padding(.top, minTop)
+                .padding(.bottom, minBottom)
+        }
+    }
+
+    @ViewBuilder
+    private func blockContent(for block: RenderedBlock) -> some View {
+        if isHorizontalRule(block) {
+            Divider()
+        } else if block.kind == .table, let table = block.table {
+            MarkdownTableView(table: table)
+        } else if block.listItem != nil {
+            MarkdownListGroupView(items: [block])
+        } else if let quote = block.blockquote {
+            MarkdownBlockquoteView(blockquote: quote)
+        } else {
+            Text(trimmedContent(for: block))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func isHorizontalRule(_ block: RenderedBlock) -> Bool {
@@ -190,4 +227,92 @@ private struct MarkdownTableView: View {
             return .trailing
         }
     }
+}
+
+private enum RenderedSegment: Identifiable {
+    case block(RenderedBlock)
+    case list([RenderedBlock])
+
+    var id: String {
+        switch self {
+        case .block(let block):
+            return "block_\(block.id)"
+        case .list(let blocks):
+            let identifier = blocks.map { String($0.id) }.joined(separator: "-")
+            return "list_\(identifier)"
+        }
+    }
+
+    var lastKind: BlockKind {
+        switch self {
+        case .block(let block):
+            return block.kind
+        case .list(let blocks):
+            return blocks.last?.kind ?? .listItem(ordered: false, index: nil, task: nil)
+        }
+    }
+}
+
+private struct MarkdownListGroupView: View {
+    var items: [RenderedBlock]
+
+    var body: some View {
+        VStack(alignment: .listBullet, spacing: 4) {
+            ForEach(items, id: \.id) { block in
+                if let item = block.listItem {
+                    MarkdownListRowView(item: item)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MarkdownListRowView: View {
+    var item: RenderedListItem
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(verbatim: item.bullet)
+                .alignmentGuide(.listBullet) { dimensions in
+                    dimensions[.trailing]
+                }
+            Text(item.content)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .alignmentGuide(.listBullet) { dimensions in
+                    dimensions[.leading]
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct MarkdownBlockquoteView: View {
+    var blockquote: RenderedBlockquote
+
+    var body: some View {
+        Text(blockquote.content)
+            .lineLimit(nil)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 12)
+            .padding(.vertical, 6)
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(Color.secondary.opacity(0.35))
+                    .frame(width: 3)
+                    .padding(.vertical, 6)
+            }
+    }
+}
+
+private extension HorizontalAlignment {
+    enum ListBulletAlignment: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat {
+            context[.leading]
+        }
+    }
+
+    static let listBullet = HorizontalAlignment(ListBulletAlignment.self)
 }
