@@ -7,6 +7,7 @@ struct InlineParser {
         case needMore
     }
     private var pending: String = ""
+    private var replacements = StreamingReplacementEngine()
 
     mutating func append(_ text: String) -> [InlineRun] {
         pending.append(text)
@@ -16,6 +17,7 @@ struct InlineParser {
     mutating func finish() -> [InlineRun] {
         let runs = consume(includeUnterminated: true)
         pending.removeAll(keepingCapacity: true)
+        replacements.reset()
         return runs
     }
 
@@ -29,9 +31,9 @@ struct InlineParser {
         var consumedEnd = text.startIndex
         var consumedAll = true
 
-        func appendPlain(_ substring: String) {
-            guard !substring.isEmpty else { return }
-            let newRuns = makePlainRuns(from: substring)
+        func appendProcessed(_ text: String) {
+            guard !text.isEmpty else { return }
+            let newRuns = makePlainRuns(from: text)
             guard !newRuns.isEmpty else { return }
             if let last = runs.last, last.style.isEmpty, last.linkURL == nil, last.image == nil,
                let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil, lastPlain.image == nil,
@@ -41,6 +43,12 @@ struct InlineParser {
             } else {
                 runs.append(contentsOf: newRuns)
             }
+        }
+
+        func appendPlain(_ substring: String) {
+            guard !substring.isEmpty else { return }
+            let transformed = replacements.process(substring)
+            appendProcessed(transformed)
         }
 
         func flushPlain(upTo end: String.Index) {
@@ -600,6 +608,11 @@ struct InlineParser {
         if includeUnterminated || consumedAll {
             flushPlain(upTo: text.endIndex)
             consumedEnd = text.endIndex
+        }
+
+        if includeUnterminated {
+            let trailing = replacements.finish()
+            appendProcessed(trailing)
         }
 
         if consumedEnd > text.startIndex {
