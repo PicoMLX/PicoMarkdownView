@@ -2,12 +2,8 @@ import Foundation
 
 #if canImport(UIKit)
 import UIKit
-typealias PlatformFont = UIFont
-typealias PlatformColor = UIColor
 #elseif canImport(AppKit)
 import AppKit
-typealias PlatformFont = NSFont
-typealias PlatformColor = NSColor
 #endif
 
 struct RenderedContentResult {

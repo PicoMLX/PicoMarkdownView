@@ -6,18 +6,18 @@ import UIKit
 import AppKit
 #endif
 
-struct MarkdownRenderTheme: @unchecked Sendable {
-    var bodyFont: PlatformFont
-    var codeFont: PlatformFont
-    var blockquoteColor: PlatformColor
-    var linkColor: PlatformColor
-    var headingFonts: [Int: PlatformFont]
+public struct MarkdownRenderTheme: @unchecked Sendable {
+    public var bodyFont: MarkdownFont
+    public var codeFont: MarkdownFont
+    public var blockquoteColor: MarkdownColor
+    public var linkColor: MarkdownColor
+    public var headingFonts: [Int: MarkdownFont]
 
-    init(bodyFont: PlatformFont,
-         codeFont: PlatformFont,
-         blockquoteColor: PlatformColor,
-         linkColor: PlatformColor,
-         headingFonts: [Int: PlatformFont]) {
+    public init(bodyFont: MarkdownFont,
+                codeFont: MarkdownFont,
+                blockquoteColor: MarkdownColor,
+                linkColor: MarkdownColor,
+                headingFonts: [Int: MarkdownFont]) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
@@ -25,7 +25,7 @@ struct MarkdownRenderTheme: @unchecked Sendable {
         self.headingFonts = headingFonts
     }
 
-    static func `default`() -> MarkdownRenderTheme {
+    public static func `default`() -> MarkdownRenderTheme {
 #if canImport(UIKit)
         let body = UIFont.preferredFont(forTextStyle: .body)
         let code = UIFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)

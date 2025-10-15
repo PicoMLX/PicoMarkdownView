@@ -11,16 +11,17 @@ public struct PicoMarkdownStackView: View {
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
     }
 
-    public init(text: String) {
-        self.init(input: .text(text), theme: .default())
+    public init(text: String, theme: MarkdownRenderTheme = .default()) {
+        self.init(input: .text(text), theme: theme)
     }
 
-    public init(chunks: [String]) {
-        self.init(input: .chunks(chunks), theme: .default())
+    public init(chunks: [String], theme: MarkdownRenderTheme = .default()) {
+        self.init(input: .chunks(chunks), theme: theme)
     }
 
-    public init(stream: @escaping @Sendable () async -> AsyncStream<String>) {
-        self.init(input: .stream(stream), theme: .default())
+    public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
+                theme: MarkdownRenderTheme = .default()) {
+        self.init(input: .stream(stream), theme: theme)
     }
 
     public var body: some View {
@@ -36,13 +37,7 @@ public struct PicoMarkdownStackView: View {
     }
 
     private func trimmedContent(for block: RenderedBlock) -> AttributedString {
-        var content = block.content
-        while let last = content.characters.last, last == "\n" {
-            let end = content.endIndex
-            let previous = content.index(beforeCharacter: end)
-            content.removeSubrange(previous..<end)
-        }
-        return content
+        trimTrailingNewlines(from: block.content)
     }
     private struct RenderContext {
         var listDepth: Int = 0
@@ -317,7 +312,7 @@ private struct MarkdownListRowView: View {
                     dimensions[.trailing]
                 }
                 .font(.body)
-            Text(trimmedContent(item.content))
+            Text(trimTrailingNewlines(from: item.content))
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .alignmentGuide(.listBullet) { dimensions in
@@ -328,7 +323,7 @@ private struct MarkdownListRowView: View {
     }
 }
 
-private func trimmedContent(_ content: AttributedString) -> AttributedString {
+private func trimTrailingNewlines(from content: AttributedString) -> AttributedString {
     var trimmed = content
     while let last = trimmed.characters.last, last == "\n" {
         trimmed.characters.removeLast()

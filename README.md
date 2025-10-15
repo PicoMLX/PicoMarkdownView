@@ -43,6 +43,31 @@ let config = PicoMarkdownViewConfiguration(
 PicoMarkdownView(stream: stream, configuration: config)
 ```
 
+### Custom Theme (Fonts & Colors)
+
+`MarkdownRenderTheme` lets you tune typography and colors across platforms using the shared `MarkdownFont` / `MarkdownColor` aliases (which map to `UIFont` on iOS and `NSFont` on macOS):
+
+```swift
+import PicoMarkdownView
+
+let theme = MarkdownRenderTheme(
+    bodyFont: MarkdownFont.preferredFont(forTextStyle: .body).withSize(18),
+    codeFont: MarkdownFont.monospacedSystemFont(ofSize: 16, weight: .regular),
+    blockquoteColor: MarkdownColor.secondaryLabel,
+    linkColor: MarkdownColor.systemBlue,
+    headingFonts: [
+        1: MarkdownFont.systemFont(ofSize: 30, weight: .bold),
+        2: MarkdownFont.systemFont(ofSize: 26, weight: .semibold),
+        3: MarkdownFont.systemFont(ofSize: 22, weight: .semibold)
+    ]
+)
+
+var body: some View {
+    PicoMarkdownStackView(text: markdown, theme: theme)
+    // or PicoMarkdownStackView(stream: streamFactory, theme: theme)
+}
+```
+
 ### Resetting Content
 
 ```swift
