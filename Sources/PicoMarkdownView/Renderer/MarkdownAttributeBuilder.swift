@@ -71,7 +71,8 @@ actor MarkdownAttributeBuilder {
         if let prefix {
             result.append(NSAttributedString(string: prefix, attributes: [.font: font]))
         }
-        let body = renderInline(snapshot.inlineRuns ?? [], font: font)
+        let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        let body = renderInline(bodyRuns, font: font)
         result.append(body)
         result.append(NSAttributedString(string: suffix, attributes: [.font: font]))
         return result
@@ -99,7 +100,8 @@ actor MarkdownAttributeBuilder {
             bulletText = "•"
         }
 
-        let body = renderInline(snapshot.inlineRuns ?? [], font: theme.bodyFont)
+        let runs = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        let body = renderInline(runs, font: theme.bodyFont)
         let rendered = NSMutableAttributedString(string: bulletText + " ", attributes: [.font: theme.bodyFont])
         rendered.append(body)
         rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont]))
@@ -117,7 +119,8 @@ actor MarkdownAttributeBuilder {
     }
 
     private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
-        let body = renderInline(snapshot.inlineRuns ?? [], font: theme.bodyFont)
+        let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        let body = renderInline(bodyRuns, font: theme.bodyFont)
         let paragraphStyle = makeBlockquoteParagraphStyle()
         let lineColor = theme.blockquoteColor.withAlphaComponent(0.6)
 
@@ -242,6 +245,21 @@ actor MarkdownAttributeBuilder {
         }
 
         return NSAttributedString(string: run.text, attributes: attributes)
+    }
+
+    private func sanitizeInlineRuns(_ runs: [InlineRun], kind: BlockKind) -> [InlineRun] {
+        guard !runs.isEmpty else { return runs }
+        switch kind {
+        case .paragraph, .heading, .listItem, .blockquote:
+            return runs.map { run in
+                guard run.text.contains("\n"), run.text != "\n" else { return run }
+                var copy = run
+                copy.text = run.text.replacingOccurrences(of: "\n", with: " ")
+                return copy
+            }
+        default:
+            return runs
+        }
     }
 
     private func font(for style: InlineStyle, baseFont: PlatformFont) -> PlatformFont {

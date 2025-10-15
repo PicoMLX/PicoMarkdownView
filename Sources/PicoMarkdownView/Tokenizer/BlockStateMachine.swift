@@ -28,6 +28,7 @@ struct StreamingParser {
         var headingPendingSuffix: String
         var eventStartIndex: Int
         var listIndent: Int
+        var pendingSoftBreak: Bool = false
     }
 
     private struct TableState {
@@ -415,6 +416,11 @@ struct StreamingParser {
                     closeCurrentBlock()
                 } else if force {
                     closeCurrentBlock()
+                } else if terminated {
+                    if !rawLine.hasSuffix("  ") {
+                        ctx.pendingSoftBreak = true
+                        setCurrentBlock(ctx)
+                    }
                 }
             case .heading:
                 closeCurrentBlock()
@@ -478,7 +484,12 @@ struct StreamingParser {
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote:
             if var parser = ctx.inlineParser {
-                let runs = parser.append(text)
+                var input = text
+                if ctx.kind == .paragraph, ctx.pendingSoftBreak {
+                    input = " " + input
+                    ctx.pendingSoftBreak = false
+                }
+                let runs = parser.append(input)
                 if !runs.isEmpty {
                     if let lastIndex = events.indices.last,
                        case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],

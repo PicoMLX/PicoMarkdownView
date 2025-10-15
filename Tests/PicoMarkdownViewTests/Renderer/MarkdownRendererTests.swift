@@ -102,8 +102,8 @@ struct MarkdownRendererTests {
 
         let snapshot = await assembler.block(blockID)
         let texts = snapshot.inlineRuns?.map(\.text) ?? []
-        Issue.record("inline runs: \(texts)")
-        #expect(texts.contains { $0.contains("\n") })
+        let joined = texts.joined()
+        #expect(joined.contains("Markdown-formatted document"))
 
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
