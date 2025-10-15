@@ -195,6 +195,8 @@ public struct PicoMarkdownStackView: View {
             return 8
         case .fencedCode:
             return 12
+        case .math:
+            return 12
         case .table:
             return 12
         case .unknown:
@@ -219,6 +221,8 @@ public struct PicoMarkdownStackView: View {
         case .paragraph:
             return previous == .paragraph ? 6 : 8
         case .fencedCode:
+            return 10
+        case .math:
             return 10
         case .table:
             return 12

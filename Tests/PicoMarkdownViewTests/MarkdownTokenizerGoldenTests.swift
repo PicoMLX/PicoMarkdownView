@@ -1381,6 +1381,105 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Inline math parsed from dollar delimiters")
+    func inlineMathDollarDelimiters() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("Energy $E=mc^2$ inline\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Energy "),
+                    mathInline("E=mc^2"),
+                    plain(" inline")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Inline math survives chunk splits")
+    func inlineMathAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Mass $m")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Mass ")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("c^2$")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [mathInline("mc^2")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let third = await tokenizer.feed(" equals energy\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain(" equals energy")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Display math via double dollars")
+    func displayMathDoubleDollars() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("$$\\int_0^1 x^2 dx$$\n\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.math(display: true)),
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx"),
+                .blockEnd(.math(display: true))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Math fences stream content across chunks")
+    func mathFencesStream() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("```math\n\\frac{a")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.math(display: true)),
+                .blockAppendMath(.math(display: true), textChunk: "\\frac{a")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("}{b}}\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendMath(.math(display: true), textChunk: "}{b}}\n")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let third = await tokenizer.feed("```\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockEnd(.math(display: true))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
 private struct ChunkExpectation: Sendable {
     var events: [EventShape]
     var openBlocks: [BlockKind] = []
@@ -1390,6 +1489,7 @@ private enum EventShape: Equatable {
     case blockStart(BlockKind)
     case blockAppendInline(BlockKind, runs: [InlineRunShape])
     case blockAppendFencedCode(BlockKind, textChunk: String)
+    case blockAppendMath(BlockKind, textChunk: String)
     case tableHeaderCandidate(BlockKind, cells: [InlineRunShape])
     case tableHeaderConfirmed(BlockKind, alignments: [TableAlignment])
     case tableAppendRow(BlockKind, cells: [[InlineRunShape]])
@@ -1402,6 +1502,7 @@ private struct InlineRunShape: Equatable {
     var linkURL: String?
     var imageSource: String?
     var imageTitle: String?
+    var math: MathShape?
 
     init(text: String, style: InlineStyle = [], linkURL: String? = nil, imageSource: String? = nil, imageTitle: String? = nil) {
         self.text = text
@@ -1409,6 +1510,7 @@ private struct InlineRunShape: Equatable {
         self.linkURL = linkURL
         self.imageSource = imageSource
         self.imageTitle = imageTitle
+        self.math = nil
     }
 
     init(_ run: InlineRun) {
@@ -1417,7 +1519,17 @@ private struct InlineRunShape: Equatable {
         self.linkURL = run.linkURL
         self.imageSource = run.image?.source
         self.imageTitle = run.image?.title
+        if let payload = run.math {
+            self.math = MathShape(tex: payload.tex, display: payload.display)
+        } else {
+            self.math = nil
+        }
     }
+}
+
+private struct MathShape: Equatable {
+    var tex: String
+    var display: Bool
 }
 
 private func plain(_ text: String) -> InlineRunShape {
@@ -1426,6 +1538,12 @@ private func plain(_ text: String) -> InlineRunShape {
 
 private func image(_ alt: String, source: String, title: String? = nil) -> InlineRunShape {
     InlineRunShape(text: alt, style: InlineStyle.image, imageSource: source, imageTitle: title)
+}
+
+private func mathInline(_ tex: String, display: Bool = false) -> InlineRunShape {
+    var shape = InlineRunShape(text: tex, style: InlineStyle.math)
+    shape.math = MathShape(tex: tex, display: display)
+    return shape
 }
 
 private struct EventNormalizationState {
@@ -1445,6 +1563,9 @@ private func normalizeEvents(_ events: [BlockEvent], state: inout EventNormaliza
         case .blockAppendFencedCode(let id, let text):
             let kind = state.map[id] ?? .unknown
             shapes.append(.blockAppendFencedCode(kind, textChunk: text))
+        case .blockAppendMath(let id, let text):
+            let kind = state.map[id] ?? .math(display: false)
+            shapes.append(.blockAppendMath(kind, textChunk: text))
         case .tableHeaderCandidate(let id, let cells):
             let kind = state.map[id] ?? .table
             shapes.append(.tableHeaderCandidate(kind, cells: cells.map(InlineRunShape.init)))
@@ -1508,6 +1629,7 @@ private func chunk(_ source: String, seed: Int) -> [String] {
 private enum BlockSummary: Equatable {
     case inline(kind: String, runs: [InlineRunShape])
     case fencedCode(language: String?, text: String)
+    case math(display: Bool, text: String)
     case table(header: [InlineRunShape], alignments: [TableAlignment], rows: [[[InlineRunShape]]])
 }
 
@@ -1533,6 +1655,8 @@ private func summarizeBlocks(from events: [EventShape]) -> [BlockSummary] {
             stack[stack.count - 1].inlineRuns.append(contentsOf: runs)
         case .blockAppendFencedCode(_, let textChunk):
             stack[stack.count - 1].fencedText.append(textChunk)
+        case .blockAppendMath(_, let textChunk):
+            stack[stack.count - 1].fencedText.append(textChunk)
         case .tableHeaderCandidate(_, let cells):
             stack[stack.count - 1].tableHeader = cells
         case .tableHeaderConfirmed(_, let alignments):
@@ -1544,6 +1668,8 @@ private func summarizeBlocks(from events: [EventShape]) -> [BlockSummary] {
             switch finished.kind {
             case .fencedCode(let language):
                 summaries.append(.fencedCode(language: language, text: finished.fencedText))
+        case .math(let display):
+            summaries.append(.math(display: display, text: finished.fencedText))
             case .table:
                 let normalizedRows = finished.tableRows.map { row in row.map(coalesceRuns) }
                 summaries.append(.table(header: finished.tableHeader.map { $0 }, alignments: finished.tableAlignments, rows: normalizedRows))
@@ -1560,7 +1686,11 @@ private func coalesceRuns(_ runs: [InlineRunShape]) -> [InlineRunShape] {
     guard var current = runs.first else { return [] }
     var result: [InlineRunShape] = []
     for run in runs.dropFirst() {
-        if run.styleRawValue == current.styleRawValue && run.linkURL == current.linkURL && run.imageSource == current.imageSource && run.imageTitle == current.imageTitle {
+        if run.styleRawValue == current.styleRawValue &&
+            run.linkURL == current.linkURL &&
+            run.imageSource == current.imageSource &&
+            run.imageTitle == current.imageTitle &&
+            run.math == current.math {
             current.text += run.text
         } else {
             result.append(current)
@@ -1591,6 +1721,8 @@ private func describe(_ kind: BlockKind) -> String {
         return "blockquote"
     case .fencedCode(let language):
         return "fencedCode:\(language ?? "")"
+    case .math(let display):
+        return "math:\(display ? "display" : "inline")"
     case .table:
         return "table"
     case .unknown:

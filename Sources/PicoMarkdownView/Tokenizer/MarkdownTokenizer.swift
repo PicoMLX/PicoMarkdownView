@@ -25,12 +25,28 @@ public struct InlineRun: Sendable, Equatable {
     public var style: InlineStyle
     public var linkURL: String?
     public var image: InlineImage?
+    public var math: MathInlinePayload?
 
-    public init(text: String, style: InlineStyle = [], linkURL: String? = nil, image: InlineImage? = nil) {
+    public init(text: String,
+                style: InlineStyle = [],
+                linkURL: String? = nil,
+                image: InlineImage? = nil,
+                math: MathInlinePayload? = nil) {
         self.text = text
         self.style = style
         self.linkURL = linkURL
         self.image = image
+        self.math = math
+    }
+}
+
+public struct MathInlinePayload: Sendable, Equatable {
+    public var tex: String
+    public var display: Bool
+
+    public init(tex: String, display: Bool) {
+        self.tex = tex
+        self.display = display
     }
 }
 
@@ -72,6 +88,7 @@ public enum BlockKind: Sendable, Equatable {
     case listItem(ordered: Bool, index: Int?, task: TaskListState?)
     case blockquote
     case fencedCode(language: String?)
+    case math(display: Bool)
     case table
     case unknown
 }
@@ -93,6 +110,7 @@ public enum BlockEvent: Sendable, Equatable {
     case blockStart(id: BlockID, kind: BlockKind)
     case blockAppendInline(id: BlockID, runs: [InlineRun])
     case blockAppendFencedCode(id: BlockID, textChunk: String)
+    case blockAppendMath(id: BlockID, textChunk: String)
     case tableHeaderCandidate(id: BlockID, cells: [InlineRun])
     case tableHeaderConfirmed(id: BlockID, alignments: [TableAlignment])
     case tableAppendRow(id: BlockID, cells: [[InlineRun]])

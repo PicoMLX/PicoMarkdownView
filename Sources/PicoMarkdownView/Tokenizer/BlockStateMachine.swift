@@ -43,6 +43,12 @@ struct StreamingParser {
         var language: String?
     }
 
+    private struct DisplayMathOpening {
+        var marker: String
+        var content: String
+        var closesOnSameLine: Bool
+    }
+
     private struct HeadingInfo {
         var level: Int
         var prefixLength: Int
@@ -143,6 +149,8 @@ struct StreamingParser {
             return lineBuffer.hasSuffix("  ")
         case .fencedCode:
             return !ctx.fenceJustOpened
+        case .math:
+            return !ctx.fenceJustOpened
         case .unknown:
             return !lineBuffer.isEmpty
         case .table:
@@ -165,6 +173,16 @@ struct StreamingParser {
         }
 
         if contextStack.isEmpty {
+            if let mathOpen = detectDisplayMathOpening(lineBuffer) {
+                if mathOpen.closesOnSameLine {
+                    emitSingleLineDisplayMath(content: mathOpen.content)
+                } else {
+                    openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                }
+                emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return
+            }
             if let fence = detectFenceOpening(lineBuffer) {
                 openFencedCode(fence)
                 emittedCount = lineBuffer.count
@@ -217,6 +235,17 @@ struct StreamingParser {
         if var ctx = currentBlock {
             switch ctx.kind {
         case .paragraph:
+                if let mathOpen = detectDisplayMathOpening(lineBuffer) {
+                    closeCurrentBlock()
+                    if mathOpen.closesOnSameLine {
+                        emitSingleLineDisplayMath(content: mathOpen.content)
+                    } else {
+                        openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                    }
+                    emittedCount = lineBuffer.count
+                    lineAnalyzed = true
+                    return
+                }
                 if let fence = detectFenceOpening(lineBuffer) {
                     closeCurrentBlock()
                     openFencedCode(fence)
@@ -288,6 +317,17 @@ struct StreamingParser {
                 // heading handled on first line only
                 break
             case .listItem:
+                if let mathOpen = detectDisplayMathOpening(lineBuffer) {
+                    closeCurrentBlock()
+                    if mathOpen.closesOnSameLine {
+                        emitSingleLineDisplayMath(content: mathOpen.content)
+                    } else {
+                        openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                    }
+                    emittedCount = lineBuffer.count
+                    lineAnalyzed = true
+                    return
+                }
                 if let list = detectList(lineBuffer) {
                     closeListContexts(deeperThan: list.indent)
 
@@ -353,6 +393,17 @@ struct StreamingParser {
                     setCurrentBlock(current)
                 }
             case .blockquote:
+                if let mathOpen = detectDisplayMathOpening(lineBuffer) {
+                    closeCurrentBlock()
+                    if mathOpen.closesOnSameLine {
+                        emitSingleLineDisplayMath(content: mathOpen.content)
+                    } else {
+                        openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                    }
+                    emittedCount = lineBuffer.count
+                    lineAnalyzed = true
+                    return
+                }
                 if let quote = detectBlockquote(lineBuffer) {
                     ctx.linePrefixToStrip = quote.prefixLength
                     setCurrentBlock(ctx)
@@ -363,6 +414,8 @@ struct StreamingParser {
                     ctx.linePrefixToStrip = 0
                     setCurrentBlock(ctx)
                 }
+            case .math:
+                break
             case .fencedCode:
                 break
             case .table:
@@ -387,6 +440,13 @@ struct StreamingParser {
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         if case .fencedCode = context.kind,
+           !context.fenceJustOpened,
+           isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
+            emittedCount = lineBuffer.count
+            setCurrentBlock(context)
+            return
+        }
+        if case .math = context.kind,
            !context.fenceJustOpened,
            isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
             emittedCount = lineBuffer.count
@@ -452,6 +512,10 @@ struct StreamingParser {
                     closeCurrentBlock()
                 }
             case .fencedCode:
+                if (!ctx.fenceJustOpened && isClosingFence(trimmed, fence: ctx.fenceInfo)) || force {
+                    closeCurrentBlock()
+                }
+            case .math:
                 if (!ctx.fenceJustOpened && isClosingFence(trimmed, fence: ctx.fenceInfo)) || force {
                     closeCurrentBlock()
                 }
@@ -544,6 +608,17 @@ struct StreamingParser {
                 }
             } else {
                 events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+            }
+            ctx.fenceJustOpened = false
+        case .math:
+            if let lastIndex = events.indices.last {
+                if case .blockAppendMath(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
+                    events[lastIndex] = .blockAppendMath(id: ctx.id, textChunk: existingText + text)
+                } else {
+                    events.append(.blockAppendMath(id: ctx.id, textChunk: text))
+                }
+            } else {
+                events.append(.blockAppendMath(id: ctx.id, textChunk: text))
             }
             ctx.fenceJustOpened = false
         case .table:
@@ -768,9 +843,11 @@ struct StreamingParser {
     }
 
     private mutating func openFencedCode(_ fence: FenceInfo) {
-        let context = BlockContext(
+        let isMath = MarkdownMath.isMathLanguage(fence.language)
+        let kind: BlockKind = isMath ? .math(display: true) : .fencedCode(language: fence.language)
+        var context = BlockContext(
             id: nextID,
-            kind: .fencedCode(language: fence.language),
+            kind: kind,
             inlineParser: nil,
             tableState: nil,
             fenceInfo: fence,
@@ -782,8 +859,13 @@ struct StreamingParser {
             listIndent: 0
         )
         nextID &+= 1
-        events.append(.blockStart(id: context.id, kind: .fencedCode(language: fence.language)))
+        events.append(.blockStart(id: context.id, kind: kind))
         pushBlock(context)
+        if isMath {
+            context = currentBlock ?? context
+            context.fenceJustOpened = true
+            setCurrentBlock(context)
+        }
     }
 
     private mutating func openTable(_ line: String) {
@@ -820,6 +902,71 @@ struct StreamingParser {
         guard marker.count >= 3 else { return nil }
         let info = trimmed[index...].trimmingCharacters(in: .whitespaces)
         return FenceInfo(marker: marker, language: info.isEmpty ? nil : info)
+    }
+
+    private func detectDisplayMathOpening(_ line: String) -> DisplayMathOpening? {
+        guard !line.isEmpty else { return nil }
+        var index = line.startIndex
+        var indent = 0
+        while index < line.endIndex && indent < 4 {
+            let ch = line[index]
+            if ch == " " {
+                indent += 1
+                index = line.index(after: index)
+            } else {
+                break
+            }
+        }
+        guard indent <= 3 else { return nil }
+        guard index < line.endIndex else { return nil }
+        guard line[index...].hasPrefix("$$") else { return nil }
+        let contentStart = line.index(index, offsetBy: 2)
+        guard contentStart <= line.endIndex else { return nil }
+        let remainder = line[contentStart...]
+        if remainder.isEmpty {
+            return DisplayMathOpening(marker: "$$", content: "", closesOnSameLine: false)
+        }
+        if let closingRange = remainder.range(of: "$$") {
+            let afterClose = remainder[closingRange.upperBound...].trimmingCharacters(in: .whitespaces)
+            guard afterClose.isEmpty else { return nil }
+            let inner = remainder[..<closingRange.lowerBound]
+            return DisplayMathOpening(marker: "$$", content: String(inner), closesOnSameLine: true)
+        } else {
+            return DisplayMathOpening(marker: "$$", content: String(remainder), closesOnSameLine: false)
+        }
+    }
+
+    private mutating func emitSingleLineDisplayMath(content: String) {
+        let blockID = nextID
+        nextID &+= 1
+        let kind: BlockKind = .math(display: true)
+        events.append(.blockStart(id: blockID, kind: kind))
+        if !content.isEmpty {
+            events.append(.blockAppendMath(id: blockID, textChunk: content))
+        }
+        events.append(.blockEnd(id: blockID))
+    }
+
+    private mutating func openDisplayMathBlock(marker: String, initialContent: String) {
+        let context = BlockContext(
+            id: nextID,
+            kind: .math(display: true),
+            inlineParser: nil,
+            tableState: nil,
+            fenceInfo: FenceInfo(marker: marker, language: "math"),
+            literal: "",
+            fenceJustOpened: true,
+            linePrefixToStrip: 0,
+            headingPendingSuffix: "",
+            eventStartIndex: events.count,
+            listIndent: 0
+        )
+        nextID &+= 1
+        events.append(.blockStart(id: context.id, kind: .math(display: true)))
+        pushBlock(context)
+        if !initialContent.isEmpty {
+            appendToCurrent(initialContent)
+        }
     }
 
     private func isClosingFence(_ line: String, fence: FenceInfo?) -> Bool {

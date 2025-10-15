@@ -8,6 +8,18 @@ struct InlineParser {
     }
     private var pending: String = ""
     private var replacements = StreamingReplacementEngine()
+    private var mathState: InlineMathState?
+
+    private struct InlineMathState {
+        enum Delimiter {
+            case dollar(count: Int, display: Bool)
+            case command(closing: Character, display: Bool)
+        }
+
+        var delimiter: Delimiter
+        var startOffset: Int
+        var contentOffset: Int
+    }
 
     mutating func append(_ text: String) -> [InlineRun] {
         pending.append(text)
@@ -18,6 +30,7 @@ struct InlineParser {
         let runs = consume(includeUnterminated: true)
         pending.removeAll(keepingCapacity: true)
         replacements.reset()
+        mathState = nil
         return runs
     }
 
@@ -81,6 +94,21 @@ struct InlineParser {
             }
             guard current < text.endIndex else { return nil }
             return text[current]
+        }
+
+        func offset(of index: String.Index) -> Int {
+            text.distance(from: text.startIndex, to: index)
+        }
+
+        func indexForOffset(_ offset: Int) -> String.Index {
+            text.index(text.startIndex, offsetBy: offset)
+        }
+
+        func appendMathRun(_ tex: String, display: Bool) {
+            let run = InlineRun(text: tex,
+                                 style: [.math],
+                                 math: MathInlinePayload(tex: tex, display: display))
+            runs.append(run)
         }
 
         func canOpenEmphasis(at index: String.Index, delimiter: Character, length: Int) -> Bool {
@@ -395,6 +423,42 @@ struct InlineParser {
             switch ch {
             case "\\":
                 let nextIndex = text.index(after: index)
+                if let state = mathState {
+                    switch state.delimiter {
+                    case .command(let closing, let display):
+                        if nextIndex < text.endIndex, text[nextIndex] == closing {
+                            let contentStart = indexForOffset(state.contentOffset)
+                            let inner = contentStart <= index ? String(text[contentStart..<index]) : ""
+                            appendMathRun(inner, display: display)
+                            let afterClose = text.index(after: nextIndex)
+                            consumedEnd = afterClose
+                            index = afterClose
+                            plainStart = afterClose
+                            mathState = nil
+                            continue parsing
+                        }
+                    default:
+                        break
+                    }
+                }
+                if mathState == nil, nextIndex < text.endIndex {
+                    let nextChar = text[nextIndex]
+                    if nextChar == "(" || nextChar == "[" {
+                        flushPlain(upTo: index)
+                        let display = nextChar == "["
+                        let startOffset = offset(of: index)
+                    let contentOffset = startOffset + 2
+                        mathState = InlineMathState(
+                        delimiter: .command(closing: nextChar == "(" ? ")" : "]", display: display),
+                            startOffset: startOffset,
+                            contentOffset: contentOffset
+                        )
+                        let contentIndex = text.index(after: nextIndex)
+                        plainStart = contentIndex
+                        index = contentIndex
+                        continue parsing
+                    }
+                }
                 if nextIndex >= text.endIndex {
                     if includeUnterminated {
                         plainStart = index
@@ -411,6 +475,56 @@ struct InlineParser {
                 consumedEnd = after
                 index = after
                 plainStart = after
+            case "$":
+                if let prev = character(before: index), prev == "\\" {
+                    index = text.index(after: index)
+                    continue parsing
+                }
+                if let state = mathState {
+                    switch state.delimiter {
+                    case .dollar(let count, let display):
+                        var length = 0
+                        var cursor = index
+                        while cursor < text.endIndex, text[cursor] == "$", length < count {
+                            length += 1
+                            cursor = text.index(after: cursor)
+                        }
+                        if length == count {
+                            let contentStart = indexForOffset(state.contentOffset)
+                            let inner = contentStart <= index ? String(text[contentStart..<index]) : ""
+                            appendMathRun(inner, display: display)
+                            consumedEnd = cursor
+                            index = cursor
+                            plainStart = cursor
+                            mathState = nil
+                            continue parsing
+                        }
+                    default:
+                        break
+                    }
+                } else {
+                    var length = 1
+                    var cursor = text.index(after: index)
+                    while cursor < text.endIndex, text[cursor] == "$" && length < 2 {
+                        length += 1
+                        cursor = text.index(after: cursor)
+                    }
+                    let display = length >= 2
+                    let markerLength = display ? 2 : 1
+                    flushPlain(upTo: index)
+                    let startOffset = offset(of: index)
+                    let contentOffset = startOffset + markerLength
+                    mathState = InlineMathState(
+                        delimiter: .dollar(count: markerLength, display: display),
+                        startOffset: startOffset,
+                        contentOffset: contentOffset
+                    )
+                    let contentIndex = text.index(index, offsetBy: markerLength)
+                    plainStart = contentIndex
+                    index = contentIndex
+                    continue parsing
+                }
+                index = text.index(after: index)
             case "!":
                 let nextIndex = text.index(after: index)
                 guard nextIndex < text.endIndex else {
@@ -605,6 +719,18 @@ struct InlineParser {
             }
         }
 
+        if mathState != nil {
+            consumedAll = false
+        }
+
+        if includeUnterminated, let state = mathState {
+            let mathStartIndex = indexForOffset(max(0, state.startOffset))
+            if plainStart > mathStartIndex {
+                plainStart = mathStartIndex
+            }
+            mathState = nil
+        }
+
         if includeUnterminated || consumedAll {
             flushPlain(upTo: text.endIndex)
             consumedEnd = text.endIndex
@@ -618,6 +744,11 @@ struct InlineParser {
         if consumedEnd > text.startIndex {
             let consumedCount = text.distance(from: text.startIndex, to: consumedEnd)
             pending.removeFirst(consumedCount)
+            if var state = mathState {
+                state.startOffset = max(0, state.startOffset - consumedCount)
+                state.contentOffset = max(0, state.contentOffset - consumedCount)
+                mathState = state
+            }
         }
 
         runs.removeAll(where: { $0.text.isEmpty && $0.style.isEmpty && $0.linkURL == nil && $0.image == nil })

@@ -81,6 +81,16 @@ public actor MarkdownAssembler {
                     approximateBytes += addedBytes
                     changes.append(.codeAppended(id: id, addedBytes: addedBytes))
                 }
+            case .blockAppendMath(let id, let textChunk):
+                guard let index = indexByID[id] else { continue }
+                var entry = blocks[index]
+                if entry.isClosed { continue }
+                let addedBytes = entry.appendMath(textChunk)
+                blocks[index] = entry
+                if addedBytes > 0 {
+                    approximateBytes += addedBytes
+                    changes.append(.codeAppended(id: id, addedBytes: addedBytes))
+                }
 
             case .tableHeaderCandidate(let id, let cells):
                 guard let index = indexByID[id] else { continue }
@@ -254,6 +264,7 @@ private struct BlockEntry {
     var kind: BlockKind
     var inlineRuns: [InlineRun]
     var codeText: String
+    var mathText: String
     var table: TableState?
     var isClosed: Bool
     var approxBytes: Int
@@ -266,6 +277,7 @@ private struct BlockEntry {
         self.kind = kind
         inlineRuns = []
         codeText = ""
+        mathText = ""
         table = nil
         isClosed = false
         approxBytes = 0
@@ -294,6 +306,14 @@ private struct BlockEntry {
     mutating func appendFencedCode(_ text: String) -> Int {
         guard !text.isEmpty else { return 0 }
         codeText.append(text)
+        let bytes = text.utf8.count
+        approxBytes += bytes
+        return bytes
+    }
+
+    mutating func appendMath(_ text: String) -> Int {
+        guard !text.isEmpty else { return 0 }
+        mathText.append(text)
         let bytes = text.utf8.count
         approxBytes += bytes
         return bytes
@@ -357,6 +377,7 @@ private struct BlockEntry {
             kind: kind,
             inlineRuns: inlineRuns.isEmpty ? nil : inlineRuns,
             codeText: codeText.isEmpty ? nil : codeText,
+            mathText: mathText.isEmpty ? nil : mathText,
             table: tableSnapshot,
             isClosed: isClosed,
             parentID: parentID,

@@ -137,6 +137,7 @@ actor MarkdownRenderer {
         blocks[index].table = rendered.table
         blocks[index].listItem = rendered.listItem
         blocks[index].blockquote = rendered.blockquote
+        blocks[index].math = rendered.math
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -168,7 +169,8 @@ actor MarkdownRenderer {
                              snapshot: snapshot,
                              table: rendered.table,
                              listItem: rendered.listItem,
-                             blockquote: rendered.blockquote)
+                             blockquote: rendered.blockquote,
+                             math: rendered.math)
     }
 }
 
@@ -180,6 +182,7 @@ struct RenderedBlock: Sendable, Identifiable {
     var table: RenderedTable?
     var listItem: RenderedListItem?
     var blockquote: RenderedBlockquote?
+    var math: RenderedMath?
 }
 
 struct RenderedTable: Sendable, Equatable {
@@ -198,4 +201,9 @@ struct RenderedListItem: Sendable, Equatable {
 
 struct RenderedBlockquote: Sendable, Equatable {
     var content: AttributedString
+}
+
+struct RenderedMath: Sendable, Equatable {
+    var tex: String
+    var display: Bool
 }

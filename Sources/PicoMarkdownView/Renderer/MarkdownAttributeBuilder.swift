@@ -11,6 +11,7 @@ struct RenderedContentResult {
     var table: RenderedTable?
     var listItem: RenderedListItem?
     var blockquote: RenderedBlockquote?
+    var math: RenderedMath?
 }
 
 actor MarkdownAttributeBuilder {
@@ -27,7 +28,8 @@ actor MarkdownAttributeBuilder {
             return RenderedContentResult(attributed: AttributedString(fallback),
                                         table: table,
                                         listItem: nil,
-                                        blockquote: nil)
+                                        blockquote: nil,
+                                        math: nil)
         case .listItem(let ordered, let index, let task):
             return renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
         case .blockquote:
@@ -43,14 +45,16 @@ actor MarkdownAttributeBuilder {
             return RenderedContentResult(attributed: AttributedString(content),
                                         table: nil,
                                         listItem: nil,
-                                        blockquote: nil)
+                                        blockquote: nil,
+                                        math: nil)
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
             let ns = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
-                                        blockquote: nil)
+                                        blockquote: nil,
+                                        math: nil)
         case .paragraph:
             fallthrough
         case .unknown:
@@ -59,7 +63,17 @@ actor MarkdownAttributeBuilder {
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
-                                        blockquote: nil)
+                                        blockquote: nil,
+                                        math: nil)
+        case .math(let display):
+            let tex = snapshot.mathText ?? snapshot.inlineRuns?.map { $0.text }.joined() ?? ""
+            let suffix = display ? "\n\n" : ""
+            let attributed = AttributedString(tex + suffix)
+            return RenderedContentResult(attributed: attributed,
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: RenderedMath(tex: tex, display: display))
         }
     }
 
@@ -115,7 +129,8 @@ actor MarkdownAttributeBuilder {
         return RenderedContentResult(attributed: AttributedString(rendered),
                                     table: nil,
                                     listItem: metadata,
-                                    blockquote: nil)
+                                    blockquote: nil,
+                                    math: nil)
     }
 
     private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
@@ -154,7 +169,8 @@ actor MarkdownAttributeBuilder {
         return RenderedContentResult(attributed: AttributedString(result),
                                     table: nil,
                                     listItem: nil,
-                                    blockquote: RenderedBlockquote(content: AttributedString(styledBody)))
+                                    blockquote: RenderedBlockquote(content: AttributedString(styledBody)),
+                                    math: nil)
     }
 
     private func makeBlockquoteParagraphStyle() -> NSMutableParagraphStyle {
@@ -253,6 +269,7 @@ actor MarkdownAttributeBuilder {
         case .paragraph, .heading, .listItem, .blockquote:
             return runs.map { run in
                 guard run.text.contains("\n"), run.text != "\n" else { return run }
+                guard !run.style.contains(.math) else { return run }
                 var copy = run
                 copy.text = run.text.replacingOccurrences(of: "\n", with: " ")
                 return copy
