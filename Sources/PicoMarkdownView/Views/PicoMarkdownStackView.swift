@@ -55,9 +55,15 @@ public struct PicoMarkdownStackView: View {
         var cache: [BlockID: RenderContext] = [:]
 
         @discardableResult
-        func context(for block: RenderedBlock) -> RenderContext {
+        func context(for block: RenderedBlock, visited: Set<BlockID> = []) -> RenderContext {
             if let cached = cache[block.id] {
                 return cached
+            }
+
+            if visited.contains(block.id) {
+                let root = RenderContext()
+                cache[block.id] = root
+                return root
             }
 
             guard let parentID = block.snapshot.parentID,
@@ -67,7 +73,7 @@ public struct PicoMarkdownStackView: View {
                 return root
             }
 
-            let parentContext = context(for: parent)
+            let parentContext = context(for: parent, visited: visited.union([block.id]))
             let listDepth = parentContext.listDepth + (parent.kind.isListItem ? 1 : 0)
             let quoteDepth = parentContext.quoteDepth + (parent.kind.isBlockquote ? 1 : 0)
             let context = RenderContext(listDepth: listDepth, quoteDepth: quoteDepth)
