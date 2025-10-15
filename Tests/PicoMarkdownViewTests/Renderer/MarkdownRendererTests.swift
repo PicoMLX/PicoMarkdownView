@@ -73,4 +73,40 @@ struct MarkdownRendererTests {
         let result = await renderer.apply(diff)
         #expect(result == nil)
     }
+
+    @Test("Paragraph soft line breaks emit spaces")
+    func paragraphSoftBreaksEmitSpaces() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let sample = "Readability, however, is emphasized above all else. A Markdown-formatted\ndocument should be publishable as-is.\n\n"
+        let chunk = await tokenizer.feed(sample)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        guard let firstEvent = chunk.events.first else {
+            Issue.record("Missing events")
+            return
+        }
+        let blockID: BlockID
+        switch firstEvent {
+        case .blockStart(let id, _):
+            blockID = id
+        default:
+            Issue.record("Unexpected first event: \(firstEvent)")
+            return
+        }
+
+        let snapshot = await assembler.block(blockID)
+        let texts = snapshot.inlineRuns?.map(\.text) ?? []
+        Issue.record("inline runs: \(texts)")
+        #expect(texts.contains { $0.contains("\n") })
+
+        let output = await renderer.currentAttributedString()
+        let rendered = String(output.characters)
+        #expect(rendered.contains("Markdown-formatted document"))
+    }
 }
