@@ -193,7 +193,7 @@ public struct PicoMarkdownStackView: View {
         case .heading(let level):
             return level <= 2 ? 8 : 6
         case .listItem:
-            return 2
+            return 4
         case .blockquote:
             return 8
         case .paragraph:
@@ -218,7 +218,7 @@ public struct PicoMarkdownStackView: View {
             default: return previous.isHeading ? 8 : 12
             }
         case .listItem:
-            return previous.isListItem ? 1 : 4
+            return previous.isListItem ? 2 : 6
         case .blockquote:
             return 8
         case .paragraph:
@@ -317,7 +317,7 @@ private struct MarkdownListRowView: View {
                     dimensions[.trailing]
                 }
                 .font(.body)
-            Text(item.content)
+            Text(trimmedContent(item.content))
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .alignmentGuide(.listBullet) { dimensions in
@@ -326,6 +326,14 @@ private struct MarkdownListRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+}
+
+private func trimmedContent(_ content: AttributedString) -> AttributedString {
+    var trimmed = content
+    while let last = trimmed.characters.last, last == "\n" {
+        trimmed.characters.removeLast()
+    }
+    return trimmed
 }
 
 private extension HorizontalAlignment {
