@@ -193,7 +193,7 @@ public struct PicoMarkdownStackView: View {
         case .heading(let level):
             return level <= 2 ? 8 : 6
         case .listItem:
-            return 4
+            return 2
         case .blockquote:
             return 8
         case .paragraph:
@@ -218,7 +218,7 @@ public struct PicoMarkdownStackView: View {
             default: return previous.isHeading ? 8 : 12
             }
         case .listItem:
-            return previous.isListItem ? 2 : 6
+            return previous.isListItem ? 1 : 4
         case .blockquote:
             return 8
         case .paragraph:
@@ -316,6 +316,7 @@ private struct MarkdownListRowView: View {
                 .alignmentGuide(.listBullet) { dimensions in
                     dimensions[.trailing]
                 }
+                .font(.body)
             Text(item.content)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
