@@ -27,11 +27,8 @@ public struct PicoMarkdownStackView: View {
         let bindable = Bindable(viewModel)
         VStack(alignment: .leading, spacing: 0) {
             let blocks = bindable.blocks.wrappedValue
-            let segments = buildSegments(from: blocks)
-            ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
-                let previousKind = index > 0 ? segments[index - 1].lastKind : nil
-                segmentView(segment, previousKind: previousKind)
-            }
+            let contexts = buildContexts(for: blocks)
+            renderBlocks(blocks, contexts: contexts)
         }
         .task(id: input.id) {
             await viewModel.consume(input)
@@ -47,61 +44,125 @@ public struct PicoMarkdownStackView: View {
         }
         return content
     }
+    private struct RenderContext {
+        var listDepth: Int = 0
+        var quoteDepth: Int = 0
+    }
 
-    private func buildSegments(from blocks: [RenderedBlock]) -> [RenderedSegment] {
-        var result: [RenderedSegment] = []
-        var index = 0
-        while index < blocks.count {
-            let block = blocks[index]
-            if block.kind.isListItem {
-                var group: [RenderedBlock] = []
-                while index < blocks.count, blocks[index].kind.isListItem {
-                    group.append(blocks[index])
-                    index += 1
-                }
-                result.append(.list(group))
-            } else {
-                result.append(.block(block))
-                index += 1
+    private func buildContexts(for blocks: [RenderedBlock]) -> [BlockID: RenderContext] {
+        guard !blocks.isEmpty else { return [:] }
+        let map = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+        var cache: [BlockID: RenderContext] = [:]
+
+        @discardableResult
+        func context(for block: RenderedBlock) -> RenderContext {
+            if let cached = cache[block.id] {
+                return cached
             }
+
+            guard let parentID = block.snapshot.parentID,
+                  let parent = map[parentID] else {
+                let root = RenderContext()
+                cache[block.id] = root
+                return root
+            }
+
+            let parentContext = context(for: parent)
+            let listDepth = parentContext.listDepth + (parent.kind.isListItem ? 1 : 0)
+            let quoteDepth = parentContext.quoteDepth + (parent.kind.isBlockquote ? 1 : 0)
+            let context = RenderContext(listDepth: listDepth, quoteDepth: quoteDepth)
+            cache[block.id] = context
+            return context
         }
-        return result
+
+        for block in blocks {
+            _ = context(for: block)
+        }
+
+        return cache
     }
 
-    @ViewBuilder
-    private func segmentView(_ segment: RenderedSegment, previousKind: BlockKind?) -> some View {
-        switch segment {
-        case .list(let items):
-            let firstKind = items.first?.kind ?? .listItem(ordered: false, index: nil, task: nil)
-            let lastKind = items.last?.kind ?? firstKind
-            MarkdownListGroupView(items: items)
-                .padding(.top, topSpacing(for: firstKind, previous: previousKind))
-                .padding(.bottom, bottomSpacing(for: lastKind))
-        case .block(let block):
-            let top = topSpacing(for: block.kind, previous: previousKind)
-            let bottom = bottomSpacing(for: block.kind)
-            let minTop = isHorizontalRule(block) ? max(top, 6) : top
-            let minBottom = isHorizontalRule(block) ? max(bottom, 6) : bottom
-            blockContent(for: block)
-                .padding(.top, minTop)
-                .padding(.bottom, minBottom)
+    private func renderBlocks(_ blocks: [RenderedBlock], contexts: [BlockID: RenderContext]) -> AnyView {
+        AnyView(
+            ForEach(Array(blocks.enumerated()), id: \.element.id) { pair in
+                let index = pair.offset
+                let block = pair.element
+                let context = contexts[block.id] ?? RenderContext()
+                let previousKind = index == 0 ? nil : blocks[index - 1].kind
+                renderBlock(block, context: context, previousKind: previousKind)
+            }
+        )
+    }
+
+    private func renderBlock(_ block: RenderedBlock,
+                             context: RenderContext,
+                             previousKind: BlockKind?) -> AnyView {
+        let base = baseView(for: block, context: context)
+        let overlayDepth = context.quoteDepth + (block.kind.isBlockquote ? 1 : 0)
+        let withOverlay = applyBlockquoteOverlay(to: base, depth: overlayDepth)
+        let top = topSpacing(for: block.kind, previous: previousKind)
+        let bottom = bottomSpacing(for: block.kind)
+        let adjustedTop = isHorizontalRule(block) ? max(top, 6) : top
+        let adjustedBottom = isHorizontalRule(block) ? max(bottom, 6) : bottom
+        return AnyView(
+            withOverlay
+                .padding(.top, adjustedTop)
+                .padding(.bottom, adjustedBottom)
+        )
+    }
+
+    private func baseView(for block: RenderedBlock, context: RenderContext) -> AnyView {
+        switch block.kind {
+        case .listItem:
+            if let item = block.listItem {
+                return AnyView(
+                    MarkdownListRowView(item: item)
+                        .padding(.leading, CGFloat(context.listDepth) * 20)
+                )
+            }
+            return AnyView(EmptyView())
+        case .table:
+            if let table = block.table {
+                return AnyView(MarkdownTableView(table: table))
+            }
+            return AnyView(EmptyView())
+        case .blockquote:
+            if let quote = block.blockquote {
+                return AnyView(
+                    Text(quote.content)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                )
+            }
+            fallthrough
+        default:
+            return AnyView(
+                Text(trimmedContent(for: block))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            )
         }
     }
 
-    @ViewBuilder
-    private func blockContent(for block: RenderedBlock) -> some View {
-        if isHorizontalRule(block) {
-            Divider()
-        } else if block.kind == .table, let table = block.table {
-            MarkdownTableView(table: table)
-        } else if block.listItem != nil {
-            MarkdownListGroupView(items: [block])
-        } else if let quote = block.blockquote {
-            MarkdownBlockquoteView(blockquote: quote)
-        } else {
-            Text(trimmedContent(for: block))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
+    private func applyBlockquoteOverlay(to view: AnyView, depth: Int) -> AnyView {
+        guard depth > 0 else { return view }
+        let inset = CGFloat(depth) * 12
+        return AnyView(
+            view
+                .padding(.leading, inset)
+                .overlay(alignment: .leading) {
+                    HStack(spacing: 12) {
+                        ForEach(0..<depth, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 1.5)
+                                .fill(Color.secondary.opacity(0.35))
+                                .frame(width: 3)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 6)
+                }
+        )
     }
 
     private func isHorizontalRule(_ block: RenderedBlock) -> Bool {
@@ -170,6 +231,11 @@ private extension BlockKind {
         if case .listItem = self { return true }
         return false
     }
+
+    var isBlockquote: Bool {
+        if case .blockquote = self { return true }
+        return false
+    }
 }
 
 private struct MarkdownTableView: View {
@@ -229,45 +295,6 @@ private struct MarkdownTableView: View {
     }
 }
 
-private enum RenderedSegment: Identifiable {
-    case block(RenderedBlock)
-    case list([RenderedBlock])
-
-    var id: String {
-        switch self {
-        case .block(let block):
-            return "block_\(block.id)"
-        case .list(let blocks):
-            let identifier = blocks.map { String($0.id) }.joined(separator: "-")
-            return "list_\(identifier)"
-        }
-    }
-
-    var lastKind: BlockKind {
-        switch self {
-        case .block(let block):
-            return block.kind
-        case .list(let blocks):
-            return blocks.last?.kind ?? .listItem(ordered: false, index: nil, task: nil)
-        }
-    }
-}
-
-private struct MarkdownListGroupView: View {
-    var items: [RenderedBlock]
-
-    var body: some View {
-        VStack(alignment: .listBullet, spacing: 4) {
-            ForEach(items, id: \.id) { block in
-                if let item = block.listItem {
-                    MarkdownListRowView(item: item)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 private struct MarkdownListRowView: View {
     var item: RenderedListItem
 
@@ -285,25 +312,6 @@ private struct MarkdownListRowView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-}
-
-private struct MarkdownBlockquoteView: View {
-    var blockquote: RenderedBlockquote
-
-    var body: some View {
-        Text(blockquote.content)
-            .lineLimit(nil)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 12)
-            .padding(.vertical, 6)
-            .overlay(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.secondary.opacity(0.35))
-                    .frame(width: 3)
-                    .padding(.vertical, 6)
-            }
     }
 }
 

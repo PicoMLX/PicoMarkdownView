@@ -27,6 +27,7 @@ public actor MarkdownAssembler {
     private var documentVersion: UInt64 = 0
     private var closedBlockCount: Int = 0
     private var approximateBytes: Int = 0
+    private var openStack: [BlockID] = []
 
     public init(config: AssemblerConfig = AssemblerConfig()) {
         self.config = config
@@ -40,7 +41,9 @@ public actor MarkdownAssembler {
             switch event {
             case .blockStart(let id, let kind):
                 let position = insertionPosition(for: id, finalOpenIDs: finalOpenIDs)
-                let entry = BlockEntry(id: id, kind: kind)
+                let parentID = openStack.last
+                let depth = openStack.count
+                let entry = BlockEntry(id: id, kind: kind, parentID: parentID, depth: depth)
                 if position >= blocks.count {
                     blocks.append(entry)
                 } else {
@@ -49,6 +52,12 @@ public actor MarkdownAssembler {
                 for pos in position..<blocks.count {
                     indexByID[blocks[pos].id] = pos
                 }
+                if let parentID, let parentIndex = indexByID[parentID] {
+                    var parent = blocks[parentIndex]
+                    parent.addChild(id)
+                    blocks[parentIndex] = parent
+                }
+                openStack.append(id)
                 changes.append(.blockStarted(id: id, kind: kind, position: position))
 
             case .blockAppendInline(let id, let runs):
@@ -108,9 +117,15 @@ public actor MarkdownAssembler {
                     closedBlockCount += 1
                 }
                 blocks[index] = entry
+                while let last = openStack.last {
+                    openStack.removeLast()
+                    if last == id { break }
+                }
                 changes.append(.blockEnded(id: id))
             }
         }
+
+        openStack = chunk.openBlocks.map { $0.id }
 
         if let truncation = enforceTruncationIfNeeded() {
             changes.append(.blocksDiscarded(range: truncation))
@@ -165,6 +180,7 @@ public actor MarkdownAssembler {
         var removalCount = 0
 
         var needsReindexFrom: Int?
+        var parentAdjustments: [(parent: BlockID, child: BlockID)] = []
 
         while shouldTruncate(), let index = firstClosedBlockIndex() {
             let removed = blocks.remove(at: index)
@@ -174,6 +190,10 @@ public actor MarkdownAssembler {
             if removed.isClosed {
                 closedBlockCount -= 1
             }
+            if let parent = removed.parentID {
+                parentAdjustments.append((parent: parent, child: removed.id))
+            }
+            openStack.removeAll(where: { $0 == removed.id })
             removalStart = removalStart ?? index
             removalCount += 1
             if needsReindexFrom == nil || index < needsReindexFrom! {
@@ -184,6 +204,14 @@ public actor MarkdownAssembler {
         if let start = needsReindexFrom {
             for position in start..<blocks.count {
                 indexByID[blocks[position].id] = position
+            }
+        }
+
+        for adjustment in parentAdjustments {
+            if let parentIndex = indexByID[adjustment.parent] {
+                var parent = blocks[parentIndex]
+                parent.removeChild(adjustment.child)
+                blocks[parentIndex] = parent
             }
         }
 
@@ -229,8 +257,11 @@ private struct BlockEntry {
     var table: TableState?
     var isClosed: Bool
     var approxBytes: Int
+    var parentID: BlockID?
+    var depth: Int
+    var children: [BlockID]
 
-    init(id: BlockID, kind: BlockKind) {
+    init(id: BlockID, kind: BlockKind, parentID: BlockID?, depth: Int) {
         self.id = id
         self.kind = kind
         inlineRuns = []
@@ -238,6 +269,9 @@ private struct BlockEntry {
         table = nil
         isClosed = false
         approxBytes = 0
+        self.parentID = parentID
+        self.depth = depth
+        self.children = []
     }
 
     mutating func appendInline(_ runs: [InlineRun], allowCoalescing: Bool) -> (addedRuns: Int, addedBytes: Int) {
@@ -324,8 +358,21 @@ private struct BlockEntry {
             inlineRuns: inlineRuns.isEmpty ? nil : inlineRuns,
             codeText: codeText.isEmpty ? nil : codeText,
             table: tableSnapshot,
-            isClosed: isClosed
+            isClosed: isClosed,
+            parentID: parentID,
+            depth: depth,
+            childIDs: children
         )
+    }
+
+    mutating func addChild(_ id: BlockID) {
+        children.append(id)
+    }
+
+    mutating func removeChild(_ id: BlockID) {
+        if let index = children.firstIndex(of: id) {
+            children.remove(at: index)
+        }
     }
 
     private mutating func ensureTableState() {

@@ -192,6 +192,69 @@ struct MarkdownAssemblerTests {
         #expect(snapshot.inlineRuns == [InlineRun(text: "Hello "), InlineRun(text: "world")])
     }
 
+    @Test("Assembler records parent-child relationships for nested blocks")
+    func assemblerHierarchy() async {
+        let assembler = MarkdownAssembler()
+
+        let parentStart = ChunkResult(
+            events: [
+                .blockStart(id: 100, kind: .listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(id: 100, runs: [InlineRun(text: "Parent"), InlineRun(text: "\n")])
+            ],
+            openBlocks: [OpenBlockState(id: 100, kind: .listItem(ordered: false, index: nil, task: nil))]
+        )
+
+        _ = await assembler.apply(parentStart)
+
+        let childStart = ChunkResult(
+            events: [
+                .blockStart(id: 101, kind: .listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(id: 101, runs: [InlineRun(text: "Child"), InlineRun(text: "\n")])
+            ],
+            openBlocks: [
+                OpenBlockState(id: 100, kind: .listItem(ordered: false, index: nil, task: nil)),
+                OpenBlockState(id: 101, kind: .listItem(ordered: false, index: nil, task: nil))
+            ]
+        )
+
+        _ = await assembler.apply(childStart)
+
+        let childEnd = ChunkResult(
+            events: [
+                .blockEnd(id: 101)
+            ],
+            openBlocks: [OpenBlockState(id: 100, kind: .listItem(ordered: false, index: nil, task: nil))]
+        )
+
+        _ = await assembler.apply(childEnd)
+
+        let parentEnd = ChunkResult(
+            events: [
+                .blockEnd(id: 100)
+            ],
+            openBlocks: []
+        )
+
+        _ = await assembler.apply(parentEnd)
+
+        let snapshots = await assembler.makeSnapshot()
+        guard let parent = snapshots.first(where: { $0.id == 100 }) else {
+            Issue.record("Parent snapshot missing")
+            return
+        }
+        guard let child = snapshots.first(where: { $0.id == 101 }) else {
+            Issue.record("Child snapshot missing")
+            return
+        }
+
+        #expect(parent.parentID == nil)
+        #expect(parent.depth == 0)
+        #expect(parent.childIDs == [101])
+        #expect(child.parentID == 100)
+        #expect(child.depth == 1)
+        #expect(child.childIDs.isEmpty)
+    }
+
     @Test("Style and link changes prevent coalescing")
     func noCoalesceAcrossStyles() async {
         let assembler = MarkdownAssembler()
