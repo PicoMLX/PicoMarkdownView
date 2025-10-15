@@ -1072,7 +1072,13 @@ struct StreamingParser {
     }
 
     private func snapshotOpenBlocks() -> [OpenBlockState] {
-        contextStack.map { OpenBlockState(id: $0.id, kind: $0.kind) }
+        var states: [OpenBlockState] = []
+        states.reserveCapacity(contextStack.count)
+        for (index, context) in contextStack.enumerated() {
+            let parentID = index > 0 ? contextStack[index - 1].id : nil
+            states.append(OpenBlockState(id: context.id, kind: context.kind, parentID: parentID, depth: index))
+        }
+        return states
     }
 
     private func normalizeLineEndings(_ text: String) -> String {

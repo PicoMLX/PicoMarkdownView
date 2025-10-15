@@ -102,10 +102,14 @@ public enum BlockEvent: Sendable, Equatable {
 public struct OpenBlockState: Sendable, Equatable {
     public var id: BlockID
     public var kind: BlockKind
+    public var parentID: BlockID?
+    public var depth: Int
 
-    public init(id: BlockID, kind: BlockKind) {
+    public init(id: BlockID, kind: BlockKind, parentID: BlockID? = nil, depth: Int = 0) {
         self.id = id
         self.kind = kind
+        self.parentID = parentID
+        self.depth = depth
     }
 }
 
