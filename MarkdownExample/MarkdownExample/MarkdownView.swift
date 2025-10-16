@@ -29,7 +29,9 @@ struct MarkdownView: View {
                     }
                 }
                 Tab("Text", systemImage: "text.alignleft") {
-                    Text(markdown)
+                    ScrollView {
+                        Text(markdown)
+                    }
                 }
             }
             .textSelection(.enabled)
