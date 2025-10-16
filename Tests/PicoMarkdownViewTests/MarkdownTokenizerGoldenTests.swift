@@ -35,6 +35,30 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Multiline paragraph retains punctuation")
+    func multilineParagraphRetainsPunctuation() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("This is\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("This is")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("a paragraph!\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain(" a paragraph!")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Unterminated strikethrough flushed on finish")
     func unterminatedStrikethroughFlushedOnFinish() async {
         let tokenizer = MarkdownTokenizer()

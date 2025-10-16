@@ -25,7 +25,7 @@ struct MarkdownRendererTests {
         #expect(rendered.contains("Hello world"))
     }
     
-    @Test("Multi-line Paragraph rendering produces joined text")
+    @Test("Multiline paragraph streaming preserves content")
     func multilineParagraphRendering() async {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
@@ -46,8 +46,8 @@ struct MarkdownRendererTests {
         #expect(rendered.contains("This is a multiline paragraph!"))
     }
     
-    @Test("Single file multi-line Paragraph rendering produces joined text")
-    func singleFileMultilineParagraphRendering() async {
+    @Test("Multiline paragraph single feed preserves content")
+    func singleFeedMultilineParagraphRendering() async {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
         let renderer = MarkdownRenderer { id in
