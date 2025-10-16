@@ -127,6 +127,14 @@ public struct PicoMarkdownStackView: View {
                 return AnyView(MarkdownTableView(table: table))
             }
             return AnyView(EmptyView())
+        case .math:
+            if let math = block.math {
+                return AnyView(
+                    MathBlockView(math: math)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                )
+            }
+            fallthrough
         case .blockquote:
             if let quote = block.blockquote {
                 return AnyView(
