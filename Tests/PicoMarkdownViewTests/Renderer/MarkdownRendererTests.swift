@@ -45,6 +45,23 @@ struct MarkdownRendererTests {
         let rendered = String(output.characters)
         #expect(rendered.contains("This is a multiline paragraph!"))
     }
+    
+    @Test("Single file multi-line Paragraph rendering produces joined text")
+    func singleFileMultilineParagraphRendering() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let first = await tokenizer.feed("This is a multiline\nparagraph!\n\n")
+        let diff1 = await assembler.apply(first)
+        _ = await renderer.apply(diff1)
+
+        let output = await renderer.currentAttributedString()
+        let rendered = String(output.characters)
+        #expect(rendered.contains("This is a multiline paragraph!"))
+    }
 
     @Test("Heading and list are rendered with prefixes")
     func headingAndListRendering() async {
