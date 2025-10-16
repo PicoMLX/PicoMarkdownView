@@ -61,7 +61,7 @@ struct MathArtifactRenderer {
         var glyphs = run.glyphs.map { CGGlyph($0) }
         var positions = run.positions
         context.saveGState()
-        context.setFillColor(CGColor(red: run.color.red, green: run.color.green, blue: run.color.blue, alpha: run.color.alpha))
+        context.setFillColor(resolveColor(from: run.color))
         CTFontDrawGlyphs(ctFont, &glyphs, &positions, glyphs.count, context)
         context.restoreGState()
     }
@@ -69,7 +69,7 @@ struct MathArtifactRenderer {
     private static func drawLine(_ line: MathLine, in context: CGContext) {
         context.saveGState()
         context.setLineWidth(line.thickness)
-        context.setStrokeColor(CGColor(red: 0, green: 0, blue: 0, alpha: 1))
+        context.setStrokeColor(resolveColor(from: .black))
         context.move(to: line.start)
         context.addLine(to: line.end)
         context.strokePath()
@@ -81,7 +81,7 @@ struct MathArtifactRenderer {
         context.saveGState()
         context.addPath(cgPath)
         context.setLineWidth(path.lineWidth)
-        let color = CGColor(red: path.color.red, green: path.color.green, blue: path.color.blue, alpha: path.color.alpha)
+        let color = resolveColor(from: path.color)
         if path.fill {
             context.setFillColor(color)
             context.fillPath()
@@ -110,5 +110,16 @@ struct MathArtifactRenderer {
             }
         }
         return path
+    }
+
+    private static func resolveColor(from color: MathColor) -> CGColor {
+        if color.red == 0, color.green == 0, color.blue == 0, color.alpha == 1 {
+#if canImport(UIKit)
+            return UIColor.label.cgColor
+#else
+            return NSColor.labelColor.cgColor
+#endif
+        }
+        return CGColor(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
     }
 }

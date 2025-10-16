@@ -10,9 +10,11 @@ struct MathBlockView: View {
                 MathArtifactRenderer.draw(artifact, in: &mutableContext, size: size)
             }
             .frame(width: artifact.size.width, height: artifact.size.height)
+            .fixedSize()
             .accessibilityLabel(Text(math.tex))
         } else {
             Text(verbatim: math.tex)
+                .fixedSize()
                 .accessibilityLabel(Text(math.tex))
         }
     }
