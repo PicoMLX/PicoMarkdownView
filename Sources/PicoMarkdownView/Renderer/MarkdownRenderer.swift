@@ -65,6 +65,7 @@ actor MarkdownRenderer {
     private let theme: MarkdownRenderTheme
     private let attributeBuilder: MarkdownAttributeBuilder
     private let snapshotProvider: SnapshotProvider
+    private let mathRenderer = MathRenderer()
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
 
@@ -131,13 +132,14 @@ actor MarkdownRenderer {
         guard let index = indexByID[id] else { return }
         let snapshot = await snapshotProvider(id)
         let rendered = await attributeBuilder.render(snapshot: snapshot)
+        let math = await resolveMath(rendered.math)
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
         blocks[index].content = rendered.attributed
         blocks[index].table = rendered.table
         blocks[index].listItem = rendered.listItem
         blocks[index].blockquote = rendered.blockquote
-        blocks[index].math = rendered.math
+        blocks[index].math = math
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -163,6 +165,7 @@ actor MarkdownRenderer {
 
     private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot) async -> RenderedBlock {
         let rendered = await attributeBuilder.render(snapshot: snapshot)
+        let math = await resolveMath(rendered.math)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
@@ -170,7 +173,16 @@ actor MarkdownRenderer {
                              table: rendered.table,
                              listItem: rendered.listItem,
                              blockquote: rendered.blockquote,
-                             math: rendered.math)
+                             math: math)
+    }
+
+    private func resolveMath(_ payload: RenderedMath?) async -> RenderedMath? {
+        guard var payload = payload else { return nil }
+        let baseFont = payload.display ? theme.bodyFont : theme.bodyFont
+        let spec = MathRenderFontSpec(postScriptName: baseFont.fontName, pointSize: baseFont.pointSize)
+        let artifact = await mathRenderer.render(tex: payload.tex, display: payload.display, font: spec)
+        payload.artifact = artifact
+        return payload
     }
 }
 
@@ -206,4 +218,5 @@ struct RenderedBlockquote: Sendable, Equatable {
 struct RenderedMath: Sendable, Equatable {
     var tex: String
     var display: Bool
+    var artifact: MathRenderArtifact?
 }
