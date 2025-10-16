@@ -130,10 +130,12 @@ public struct PicoMarkdownStackView: View {
         case .math:
             if let math = block.math {
                 return AnyView(
-                    HStack(alignment: .top, spacing: 0) {
+                    HStack(alignment: .center, spacing: 0) {
+                        Spacer(minLength: 0)
                         MathBlockView(math: math)
                         Spacer(minLength: 0)
                     }
+                    .frame(maxWidth: .infinity)
                 )
             }
             fallthrough

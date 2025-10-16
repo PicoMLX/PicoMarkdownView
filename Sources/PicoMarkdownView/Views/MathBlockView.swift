@@ -13,6 +13,7 @@ struct MathBlockView: View {
     var body: some View {
         MathLabelRepresentable(math: math)
             .fixedSize()
+            .padding(.vertical, 8)
             .accessibilityLabel(Text(math.tex))
     }
 }
