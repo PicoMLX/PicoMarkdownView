@@ -65,6 +65,19 @@ struct InlineParser {
             appendProcessed(transformed)
         }
 
+        func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
+            guard !text.isEmpty else { return [] }
+            let nestedRuns = InlineParser.parseAll(text)
+            return nestedRuns.map { run in
+                if run.style.intersection([.code, .math, .image]).isEmpty {
+                    var combined = run
+                    combined.style.formUnion(style)
+                    return combined
+                }
+                return run
+            }
+        }
+
         func flushPlain(upTo end: String.Index) {
             guard plainStart < end else { return }
             let substring = String(text[plainStart..<end])
@@ -110,6 +123,20 @@ struct InlineParser {
                                  style: [.math],
                                  math: MathInlinePayload(tex: tex, display: display))
             runs.append(run)
+        }
+
+        func appendRun(_ run: InlineRun) {
+            if let last = runs.last,
+               last.style == run.style,
+               last.linkURL == run.linkURL,
+               last.image == run.image,
+               last.math == run.math,
+               !last.text.hasSuffix("\n"),
+               !run.text.hasPrefix("\n") {
+                runs[runs.count - 1].text += run.text
+            } else {
+                runs.append(run)
+            }
         }
 
         func canOpenEmphasis(at index: String.Index, delimiter: Character, length: Int) -> Bool {
@@ -613,7 +640,12 @@ struct InlineParser {
                 let innerStart = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
                 let inner = String(text[innerStart..<closingRange.lowerBound])
                 let style: InlineStyle = isDouble ? [.bold] : [.italic]
-                runs.append(InlineRun(text: inner, style: style))
+                let nestedRuns = parseNestedRuns(from: inner, inheriting: style)
+                if nestedRuns.isEmpty {
+                    appendRun(InlineRun(text: inner, style: style))
+                } else {
+                    nestedRuns.forEach { appendRun($0) }
+                }
                 let afterClose = closingRange.upperBound
                 consumedEnd = afterClose
                 index = afterClose
@@ -631,8 +663,13 @@ struct InlineParser {
                         let innerStart = text.index(after: nextIndex)
                         let innerEndExclusive = text.index(closeAfter, offsetBy: -2) // index of the first tilde in the closing "~~"
                         let inner = innerStart <= innerEndExclusive ? String(text[innerStart..<innerEndExclusive]) : ""
+                        let nestedRuns = parseNestedRuns(from: inner, inheriting: [.strikethrough])
 
-                        runs.append(InlineRun(text: inner, style: [.strikethrough]))
+                        if nestedRuns.isEmpty {
+                            appendRun(InlineRun(text: inner, style: [.strikethrough]))
+                        } else {
+                            nestedRuns.forEach { appendRun($0) }
+                        }
 
                         // Advance past the closing delimiter and reset plainStart
                         consumedEnd = closeAfter

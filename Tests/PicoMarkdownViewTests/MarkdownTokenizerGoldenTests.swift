@@ -121,6 +121,46 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Emoji replacement occurs inside emphasis runs")
+    func emojiReplacementInsideEmphasis() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("__Advertisement ;)__\n\n")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    InlineRunShape(text: "Advertisement 😉", style: InlineStyle.bold)
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Nested link inside emphasis inherits formatting")
+    func nestedLinkInsideEmphasis() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("- __[pica](https://nodeca.github.io/pica/demo/)__ - high quality and fast image\n  resize in browser.\n\n")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [
+                    InlineRunShape(text: "pica", style: [InlineStyle.bold, InlineStyle.link], linkURL: "https://nodeca.github.io/pica/demo/"),
+                    plain(" - high quality and fast image"),
+                    plain("\n"),
+                    plain("resize in browser"),
+                    plain(".\n")
+                ]),
+                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Underscore emphasis handling")
     func underscoreEmphasisHandling() async {
         let tokenizer = MarkdownTokenizer()
@@ -1427,6 +1467,59 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(third, matches: .init(
             events: [
                 .blockAppendInline(.paragraph, runs: [plain(" equals energy")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Inline math inside table cells")
+    func inlineMathWithinTableCells() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("| Col1 | Col2 |\n| --- | --- |\n| a $x$ | b $y$ |\n\n")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("Col1"), plain("Col2")]),
+                .tableHeaderConfirmed(.table, alignments: [.left, .left]),
+                .tableAppendRow(.table, cells: [[plain("a "), mathInline("x")], [plain("b "), mathInline("y")]]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Inline math inside list items")
+    func inlineMathWithinLists() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("- item $i$ value\n- next $j$ entry\n\n")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("item "), mathInline("i"), plain(" value"), plain("\n")]),
+                .blockEnd(.listItem(ordered: false, index: nil, task: nil)),
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("next "), mathInline("j"), plain(" entry"), plain("\n")]),
+                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Escaped dollar signs remain literal")
+    func escapedDollarRemainsLiteral() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("Price is \\$5.00\n\n")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Price is $5.00")]),
                 .blockEnd(.paragraph)
             ],
             openBlocks: []
