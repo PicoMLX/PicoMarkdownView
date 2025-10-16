@@ -48,36 +48,20 @@ struct InlineParser {
         func appendProcessed(_ text: String) {
             guard !text.isEmpty else { return }
             let newRuns = makePlainRuns(from: text)
-            if text.contains("paragraph") {
-                print("appendProcessed text:", text, "newRuns:", newRuns.map { $0.text })
-            }
             guard !newRuns.isEmpty else { return }
             if let last = runs.last, last.style.isEmpty, last.linkURL == nil, last.image == nil,
                let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil, lastPlain.image == nil,
                !last.text.hasSuffix("\n"), !(lastPlain.text.hasPrefix("\n")) {
-                if text.contains("paragraph") {
-                    print("Merging into last run before:", runs.last?.text ?? "nil")
-                }
                 runs[runs.count - 1].text += lastPlain.text
                 runs.append(contentsOf: newRuns.dropFirst())
-                if text.contains("paragraph") {
-                    print("Merging into last run after:", runs.last?.text ?? "nil")
-                }
             } else {
                 runs.append(contentsOf: newRuns)
-                if text.contains("paragraph") {
-                    print("Appended runs now:", runs.map { $0.text })
-                }
             }
         }
 
         func appendPlain(_ substring: String) {
             guard !substring.isEmpty else { return }
             let transformed = replacements.process(substring)
-            if substring.contains("paragraph") {
-                print("appendPlain substring:", substring)
-                print("transformed:", transformed)
-            }
             appendProcessed(transformed)
         }
 

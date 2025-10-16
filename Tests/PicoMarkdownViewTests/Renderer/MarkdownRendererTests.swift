@@ -43,7 +43,6 @@ struct MarkdownRendererTests {
 
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
-        print("Rendered multiline (stream):", rendered.debugDescription)
         #expect(rendered.contains("This is a multiline paragraph!"))
     }
     
@@ -61,7 +60,6 @@ struct MarkdownRendererTests {
 
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
-        print("Rendered multiline (single feed):", rendered.debugDescription)
         #expect(rendered.contains("This is a multiline paragraph!"))
     }
 
