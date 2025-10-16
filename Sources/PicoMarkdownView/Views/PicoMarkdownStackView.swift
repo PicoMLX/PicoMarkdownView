@@ -117,7 +117,7 @@ public struct PicoMarkdownStackView: View {
         case .listItem:
             if let item = block.listItem {
                 return AnyView(
-                    MarkdownListRowView(item: item)
+                    MarkdownListRowView(item: item, images: block.images)
                         .padding(.leading, CGFloat(context.listDepth) * 20)
                 )
             }
@@ -142,11 +142,9 @@ public struct PicoMarkdownStackView: View {
         case .blockquote:
             if let quote = block.blockquote {
                 return AnyView(
-                    Text(quote.content)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    MarkdownBlockquoteContentView(content: quote.content,
+                                                  images: block.images)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
                 )
             }
             fallthrough
@@ -157,10 +155,19 @@ public struct PicoMarkdownStackView: View {
                         .frame(maxWidth: .infinity)
                 )
             }
-            return AnyView(
-                Text(trimmedContent(for: block))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            )
+            let trimmed = trimmedContent(for: block)
+            if block.images.isEmpty {
+                return AnyView(
+                    Text(trimmed)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                )
+            } else {
+                return AnyView(
+                    MarkdownParagraphContentView(text: trimmed,
+                                                 images: block.images)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                )
+            }
         }
     }
 
@@ -320,6 +327,7 @@ private struct MarkdownTableView: View {
 
 private struct MarkdownListRowView: View {
     var item: RenderedListItem
+    var images: [RenderedImage]
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -328,14 +336,156 @@ private struct MarkdownListRowView: View {
                     dimensions[.trailing]
                 }
                 .font(.body)
-            Text(trimTrailingNewlines(from: item.content))
-                .lineLimit(nil)
-                .fixedSize(horizontal: false, vertical: true)
-                .alignmentGuide(.listBullet) { dimensions in
-                    dimensions[.leading]
+            VStack(alignment: .leading, spacing: 8) {
+                Text(trimTrailingNewlines(from: item.content))
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .alignmentGuide(.listBullet) { dimensions in
+                        dimensions[.leading]
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !images.isEmpty {
+                    MarkdownImageGalleryView(images: images)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+private struct MarkdownParagraphContentView: View {
+    var text: AttributedString
+    var images: [RenderedImage]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if hasVisibleContent(text) {
+                Text(text)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !images.isEmpty {
+                MarkdownImageGalleryView(images: images)
+            }
+        }
+    }
+}
+
+private struct MarkdownBlockquoteContentView: View {
+    var content: AttributedString
+    var images: [RenderedImage]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if hasVisibleContent(content) {
+                Text(content)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !images.isEmpty {
+                MarkdownImageGalleryView(images: images)
+            }
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct MarkdownImageGalleryView: View {
+    var images: [RenderedImage]
+
+    var body: some View {
+        ForEach(images) { descriptor in
+            MarkdownRemoteImageView(image: descriptor)
+        }
+    }
+}
+
+private struct MarkdownRemoteImageView: View {
+    var image: RenderedImage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Group {
+                if let url = image.url {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .empty:
+                            ImagePlaceholderView(style: .loading)
+                        case .success(let loaded):
+                            loaded
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        case .failure:
+                            ImagePlaceholderView(style: .failure(failureDescription))
+                        @unknown default:
+                            ImagePlaceholderView(style: .failure(failureDescription))
+                        }
+                    }
+                } else {
+                    ImagePlaceholderView(style: .failure(failureDescription))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(Text(image.altText.isEmpty ? "Image" : image.altText))
+
+            if let title = image.title, !title.isEmpty {
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else if !image.altText.isEmpty {
+                Text(image.altText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var failureDescription: String {
+        if !image.altText.isEmpty {
+            return image.altText
+        }
+        if let host = image.url?.host, !host.isEmpty {
+            return "Image unavailable (\(host))"
+        }
+        return "Image unavailable"
+    }
+}
+
+private struct ImagePlaceholderView: View {
+    enum Style {
+        case loading
+        case failure(String)
+    }
+
+    var style: Style
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.secondary.opacity(0.12))
+            switch style {
+            case .loading:
+                ProgressView()
+                    .progressViewStyle(.circular)
+            case .failure(let description):
+                VStack(spacing: 6) {
+                    Image(systemName: "photo")
+                        .font(.title3)
+                    Text(description)
+                        .multilineTextAlignment(.center)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 12)
+                }
+                .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(4.0 / 3.0, contentMode: .fit)
     }
 }
 
@@ -345,6 +495,10 @@ private func trimTrailingNewlines(from content: AttributedString) -> AttributedS
         trimmed.characters.removeLast()
     }
     return trimmed
+}
+
+private func hasVisibleContent(_ content: AttributedString) -> Bool {
+    content.characters.contains { !$0.isWhitespace && $0 != "\n" }
 }
 
 private extension HorizontalAlignment {

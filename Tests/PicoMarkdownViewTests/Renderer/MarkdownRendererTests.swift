@@ -43,6 +43,7 @@ struct MarkdownRendererTests {
 
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
+        print("Rendered multiline (stream):", rendered.debugDescription)
         #expect(rendered.contains("This is a multiline paragraph!"))
     }
     
@@ -60,6 +61,7 @@ struct MarkdownRendererTests {
 
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
+        print("Rendered multiline (single feed):", rendered.debugDescription)
         #expect(rendered.contains("This is a multiline paragraph!"))
     }
 
@@ -146,5 +148,36 @@ struct MarkdownRendererTests {
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
         #expect(rendered.contains("Markdown-formatted document"))
+    }
+
+    @Test("Renderer surfaces inline images")
+    func rendererSurfacesInlineImages() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let chunk = await tokenizer.feed("Intro ![diagram](https://example.com/diagram.png) outro\n\n")
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let blocks = await renderer.renderedBlocks()
+        guard let paragraph = blocks.first else {
+            Issue.record("Missing rendered blocks")
+            return
+        }
+
+        #expect(paragraph.images.count == 1)
+        if let descriptor = paragraph.images.first {
+            #expect(descriptor.source == "https://example.com/diagram.png")
+            #expect(descriptor.url == URL(string: "https://example.com/diagram.png"))
+            #expect(descriptor.altText == "diagram")
+        }
+
+        let renderedString = String(paragraph.content.characters)
+        #expect(renderedString.contains("Intro"))
+        #expect(renderedString.contains("outro"))
+        #expect(!renderedString.contains("diagram"))
     }
 }

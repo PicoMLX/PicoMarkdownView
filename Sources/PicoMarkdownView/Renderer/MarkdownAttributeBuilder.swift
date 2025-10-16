@@ -12,6 +12,7 @@ struct RenderedContentResult {
     var listItem: RenderedListItem?
     var blockquote: RenderedBlockquote?
     var math: RenderedMath?
+    var images: [RenderedImage]
 }
 
 actor MarkdownAttributeBuilder {
@@ -24,12 +25,13 @@ actor MarkdownAttributeBuilder {
     func render(snapshot: BlockSnapshot) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
-            let (fallback, table) = renderTable(snapshot.table, font: theme.bodyFont)
+            let (fallback, table, images) = renderTable(snapshot, font: theme.bodyFont)
             return RenderedContentResult(attributed: AttributedString(fallback),
                                         table: table,
                                         listItem: nil,
                                         blockquote: nil,
-                                        math: nil)
+                                        math: nil,
+                                        images: images)
         case .listItem(let ordered, let index, let task):
             return renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
         case .blockquote:
@@ -46,25 +48,28 @@ actor MarkdownAttributeBuilder {
                                         table: nil,
                                         listItem: nil,
                                         blockquote: nil,
-                                        math: nil)
+                                        math: nil,
+                                        images: [])
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
-            let ns = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
+            let (ns, images) = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
                                         blockquote: nil,
-                                        math: nil)
+                                        math: nil,
+                                        images: images)
         case .paragraph:
             fallthrough
         case .unknown:
             let suffix = snapshot.kind == .paragraph ? "\n\n" : "\n\n"
-            let ns = renderInlineBlock(snapshot, prefix: nil, suffix: suffix, font: theme.bodyFont)
+            let (ns, images) = renderInlineBlock(snapshot, prefix: nil, suffix: suffix, font: theme.bodyFont)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
                                         blockquote: nil,
-                                        math: nil)
+                                        math: nil,
+                                        images: images)
         case .math(let display):
             let tex = snapshot.mathText ?? snapshot.inlineRuns?.map { $0.text }.joined() ?? ""
             let suffix = display ? "\n\n" : ""
@@ -75,23 +80,45 @@ actor MarkdownAttributeBuilder {
                                         blockquote: nil,
                                         math: RenderedMath(tex: tex,
                                                            display: display,
-                                                           fontSize: theme.bodyFont.pointSize))
+                                                           fontSize: theme.bodyFont.pointSize),
+                                        images: [])
         }
     }
 
     private func renderInlineBlock(_ snapshot: BlockSnapshot,
                                    prefix: String?,
                                    suffix: String,
-                                   font: PlatformFont) -> NSAttributedString {
+                                   font: PlatformFont) -> (NSAttributedString, [RenderedImage]) {
+        var imageIndex = 0
         let result = NSMutableAttributedString()
         if let prefix {
             result.append(NSAttributedString(string: prefix, attributes: [.font: font]))
         }
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = renderInline(bodyRuns, font: font)
         result.append(body)
         result.append(NSAttributedString(string: suffix, attributes: [.font: font]))
-        return result
+        return (result, inlineImages)
+    }
+
+    private func collectImages(from runs: [InlineRun],
+                               blockID: BlockID,
+                               counter: inout Int) -> [RenderedImage] {
+        guard !runs.isEmpty else { return [] }
+        var images: [RenderedImage] = []
+        for run in runs {
+            guard let image = run.image else { continue }
+            let id = RenderedImage.Identifier.make(blockID: blockID, index: counter)
+            counter += 1
+            let url = URL(string: image.source)
+            images.append(RenderedImage(id: id,
+                                        source: image.source,
+                                        url: url,
+                                        altText: run.text,
+                                        title: image.title))
+        }
+        return images
     }
 
     private func renderInline(_ runs: [InlineRun], font: PlatformFont) -> NSMutableAttributedString {
@@ -116,7 +143,9 @@ actor MarkdownAttributeBuilder {
             bulletText = "•"
         }
 
+        var imageIndex = 0
         let runs = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
         let body = renderInline(runs, font: theme.bodyFont)
         let rendered = NSMutableAttributedString(string: bulletText + " ", attributes: [.font: theme.bodyFont])
         rendered.append(body)
@@ -132,11 +161,14 @@ actor MarkdownAttributeBuilder {
                                     table: nil,
                                     listItem: metadata,
                                     blockquote: nil,
-                                    math: nil)
+                                    math: nil,
+                                    images: inlineImages)
     }
 
     private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
+        var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = renderInline(bodyRuns, font: theme.bodyFont)
         let paragraphStyle = makeBlockquoteParagraphStyle()
         let lineColor = theme.blockquoteColor.withAlphaComponent(0.6)
@@ -172,7 +204,8 @@ actor MarkdownAttributeBuilder {
                                     table: nil,
                                     listItem: nil,
                                     blockquote: RenderedBlockquote(content: AttributedString(styledBody)),
-                                    math: nil)
+                                    math: nil,
+                                    images: inlineImages)
     }
 
     private func makeBlockquoteParagraphStyle() -> NSMutableParagraphStyle {
@@ -185,20 +218,26 @@ actor MarkdownAttributeBuilder {
         return paragraphStyle
     }
 
-    private func renderTable(_ table: TableSnapshot?, font: PlatformFont) -> (NSAttributedString, RenderedTable?) {
-        guard let table else { return (NSAttributedString(), nil) }
+    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
+        guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
         let result = NSMutableAttributedString()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font
         ]
 
         var renderedTable = RenderedTable(headers: nil, rows: [], alignments: table.alignments)
+        var imageIndex = 0
+        var collectedImages: [RenderedImage] = []
 
         if let headers = table.headerCells {
             let headerLine = NSMutableAttributedString()
             var headerCells: [AttributedString] = []
             for (index, cell) in headers.enumerated() {
                 let inline = renderInline(cell, font: font)
+                let images = collectImages(from: cell, blockID: snapshot.id, counter: &imageIndex)
+                if !images.isEmpty {
+                    collectedImages.append(contentsOf: images)
+                }
                 let headerAttributes: [NSAttributedString.Key: Any] = [
                     .font: boldFont(from: font),
                     .foregroundColor: attrs[.foregroundColor] ?? PlatformColor.rendererLabel
@@ -225,6 +264,10 @@ actor MarkdownAttributeBuilder {
             var renderedCells: [AttributedString] = []
             for (index, cell) in row.enumerated() {
                 let inline = renderInline(cell, font: font)
+                let images = collectImages(from: cell, blockID: snapshot.id, counter: &imageIndex)
+                if !images.isEmpty {
+                    collectedImages.append(contentsOf: images)
+                }
                 rowLine.append(inline)
                 renderedCells.append(AttributedString(inline))
                 if index < row.count - 1 {
@@ -239,7 +282,7 @@ actor MarkdownAttributeBuilder {
 
         renderedTable.rows = renderedRows
         result.append(NSAttributedString(string: "\n", attributes: attrs))
-        return (result, renderedTable)
+        return (result, renderedTable, collectedImages)
     }
 
     private func render(run: InlineRun, baseFont: PlatformFont) -> NSAttributedString {
@@ -263,9 +306,8 @@ actor MarkdownAttributeBuilder {
             attributes[.font] = theme.codeFont
         }
 
-        if let image = run.image {
-            let text = "[\(run.text)](\(image.source))"
-            return NSAttributedString(string: text, attributes: attributes)
+        if run.image != nil {
+            return NSAttributedString()
         }
 
         return NSAttributedString(string: run.text, attributes: attributes)

@@ -50,6 +50,7 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
 
         let second = await tokenizer.feed("a paragraph!\n\n")
+        print("Tokenizer multiline events:", second.events)
         assertChunk(second, matches: .init(
             events: [
                 .blockAppendInline(.paragraph, runs: [plain(" a paragraph!")]),
