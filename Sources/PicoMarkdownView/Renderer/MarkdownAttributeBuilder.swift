@@ -17,11 +17,8 @@ struct RenderedContentResult {
 actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
 
-    private let mathRenderer: MathRenderer
-
-    init(theme: MarkdownRenderTheme, mathRenderer: MathRenderer) {
+    init(theme: MarkdownRenderTheme) {
         self.theme = theme
-        self.mathRenderer = mathRenderer
     }
 
     func render(snapshot: BlockSnapshot) async -> RenderedContentResult {
@@ -71,16 +68,14 @@ actor MarkdownAttributeBuilder {
         case .math(let display):
             let tex = snapshot.mathText ?? snapshot.inlineRuns?.map { $0.text }.joined() ?? ""
             let suffix = display ? "\n\n" : ""
-            let artifact = await mathRenderer.render(tex: tex,
-                                                     display: display,
-                                                     font: MathRenderFontSpec(postScriptName: theme.bodyFont.fontName,
-                                                                              pointSize: theme.bodyFont.pointSize))
             let attributed = AttributedString(tex + suffix)
             return RenderedContentResult(attributed: attributed,
                                         table: nil,
                                         listItem: nil,
                                         blockquote: nil,
-                                        math: RenderedMath(tex: tex, display: display, artifact: artifact))
+                                        math: RenderedMath(tex: tex,
+                                                           display: display,
+                                                           fontSize: theme.bodyFont.pointSize))
         }
     }
 

@@ -63,7 +63,6 @@ actor MarkdownRenderer {
     typealias SnapshotProvider = @Sendable (BlockID) async -> BlockSnapshot
 
     private let theme: MarkdownRenderTheme
-    private let mathRenderer: MathRenderer
     private let attributeBuilder: MarkdownAttributeBuilder
     private let snapshotProvider: SnapshotProvider
     private var blocks: [RenderedBlock] = []
@@ -71,8 +70,7 @@ actor MarkdownRenderer {
 
     init(theme: MarkdownRenderTheme = .default(), snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
-        self.mathRenderer = MathRenderer()
-        self.attributeBuilder = MarkdownAttributeBuilder(theme: theme, mathRenderer: mathRenderer)
+        self.attributeBuilder = MarkdownAttributeBuilder(theme: theme)
         self.snapshotProvider = snapshotProvider
     }
 
@@ -208,5 +206,5 @@ struct RenderedBlockquote: Sendable, Equatable {
 struct RenderedMath: Sendable, Equatable {
     var tex: String
     var display: Bool
-    var artifact: MathRenderArtifact?
+    var fontSize: CGFloat
 }
