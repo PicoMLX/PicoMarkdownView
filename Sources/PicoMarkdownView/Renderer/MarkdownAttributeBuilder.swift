@@ -95,11 +95,11 @@ actor MarkdownAttributeBuilder {
     }
 
     private func renderInline(_ runs: [InlineRun], font: PlatformFont) -> NSMutableAttributedString {
-        let output = NSMutableAttributedString()
-        for run in runs {
-            output.append(render(run: run, baseFont: font))
+        let fragments = runs.map { render(run: $0, baseFont: font) }
+        let reduced = fragments.reduce(into: NSMutableAttributedString()) { result, fragment in
+            result.append(fragment)
         }
-        return output
+        return reduced
     }
 
     private func renderListItem(snapshot: BlockSnapshot,
@@ -243,6 +243,12 @@ actor MarkdownAttributeBuilder {
     }
 
     private func render(run: InlineRun, baseFont: PlatformFont) -> NSAttributedString {
+        if run.style.contains(.math), let payload = run.math {
+            return InlineMathAttachment.mathString(tex: payload.tex,
+                                                   display: payload.display,
+                                                   fontSize: baseFont.pointSize)
+        }
+
         var attributes: [NSAttributedString.Key: Any] = [
             .font: font(for: run.style, baseFont: baseFont)
         ]
