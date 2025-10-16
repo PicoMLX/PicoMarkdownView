@@ -19,6 +19,7 @@ struct InlineParser {
         var delimiter: Delimiter
         var startOffset: Int
         var contentOffset: Int
+        var openingMarker: String
     }
 
     mutating func append(_ text: String) -> [InlineRun] {
@@ -447,13 +448,17 @@ struct InlineParser {
                         flushPlain(upTo: index)
                         let display = nextChar == "["
                         let startOffset = offset(of: index)
-                    let contentOffset = startOffset + 2
+                        let markerEnd = text.index(after: nextIndex)
+                        let marker = String(text[index..<markerEnd])
+                        consumedEnd = markerEnd
+                        let contentOffset = startOffset + 2
                         mathState = InlineMathState(
-                        delimiter: .command(closing: nextChar == "(" ? ")" : "]", display: display),
+                            delimiter: .command(closing: nextChar == "(" ? ")" : "]", display: display),
                             startOffset: startOffset,
-                            contentOffset: contentOffset
+                            contentOffset: contentOffset,
+                            openingMarker: marker
                         )
-                        let contentIndex = text.index(after: nextIndex)
+                        let contentIndex = markerEnd
                         plainStart = contentIndex
                         index = contentIndex
                         continue parsing
@@ -513,13 +518,17 @@ struct InlineParser {
                     let markerLength = display ? 2 : 1
                     flushPlain(upTo: index)
                     let startOffset = offset(of: index)
+                    let markerEnd = text.index(index, offsetBy: markerLength)
+                    let marker = String(text[index..<markerEnd])
+                    consumedEnd = markerEnd
                     let contentOffset = startOffset + markerLength
                     mathState = InlineMathState(
                         delimiter: .dollar(count: markerLength, display: display),
                         startOffset: startOffset,
-                        contentOffset: contentOffset
+                        contentOffset: contentOffset,
+                        openingMarker: marker
                     )
-                    let contentIndex = text.index(index, offsetBy: markerLength)
+                    let contentIndex = markerEnd
                     plainStart = contentIndex
                     index = contentIndex
                     continue parsing
@@ -724,10 +733,11 @@ struct InlineParser {
         }
 
         if includeUnterminated, let state = mathState {
-            let mathStartIndex = indexForOffset(max(0, state.startOffset))
-            if plainStart > mathStartIndex {
-                plainStart = mathStartIndex
-            }
+            let contentIndex = indexForOffset(max(0, state.contentOffset))
+            let remaining = String(text[contentIndex...])
+            appendPlain(state.openingMarker + remaining)
+            consumedEnd = text.endIndex
+            plainStart = text.endIndex
             mathState = nil
         }
 
