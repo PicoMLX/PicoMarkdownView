@@ -65,19 +65,6 @@ struct InlineParser {
             appendProcessed(transformed)
         }
 
-        func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
-            guard !text.isEmpty else { return [] }
-            let nestedRuns = InlineParser.parseAll(text)
-            return nestedRuns.map { run in
-                if run.style.intersection([.code, .math, .image]).isEmpty {
-                    var combined = run
-                    combined.style.formUnion(style)
-                    return combined
-                }
-                return run
-            }
-        }
-
         func flushPlain(upTo end: String.Index) {
             guard plainStart < end else { return }
             let substring = String(text[plainStart..<end])
@@ -123,6 +110,21 @@ struct InlineParser {
                                  style: [.math],
                                  math: MathInlinePayload(tex: tex, display: display))
             runs.append(run)
+        }
+
+        func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
+            guard !text.isEmpty else { return [] }
+            var nested = InlineParser()
+            var result = nested.append(text)
+            result += nested.finish()
+            guard !result.isEmpty else { return [] }
+            let nonInheriting: InlineStyle = [.code, .math, .image]
+            return result.map { run in
+                guard run.style.intersection(nonInheriting).isEmpty else { return run }
+                var combined = run
+                combined.style.formUnion(style)
+                return combined
+            }
         }
 
         func appendRun(_ run: InlineRun) {
