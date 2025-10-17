@@ -30,4 +30,10 @@ final class MarkdownRendererStore {
         let snapshot = await renderer.currentAttributedString()
         self.attributedText = snapshot
     }
+
+#if DEBUG
+    func renderedBlocks() async -> [RenderedBlock] {
+        await renderer.renderedBlocks()
+    }
+#endif
 }

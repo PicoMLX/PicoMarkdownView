@@ -29,6 +29,11 @@ struct MarkdownView: View {
                             .padding()
                     }
                 }
+                Tab("Debug", systemImage: "ladybug") {
+                    ScrollView {
+                        PicoMarkdownDebugView(text: markdown)
+                    }
+                }
                 Tab("Text", systemImage: "text.alignleft") {
                     ScrollView {
                         Text(markdown)
