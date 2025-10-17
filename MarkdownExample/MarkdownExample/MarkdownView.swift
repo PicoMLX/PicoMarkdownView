@@ -7,12 +7,23 @@
 
 import SwiftUI
 import PicoMarkdownView
+import Splash
+
 
 struct MarkdownView: View {
     
     private let webURL: URL
     private let markdown: String
 
+    let customProvider = CodeBlockThemeProvider(
+        light: { codeFont in
+            Theme.sunset(withFont: Splash.Font(size: Double(codeFont.pointSize)))
+        },
+        dark: { codeFont in
+            Theme.midnight(withFont: Splash.Font(size: Double(codeFont.pointSize)))
+        }
+    )
+    
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
         self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
@@ -24,7 +35,9 @@ struct MarkdownView: View {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
                     ScrollView {
-                        PicoMarkdownStackView(text: markdown)
+                        PicoMarkdownStackView(
+                            text: markdown,
+                            codeBlockThemeProvider: customProvider)
                             .padding()
                     }
                 }

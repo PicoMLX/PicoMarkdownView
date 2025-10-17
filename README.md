@@ -68,6 +68,33 @@ var body: some View {
 }
 ```
 
+### Code Block Splash Themes
+
+Code fences use Splash to derive their colors. Pass a `CodeBlockThemeProvider` when you want different light/dark palettes:
+
+```swift
+import PicoMarkdownView
+import Splash
+
+let customProvider = CodeBlockThemeProvider(
+    light: { codeFont in
+        Theme.sunset(withFont: Splash.Font(size: Double(codeFont.pointSize)))
+    },
+    dark: { codeFont in
+        Theme.midnight(withFont: Splash.Font(size: Double(codeFont.pointSize)))
+    }
+)
+
+var body: some View {
+    PicoMarkdownStackView(
+        text: markdown,
+        codeBlockThemeProvider: customProvider
+    )
+}
+```
+
+The view still honors any `MarkdownRenderTheme` you supply; the provider only affects fenced code blocks.
+
 ### Resetting Content
 
 ```swift
