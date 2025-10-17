@@ -40,20 +40,25 @@ actor MarkdownAttributeBuilder {
             return renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
-            let palette = theme.codeBlockPalette
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: theme.codeFont,
-                .foregroundColor: palette.foregroundColor
+                .foregroundColor: PlatformColor.rendererLabel
             ]
             let content = NSMutableAttributedString(string: text, attributes: attributes)
             content.append(NSAttributedString(string: "\n\n", attributes: attributes))
+            let language: String?
+            if case let .fencedCode(value) = snapshot.kind {
+                language = value
+            } else {
+                language = nil
+            }
             return RenderedContentResult(attributed: AttributedString(content),
                                         table: nil,
                                         listItem: nil,
                                         blockquote: nil,
                                         math: nil,
                                         images: [],
-                                        codeBlock: RenderedCodeBlock(backgroundColor: palette.backgroundColor))
+                                        codeBlock: RenderedCodeBlock(code: text, language: language))
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
             let (ns, images) = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)

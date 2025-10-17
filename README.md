@@ -68,32 +68,29 @@ var body: some View {
 }
 ```
 
-### Code Block Splash Themes
+### Code Block Highlighting
 
-Code fences use Splash to derive their colors. Pass a `CodeBlockThemeProvider` when you want different light/dark palettes:
+Code fences default to a monospaced system font. To customize styling or integrate your own syntax highlighter, provide a `CodeBlockTheme` and `CodeSyntaxHighlighter` via the supplied modifiers:
 
 ```swift
 import PicoMarkdownView
-import Splash
 
-let customProvider = CodeBlockThemeProvider(
-    light: { codeFont in
-        Theme.sunset(withFont: Splash.Font(size: Double(codeFont.pointSize)))
-    },
-    dark: { codeFont in
-        Theme.midnight(withFont: Splash.Font(size: Double(codeFont.pointSize)))
+struct SplashHighlighter: CodeSyntaxHighlighter {
+    func highlight(_ code: String, language: String?, theme: CodeBlockTheme) -> AttributedString {
+        // Insert your Splash-powered implementation here.
+        // Fallback example keeps the theme font/colors.
+        PlainCodeSyntaxHighlighter().highlight(code, language: language, theme: theme)
     }
-)
+}
 
 var body: some View {
-    PicoMarkdownStackView(
-        text: markdown,
-        codeBlockThemeProvider: customProvider
-    )
+    PicoMarkdownStackView(text: markdown)
+        .picoCodeTheme(.monospaced())
+        .picoCodeHighlighter(SplashHighlighter())
 }
 ```
 
-The view still honors any `MarkdownRenderTheme` you supply; the provider only affects fenced code blocks.
+By default the view uses `PlainCodeSyntaxHighlighter`, which simply applies the theme’s monospaced font.
 
 ### Resetting Content
 

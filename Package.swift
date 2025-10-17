@@ -17,8 +17,7 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3")),
-        .package(url: "https://github.com/JohnSundell/Splash", .upToNextMajor(from: "0.16.0"))
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3"))
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -26,8 +25,7 @@ let package = Package(
         .target(
             name: "PicoMarkdownView",
             dependencies: [
-                .product(name: "SwiftMath", package: "SwiftMath"),
-                .product(name: "Splash", package: "Splash")
+                .product(name: "SwiftMath", package: "SwiftMath")
             ]
         ),
         .testTarget(

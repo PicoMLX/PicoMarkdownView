@@ -12,24 +12,20 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
     public var blockquoteColor: MarkdownColor
     public var linkColor: MarkdownColor
     public var headingFonts: [Int: MarkdownFont]
-    public var codeBlockPalette: CodeBlockPalette
 
     public init(bodyFont: MarkdownFont,
                 codeFont: MarkdownFont,
                 blockquoteColor: MarkdownColor,
                 linkColor: MarkdownColor,
-                headingFonts: [Int: MarkdownFont],
-                codeBlockPalette: CodeBlockPalette? = nil,
-                codeBlockThemeProvider: CodeBlockThemeProvider = .system()) {
+                headingFonts: [Int: MarkdownFont]) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
         self.linkColor = linkColor
         self.headingFonts = headingFonts
-        self.codeBlockPalette = codeBlockPalette ?? codeBlockThemeProvider.makePalette(codeFont: codeFont)
     }
 
-    public static func `default`(codeBlockThemeProvider: CodeBlockThemeProvider = .system()) -> MarkdownRenderTheme {
+    public static func `default`() -> MarkdownRenderTheme {
 #if canImport(UIKit)
         let body = UIFont.preferredFont(forTextStyle: .body)
         let code = UIFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)
@@ -59,9 +55,7 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
                                    codeFont: code,
                                    blockquoteColor: blockquote,
                                    linkColor: link,
-                                   headingFonts: headings,
-                                   codeBlockPalette: nil,
-                                   codeBlockThemeProvider: codeBlockThemeProvider)
+                                   headingFonts: headings)
     }
 }
 
@@ -222,5 +216,6 @@ struct RenderedMath: Sendable, Equatable {
 }
 
 struct RenderedCodeBlock: Sendable, Equatable {
-    var backgroundColor: MarkdownColor
+    var code: String
+    var language: String?
 }

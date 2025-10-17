@@ -1,15 +1,6 @@
 {
-  "originHash" : "7a930d07cc76c3e12aa49a86db6fc2eaf9312198f798df4d42dd56547de81349",
+  "originHash" : "6504522281c817d013095e0a27726c6523bb5907de83e1fd6147230b8a0e7c88",
   "pins" : [
-    {
-      "identity" : "splash",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/JohnSundell/Splash",
-      "state" : {
-        "revision" : "7f4df436eb78fe64fe2c32c58006e9949fa28ad8",
-        "version" : "0.16.0"
-      }
-    },
     {
       "identity" : "swiftmath",
       "kind" : "remoteSourceControl",

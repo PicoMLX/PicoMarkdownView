@@ -7,32 +7,24 @@ public struct PicoMarkdownStackView: View {
     @State private var viewModel: MarkdownStreamingViewModel
 
     private init(input: MarkdownStreamingInput,
-                 theme: MarkdownRenderTheme,
-                 codeBlockThemeProvider: CodeBlockThemeProvider?) {
+                 theme: MarkdownRenderTheme) {
         self.input = input
-        var appliedTheme = theme
-        if let provider = codeBlockThemeProvider {
-            appliedTheme.codeBlockPalette = provider.makePalette(codeFont: appliedTheme.codeFont)
-        }
-        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: appliedTheme))
+        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
     }
 
     public init(text: String,
-                theme: MarkdownRenderTheme = .default(),
-                codeBlockThemeProvider: CodeBlockThemeProvider? = nil) {
-        self.init(input: .text(text), theme: theme, codeBlockThemeProvider: codeBlockThemeProvider)
+                theme: MarkdownRenderTheme = .default()) {
+        self.init(input: .text(text), theme: theme)
     }
 
     public init(chunks: [String],
-                theme: MarkdownRenderTheme = .default(),
-                codeBlockThemeProvider: CodeBlockThemeProvider? = nil) {
-        self.init(input: .chunks(chunks), theme: theme, codeBlockThemeProvider: codeBlockThemeProvider)
+                theme: MarkdownRenderTheme = .default()) {
+        self.init(input: .chunks(chunks), theme: theme)
     }
 
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
-                theme: MarkdownRenderTheme = .default(),
-                codeBlockThemeProvider: CodeBlockThemeProvider? = nil) {
-        self.init(input: .stream(stream), theme: theme, codeBlockThemeProvider: codeBlockThemeProvider)
+                theme: MarkdownRenderTheme = .default()) {
+        self.init(input: .stream(stream), theme: theme)
     }
 
     public var body: some View {
@@ -392,10 +384,12 @@ private struct MarkdownParagraphContentView: View {
 private struct MarkdownCodeBlockView: View {
     var text: AttributedString
     var metadata: RenderedCodeBlock?
+    @Environment(\.picoCodeBlockTheme) private var codeTheme
+    @Environment(\.picoCodeHighlighter) private var codeHighlighter
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: true) {
-            Text(text)
+            Text(displayText)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -409,10 +403,16 @@ private struct MarkdownCodeBlockView: View {
     }
 
     private var backgroundColor: Color {
-        if let metadata {
-            return Color(platformColor: metadata.backgroundColor)
+        Color(platformColor: codeTheme.backgroundColor)
+    }
+
+    private var displayText: AttributedString {
+        guard let metadata else { return text }
+        var highlighted = codeHighlighter.highlight(metadata.code, language: metadata.language, theme: codeTheme)
+        if highlighted.characters.last != "\n" {
+            highlighted.append(AttributedString("\n"))
         }
-        return Color.secondary.opacity(0.12)
+        return highlighted
     }
 }
 
@@ -564,5 +564,35 @@ private extension Color {
 #else
         self.init(.sRGBLinear, red: 0, green: 0, blue: 0, opacity: 0)
 #endif
+    }
+}
+
+private struct PicoCodeBlockThemeKey: EnvironmentKey {
+    static let defaultValue: CodeBlockTheme = .monospaced()
+}
+
+private struct PicoCodeHighlighterKey: EnvironmentKey {
+    static let defaultValue: AnyCodeSyntaxHighlighter = AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+}
+
+extension EnvironmentValues {
+    var picoCodeBlockTheme: CodeBlockTheme {
+        get { self[PicoCodeBlockThemeKey.self] }
+        set { self[PicoCodeBlockThemeKey.self] = newValue }
+    }
+
+    var picoCodeHighlighter: AnyCodeSyntaxHighlighter {
+        get { self[PicoCodeHighlighterKey.self] }
+        set { self[PicoCodeHighlighterKey.self] = newValue }
+    }
+}
+
+public extension View {
+    func picoCodeTheme(_ theme: CodeBlockTheme) -> some View {
+        environment(\.picoCodeBlockTheme, theme)
+    }
+
+    func picoCodeHighlighter<H: CodeSyntaxHighlighter>(_ highlighter: H) -> some View {
+        environment(\.picoCodeHighlighter, AnyCodeSyntaxHighlighter(highlighter))
     }
 }
