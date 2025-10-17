@@ -74,19 +74,28 @@ Code fences default to a monospaced system font. To customize styling or integra
 
 ```swift
 import PicoMarkdownView
+import Splash
 
-struct SplashHighlighter: CodeSyntaxHighlighter {
+struct SplashCodeHighlighter: CodeSyntaxHighlighter {
+    private let splash: SyntaxHighlighter<TextOutputFormat>
+
+    init(theme: Splash.Theme) {
+        self.splash = SyntaxHighlighter(format: TextOutputFormat(theme: theme))
+    }
+
     func highlight(_ code: String, language: String?, theme: CodeBlockTheme) -> AttributedString {
-        // Insert your Splash-powered implementation here.
-        // Fallback example keeps the theme font/colors.
-        PlainCodeSyntaxHighlighter().highlight(code, language: language, theme: theme)
+        guard language != nil else {
+            return PlainCodeSyntaxHighlighter().highlight(code, language: language, theme: theme)
+        }
+
+        return AttributedString(splash.highlight(code))
     }
 }
 
 var body: some View {
     PicoMarkdownStackView(text: markdown)
         .picoCodeTheme(.monospaced())
-        .picoCodeHighlighter(SplashHighlighter())
+        .picoCodeHighlighter(SplashCodeHighlighter(theme: .midnight(withFont: Splash.Font(size: 14))))
 }
 ```
 
