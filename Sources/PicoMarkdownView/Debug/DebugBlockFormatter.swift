@@ -5,43 +5,112 @@ import Foundation
 struct DebugBlockFormatter {
     func makeLines(from blocks: [RenderedBlock]) -> [String] {
         var lines: [String] = []
-        for block in blocks {
-            append(block: block, to: &lines)
+        let resolver = BlockResolver(blocks: blocks)
+        for block in blocks where block.snapshot.parentID == nil {
+            append(blockID: block.id, resolver: resolver, lines: &lines, indent: 0)
         }
         return lines
     }
 
-    private func append(block: RenderedBlock, to lines: inout [String]) {
-        let indent = max(block.snapshot.depth, 0)
+    private func append(blockID: BlockID,
+                        resolver: BlockResolver,
+                        lines: inout [String],
+                        indent: Int) {
+        guard let block = resolver.block(for: blockID) else { return }
         let prefix = String(repeating: "  ", count: indent)
         lines.append(prefix + describe(block: block))
 
+        emitDetails(for: block, prefix: prefix, into: &lines)
+
+        for child in block.snapshot.childIDs {
+            append(blockID: child, resolver: resolver, lines: &lines, indent: indent + 1)
+        }
+    }
+
+    private func emitDetails(for block: RenderedBlock,
+                             prefix: String,
+                             into lines: inout [String]) {
         switch block.kind {
-        case .math:
-            if let math = block.math {
-                lines.append(prefix + "  tex → " + sanitizeNewlines(in: math.tex))
-                let displayValue = math.display ? "true" : "false"
-                lines.append(prefix + "  display → \(displayValue)")
-            } else if let text = block.snapshot.mathText {
-                lines.append(prefix + "  tex (snapshot) → " + sanitizeNewlines(in: text))
-            }
         case .paragraph, .heading, .blockquote, .listItem, .unknown:
-            if let runs = block.snapshot.inlineRuns, !runs.isEmpty {
-                for run in runs {
-                    lines.append(prefix + "  " + describe(run: run))
-                }
-            }
+            emitInlineRuns(block.snapshot.inlineRuns, prefix: prefix, into: &lines)
+        case .math:
+            emitMath(block, prefix: prefix, into: &lines)
         case .fencedCode:
             if let code = block.snapshot.codeText {
-                lines.append(prefix + "  code → " + sanitizeNewlines(in: code))
+                lines.append(prefix + "  code: \"" + sanitizeNewlines(in: code) + "\"")
             }
         case .table:
-            lines.append(prefix + "  table headers: \(block.table?.headers?.count ?? 0), rows: \(block.table?.rows.count ?? 0)")
+            emitTable(block, prefix: prefix, into: &lines)
         }
 
         if !block.images.isEmpty {
             for image in block.images {
-                lines.append(prefix + "  image[\(image.altText)](\(image.source))")
+                lines.append(prefix + "  image: alt=\"\(image.altText)\" source=\"\(image.source)\"")
+            }
+        }
+    }
+
+    private func emitInlineRuns(_ runs: [InlineRun]?,
+                                prefix: String,
+                                into lines: inout [String]) {
+        guard let runs, !runs.isEmpty else { return }
+        for run in runs {
+            let label = inlineLabel(for: run)
+            lines.append(prefix + "  " + label)
+        }
+    }
+
+    private func inlineLabel(for run: InlineRun) -> String {
+        if let payload = run.math {
+            let mode = payload.display ? "math (display)" : "math"
+            return "\(mode): \"" + sanitizeNewlines(in: payload.tex) + "\""
+        }
+
+        if let image = run.image {
+            return "image: alt=\"\(run.text)\" source=\"\(image.source)\""
+        }
+
+        var modifiers: [String] = []
+        if run.style.contains(.bold) { modifiers.append("strong") }
+        if run.style.contains(.italic) { modifiers.append("emphasized") }
+        if run.style.contains(.code) { modifiers.append("code") }
+        if run.style.contains(.strikethrough) { modifiers.append("strikethrough") }
+        if run.style.contains(.link) { modifiers.append("link") }
+
+        var parts: [String] = []
+        parts.append(modifiers.isEmpty ? "text" : modifiers.joined(separator: "+"))
+        parts.append("\"" + sanitizeNewlines(in: run.text) + "\"")
+        if let url = run.linkURL {
+            parts.append("(url: \(url))")
+        }
+        return parts.joined(separator: ": ")
+    }
+
+    private func emitMath(_ block: RenderedBlock,
+                          prefix: String,
+                          into lines: inout [String]) {
+        if let math = block.math {
+            lines.append(prefix + "  tex: \"" + sanitizeNewlines(in: math.tex) + "\"")
+            lines.append(prefix + "  display: \(math.display ? "true" : "false")")
+        } else if let text = block.snapshot.mathText {
+            lines.append(prefix + "  tex: \"" + sanitizeNewlines(in: text) + "\" (snapshot)")
+        }
+    }
+
+    private func emitTable(_ block: RenderedBlock,
+                           prefix: String,
+                           into lines: inout [String]) {
+        if let headers = block.table?.headers {
+            for (index, header) in headers.enumerated() {
+                lines.append(prefix + "  header[\(index)]: \"\(String(header.characters))\"")
+            }
+        }
+        if let rows = block.table?.rows {
+            for (rowIndex, row) in rows.enumerated() {
+                lines.append(prefix + "  row[\(rowIndex)]")
+                for (cellIndex, cell) in row.enumerated() {
+                    lines.append(prefix + "    cell[\(cellIndex)]: \"\(String(cell.characters))\"")
+                }
             }
         }
     }
@@ -49,67 +118,46 @@ struct DebugBlockFormatter {
     private func describe(block: RenderedBlock) -> String {
         switch block.kind {
         case .paragraph:
-            return "paragraph (id: \(block.id))"
+            return "paragraph"
         case .heading(let level):
-            return "heading level \(level) (id: \(block.id))"
-        case .listItem(let ordered, let index, let task):
-            var parts: [String] = []
-            parts.append(ordered ? "ordered" : "unordered")
-            if let index {
-                parts.append("index=\(index)")
-            }
+            return "heading (level \(level))"
+        case .listItem(let ordered, _, let task):
+            var components: [String] = []
+            components.append(ordered ? "ordered list" : "list")
             if let task {
-                let taskValue = task.checked ? "checked" : "unchecked"
-                parts.append("task=\(taskValue)")
+                components.append(task.checked ? "checked" : "unchecked")
             }
-            return "listItem (id: \(block.id)) [\(parts.joined(separator: ", "))]"
+            return components.joined(separator: " ")
         case .blockquote:
-            return "blockquote (id: \(block.id))"
+            return "blockQuote"
         case .fencedCode(let language):
-            let lang = language ?? ""
-            return lang.isEmpty ? "fencedCode (id: \(block.id))" : "fencedCode(\(lang)) (id: \(block.id))"
+            if let language, !language.isEmpty {
+                return "codeBlock (language \(language))"
+            }
+            return "codeBlock"
         case .math(let display):
-            return "math(display: \(display)) (id: \(block.id))"
+            return display ? "mathBlock" : "math"
         case .table:
-            return "table (id: \(block.id))"
+            return "table"
         case .unknown:
-            return "unknown (id: \(block.id))"
+            return "unknown"
         }
-    }
-
-    private func describe(run: InlineRun) -> String {
-        if let payload = run.math {
-            let mode = payload.display ? "block" : "inline"
-            return "math run (\(mode)) → " + sanitizeNewlines(in: payload.tex)
-        }
-
-        if let image = run.image {
-            return "image run → alt=\(run.text), source=\(image.source)"
-        }
-
-        var attributes: [String] = []
-        if run.style.contains(.bold) { attributes.append("bold") }
-        if run.style.contains(.italic) { attributes.append("italic") }
-        if run.style.contains(.code) { attributes.append("code") }
-        if run.style.contains(.strikethrough) { attributes.append("strikethrough") }
-        if run.style.contains(.link) { attributes.append("link") }
-
-        let stylePrefix: String
-        if attributes.isEmpty {
-            stylePrefix = "text"
-        } else {
-            stylePrefix = attributes.joined(separator: "+")
-        }
-
-        var line = "run \(stylePrefix) → " + sanitizeNewlines(in: run.text)
-        if let url = run.linkURL {
-            line += " (url: \(url))"
-        }
-        return line
     }
 
     private func sanitizeNewlines(in text: String) -> String {
         text.replacingOccurrences(of: "\n", with: "⏎")
+    }
+}
+
+private struct BlockResolver {
+    private let map: [BlockID: RenderedBlock]
+
+    init(blocks: [RenderedBlock]) {
+        self.map = Dictionary(uniqueKeysWithValues: blocks.map { ($0.id, $0) })
+    }
+
+    func block(for id: BlockID) -> RenderedBlock? {
+        map[id]
     }
 }
 

@@ -32,8 +32,9 @@ final class DebugBlockFormatterTests: XCTestCase {
         let formatter = DebugBlockFormatter()
         let lines = formatter.makeLines(from: [block])
 
-        XCTAssertTrue(lines.contains(where: { $0.contains("paragraph") }))
-        XCTAssertTrue(lines.contains(where: { $0.contains("run bold") }))
+        XCTAssertEqual(lines.first, "paragraph")
+        XCTAssertTrue(lines.contains("  text: \"Hello\""))
+        XCTAssertTrue(lines.contains("  strong: \"World\""))
     }
 
     func testFormatsMathBlock() {
@@ -61,8 +62,8 @@ final class DebugBlockFormatterTests: XCTestCase {
         let formatter = DebugBlockFormatter()
         let lines = formatter.makeLines(from: [block])
 
-        XCTAssertTrue(lines.contains(where: { $0.contains("math(display: true)") }))
-        XCTAssertTrue(lines.contains(where: { $0.contains("tex → x^{2}") }))
+        XCTAssertEqual(lines.first, "mathBlock")
+        XCTAssertTrue(lines.contains("  tex: \"x^{2}\""))
     }
 }
 
