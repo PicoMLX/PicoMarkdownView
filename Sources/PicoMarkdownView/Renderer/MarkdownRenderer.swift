@@ -12,20 +12,24 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
     public var blockquoteColor: MarkdownColor
     public var linkColor: MarkdownColor
     public var headingFonts: [Int: MarkdownFont]
+    public var codeBlockPalette: CodeBlockPalette
 
     public init(bodyFont: MarkdownFont,
                 codeFont: MarkdownFont,
                 blockquoteColor: MarkdownColor,
                 linkColor: MarkdownColor,
-                headingFonts: [Int: MarkdownFont]) {
+                headingFonts: [Int: MarkdownFont],
+                codeBlockPalette: CodeBlockPalette? = nil,
+                codeBlockThemeProvider: CodeBlockThemeProvider = .system()) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
         self.linkColor = linkColor
         self.headingFonts = headingFonts
+        self.codeBlockPalette = codeBlockPalette ?? codeBlockThemeProvider.makePalette(codeFont: codeFont)
     }
 
-    public static func `default`() -> MarkdownRenderTheme {
+    public static func `default`(codeBlockThemeProvider: CodeBlockThemeProvider = .system()) -> MarkdownRenderTheme {
 #if canImport(UIKit)
         let body = UIFont.preferredFont(forTextStyle: .body)
         let code = UIFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)
@@ -55,7 +59,9 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
                                    codeFont: code,
                                    blockquoteColor: blockquote,
                                    linkColor: link,
-                                   headingFonts: headings)
+                                   headingFonts: headings,
+                                   codeBlockPalette: nil,
+                                   codeBlockThemeProvider: codeBlockThemeProvider)
     }
 }
 
@@ -139,6 +145,7 @@ actor MarkdownRenderer {
         blocks[index].blockquote = rendered.blockquote
         blocks[index].math = rendered.math
         blocks[index].images = rendered.images
+        blocks[index].codeBlock = rendered.codeBlock
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -172,7 +179,8 @@ actor MarkdownRenderer {
                              listItem: rendered.listItem,
                              blockquote: rendered.blockquote,
                              math: rendered.math,
-                             images: rendered.images)
+                             images: rendered.images,
+                             codeBlock: rendered.codeBlock)
     }
 }
 
@@ -186,6 +194,7 @@ struct RenderedBlock: Sendable, Identifiable {
     var blockquote: RenderedBlockquote?
     var math: RenderedMath?
     var images: [RenderedImage] = []
+    var codeBlock: RenderedCodeBlock?
 }
 
 struct RenderedTable: Sendable, Equatable {
@@ -210,4 +219,8 @@ struct RenderedMath: Sendable, Equatable {
     var tex: String
     var display: Bool
     var fontSize: CGFloat
+}
+
+struct RenderedCodeBlock: Sendable, Equatable {
+    var backgroundColor: MarkdownColor
 }

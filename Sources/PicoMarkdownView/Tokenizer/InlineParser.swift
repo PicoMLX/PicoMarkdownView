@@ -567,7 +567,6 @@ struct InlineParser {
                 let nextIndex = text.index(after: index)
                 guard nextIndex < text.endIndex else {
                     if includeUnterminated {
-                        plainStart = index
                         index = nextIndex
                         continue parsing
                     } else {

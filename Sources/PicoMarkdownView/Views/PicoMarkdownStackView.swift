@@ -6,22 +6,33 @@ public struct PicoMarkdownStackView: View {
 
     @State private var viewModel: MarkdownStreamingViewModel
 
-    private init(input: MarkdownStreamingInput, theme: MarkdownRenderTheme) {
+    private init(input: MarkdownStreamingInput,
+                 theme: MarkdownRenderTheme,
+                 codeBlockThemeProvider: CodeBlockThemeProvider?) {
         self.input = input
-        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
+        var appliedTheme = theme
+        if let provider = codeBlockThemeProvider {
+            appliedTheme.codeBlockPalette = provider.makePalette(codeFont: appliedTheme.codeFont)
+        }
+        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: appliedTheme))
     }
 
-    public init(text: String, theme: MarkdownRenderTheme = .default()) {
-        self.init(input: .text(text), theme: theme)
+    public init(text: String,
+                theme: MarkdownRenderTheme = .default(),
+                codeBlockThemeProvider: CodeBlockThemeProvider? = nil) {
+        self.init(input: .text(text), theme: theme, codeBlockThemeProvider: codeBlockThemeProvider)
     }
 
-    public init(chunks: [String], theme: MarkdownRenderTheme = .default()) {
-        self.init(input: .chunks(chunks), theme: theme)
+    public init(chunks: [String],
+                theme: MarkdownRenderTheme = .default(),
+                codeBlockThemeProvider: CodeBlockThemeProvider? = nil) {
+        self.init(input: .chunks(chunks), theme: theme, codeBlockThemeProvider: codeBlockThemeProvider)
     }
 
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
-                theme: MarkdownRenderTheme = .default()) {
-        self.init(input: .stream(stream), theme: theme)
+                theme: MarkdownRenderTheme = .default(),
+                codeBlockThemeProvider: CodeBlockThemeProvider? = nil) {
+        self.init(input: .stream(stream), theme: theme, codeBlockThemeProvider: codeBlockThemeProvider)
     }
 
     public var body: some View {
@@ -127,6 +138,12 @@ public struct PicoMarkdownStackView: View {
                 return AnyView(MarkdownTableView(table: table))
             }
             return AnyView(EmptyView())
+        case .fencedCode:
+            let trimmed = trimmedContent(for: block)
+            return AnyView(
+                MarkdownCodeBlockView(text: trimmed,
+                                      metadata: block.codeBlock)
+            )
         case .math:
             if let math = block.math {
                 return AnyView(
@@ -372,6 +389,33 @@ private struct MarkdownParagraphContentView: View {
     }
 }
 
+private struct MarkdownCodeBlockView: View {
+    var text: AttributedString
+    var metadata: RenderedCodeBlock?
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            Text(text)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(backgroundColor)
+        )
+    }
+
+    private var backgroundColor: Color {
+        if let metadata {
+            return Color(platformColor: metadata.backgroundColor)
+        }
+        return Color.secondary.opacity(0.12)
+    }
+}
+
 private struct MarkdownBlockquoteContentView: View {
     var content: AttributedString
     var images: [RenderedImage]
@@ -509,4 +553,16 @@ private extension HorizontalAlignment {
     }
 
     static let listBullet = HorizontalAlignment(ListBulletAlignment.self)
+}
+
+private extension Color {
+    init(platformColor: MarkdownColor) {
+#if canImport(UIKit)
+        self.init(platformColor)
+#elseif canImport(AppKit)
+        self.init(nsColor: platformColor)
+#else
+        self.init(.sRGBLinear, red: 0, green: 0, blue: 0, opacity: 0)
+#endif
+    }
 }

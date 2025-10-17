@@ -37,8 +37,10 @@ struct MarkdownExample: Identifiable, Hashable {
             webURL: "https://github.com/just-the-docs/just-the-docs-tests/blob/main/collections/_components/math/katex/tests.md"),
         MarkdownExample(
             localFilename: "tables",
-            webURL: "https://github.com/gonzalezreal/swift-markdown-ui/blob/main/Examples/Demo/Demo/TablesView.swift"
-        ),
+            webURL: "https://github.com/gonzalezreal/swift-markdown-ui/blob/main/Examples/Demo/Demo/TablesView.swift"),
+        MarkdownExample(
+            localFilename: "CodeBlocks",
+            webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/CodeBlocks.md"),
     ]
 }
 

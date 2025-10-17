@@ -13,6 +13,7 @@ struct RenderedContentResult {
     var blockquote: RenderedBlockquote?
     var math: RenderedMath?
     var images: [RenderedImage]
+    var codeBlock: RenderedCodeBlock?
 }
 
 actor MarkdownAttributeBuilder {
@@ -31,16 +32,18 @@ actor MarkdownAttributeBuilder {
                                         listItem: nil,
                                         blockquote: nil,
                                         math: nil,
-                                        images: images)
+                                        images: images,
+                                        codeBlock: nil)
         case .listItem(let ordered, let index, let task):
             return renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
         case .blockquote:
             return renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
+            let palette = theme.codeBlockPalette
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: theme.codeFont,
-                .foregroundColor: PlatformColor.rendererLabel
+                .foregroundColor: palette.foregroundColor
             ]
             let content = NSMutableAttributedString(string: text, attributes: attributes)
             content.append(NSAttributedString(string: "\n\n", attributes: attributes))
@@ -49,7 +52,8 @@ actor MarkdownAttributeBuilder {
                                         listItem: nil,
                                         blockquote: nil,
                                         math: nil,
-                                        images: [])
+                                        images: [],
+                                        codeBlock: RenderedCodeBlock(backgroundColor: palette.backgroundColor))
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
             let (ns, images) = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
@@ -58,7 +62,8 @@ actor MarkdownAttributeBuilder {
                                         listItem: nil,
                                         blockquote: nil,
                                         math: nil,
-                                        images: images)
+                                        images: images,
+                                        codeBlock: nil)
         case .paragraph:
             fallthrough
         case .unknown:
@@ -69,7 +74,8 @@ actor MarkdownAttributeBuilder {
                                         listItem: nil,
                                         blockquote: nil,
                                         math: nil,
-                                        images: images)
+                                        images: images,
+                                        codeBlock: nil)
         case .math(let display):
             let tex = snapshot.mathText ?? snapshot.inlineRuns?.map { $0.text }.joined() ?? ""
             let suffix = display ? "\n\n" : ""
@@ -81,7 +87,8 @@ actor MarkdownAttributeBuilder {
                                         math: RenderedMath(tex: tex,
                                                            display: display,
                                                            fontSize: theme.bodyFont.pointSize),
-                                        images: [])
+                                        images: [],
+                                        codeBlock: nil)
         }
     }
 
@@ -162,7 +169,8 @@ actor MarkdownAttributeBuilder {
                                     listItem: metadata,
                                     blockquote: nil,
                                     math: nil,
-                                    images: inlineImages)
+                                    images: inlineImages,
+                                    codeBlock: nil)
     }
 
     private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
@@ -205,7 +213,8 @@ actor MarkdownAttributeBuilder {
                                     listItem: nil,
                                     blockquote: RenderedBlockquote(content: AttributedString(styledBody)),
                                     math: nil,
-                                    images: inlineImages)
+                                    images: inlineImages,
+                                    codeBlock: nil)
     }
 
     private func makeBlockquoteParagraphStyle() -> NSMutableParagraphStyle {
