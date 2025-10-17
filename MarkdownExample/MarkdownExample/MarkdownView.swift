@@ -11,6 +11,8 @@ import PicoMarkdownView
 
 struct MarkdownView: View {
     
+    @Environment(\.openURL) var openURL
+    
     private let webURL: URL
     private let markdown: String
 
@@ -27,6 +29,11 @@ struct MarkdownView: View {
                     ScrollView {
                         PicoMarkdownStackView(text: markdown)
                             .padding()
+                            .onOpenLink { url in                                
+                                // Present confirmation for opening external link
+                                openURL(url)
+                                return .handled
+                            }
                     }
                 }
                 Tab("Debug", systemImage: "ladybug") {
