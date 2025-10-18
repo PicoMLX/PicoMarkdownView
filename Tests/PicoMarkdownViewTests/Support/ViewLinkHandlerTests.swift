@@ -6,7 +6,7 @@ import XCTest
 final class ViewLinkHandlerTests: XCTestCase {
     func testModifierCompiles() {
         let view = Text("Link")
-            .picoOnOpenLink { _ in }
+            .onOpenLink { _ in }
         XCTAssertNotNil(view)
     }
 }
