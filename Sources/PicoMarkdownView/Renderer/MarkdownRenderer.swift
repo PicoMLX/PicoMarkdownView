@@ -178,7 +178,7 @@ actor MarkdownRenderer {
     }
 }
 
-struct RenderedBlock: Sendable, Identifiable {
+struct RenderedBlock: Sendable, Identifiable, Equatable {
     var id: BlockID
     var kind: BlockKind
     var content: AttributedString
@@ -189,6 +189,21 @@ struct RenderedBlock: Sendable, Identifiable {
     var math: RenderedMath?
     var images: [RenderedImage] = []
     var codeBlock: RenderedCodeBlock?
+}
+
+extension RenderedBlock {
+    static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.kind == rhs.kind &&
+        lhs.content == rhs.content &&
+        lhs.snapshot == rhs.snapshot &&
+        lhs.table == rhs.table &&
+        lhs.listItem == rhs.listItem &&
+        lhs.blockquote == rhs.blockquote &&
+        lhs.math == rhs.math &&
+        lhs.images == rhs.images &&
+        lhs.codeBlock == rhs.codeBlock
+    }
 }
 
 struct RenderedTable: Sendable, Equatable {

@@ -41,7 +41,10 @@ final class MarkdownStreamingViewModel {
         if mutated, let final, final != attributedText {
             attributedText = final
         }
-        blocks = await pipeline.blocksSnapshot()
+        let latestBlocks = await pipeline.blocksSnapshot()
+        if latestBlocks != blocks {
+            blocks = latestBlocks
+        }
     }
 
     private func consume(stream: AsyncStream<String>) async {
@@ -52,7 +55,10 @@ final class MarkdownStreamingViewModel {
         if mutated, let final, final != attributedText {
             attributedText = final
         }
-        blocks = await pipeline.blocksSnapshot()
+        let latestBlocks = await pipeline.blocksSnapshot()
+        if latestBlocks != blocks {
+            blocks = latestBlocks
+        }
     }
 
     private func replace(with value: String) async {
@@ -74,14 +80,22 @@ final class MarkdownStreamingViewModel {
         if latest != attributedText {
             attributedText = latest
         }
-        blocks = await pipeline.blocksSnapshot()
+        let latestBlocks = await pipeline.blocksSnapshot()
+        if latestBlocks != blocks {
+            blocks = latestBlocks
+        }
     }
 
     private func applyChunk(_ chunk: String) async {
         guard !chunk.isEmpty else { return }
         if let updated = await pipeline.feed(chunk) {
-            attributedText = updated
+            if updated != attributedText {
+                attributedText = updated
+            }
         }
-        blocks = await pipeline.blocksSnapshot()
+        let latestBlocks = await pipeline.blocksSnapshot()
+        if latestBlocks != blocks {
+            blocks = latestBlocks
+        }
     }
 }
