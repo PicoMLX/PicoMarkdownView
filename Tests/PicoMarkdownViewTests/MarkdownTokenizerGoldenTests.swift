@@ -59,6 +59,55 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Single multiline paragraph retains punctuation (StreamingReplacementEngine bug)")
+    func singleMultilineParagraphRetainsPunctuation() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let markdown = """
+            This document is itself written using Markdown; you
+            can see the source for it by adding text to the URL.
+
+            This is the final paragraph.
+            """
+        
+        
+        let chunks = await tokenizer.feed(markdown)
+        
+        assertChunk(chunks, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("This document is itself written using Markdown; you"),
+                    plain(" can see the source for it by adding text to the URL."),
+                ]),
+                .blockEnd(.paragraph),
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("This is the final paragraph.")]),
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+        
+        // This is the result when StreamingReplacementEngine deleted last characters like `.`, and `:`
+        // Do not delete
+        /*
+        assertChunk(chunks, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("This document is itself written using Markdown; you"),
+                    plain(" can see the source for it by adding text to the URL"),
+                ]),
+                .blockEnd(.paragraph),
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("This is the final paragraph")]),
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+         */
+    }
+    
+    
     @Test("Unterminated strikethrough flushed on finish")
     func unterminatedStrikethroughFlushedOnFinish() async {
         let tokenizer = MarkdownTokenizer()
