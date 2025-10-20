@@ -41,12 +41,21 @@ struct StreamingParser {
     private struct FenceInfo {
         var marker: String
         var language: String?
+        var closingMarker: String?
+
+        init(marker: String, language: String?, closingMarker: String? = nil) {
+            self.marker = marker
+            self.language = language
+            self.closingMarker = closingMarker
+        }
     }
 
     private struct DisplayMathOpening {
         var marker: String
+        var closing: String
         var content: String
         var closesOnSameLine: Bool
+        var leadingIndent: Int
     }
 
     private struct HeadingInfo {
@@ -177,7 +186,7 @@ struct StreamingParser {
                 if mathOpen.closesOnSameLine {
                     emitSingleLineDisplayMath(content: mathOpen.content)
                 } else {
-                    openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                    openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
                 }
                 emittedCount = lineBuffer.count
                 lineAnalyzed = true
@@ -240,7 +249,7 @@ struct StreamingParser {
                     if mathOpen.closesOnSameLine {
                         emitSingleLineDisplayMath(content: mathOpen.content)
                     } else {
-                        openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                        openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
                     }
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
@@ -322,7 +331,7 @@ struct StreamingParser {
                     if mathOpen.closesOnSameLine {
                         emitSingleLineDisplayMath(content: mathOpen.content)
                     } else {
-                        openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                        openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
                     }
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
@@ -398,7 +407,7 @@ struct StreamingParser {
                     if mathOpen.closesOnSameLine {
                         emitSingleLineDisplayMath(content: mathOpen.content)
                     } else {
-                        openDisplayMathBlock(marker: mathOpen.marker, initialContent: mathOpen.content)
+                        openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
                     }
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
@@ -439,16 +448,17 @@ struct StreamingParser {
         guard emittedCount < sourceLine.count else { return }
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
+        let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
         if case .fencedCode = context.kind,
            !context.fenceJustOpened,
-           isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
+           isClosingFence(trimmedLine, fence: context.fenceInfo) {
             emittedCount = lineBuffer.count
             setCurrentBlock(context)
             return
         }
         if case .math = context.kind,
            !context.fenceJustOpened,
-           isClosingFence(lineBuffer.trimmingCharacters(in: .whitespaces), fence: context.fenceInfo) {
+           isClosingFence(trimmedLine, fence: context.fenceInfo) {
             emittedCount = lineBuffer.count
             setCurrentBlock(context)
             return
@@ -545,10 +555,18 @@ struct StreamingParser {
 
     private mutating func append(_ text: String, context ctx: inout BlockContext) {
         guard !text.isEmpty else { return }
+        var content = text
+        if ctx.linePrefixToStrip > 0 {
+            let dropCount = min(ctx.linePrefixToStrip, content.count)
+            let dropIndex = content.index(content.startIndex, offsetBy: dropCount)
+            content = String(content[dropIndex...])
+            ctx.linePrefixToStrip -= dropCount
+        }
+        guard !content.isEmpty else { return }
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote:
             if var parser = ctx.inlineParser {
-                var input = text
+                var input = content
                 if ctx.kind == .paragraph, ctx.pendingSoftBreak {
                     input = " " + input
                     ctx.pendingSoftBreak = false
@@ -572,7 +590,7 @@ struct StreamingParser {
             if var parser = ctx.inlineParser {
                 var emitted = ""
                 var pending = ctx.headingPendingSuffix
-                for character in text {
+                for character in content {
                     if character == " " || character == "#" {
                         pending.append(character)
                     } else {
@@ -602,27 +620,27 @@ struct StreamingParser {
                 ctx.inlineParser = parser
             }
         case .unknown:
-            ctx.literal.append(text)
+            ctx.literal.append(content)
         case .fencedCode:
             if let lastIndex = events.indices.last {
                 if case .blockAppendFencedCode(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
-                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + text)
+                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + content)
                 } else {
-                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: content))
                 }
             } else {
-                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: content))
             }
             ctx.fenceJustOpened = false
         case .math:
             if let lastIndex = events.indices.last {
                 if case .blockAppendMath(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
-                    events[lastIndex] = .blockAppendMath(id: ctx.id, textChunk: existingText + text)
+                    events[lastIndex] = .blockAppendMath(id: ctx.id, textChunk: existingText + content)
                 } else {
-                    events.append(.blockAppendMath(id: ctx.id, textChunk: text))
+                    events.append(.blockAppendMath(id: ctx.id, textChunk: content))
                 }
             } else {
-                events.append(.blockAppendMath(id: ctx.id, textChunk: text))
+                events.append(.blockAppendMath(id: ctx.id, textChunk: content))
             }
             ctx.fenceJustOpened = false
         case .table:
@@ -936,39 +954,51 @@ struct StreamingParser {
         }
         guard marker.count >= 3 else { return nil }
         let info = trimmed[index...].trimmingCharacters(in: .whitespaces)
-        return FenceInfo(marker: marker, language: info.isEmpty ? nil : info)
+        return FenceInfo(marker: marker, language: info.isEmpty ? nil : info, closingMarker: marker)
     }
 
+    /// Detect a display-math opener at the start of the (optionally indented) line.
+    /// Supported markers:
+    ///   - $$ ... $$
+    ///   - \[ ... \]
+    /// NOTE: Inline math with \( ... \) is intentionally NOT handled here; that belongs to the inline parser.
     private func detectDisplayMathOpening(_ line: String) -> DisplayMathOpening? {
         guard !line.isEmpty else { return nil }
+
         var index = line.startIndex
         var indent = 0
+        // Allow up to 3 leading spaces before the marker, per commonmark/KaTeX conventions
         while index < line.endIndex && indent < 4 {
             let ch = line[index]
-            if ch == " " {
-                indent += 1
-                index = line.index(after: index)
+            if ch == " " { indent += 1; index = line.index(after: index) } else { break }
+        }
+        guard indent <= 3, index < line.endIndex else { return nil }
+
+        // Helper to build a DisplayMathOpening given an opening/closing marker pair
+        func makeOpening(open: String, close: String) -> DisplayMathOpening? {
+            guard line[index...].hasPrefix(open) else { return nil }
+            let contentStart = line.index(index, offsetBy: open.count)
+            guard contentStart <= line.endIndex else { return nil }
+            let remainder = line[contentStart...]
+            if remainder.isEmpty {
+                return DisplayMathOpening(marker: open, closing: close, content: "", closesOnSameLine: false, leadingIndent: indent)
+            }
+            if let closingRange = remainder.range(of: close) {
+                // Only allow trailing whitespace after the closing marker
+                let afterClose = remainder[closingRange.upperBound...].trimmingCharacters(in: .whitespaces)
+                guard afterClose.isEmpty else { return nil }
+                let inner = remainder[..<closingRange.lowerBound]
+                return DisplayMathOpening(marker: open, closing: close, content: String(inner), closesOnSameLine: true, leadingIndent: indent)
             } else {
-                break
+                return DisplayMathOpening(marker: open, closing: close, content: String(remainder), closesOnSameLine: false, leadingIndent: indent)
             }
         }
-        guard indent <= 3 else { return nil }
-        guard index < line.endIndex else { return nil }
-        guard line[index...].hasPrefix("$$") else { return nil }
-        let contentStart = line.index(index, offsetBy: 2)
-        guard contentStart <= line.endIndex else { return nil }
-        let remainder = line[contentStart...]
-        if remainder.isEmpty {
-            return DisplayMathOpening(marker: "$$", content: "", closesOnSameLine: false)
-        }
-        if let closingRange = remainder.range(of: "$$") {
-            let afterClose = remainder[closingRange.upperBound...].trimmingCharacters(in: .whitespaces)
-            guard afterClose.isEmpty else { return nil }
-            let inner = remainder[..<closingRange.lowerBound]
-            return DisplayMathOpening(marker: "$$", content: String(inner), closesOnSameLine: true)
-        } else {
-            return DisplayMathOpening(marker: "$$", content: String(remainder), closesOnSameLine: false)
-        }
+
+        // Try $$...$$ first, then \[...\]
+        if let open = makeOpening(open: "$$", close: "$$") { return open }
+        if let open = makeOpening(open: "\\[", close: "\\]") { return open }
+
+        return nil
     }
 
     private mutating func emitSingleLineDisplayMath(content: String) {
@@ -982,16 +1012,16 @@ struct StreamingParser {
         events.append(.blockEnd(id: blockID))
     }
 
-    private mutating func openDisplayMathBlock(marker: String, initialContent: String) {
+    private mutating func openDisplayMathBlock(marker: String, closing: String, initialContent: String, indent: Int) {
         let context = BlockContext(
             id: nextID,
             kind: .math(display: true),
             inlineParser: nil,
             tableState: nil,
-            fenceInfo: FenceInfo(marker: marker, language: "math"),
+            fenceInfo: FenceInfo(marker: marker, language: "math", closingMarker: closing),
             literal: "",
             fenceJustOpened: true,
-            linePrefixToStrip: 0,
+            linePrefixToStrip: indent,
             headingPendingSuffix: "",
             eventStartIndex: events.count,
             listIndent: 0
@@ -1006,8 +1036,9 @@ struct StreamingParser {
 
     private func isClosingFence(_ line: String, fence: FenceInfo?) -> Bool {
         guard let fence = fence else { return false }
-        guard line.hasPrefix(fence.marker) else { return false }
-        let remainder = line.dropFirst(fence.marker.count)
+        let marker = fence.closingMarker ?? fence.marker
+        guard line.hasPrefix(marker) else { return false }
+        let remainder = line.dropFirst(marker.count)
         return remainder.trimmingCharacters(in: .whitespaces).isEmpty
     }
 

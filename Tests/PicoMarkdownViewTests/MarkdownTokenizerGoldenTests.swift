@@ -1553,7 +1553,68 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx"),
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockEnd(.math(display: true))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Display math via [ ... ] single line")
+    func displayMathBracketSingleLine() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("\\[\\int_0^1 x^2 dx\\]\n\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.math(display: true)),
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockEnd(.math(display: true))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Display math via [ ... ] across chunks")
+    func displayMathBracketAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("\\[\\frac{a")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.math(display: true)),
+                .blockAppendMath(.math(display: true), textChunk: "\\frac{a")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("}{b}\\]\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendMath(.math(display: true), textChunk: "}{b}")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let third = await tokenizer.feed("\n")
+        assertChunk(third, matches: .init(
+            events: [
                 .blockEnd(.math(display: true))
             ],
             openBlocks: []
