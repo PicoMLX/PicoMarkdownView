@@ -7,7 +7,7 @@ struct InlineParser {
         case needMore
     }
     private var pending: String = ""
-    private var replacements = StreamingReplacementEngine()
+    var replacements = StreamingReplacementEngine()
     private var mathState: InlineMathState?
 
     private struct InlineMathState {
@@ -36,8 +36,6 @@ struct InlineParser {
     }
 
     private mutating func consume(includeUnterminated: Bool) -> [InlineRun] {
-        guard !pending.isEmpty else { return [] }
-
         var runs: [InlineRun] = []
         let text = pending
         var index = text.startIndex
@@ -787,6 +785,8 @@ struct InlineParser {
         if includeUnterminated {
             let trailing = replacements.finish()
             appendProcessed(trailing)
+            let remainder = replacements.drainLiteralTail()
+            appendProcessed(remainder)
         }
 
         if consumedEnd > text.startIndex {

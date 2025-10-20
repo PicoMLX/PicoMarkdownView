@@ -855,9 +855,7 @@ struct MarkdownTokenizerGoldenTests {
             events: [
                 .blockStart(.paragraph),
                 .blockAppendInline(.paragraph, runs: [
-                    plain("line 1"),
-                    plain("\n"),
-                    plain("line 2")
+                    plain("line 1\nline 2"),
                 ]),
                 .blockEnd(.paragraph)
             ],

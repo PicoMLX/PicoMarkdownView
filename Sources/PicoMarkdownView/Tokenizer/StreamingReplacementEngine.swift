@@ -113,7 +113,7 @@ struct StreamingReplacementEngine {
     }
 
     private mutating func handle(_ character: Character, into output: inout String) {
-        var current = character
+        let current = character
         var shouldReprocess = true
         while shouldReprocess {
             shouldReprocess = false
@@ -123,9 +123,9 @@ struct StreamingReplacementEngine {
                     colonState = .pending
                     colonBuffer = [":"]
                     colonContent = ""
-                } else {
-                    appendLiteral(current, into: &output)
+                    continue
                 }
+                appendLiteral(current, into: &output)
             case .pending:
                 if isShortcodeInitial(current) {
                     colonState = .collecting
@@ -201,6 +201,24 @@ struct StreamingReplacementEngine {
             }
         }
         return nil
+    }
+
+    mutating func drainLiteralTail() -> String {
+        guard !literalTail.isEmpty else { return "" }
+        let drained = String(literalTail)
+        literalTail.removeAll(keepingCapacity: true)
+        return drained
+    }
+
+    mutating func flushPendingLiteralTail(into output: inout String) {
+        guard !literalTail.isEmpty else { return }
+        while let replacement = matchLiteralPattern(allowLookahead: true) {
+            output.append(replacement)
+        }
+        if !literalTail.isEmpty {
+            output.append(String(literalTail))
+            literalTail.removeAll(keepingCapacity: true)
+        }
     }
 
     private func longestPendingPrefixLength() -> Int {

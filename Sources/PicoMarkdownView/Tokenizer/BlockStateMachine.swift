@@ -553,12 +553,14 @@ struct StreamingParser {
                     input = " " + input
                     ctx.pendingSoftBreak = false
                 }
-                let runs = parser.append(input)
+                var runs = parser.append(input)
+                coalesceInlineRuns(&runs)
                 if !runs.isEmpty {
                     if let lastIndex = events.indices.last,
                        case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
                        existingID == ctx.id {
                         existingRuns.append(contentsOf: runs)
+                        coalesceInlineRuns(&existingRuns)
                         events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
                     } else {
                         events.append(.blockAppendInline(id: ctx.id, runs: runs))
@@ -583,12 +585,14 @@ struct StreamingParser {
                 }
                 ctx.headingPendingSuffix = pending
                 if !emitted.isEmpty {
-                    let runs = parser.append(emitted)
+                    var runs = parser.append(emitted)
+                    coalesceInlineRuns(&runs)
                     if !runs.isEmpty {
                         if let lastIndex = events.indices.last,
                            case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
                            existingID == ctx.id {
                             existingRuns.append(contentsOf: runs)
+                            coalesceInlineRuns(&existingRuns)
                             events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
                         } else {
                             events.append(.blockAppendInline(id: ctx.id, runs: runs))
@@ -626,6 +630,26 @@ struct StreamingParser {
             break
         }
         ctx.linePrefixToStrip = 0
+    }
+
+    private func canCoalesce(_ lhs: InlineRun, _ rhs: InlineRun) -> Bool {
+        lhs.style == rhs.style && lhs.linkURL == rhs.linkURL && lhs.image == rhs.image && lhs.math == rhs.math
+    }
+
+    private func coalesceInlineRuns(_ runs: inout [InlineRun]) {
+        guard runs.count >= 2 else { return }
+        var result: [InlineRun] = []
+        result.reserveCapacity(runs.count)
+        for run in runs {
+            if let last = result.last, canCoalesce(last, run) {
+                var merged = last
+                merged.text += run.text
+                result[result.count - 1] = merged
+            } else {
+                result.append(run)
+            }
+        }
+        runs = result
     }
 
     private mutating func appendUnknownLiteral(_ text: String) {
@@ -766,13 +790,24 @@ struct StreamingParser {
     private mutating func closeCurrentBlock() {
         guard let ctx = currentBlock else { return }
         if var parser = ctx.inlineParser {
-            let runs = parser.finish()
+            var runs = parser.finish()
+            coalesceInlineRuns(&runs)
             if !runs.isEmpty {
-                events.append(.blockAppendInline(id: ctx.id, runs: runs))
+                if let lastIndex = events.indices.last,
+                   case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
+                   existingID == ctx.id {
+                    existingRuns.append(contentsOf: runs)
+                    coalesceInlineRuns(&existingRuns)
+                    events[lastIndex] = .blockAppendInline(id: existingID, runs: existingRuns)
+                } else {
+                    events.append(.blockAppendInline(id: ctx.id, runs: runs))
+                }
             }
         }
         if !ctx.literal.isEmpty {
-            events.append(.blockAppendInline(id: ctx.id, runs: [InlineRun(text: ctx.literal)]))
+            var literalRuns = [InlineRun(text: ctx.literal)]
+            coalesceInlineRuns(&literalRuns)
+            events.append(.blockAppendInline(id: ctx.id, runs: literalRuns))
         }
         events.append(.blockEnd(id: ctx.id))
         _ = popBlock()
