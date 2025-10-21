@@ -555,18 +555,10 @@ struct StreamingParser {
 
     private mutating func append(_ text: String, context ctx: inout BlockContext) {
         guard !text.isEmpty else { return }
-        var content = text
-        if ctx.linePrefixToStrip > 0 {
-            let dropCount = min(ctx.linePrefixToStrip, content.count)
-            let dropIndex = content.index(content.startIndex, offsetBy: dropCount)
-            content = String(content[dropIndex...])
-            ctx.linePrefixToStrip -= dropCount
-        }
-        guard !content.isEmpty else { return }
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote:
             if var parser = ctx.inlineParser {
-                var input = content
+                var input = text
                 if ctx.kind == .paragraph, ctx.pendingSoftBreak {
                     input = " " + input
                     ctx.pendingSoftBreak = false
@@ -590,7 +582,7 @@ struct StreamingParser {
             if var parser = ctx.inlineParser {
                 var emitted = ""
                 var pending = ctx.headingPendingSuffix
-                for character in content {
+                for character in text {
                     if character == " " || character == "#" {
                         pending.append(character)
                     } else {
@@ -620,27 +612,27 @@ struct StreamingParser {
                 ctx.inlineParser = parser
             }
         case .unknown:
-            ctx.literal.append(content)
+            ctx.literal.append(text)
         case .fencedCode:
             if let lastIndex = events.indices.last {
                 if case .blockAppendFencedCode(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
-                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + content)
+                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + text)
                 } else {
-                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: content))
+                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
                 }
             } else {
-                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: content))
+                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
             }
             ctx.fenceJustOpened = false
         case .math:
             if let lastIndex = events.indices.last {
                 if case .blockAppendMath(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
-                    events[lastIndex] = .blockAppendMath(id: ctx.id, textChunk: existingText + content)
+                    events[lastIndex] = .blockAppendMath(id: ctx.id, textChunk: existingText + text)
                 } else {
-                    events.append(.blockAppendMath(id: ctx.id, textChunk: content))
+                    events.append(.blockAppendMath(id: ctx.id, textChunk: text))
                 }
             } else {
-                events.append(.blockAppendMath(id: ctx.id, textChunk: content))
+                events.append(.blockAppendMath(id: ctx.id, textChunk: text))
             }
             ctx.fenceJustOpened = false
         case .table:
@@ -997,6 +989,7 @@ struct StreamingParser {
         // Try $$...$$ first, then \[...\]
         if let open = makeOpening(open: "$$", close: "$$") { return open }
         if let open = makeOpening(open: "\\[", close: "\\]") { return open }
+//        if let open = makeOpening(open: "\\(", close: "\\)") { return open }
 
         return nil
     }

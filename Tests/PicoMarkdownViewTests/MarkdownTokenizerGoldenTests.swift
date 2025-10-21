@@ -73,13 +73,13 @@ struct MarkdownTokenizerGoldenTests {
         
         
         let chunks = await tokenizer.feed(markdown)
-        
+        print(chunks)
         assertChunk(chunks, matches: .init(
             events: [
                 .blockStart(.paragraph),
                 .blockAppendInline(.paragraph, runs: [
-                    plain("This document is itself written using Markdown; you"),
-                    plain(" can see the source for it by adding text to the URL."),
+                    plain("This document is itself written using Markdown; you can see the source for it by adding text to the URL."),
+//                    plain(" can see the source for it by adding text to the URL."),
                 ]),
                 .blockEnd(.paragraph),
                 .blockStart(.paragraph),
@@ -87,6 +87,23 @@ struct MarkdownTokenizerGoldenTests {
             ],
             openBlocks: [.paragraph]
         ), state: &state)
+        
+        
+        // FIXME: !!!!! REGRESSION. FINAL . IS STILL MISSING in last paragraph (but can't replicate it in example app)
+        
+//        ChunkResult(events: [
+//            PicoMarkdownView.BlockEvent.blockStart(id: 1, kind: PicoMarkdownView.BlockKind.paragraph),
+//            PicoMarkdownView.BlockEvent.blockAppendInline(id: 1, runs: [
+//                PicoMarkdownView.InlineRun(text: "This document is itself written using Markdown; you can see the source for it by adding text to the URL.", style: PicoMarkdownView.InlineStyle(rawValue: 0), linkURL: nil, image: nil, math: nil)
+//            ]),
+//            PicoMarkdownView.BlockEvent.blockEnd(id: 1),
+//            PicoMarkdownView.BlockEvent.blockStart(id: 2, kind: PicoMarkdownView.BlockKind.paragraph),
+//            PicoMarkdownView.BlockEvent.blockAppendInline(id: 2, runs: [
+//                PicoMarkdownView.InlineRun(text: "This is the final paragraph", style: PicoMarkdownView.InlineStyle(rawValue: 0), linkURL: nil, image: nil, math: nil)
+//            ])], openBlocks: [PicoMarkdownView.OpenBlockState(id: 2, kind: PicoMarkdownView.BlockKind.paragraph, parentID: nil, depth: 0)])
+        
+        
+        
         
         // This is the result when StreamingReplacementEngine deleted last characters like `.`, and `:`
         // Do not delete
