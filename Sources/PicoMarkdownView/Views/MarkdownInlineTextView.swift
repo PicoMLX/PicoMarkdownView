@@ -7,15 +7,36 @@ import UIKit
 import AppKit
 #endif
 
+@MainActor
 struct MarkdownInlineTextView: View {
     var content: AttributedString
     var enablesSelection: Bool = true
+    @State private var firstBaseline: CGFloat = 0
+
+    init(content: AttributedString, enablesSelection: Bool = true) {
+        self.content = content
+        self.enablesSelection = enablesSelection
+        _firstBaseline = State(initialValue: Self.estimatedBaseline(for: content))
+    }
 
     var body: some View {
+        let baseline = firstBaseline
         if content.characters.isEmpty {
             EmptyView()
         } else {
-            Representable(content: NSAttributedString(content), enablesSelection: enablesSelection)
+            Representable(content: NSAttributedString(content),
+                          enablesSelection: enablesSelection,
+                          baselineChanged: { newBaseline in
+                              guard !newBaseline.isNaN, newBaseline.isFinite else { return }
+                              Task { @MainActor in
+                                  if abs(newBaseline - firstBaseline) > 0.5 {
+                                      firstBaseline = newBaseline
+                                  }
+                              }
+                          })
+                .alignmentGuide(.firstTextBaseline) { dimensions in
+                    dimensions[VerticalAlignment.top] + baseline
+                }
                 .accessibilityLabel(accessibilityLabel)
         }
     }
@@ -24,18 +45,34 @@ struct MarkdownInlineTextView: View {
         Text(String(content.characters))
     }
 
+    private static func estimatedBaseline(for content: AttributedString) -> CGFloat {
+        let ns = NSAttributedString(content)
+        guard ns.length > 0 else { return 0 }
+        var range = NSRange(location: 0, length: 0)
+        let attributes = ns.attributes(at: 0, effectiveRange: &range)
+#if canImport(UIKit)
+        let font = attributes[.font] as? UIFont
+#else
+        let font = attributes[.font] as? NSFont
+#endif
+        return font?.ascender ?? 0
+    }
+
 #if canImport(UIKit)
     private struct Representable: UIViewRepresentable {
         var content: NSAttributedString
         var enablesSelection: Bool
+        var baselineChanged: (CGFloat) -> Void
 
         func makeUIView(context: Context) -> SizingTextView {
             let view = SizingTextView()
+            view.baselineChanged = baselineChanged
             configure(view)
             return view
         }
 
         func updateUIView(_ uiView: SizingTextView, context: Context) {
+            uiView.baselineChanged = baselineChanged
             if !uiView.attributedText.isEqual(to: content) {
                 uiView.attributedText = content
             }
@@ -43,6 +80,7 @@ struct MarkdownInlineTextView: View {
                 uiView.isSelectable = enablesSelection
             }
             uiView.invalidateIntrinsicContentSize()
+            uiView.reportBaselineIfNeeded()
         }
 
         private func configure(_ view: SizingTextView) {
@@ -57,10 +95,13 @@ struct MarkdownInlineTextView: View {
             view.dataDetectorTypes = []
             view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+            view.reportBaselineIfNeeded()
         }
     }
 
     private final class SizingTextView: UITextView {
+        var baselineChanged: ((CGFloat) -> Void)?
+
         override var intrinsicContentSize: CGSize {
             let fittingWidth = bounds.width > 0 ? bounds.width : UIView.noIntrinsicMetric
             let targetWidth: CGFloat
@@ -69,27 +110,49 @@ struct MarkdownInlineTextView: View {
             } else {
                 targetWidth = fittingWidth
             }
-            let size = sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+            let size = sizeThatFits(CGSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude))
             return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
             invalidateIntrinsicContentSize()
+            reportBaselineIfNeeded()
+        }
+
+        func reportBaselineIfNeeded() {
+            let baseline = computeFirstBaseline()
+            baselineChanged?(baseline)
+        }
+
+        private func computeFirstBaseline() -> CGFloat {
+            guard let textStorage else {
+                return textContainerInset.top + (font?.ascender ?? 0)
+            }
+            if textStorage.length == 0 {
+                return textContainerInset.top + (font?.ascender ?? 0)
+            }
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let attributes = textStorage.attributes(at: 0, effectiveRange: &effectiveRange)
+            let font = (attributes[.font] as? UIFont) ?? self.font ?? UIFont.preferredFont(forTextStyle: .body)
+            return textContainerInset.top + font.ascender
         }
     }
 #else
     private struct Representable: NSViewRepresentable {
         var content: NSAttributedString
         var enablesSelection: Bool
+        var baselineChanged: (CGFloat) -> Void
 
         func makeNSView(context: Context) -> SizingTextView {
             let view = SizingTextView()
+            view.baselineChanged = baselineChanged
             configure(view)
             return view
         }
 
         func updateNSView(_ nsView: SizingTextView, context: Context) {
+            nsView.baselineChanged = baselineChanged
             if nsView.attributedString() != content {
                 nsView.textStorage?.setAttributedString(content)
             }
@@ -97,6 +160,7 @@ struct MarkdownInlineTextView: View {
                 nsView.isSelectable = enablesSelection
             }
             nsView.invalidateIntrinsicContentSize()
+            nsView.reportBaselineIfNeeded()
         }
 
         private func configure(_ view: SizingTextView) {
@@ -111,33 +175,53 @@ struct MarkdownInlineTextView: View {
             view.textStorage?.setAttributedString(content)
             view.isVerticallyResizable = true
             view.isHorizontallyResizable = true
-            view.frame.size = CGSize(width: 10_000, height: 10_000)
-//            view.maxSize = NSSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+            view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            view.reportBaselineIfNeeded()
         }
     }
 
     private final class SizingTextView: NSTextView {
+        var baselineChanged: ((CGFloat) -> Void)?
+
         override var intrinsicContentSize: NSSize {
             let width = bounds.width > 0 ? bounds.width : NSView.noIntrinsicMetric
             let targetWidth = width == NSView.noIntrinsicMetric ? 0 : width
-            let size = sizeThatFits(in: NSSize(width: targetWidth, height: .greatestFiniteMagnitude))
+            let size = sizeThatFits(in: NSSize(width: targetWidth, height: CGFloat.greatestFiniteMagnitude))
             return NSSize(width: NSView.noIntrinsicMetric, height: size.height)
         }
 
         override func layout() {
             super.layout()
             invalidateIntrinsicContentSize()
+            reportBaselineIfNeeded()
         }
 
         private func sizeThatFits(in target: NSSize) -> NSSize {
             guard let textContainer = textContainer, let layoutManager = layoutManager else {
                 return super.intrinsicContentSize
             }
-            let width = target.width > 0 ? target.width : .greatestFiniteMagnitude
-            textContainer.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+            let width = target.width > 0 ? target.width : CGFloat.greatestFiniteMagnitude
+            textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
             layoutManager.ensureLayout(for: textContainer)
             let used = layoutManager.usedRect(for: textContainer)
             return NSSize(width: used.width, height: used.height)
+        }
+
+        func reportBaselineIfNeeded() {
+            baselineChanged?(computeFirstBaseline())
+        }
+
+        private func computeFirstBaseline() -> CGFloat {
+            guard let textStorage = textStorage else {
+                return textContainerInset.height + (font?.ascender ?? 0)
+            }
+            if textStorage.length == 0 {
+                return textContainerInset.height + (font?.ascender ?? 0)
+            }
+            var effectiveRange = NSRange(location: 0, length: 0)
+            let attributes = textStorage.attributes(at: 0, effectiveRange: &effectiveRange)
+            let font = (attributes[.font] as? NSFont) ?? self.font ?? NSFont.preferredFont(forTextStyle: .body)
+            return textContainerInset.height + font.ascender
         }
     }
 #endif
