@@ -167,7 +167,7 @@ public struct PicoMarkdownStackView: View {
             let trimmed = trimmedContent(for: block)
             if block.images.isEmpty {
                 return AnyView(
-                    Text(trimmed)
+                    MarkdownInlineTextView(content: trimmed)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 )
             } else {
@@ -285,10 +285,7 @@ private struct MarkdownTableView: View {
             if let headers = table.headers, !headers.isEmpty {
                 HStack(spacing: 12) {
                     ForEach(Array(headers.enumerated()), id: \.offset) { index, header in
-                        Text(header)
-                            .lineLimit(nil)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .fontWeight(.semibold)
+                        MarkdownInlineTextView(content: header)
                             .frame(maxWidth: .infinity, alignment: alignment(for: index))
                     }
                 }
@@ -301,9 +298,7 @@ private struct MarkdownTableView: View {
             ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                        Text(cell)
-                            .lineLimit(nil)
-                            .fixedSize(horizontal: false, vertical: true)
+                        MarkdownInlineTextView(content: cell)
                             .frame(maxWidth: .infinity, alignment: alignment(for: column))
                     }
                 }
@@ -346,9 +341,7 @@ private struct MarkdownListRowView: View {
                 }
                 .font(.body)
             VStack(alignment: .leading, spacing: 8) {
-                Text(trimTrailingNewlines(from: item.content))
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
+                MarkdownInlineTextView(content: trimTrailingNewlines(from: item.content))
                     .alignmentGuide(.listBullet) { dimensions in
                         dimensions[.leading]
                     }
@@ -369,9 +362,7 @@ private struct MarkdownParagraphContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if hasVisibleContent(text) {
-                Text(text)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
+                MarkdownInlineTextView(content: text)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if !images.isEmpty {
@@ -423,9 +414,7 @@ private struct MarkdownBlockquoteContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if hasVisibleContent(content) {
-                Text(content)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
+                MarkdownInlineTextView(content: content)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             if !images.isEmpty {

@@ -33,5 +33,6 @@ within your table:
 | `git status` | List all *new or modified* files |
 | `git diff` | Show file differences that **haven't been** staged |
 
-## Further reading
-- [GitHub Flavored Markdown Spec](https://github.github.com/gfm/)
+| Further Reading  |
+| --- |
+| [GitHub Flavored Markdown Spec](https://github.github.com/gfm/) |
