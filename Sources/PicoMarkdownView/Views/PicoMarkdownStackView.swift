@@ -285,8 +285,8 @@ private struct MarkdownTableView: View {
             if let headers = table.headers, !headers.isEmpty {
                 HStack(spacing: 12) {
                     ForEach(Array(headers.enumerated()), id: \.offset) { index, header in
-                        MarkdownInlineTextView(content: header)
-                            .frame(maxWidth: .infinity, alignment: alignment(for: index))
+                        MarkdownTableCellView(content: header,
+                                              alignment: alignment(for: index))
                     }
                 }
                 .padding(.vertical, 6)
@@ -298,8 +298,8 @@ private struct MarkdownTableView: View {
             ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(Array(row.enumerated()), id: \.offset) { column, cell in
-                        MarkdownInlineTextView(content: cell)
-                            .frame(maxWidth: .infinity, alignment: alignment(for: column))
+                        MarkdownTableCellView(content: cell,
+                                              alignment: alignment(for: column))
                     }
                 }
                 .padding(.vertical, 6)
@@ -326,6 +326,23 @@ private struct MarkdownTableView: View {
         case .right:
             return .trailing
         }
+    }
+}
+
+private struct MarkdownTableCellView: View {
+    var content: AttributedString
+    var alignment: Alignment
+
+    var body: some View {
+        Group {
+            if content.characters.isEmpty {
+                Color.clear
+                    .frame(minHeight: 0)
+            } else {
+                MarkdownInlineTextView(content: content)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
