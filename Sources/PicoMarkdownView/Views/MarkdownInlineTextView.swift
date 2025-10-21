@@ -13,6 +13,8 @@ struct MarkdownInlineTextView: View {
     var enablesSelection: Bool = true
     @State private var firstBaseline: CGFloat = 0
 
+    private static let lineSpacingMultiplier: CGFloat = 1.18
+
     init(content: AttributedString, enablesSelection: Bool = true) {
         self.content = content
         self.enablesSelection = enablesSelection
@@ -21,10 +23,11 @@ struct MarkdownInlineTextView: View {
 
     var body: some View {
         let baseline = firstBaseline
+        let styledContent = NSAttributedString(content).applyingLineSpacingMultiplier(Self.lineSpacingMultiplier)
         if content.characters.isEmpty {
             EmptyView()
         } else {
-            Representable(content: NSAttributedString(content),
+            Representable(content: styledContent,
                           enablesSelection: enablesSelection,
                           baselineChanged: { newBaseline in
                               guard !newBaseline.isNaN, newBaseline.isFinite else { return }
@@ -225,4 +228,38 @@ struct MarkdownInlineTextView: View {
         }
     }
 #endif
+}
+
+private extension NSAttributedString {
+    func applyingLineSpacingMultiplier(_ multiplier: CGFloat) -> NSAttributedString {
+        guard length > 0, multiplier > 0 else { return self }
+        let extraFactor = max(multiplier - 1, 0)
+        guard extraFactor > 0 else { return self }
+
+        let mutable = NSMutableAttributedString(attributedString: self)
+        let fullRange = NSRange(location: 0, length: length)
+        mutable.enumerateAttributes(in: fullRange, options: []) { attributes, range, _ in
+            let paragraph: NSMutableParagraphStyle
+            if let existing = attributes[.paragraphStyle] as? NSParagraphStyle {
+                paragraph = (existing.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+            } else {
+                paragraph = NSMutableParagraphStyle()
+            }
+
+#if canImport(UIKit)
+            let baseFont = (attributes[.font] as? UIFont) ?? UIFont.preferredFont(forTextStyle: .body)
+            let baseLineHeight = baseFont.lineHeight
+#else
+            let baseFont = (attributes[.font] as? NSFont) ?? NSFont.preferredFont(forTextStyle: .body)
+            let baseLineHeight = baseFont.ascender - baseFont.descender + baseFont.leading
+#endif
+            let desiredSpacing = baseLineHeight * extraFactor
+            if paragraph.lineSpacing < desiredSpacing - 0.25 {
+                paragraph.lineSpacing = desiredSpacing
+            }
+
+            mutable.addAttribute(.paragraphStyle, value: paragraph, range: range)
+        }
+        return mutable
+    }
 }
