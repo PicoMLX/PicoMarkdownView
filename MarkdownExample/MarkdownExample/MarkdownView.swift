@@ -7,7 +7,7 @@
 
 import SwiftUI
 import PicoMarkdownView
-
+import WebKit
 
 struct MarkdownView: View {
     
@@ -48,8 +48,11 @@ struct MarkdownView: View {
                 }
             }
             .textSelection(.enabled)
-            
-            WebView(url: webURL)
+                        
+            WebView(url: webURL) { configuration in
+                // To shut up Nyan Cat
+                configuration.mediaTypesRequiringUserActionForPlayback = .all
+            }
                 .id(webURL)
         }
     }
