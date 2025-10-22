@@ -149,14 +149,19 @@ public struct PicoMarkdownStackView: View {
             }
             fallthrough
         case .blockquote:
-            if let quote = block.blockquote {
+            if let quote = block.blockquote, hasVisibleContent(quote.content) {
                 return AnyView(
                     MarkdownBlockquoteContentView(content: quote.content,
                                                   images: block.images)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 )
             }
-            fallthrough
+            let fallback = trimmedContent(for: block)
+            return AnyView(
+                MarkdownBlockquoteContentView(content: fallback,
+                                              images: block.images)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            )
         default:
             if block.kind == .paragraph, isHorizontalRule(block) {
                 return AnyView(

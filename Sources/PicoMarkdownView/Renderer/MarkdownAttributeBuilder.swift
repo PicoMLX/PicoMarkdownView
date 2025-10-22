@@ -185,6 +185,7 @@ actor MarkdownAttributeBuilder {
         let body = renderInline(bodyRuns, font: theme.bodyFont)
         let paragraphStyle = makeBlockquoteParagraphStyle()
         let lineColor = theme.blockquoteColor.withAlphaComponent(0.6)
+        let textColor = PlatformColor.rendererLabel
 
         let prefixAttributes: [NSAttributedString.Key: Any] = [
             .font: theme.bodyFont,
@@ -192,10 +193,16 @@ actor MarkdownAttributeBuilder {
             .paragraphStyle: paragraphStyle
         ]
 
+        let bodyAttributes: [NSAttributedString.Key: Any] = [
+            .font: theme.bodyFont,
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraphStyle
+        ]
+
         let result = NSMutableAttributedString(string: "│ ", attributes: prefixAttributes)
         let styledBody = NSMutableAttributedString(attributedString: body)
         if styledBody.length > 0 {
-            styledBody.addAttributes(prefixAttributes, range: NSRange(location: 0, length: styledBody.length))
+            styledBody.addAttributes(bodyAttributes, range: NSRange(location: 0, length: styledBody.length))
         }
         result.append(styledBody)
 
