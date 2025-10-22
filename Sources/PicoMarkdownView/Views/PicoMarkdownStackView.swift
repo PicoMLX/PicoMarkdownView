@@ -12,7 +12,7 @@ public struct PicoMarkdownStackView: View {
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
     }
 
-    public init(text: String,
+    public init(_ text: String,
                 theme: MarkdownRenderTheme = .default()) {
         self.init(input: .text(text), theme: theme)
     }

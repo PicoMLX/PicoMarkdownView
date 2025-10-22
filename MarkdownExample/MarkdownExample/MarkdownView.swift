@@ -27,7 +27,7 @@ struct MarkdownView: View {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
                     ScrollView {
-                        PicoMarkdownStackView(text: markdown)
+                        PicoMarkdownStackView(markdown)
                             .padding()
                             .onOpenLink { url in                                
                                 // Present confirmation for opening external link
