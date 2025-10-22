@@ -363,7 +363,7 @@ private struct MarkdownListRowView: View {
                 }
                 .font(.body)
             VStack(alignment: .leading, spacing: 8) {
-            MarkdownInlineTextView(content: cleanedContent)
+                MarkdownInlineTextView(content: trimTrailingNewlines(from: item.content))
                     .alignmentGuide(.listBullet) { dimensions in
                         dimensions[.leading]
                     }
@@ -374,10 +374,6 @@ private struct MarkdownListRowView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private var cleanedContent: AttributedString {
-        trimLeadingSpaces(from: trimTrailingNewlines(from: item.content))
     }
 }
 
@@ -552,14 +548,6 @@ private func trimTrailingNewlines(from content: AttributedString) -> AttributedS
     var trimmed = content
     while let last = trimmed.characters.last, last == "\n" {
         trimmed.characters.removeLast()
-    }
-    return trimmed
-}
-
-private func trimLeadingSpaces(from content: AttributedString) -> AttributedString {
-    var trimmed = content
-    while let first = trimmed.characters.first, first == " " || first == "\t" {
-        trimmed.characters.removeFirst()
     }
     return trimmed
 }

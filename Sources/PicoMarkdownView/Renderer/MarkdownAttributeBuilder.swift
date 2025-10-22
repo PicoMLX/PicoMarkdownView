@@ -159,6 +159,7 @@ actor MarkdownAttributeBuilder {
         let runs = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
         let body = renderInline(runs, font: theme.bodyFont)
+        trimLeadingWhitespace(in: body)
         let rendered = NSMutableAttributedString(string: bulletText + " ", attributes: [.font: theme.bodyFont])
         rendered.append(body)
         rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont]))
@@ -176,6 +177,16 @@ actor MarkdownAttributeBuilder {
                                     math: nil,
                                     images: inlineImages,
                                     codeBlock: nil)
+    }
+
+    private func trimLeadingWhitespace(in attributedString: NSMutableAttributedString) {
+        guard attributedString.length > 0 else { return }
+        while attributedString.length > 0 {
+            let range = NSRange(location: 0, length: 1)
+            let firstCharacter = attributedString.attributedSubstring(from: range).string
+            guard firstCharacter == " " || firstCharacter == "\t" else { break }
+            attributedString.deleteCharacters(in: range)
+        }
     }
 
     private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
