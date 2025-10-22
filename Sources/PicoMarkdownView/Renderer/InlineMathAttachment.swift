@@ -7,8 +7,15 @@ import UIKit
 import AppKit
 #endif
 
+#if canImport(UIKit)
+typealias InlineMathPlatformFont = UIFont
+#elseif canImport(AppKit)
+typealias InlineMathPlatformFont = NSFont
+#endif
+
 enum InlineMathAttachment {
-    static func mathString(tex: String, display: Bool, fontSize: CGFloat) -> NSAttributedString {
+    static func mathString(tex: String, display: Bool, baseFont: InlineMathPlatformFont) -> NSAttributedString {
+        let fontSize = baseFont.pointSize
         let mode: MTMathUILabelMode = display ? .display : .text
 #if canImport(UIKit)
         let textColor = MTColor.label
@@ -33,7 +40,14 @@ enum InlineMathAttachment {
         let attachment = NSTextAttachment()
         let size = image.size
         let baselineOffset = (size.height - fontSize) / 2
-        attachment.bounds = CGRect(x: 0, y: -baselineOffset, width: size.width, height: size.height)
+        let yOffset: CGFloat
+        if display {
+            yOffset = -baselineOffset
+        } else {
+            let inlineOffset = min(0, baseFont.descender + baselineOffset)
+            yOffset = inlineOffset
+        }
+        attachment.bounds = CGRect(x: 0, y: yOffset, width: size.width, height: size.height)
         attachment.image = image
         return NSAttributedString(attachment: attachment)
     }

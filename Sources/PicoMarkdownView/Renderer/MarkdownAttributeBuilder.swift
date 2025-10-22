@@ -321,7 +321,7 @@ actor MarkdownAttributeBuilder {
         if run.style.contains(.math), let payload = run.math {
             return InlineMathAttachment.mathString(tex: payload.tex,
                                                    display: payload.display,
-                                                   fontSize: baseFont.pointSize)
+                                                   baseFont: baseFont)
         }
 
         var attributes: [NSAttributedString.Key: Any] = [
