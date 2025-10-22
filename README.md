@@ -68,6 +68,49 @@ var body: some View {
 }
 ```
 
+### Adjusting Font Size (Zoom Controls)
+
+You can provide “Actual Size”, “Zoom In”, and “Zoom Out” controls by keeping a zoom factor in state and rebuilding the theme when it changes:
+
+```swift
+import PicoMarkdownView
+
+struct ZoomableMarkdownView: View {
+    @State private var zoom: CGFloat = 1.0
+    private let markdown = """
+    ## Famous Formula
+
+    Inline math: \\(E = mc^2\\)
+    """
+
+    private let baseTheme = MarkdownRenderTheme.default()
+
+    private var scaledTheme: MarkdownRenderTheme {
+        var theme = baseTheme
+        theme.bodyFont = theme.bodyFont.withSize(theme.bodyFont.pointSize * zoom)
+        theme.codeFont = theme.codeFont.withSize(theme.codeFont.pointSize * zoom)
+        var headings: [Int: MarkdownFont] = [:]
+        for (level, font) in theme.headingFonts {
+            headings[level] = font.withSize(font.pointSize * zoom)
+        }
+        theme.headingFonts = headings
+        return theme
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                Button("Zoom Out") { zoom = max(0.5, zoom - 0.1) }
+                Button("Actual Size") { zoom = 1.0 }
+                Button("Zoom In") { zoom = min(2.0, zoom + 0.1) }
+            }
+            PicoMarkdownStackView(text: markdown, theme: scaledTheme)
+        }
+        .padding()
+    }
+}
+```
+
 ### Code Block Highlighting
 
 Code fences default to a monospaced system font. To customize styling or integrate your own syntax highlighter, provide a `CodeBlockTheme` and `CodeSyntaxHighlighter` via the supplied modifiers:

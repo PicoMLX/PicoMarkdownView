@@ -27,7 +27,8 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
 
     public static func `default`() -> MarkdownRenderTheme {
 #if canImport(UIKit)
-        let body = UIFont.preferredFont(forTextStyle: .body)
+        let preferredBody = UIFont.preferredFont(forTextStyle: .body)
+        let body = preferredBody.withSize(preferredBody.pointSize + 2)
         let code = UIFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)
         let blockquote = UIColor.secondaryLabel
         let link = UIColor.systemBlue
@@ -39,7 +40,8 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
         headings[5] = UIFont.systemFont(ofSize: body.pointSize, weight: .semibold)
         headings[6] = UIFont.systemFont(ofSize: body.pointSize, weight: .regular)
 #else
-        let body = NSFont.preferredFont(forTextStyle: .body)
+        let preferredBody = NSFont.preferredFont(forTextStyle: .body)
+        let body = NSFont(descriptor: preferredBody.fontDescriptor, size: preferredBody.pointSize + 2) ?? preferredBody
         let code = NSFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)
         let blockquote = NSColor.secondaryLabelColor
         let link = NSColor.systemBlue
