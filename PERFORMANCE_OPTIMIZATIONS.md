@@ -689,6 +689,48 @@ If you add new operations that modify blocks:
 
 ---
 
+## Known Issues & Fixes
+
+### Issue 1: Index Out of Range in rangeStartForBlock()
+
+**Symptom:** `Fatal error: Index out of range` at line `let offset = blockCharacterOffsets[index]`
+
+**Root Cause:**
+In `insertBlock()`, `rangeStartForBlock(at: index)` is called BEFORE the block is inserted. If inserting at the end:
+- `index = blocks.count`
+- `blockCharacterOffsets.count = blocks.count`
+- Accessing `blockCharacterOffsets[blocks.count]` is out of bounds
+
+**Fix Applied:**
+```swift
+private func rangeStartForBlock(at index: Int) -> AttributedString.Index {
+    guard !blocks.isEmpty else { return cachedAttributedString.startIndex }
+
+    if index <= 0 {
+        return cachedAttributedString.startIndex
+    }
+
+    if index >= blockCharacterOffsets.count {  // ✅ Bounds check
+        return cachedAttributedString.endIndex  // Correct for end insertion
+    }
+
+    let offset = blockCharacterOffsets[index]
+    return cachedAttributedString.index(cachedAttributedString.startIndex, offsetByCharacters: offset)
+}
+```
+
+**Why This is Correct:**
+- Requesting index beyond known blocks means "insert at end"
+- Returning `endIndex` is semantically correct for end insertion
+- Adds only 1-2 integer comparisons (negligible performance impact)
+
+**Verification:**
+- ✅ All tests pass
+- ✅ No performance degradation
+- ✅ Assertion in `rebuildCharacterOffsets` catches synchronization issues
+
+---
+
 ## Debugging Tips
 
 ### If Performance Regresses
