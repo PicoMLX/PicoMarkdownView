@@ -139,12 +139,14 @@ final class TextKitStreamingBackend {
         if blocks.isEmpty {
             if storage.length == 0 {
                 records = []
+                blockOffsets = []
                 return NSRange(location: 0, length: 0)
             }
             storage.beginEditing()
             storage.setAttributedString(NSAttributedString())
             storage.endEditing()
             records = []
+            blockOffsets = []
             return NSRange(location: 0, length: 0)
         }
 
@@ -243,6 +245,11 @@ final class TextKitStreamingBackend {
             storage.removeLayoutManager(manager)
         }
         storage.addLayoutManager(layoutManager)
+    }
+
+    func cachedAttributedString(forBlockAt index: Int) -> NSAttributedString? {
+        guard records.indices.contains(index) else { return nil }
+        return records[index].nsAttributed
     }
 
 #if canImport(UIKit)

@@ -36,6 +36,20 @@ final class TextKitStreamingBackendTests: XCTestCase {
         XCTAssertEqual(selection.location, 5)
     }
 
+    func testApplyReusesCachedAttributedStrings() {
+        let backend = TextKitStreamingBackend()
+        let block = makeBlock(id: 1, text: "Cached")
+
+        _ = backend.apply(blocks: [block], selection: NSRange(location: 0, length: 0))
+        let cachedFirst = backend.cachedAttributedString(forBlockAt: 0)
+
+        _ = backend.apply(blocks: [block], selection: NSRange(location: 0, length: 0))
+        let cachedSecond = backend.cachedAttributedString(forBlockAt: 0)
+
+        XCTAssertNotNil(cachedFirst)
+        XCTAssertTrue(cachedFirst === cachedSecond)
+    }
+
     private func makeBlock(id: BlockID, text: String) -> RenderedBlock {
         let snapshot = BlockSnapshot(id: id,
                                      kind: .paragraph,
