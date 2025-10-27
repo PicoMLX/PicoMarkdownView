@@ -162,6 +162,12 @@ final class TextKitStreamingBackend {
             return replaceAll(with: blockData, selection: selection)
         }
 
+        // Check if any content actually changed before editing
+        let hasChanges = zip(records, blockData).contains { $0.0.content != $0.1.block.content }
+        guard hasChanges else {
+            return selection.clamped(maxLength: storage.length)
+        }
+
         var updatedSelection = selection
 
         storage.beginEditing()

@@ -38,11 +38,22 @@ final class MarkdownStreamingViewModel {
             await applyChunk(chunk)
         }
         let (final, mutated) = await pipeline.finish()
-        if mutated, let final, final != attributedText {
-            attributedText = final
+        if mutated {
+            // Batch updates to prevent multiple SwiftUI renders
+            let latestBlocks = await pipeline.blocksSnapshot()
+            let needsTextUpdate = final != nil && final! != attributedText
+            let needsBlocksUpdate = latestBlocks != blocks
+            
+            if needsTextUpdate || needsBlocksUpdate {
+                // Update both properties together to minimize SwiftUI updates
+                if let final, needsTextUpdate {
+                    attributedText = final
+                }
+                if needsBlocksUpdate {
+                    blocks = latestBlocks
+                }
+            }
         }
-        // Skip redundant blocks fetch - already updated in last applyChunk()
-        // This prevents flicker from unnecessary SwiftUI view rebuilds
     }
 
     private func consume(stream: AsyncStream<String>) async {
@@ -50,11 +61,22 @@ final class MarkdownStreamingViewModel {
             await applyChunk(chunk)
         }
         let (final, mutated) = await pipeline.finish()
-        if mutated, let final, final != attributedText {
-            attributedText = final
+        if mutated {
+            // Batch updates to prevent multiple SwiftUI renders
+            let latestBlocks = await pipeline.blocksSnapshot()
+            let needsTextUpdate = final != nil && final! != attributedText
+            let needsBlocksUpdate = latestBlocks != blocks
+            
+            if needsTextUpdate || needsBlocksUpdate {
+                // Update both properties together to minimize SwiftUI updates
+                if let final, needsTextUpdate {
+                    attributedText = final
+                }
+                if needsBlocksUpdate {
+                    blocks = latestBlocks
+                }
+            }
         }
-        // Skip redundant blocks fetch - already updated in last applyChunk()
-        // This prevents flicker from unnecessary SwiftUI view rebuilds
     }
 
     private func replace(with value: String) async {
