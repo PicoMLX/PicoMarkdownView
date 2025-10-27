@@ -69,6 +69,8 @@ actor MarkdownRenderer {
     private let snapshotProvider: SnapshotProvider
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
+    private var cachedAttributedString = AttributedString()
+    private var blockCharacterOffsets: [Int] = []
 
     init(theme: MarkdownRenderTheme = .default(), snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
@@ -112,12 +114,7 @@ actor MarkdownRenderer {
     }
 
     private func makeSnapshot() -> AttributedString {
-        guard !blocks.isEmpty else { return AttributedString() }
-        var result = AttributedString()
-        for block in blocks {
-            result.append(block.content)
-        }
-        return result
+        cachedAttributedString
     }
 
     private func insertBlock(id: BlockID, at position: Int) async {
@@ -125,14 +122,33 @@ actor MarkdownRenderer {
         let snapshot = await snapshotProvider(id)
         let block = await buildRenderedBlock(id: id, snapshot: snapshot)
         let index = max(0, min(position, blocks.count))
+        
+        let insertionPoint = rangeStartForBlock(at: index)
+        cachedAttributedString.replaceSubrange(insertionPoint..<insertionPoint, with: block.content)
+        
         blocks.insert(block, at: index)
         rebuildIndex(startingAt: index)
+        rebuildCharacterOffsets(startingAt: index)
     }
 
     private func refreshBlock(id: BlockID) async {
         guard let index = indexByID[id] else { return }
         let snapshot = await snapshotProvider(id)
         let rendered = await attributeBuilder.render(snapshot: snapshot)
+        
+        let oldContent = blocks[index].content
+        let newContent = rendered.attributed
+        
+        if oldContent != newContent {
+            let range = rangeForBlock(at: index)
+            cachedAttributedString.replaceSubrange(range, with: newContent)
+            
+            blocks[index].content = rendered.attributed
+            if oldContent.characters.count != newContent.characters.count {
+                rebuildCharacterOffsets(startingAt: index + 1)
+            }
+        }
+        
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
         blocks[index].content = rendered.attributed
@@ -150,12 +166,22 @@ actor MarkdownRenderer {
         let upper = min(range.upperBound, blocks.count)
         guard lower < upper else { return }
         let removalRange = lower..<upper
+        
+        if !removalRange.isEmpty {
+            let startIndex = rangeStartForBlock(at: lower)
+            let endIndex = rangeStartForBlock(at: upper)
+            if startIndex < endIndex {
+                cachedAttributedString.removeSubrange(startIndex..<endIndex)
+            }
+        }
+        
         let removed = blocks[removalRange]
         blocks.removeSubrange(removalRange)
         for block in removed {
             indexByID[block.id] = nil
         }
         rebuildIndex(startingAt: lower)
+        rebuildCharacterOffsets(startingAt: lower)
     }
 
     private func rebuildIndex(startingAt start: Int) {
@@ -177,6 +203,49 @@ actor MarkdownRenderer {
                              math: rendered.math,
                              images: rendered.images,
                              codeBlock: rendered.codeBlock)
+    }
+    
+    private func rebuildCharacterOffsets(startingAt start: Int = 0) {
+        if start == 0 {
+            blockCharacterOffsets.removeAll(keepingCapacity: true)
+            blockCharacterOffsets.reserveCapacity(blocks.count)
+        } else if start < blockCharacterOffsets.count {
+            let removeCount = blockCharacterOffsets.count - start
+            if removeCount > 0 {
+                blockCharacterOffsets.removeLast(removeCount)
+            }
+        }
+        
+        var cumulative: Int
+        if start > 0 && start <= blocks.count {
+            cumulative = 0
+            for i in 0..<start {
+                cumulative += blocks[i].content.characters.count
+            }
+        } else {
+            cumulative = 0
+        }
+        
+        for i in start..<blocks.count {
+            blockCharacterOffsets.append(cumulative)
+            cumulative += blocks[i].content.characters.count
+        }
+    }
+    
+    private func rangeStartForBlock(at index: Int) -> AttributedString.Index {
+        guard index > 0, index <= blockCharacterOffsets.count else {
+            return cachedAttributedString.startIndex
+        }
+        let offset = blockCharacterOffsets[index]
+        return cachedAttributedString.index(cachedAttributedString.startIndex, offsetByCharacters: offset)
+    }
+    
+    private func rangeForBlock(at index: Int) -> Range<AttributedString.Index> {
+        let start = rangeStartForBlock(at: index)
+        let content = blocks[index].content
+        let distance = content.characters.count
+        let end = cachedAttributedString.index(start, offsetByCharacters: distance)
+        return start..<end
     }
 }
 

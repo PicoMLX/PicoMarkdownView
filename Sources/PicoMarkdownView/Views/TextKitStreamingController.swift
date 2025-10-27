@@ -120,9 +120,12 @@ final class TextKitStreamingController: ObservableObject {
 @MainActor
 final class TextKitStreamingBackend {
     private var records: [BlockRecord] = []
+    private var blockOffsets: [Int] = []
+    
     private struct BlockRecord {
         var id: BlockID
         var content: AttributedString
+        var nsAttributed: NSAttributedString
         var length: Int
     }
 
@@ -145,8 +148,12 @@ final class TextKitStreamingBackend {
             return NSRange(location: 0, length: 0)
         }
 
-        let blockData: [(block: RenderedBlock, attributed: NSAttributedString)] = blocks.map { block in
-            (block: block, attributed: NSAttributedString(block.content))
+        let blockData: [(block: RenderedBlock, attributed: NSAttributedString)] = blocks.enumerated().map { index, block in
+            if index < records.count && records[index].id == block.id && records[index].content == block.content {
+                return (block: block, attributed: records[index].nsAttributed)
+            } else {
+                return (block: block, attributed: NSAttributedString(block.content))
+            }
         }
 
         if records.count != blockData.count || !zip(records, blockData).allSatisfy({ $0.0.id == $0.1.block.id }) {
@@ -191,13 +198,24 @@ final class TextKitStreamingBackend {
     }
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
-        records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, length: $0.attributed.length) }
+        records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
+        rebuildOffsets()
+    }
+    
+    private func rebuildOffsets() {
+        blockOffsets.removeAll(keepingCapacity: true)
+        blockOffsets.reserveCapacity(records.count)
+        var cumulative = 0
+        for record in records {
+            blockOffsets.append(cumulative)
+            cumulative += record.length
+        }
     }
 
     private func rangeForBlock(at index: Int,
                                data: [(block: RenderedBlock, attributed: NSAttributedString)]) -> NSRange {
-        let prefixLength = data.prefix(index).reduce(into: 0) { $0 += $1.attributed.length }
-        return NSRange(location: prefixLength, length: records[index].length)
+        let location = index < blockOffsets.count ? blockOffsets[index] : 0
+        return NSRange(location: location, length: records[index].length)
     }
 
     private func adjust(selection: NSRange,
