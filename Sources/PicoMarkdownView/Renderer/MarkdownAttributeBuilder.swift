@@ -61,7 +61,12 @@ actor MarkdownAttributeBuilder {
                                         codeBlock: RenderedCodeBlock(code: text, language: language))
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
-            let (ns, images) = renderInlineBlock(snapshot, prefix: nil, suffix: "\n", font: font)
+            let spacing = headingParagraphSpacing(for: level)
+            let (ns, images) = renderInlineBlock(snapshot,
+                                                prefix: nil,
+                                                suffix: "\n",
+                                                font: font,
+                                                spacing: spacing)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
@@ -73,7 +78,12 @@ actor MarkdownAttributeBuilder {
             fallthrough
         case .unknown:
             let suffix = snapshot.kind == .paragraph ? "\n\n" : "\n\n"
-            let (ns, images) = renderInlineBlock(snapshot, prefix: nil, suffix: suffix, font: theme.bodyFont)
+            let spacing = paragraphSpacing()
+            let (ns, images) = renderInlineBlock(snapshot,
+                                                prefix: nil,
+                                                suffix: suffix,
+                                                font: theme.bodyFont,
+                                                spacing: spacing)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
@@ -100,7 +110,8 @@ actor MarkdownAttributeBuilder {
     private func renderInlineBlock(_ snapshot: BlockSnapshot,
                                    prefix: String?,
                                    suffix: String,
-                                   font: PlatformFont) -> (NSAttributedString, [RenderedImage]) {
+                                   font: PlatformFont,
+                                   spacing: ParagraphSpacing) -> (NSAttributedString, [RenderedImage]) {
         var imageIndex = 0
         let result = NSMutableAttributedString()
         if let prefix {
@@ -110,7 +121,15 @@ actor MarkdownAttributeBuilder {
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = renderInline(bodyRuns, font: font)
         result.append(body)
-        result.append(NSAttributedString(string: suffix, attributes: [.font: font]))
+        let paragraph = makeParagraphStyle(spacing)
+        if result.length > 0 {
+            result.addAttributes([.paragraphStyle: paragraph], range: NSRange(location: 0, length: result.length))
+        }
+        let suffixAttributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .paragraphStyle: paragraph
+        ]
+        result.append(NSAttributedString(string: suffix, attributes: suffixAttributes))
         return (result, inlineImages)
     }
 
@@ -162,7 +181,9 @@ actor MarkdownAttributeBuilder {
         trimLeadingWhitespace(in: body)
         let rendered = NSMutableAttributedString(string: bulletText + " ", attributes: [.font: theme.bodyFont])
         rendered.append(body)
-        rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont]))
+        let paragraph = makeParagraphStyle(paragraphSpacing())
+        rendered.addAttributes([.paragraphStyle: paragraph], range: NSRange(location: 0, length: rendered.length))
+        rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont, .paragraphStyle: paragraph]))
 
         let metadata = RenderedListItem(bullet: bulletText,
                                         content: AttributedString(body),
@@ -177,6 +198,50 @@ actor MarkdownAttributeBuilder {
                                     math: nil,
                                     images: inlineImages,
                                     codeBlock: nil)
+    }
+
+    private struct ParagraphSpacing {
+        var lineHeightMultiple: CGFloat
+        var spacingBefore: CGFloat
+        var spacingAfter: CGFloat
+    }
+
+    private func paragraphSpacing() -> ParagraphSpacing {
+        ParagraphSpacing(lineHeightMultiple: 1.24,
+                         spacingBefore: 0,
+                         spacingAfter: 8)
+    }
+
+    private func headingParagraphSpacing(for level: Int) -> ParagraphSpacing {
+        switch level {
+        case 1:
+            return ParagraphSpacing(lineHeightMultiple: 1.18,
+                                    spacingBefore: 24,
+                                    spacingAfter: 14)
+        case 2:
+            return ParagraphSpacing(lineHeightMultiple: 1.16,
+                                    spacingBefore: 20,
+                                    spacingAfter: 12)
+        case 3:
+            return ParagraphSpacing(lineHeightMultiple: 1.14,
+                                    spacingBefore: 16,
+                                    spacingAfter: 10)
+        default:
+            return ParagraphSpacing(lineHeightMultiple: 1.12,
+                                    spacingBefore: 12,
+                                    spacingAfter: 8)
+        }
+    }
+
+    private func makeParagraphStyle(_ spacing: ParagraphSpacing) -> NSMutableParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.lineHeightMultiple = spacing.lineHeightMultiple
+        style.paragraphSpacingBefore = spacing.spacingBefore
+        style.paragraphSpacing = spacing.spacingAfter
+        style.headIndent = 0
+        style.firstLineHeadIndent = 0
+        return style
     }
 
     private func trimLeadingWhitespace(in attributedString: NSMutableAttributedString) {

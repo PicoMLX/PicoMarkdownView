@@ -13,7 +13,7 @@ struct MarkdownInlineTextView: View {
     var enablesSelection: Bool = true
     @State private var firstBaseline: CGFloat = 0
 
-    private static let lineSpacingMultiplier: CGFloat = 1.18
+    private static let lineSpacingMultiplier: CGFloat = 1.24
 
     init(content: AttributedString, enablesSelection: Bool = true) {
         self.content = content

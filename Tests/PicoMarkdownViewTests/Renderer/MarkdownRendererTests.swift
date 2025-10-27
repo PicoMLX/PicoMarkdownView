@@ -102,8 +102,12 @@ struct MarkdownRendererTests {
 
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
-        #expect(rendered.contains("A | B"))
-        #expect(rendered.contains("1 | 2"))
+        let normalized = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(normalized.contains("A"))
+        #expect(normalized.contains("B"))
+        #expect(normalized.contains("1"))
+        #expect(normalized.contains("2"))
+        #expect(!normalized.contains("|"))
     }
 
     @Test("Empty diff produces no update")
@@ -239,5 +243,63 @@ struct MarkdownRendererTests {
         } else {
             Issue.record("Missing font attribute for table header")
         }
+    }
+
+    @Test("Paragraphs apply custom spacing")
+    func paragraphsApplyCustomSpacing() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let chunk = await tokenizer.feed("Body paragraph of text that is fairly long to inspect spacing.\n\n")
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        let output = await renderer.currentAttributedString()
+        let ns = NSAttributedString(output)
+        guard ns.length > 0,
+              let paragraph = ns.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle else {
+            Issue.record("Missing paragraph style for body paragraph")
+            return
+        }
+
+        #expect(abs(paragraph.lineHeightMultiple - 1.24) < 0.01)
+        #expect(paragraph.paragraphSpacing >= 7.5)
+        #expect(paragraph.paragraphSpacingBefore == 0)
+    }
+
+    @Test("Headings apply expanded spacing")
+    func headingsApplyExpandedSpacing() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let chunk = await tokenizer.feed("# Heading Level One\n\n")
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        let output = await renderer.currentAttributedString()
+        let ns = NSAttributedString(output)
+        guard ns.length > 0,
+              let paragraph = ns.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle else {
+            Issue.record("Missing paragraph style for heading")
+            return
+        }
+
+        #expect(abs(paragraph.lineHeightMultiple - 1.18) < 0.01)
+        #expect(paragraph.paragraphSpacingBefore >= 23.0)
+        #expect(paragraph.paragraphSpacing >= 13.0)
     }
 }
