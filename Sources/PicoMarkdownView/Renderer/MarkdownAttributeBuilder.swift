@@ -252,69 +252,136 @@ actor MarkdownAttributeBuilder {
 
     private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
         guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
-        let result = NSMutableAttributedString()
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font
-        ]
+
+        let maxRowColumns = table.rows.reduce(0) { max($0, $1.count) }
+        let columnCount = max(table.headerCells?.count ?? 0, maxRowColumns)
+        guard columnCount > 0 else { return (NSAttributedString(), nil, []) }
+
+        let textTable = NSTextTable()
+        textTable.numberOfColumns = columnCount
+        textTable.collapsesBorders = false
+        textTable.setContentWidth(100, type: .percentageValueType)
+        textTable.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border)
+        textTable.setBorderColor(PlatformColor.rendererTableBorder)
 
         var renderedTable = RenderedTable(headers: nil, rows: [], alignments: table.alignments)
-        var imageIndex = 0
         var collectedImages: [RenderedImage] = []
+        var imageIndex = 0
+        let result = NSMutableAttributedString()
+        var currentRow = 0
 
-        if let headers = table.headerCells {
-            let headerLine = NSMutableAttributedString()
-            var headerCells: [AttributedString] = []
-            for (index, cell) in headers.enumerated() {
-                let inline = renderInline(cell, font: font)
-                let images = collectImages(from: cell, blockID: snapshot.id, counter: &imageIndex)
-                if !images.isEmpty {
-                    collectedImages.append(contentsOf: images)
-                }
-                let headerAttributes: [NSAttributedString.Key: Any] = [
-                    .font: boldFont(from: font),
-                    .foregroundColor: attrs[.foregroundColor] ?? PlatformColor.rendererLabel
-                ]
-                let attributed = NSMutableAttributedString(attributedString: inline)
-                if attributed.length > 0 {
-                    attributed.addAttributes(headerAttributes, range: NSRange(location: 0, length: attributed.length))
-                }
-                headerLine.append(attributed)
-                headerCells.append(AttributedString(attributed))
-                if index < headers.count - 1 {
-                    let separator = NSAttributedString(string: " | ", attributes: attrs)
-                    headerLine.append(separator)
-                }
-            }
-            headerLine.append(NSAttributedString(string: "\n", attributes: attrs))
-            result.append(headerLine)
+        if let headers = table.headerCells, !headers.isEmpty {
+            let (headerAttributed, headerCells) = renderTableRow(cells: headers,
+                                                                 rowIndex: currentRow,
+                                                                 numberOfColumns: columnCount,
+                                                                 textTable: textTable,
+                                                                 font: font,
+                                                                 alignments: table.alignments,
+                                                                 blockID: snapshot.id,
+                                                                 imageCounter: &imageIndex,
+                                                                 collectedImages: &collectedImages,
+                                                                 isHeader: true)
             renderedTable.headers = headerCells
+            result.append(headerAttributed)
+            currentRow += 1
         }
 
         var renderedRows: [[AttributedString]] = []
         for row in table.rows {
-            let rowLine = NSMutableAttributedString()
-            var renderedCells: [AttributedString] = []
-            for (index, cell) in row.enumerated() {
-                let inline = renderInline(cell, font: font)
-                let images = collectImages(from: cell, blockID: snapshot.id, counter: &imageIndex)
-                if !images.isEmpty {
-                    collectedImages.append(contentsOf: images)
-                }
-                rowLine.append(inline)
-                renderedCells.append(AttributedString(inline))
-                if index < row.count - 1 {
-                    let separator = NSAttributedString(string: " | ", attributes: attrs)
-                    rowLine.append(separator)
-                }
-            }
-            rowLine.append(NSAttributedString(string: "\n", attributes: attrs))
-            result.append(rowLine)
+            let (rowAttributed, renderedCells) = renderTableRow(cells: row,
+                                                                rowIndex: currentRow,
+                                                                numberOfColumns: columnCount,
+                                                                textTable: textTable,
+                                                                font: font,
+                                                                alignments: table.alignments,
+                                                                blockID: snapshot.id,
+                                                                imageCounter: &imageIndex,
+                                                                collectedImages: &collectedImages,
+                                                                isHeader: false)
             renderedRows.append(renderedCells)
+            result.append(rowAttributed)
+            currentRow += 1
         }
 
         renderedTable.rows = renderedRows
-        result.append(NSAttributedString(string: "\n", attributes: attrs))
+        result.append(NSAttributedString(string: "\n", attributes: [.font: font]))
         return (result, renderedTable, collectedImages)
+    }
+
+    private func renderTableRow(cells: [[InlineRun]],
+                                rowIndex: Int,
+                                numberOfColumns: Int,
+                                textTable: NSTextTable,
+                                font: PlatformFont,
+                                alignments: [TableAlignment]?,
+                                blockID: BlockID,
+                                imageCounter: inout Int,
+                                collectedImages: inout [RenderedImage],
+                                isHeader: Bool) -> (NSAttributedString, [AttributedString]) {
+        let rowAttributed = NSMutableAttributedString()
+        var renderedCells: [AttributedString] = []
+        let displayFont = isHeader ? boldFont(from: font) : font
+
+        for column in 0..<numberOfColumns {
+            let block = NSTextTableBlock(table: textTable, startingRow: rowIndex, rowSpan: 1, startingColumn: column, columnSpan: 1)
+            block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
+            block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .maxX)
+            block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
+            block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
+            block.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border)
+            block.setBorderColor(PlatformColor.rendererTableBorder)
+            block.backgroundColor = isHeader ? PlatformColor.rendererTableHeaderBackground : PlatformColor.rendererTableRowBackground
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.textBlocks = [block]
+            paragraph.alignment = tableTextAlignment(for: column, alignments: alignments)
+            paragraph.lineBreakMode = .byWordWrapping
+            paragraph.paragraphSpacing = 0
+            paragraph.paragraphSpacingBefore = rowIndex == 0 ? 0 : 0
+
+            let inlineRuns = column < cells.count ? cells[column] : []
+            let inline = renderInline(inlineRuns, font: displayFont)
+            let images = collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter)
+            if !images.isEmpty {
+                collectedImages.append(contentsOf: images)
+            }
+
+            let cellContent = inline.length > 0 ? NSMutableAttributedString(attributedString: inline) : NSMutableAttributedString(string: " ")
+            cellContent.addAttributes([
+                .paragraphStyle: paragraph,
+                .font: displayFont,
+                .foregroundColor: PlatformColor.rendererLabel
+            ], range: NSRange(location: 0, length: cellContent.length))
+
+            renderedCells.append(AttributedString(cellContent))
+            rowAttributed.append(cellContent)
+            rowAttributed.append(NSAttributedString(string: "\n", attributes: [
+                .paragraphStyle: paragraph,
+                .font: displayFont
+            ]))
+        }
+
+        return (rowAttributed, renderedCells)
+    }
+
+    private func tableTextAlignment(for column: Int, alignments: [TableAlignment]?) -> NSTextAlignment {
+        guard let alignments, column < alignments.count else { return .left }
+        switch alignments[column] {
+        case .left, .none:
+            return .left
+        case .center:
+            return .center
+        case .right:
+            return .right
+        }
+    }
+
+    private var tableBorderWidth: CGFloat {
+#if canImport(UIKit)
+        return max(1.0 / UIScreen.main.scale, 0.5)
+#else
+        return 1.0
+#endif
     }
 
     private func render(run: InlineRun, baseFont: PlatformFont) -> NSAttributedString {
@@ -410,6 +477,30 @@ private extension PlatformColor {
         return .label
 #else
         return .labelColor
+#endif
+    }
+
+    static var rendererTableBorder: PlatformColor {
+#if canImport(UIKit)
+        return .separator
+#else
+        return .separatorColor
+#endif
+    }
+
+    static var rendererTableHeaderBackground: PlatformColor {
+#if canImport(UIKit)
+        return .secondarySystemBackground
+#else
+        return NSColor.alternatingContentBackgroundColors.first ?? .windowBackgroundColor
+#endif
+    }
+
+    static var rendererTableRowBackground: PlatformColor {
+#if canImport(UIKit)
+        return .systemBackground
+#else
+        return .textBackgroundColor
 #endif
     }
 }

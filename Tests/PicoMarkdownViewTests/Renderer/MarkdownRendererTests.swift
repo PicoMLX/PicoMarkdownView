@@ -2,6 +2,12 @@ import Foundation
 import Testing
 @testable import PicoMarkdownView
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 @Suite
 struct MarkdownRendererTests {
     @Test("Paragraph rendering produces joined text")
@@ -177,5 +183,61 @@ struct MarkdownRendererTests {
         #expect(renderedString.contains("Intro"))
         #expect(renderedString.contains("outro"))
         #expect(!renderedString.contains("diagram"))
+    }
+
+    @Test("Tables render with text table blocks")
+    func tablesRenderWithStyledBlocks() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let tableMarkdown = """
+        | Col A | Col B |
+        | :--- | ---: |
+        | A1 | B1 |
+        | A2 | B2 |
+
+        """
+
+        let chunk = await tokenizer.feed(tableMarkdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        let output = await renderer.currentAttributedString()
+        let ns = NSAttributedString(output)
+        let searchRange = NSRange(location: 0, length: ns.length)
+
+        var foundTableBlock = false
+        ns.enumerateAttribute(.paragraphStyle, in: searchRange, options: []) { value, _, stop in
+            guard let paragraph = value as? NSParagraphStyle else { return }
+            if paragraph.textBlocks.contains(where: { $0 is NSTextTableBlock }) {
+                foundTableBlock = true
+                stop.pointee = true
+            }
+        }
+
+        #expect(foundTableBlock)
+
+#if canImport(UIKit)
+        typealias TestFont = UIFont
+#else
+        typealias TestFont = NSFont
+#endif
+
+        if ns.length > 0, let font = ns.attribute(.font, at: 0, effectiveRange: nil) as? TestFont {
+#if canImport(UIKit)
+            #expect(font.fontDescriptor.symbolicTraits.contains(.traitBold))
+#else
+            #expect(font.fontDescriptor.symbolicTraits.contains(.bold))
+#endif
+        } else {
+            Issue.record("Missing font attribute for table header")
+        }
     }
 }
