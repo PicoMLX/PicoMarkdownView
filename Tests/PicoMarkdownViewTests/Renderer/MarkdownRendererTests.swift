@@ -302,4 +302,48 @@ struct MarkdownRendererTests {
         #expect(paragraph.paragraphSpacingBefore >= 15.0)
         #expect(paragraph.paragraphSpacing >= 9.0)
     }
+
+    @Test("Removing trailing blocks updates cache without crashing")
+    func removingTrailingBlocksDoesNotCrash() async {
+        let store = TestSnapshotStore()
+        let renderer = MarkdownRenderer { id in
+            await store.snapshot(for: id)
+        }
+
+        let blockID: BlockID = 42
+        let paragraph = InlineRun(text: "Hello world", style: [])
+        let snapshot = BlockSnapshot(id: blockID,
+                                     kind: .paragraph,
+                                     inlineRuns: [paragraph],
+                                     isClosed: true)
+        await store.set(snapshot)
+
+        let diff = AssemblerDiff(documentVersion: 1, changes: [
+            .blockStarted(id: blockID, kind: .paragraph, position: 0),
+            .blockEnded(id: blockID),
+            .blocksDiscarded(range: 0..<1)
+        ])
+
+        _ = await renderer.apply(diff)
+        let output = await renderer.currentAttributedString()
+        #expect(output.characters.isEmpty)
+    }
+}
+
+private actor TestSnapshotStore {
+    private var storage: [BlockID: BlockSnapshot] = [:]
+
+    func set(_ snapshot: BlockSnapshot) {
+        storage[snapshot.id] = snapshot
+    }
+
+    func snapshot(for id: BlockID) -> BlockSnapshot {
+        if let snapshot = storage[id] {
+            return snapshot
+        }
+        return BlockSnapshot(id: id,
+                             kind: .unknown,
+                             inlineRuns: [InlineRun(text: "", style: [])],
+                             isClosed: true)
+    }
 }

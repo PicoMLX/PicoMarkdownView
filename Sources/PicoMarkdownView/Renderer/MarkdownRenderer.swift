@@ -206,36 +206,48 @@ actor MarkdownRenderer {
     }
     
     private func rebuildCharacterOffsets(startingAt start: Int = 0) {
-        if start == 0 {
+        let clampedStart = max(0, min(start, blocks.count))
+
+        if clampedStart == 0 {
             blockCharacterOffsets.removeAll(keepingCapacity: true)
             blockCharacterOffsets.reserveCapacity(blocks.count)
-        } else if start < blockCharacterOffsets.count {
-            let removeCount = blockCharacterOffsets.count - start
+        } else if clampedStart < blockCharacterOffsets.count {
+            let removeCount = blockCharacterOffsets.count - clampedStart
             if removeCount > 0 {
                 blockCharacterOffsets.removeLast(removeCount)
             }
         }
         
         var cumulative: Int
-        if start > 0 && start <= blocks.count {
-            cumulative = 0
-            for i in 0..<start {
-                cumulative += blocks[i].content.characters.count
+        if clampedStart > 0 {
+            if blockCharacterOffsets.count >= clampedStart {
+                let previousOffset = blockCharacterOffsets[clampedStart - 1]
+                cumulative = previousOffset + blocks[clampedStart - 1].content.characters.count
+            } else {
+                cumulative = blocks[..<clampedStart].reduce(into: 0) { $0 += $1.content.characters.count }
             }
         } else {
             cumulative = 0
         }
         
-        for i in start..<blocks.count {
+        for i in clampedStart..<blocks.count {
             blockCharacterOffsets.append(cumulative)
             cumulative += blocks[i].content.characters.count
         }
+        assert(blockCharacterOffsets.count == blocks.count, "Offsets should mirror block count")
     }
     
     private func rangeStartForBlock(at index: Int) -> AttributedString.Index {
-        guard index > 0, index <= blockCharacterOffsets.count else {
+        guard !blocks.isEmpty else { return cachedAttributedString.startIndex }
+
+        if index <= 0 {
             return cachedAttributedString.startIndex
         }
+
+        if index >= blockCharacterOffsets.count {
+            return cachedAttributedString.endIndex
+        }
+
         let offset = blockCharacterOffsets[index]
         return cachedAttributedString.index(cachedAttributedString.startIndex, offsetByCharacters: offset)
     }
