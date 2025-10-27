@@ -15,7 +15,7 @@ public struct PicoTextKitConfiguration {
     public init(backgroundColor: MarkdownColor = .clear,
                 contentInsets: EdgeInsets = EdgeInsets(),
                 isSelectable: Bool = true,
-                isScrollEnabled: Bool = true) {
+                isScrollEnabled: Bool = false) {
         self.backgroundColor = backgroundColor
         self.contentInsets = contentInsets
         self.isSelectable = isSelectable

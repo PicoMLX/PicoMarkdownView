@@ -21,11 +21,7 @@ final class TextKitStreamingController: ObservableObject {
 
     @available(iOS 16.0, *)
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> UITextView {
-        let textView = UITextView(usingTextLayoutManager: true)
-        if let layoutManager = textView.textLayoutManager,
-           let contentStorage = layoutManager.textContentStorage as? NSTextContentStorage {
-            backend.connect(to: contentStorage, layoutManager: layoutManager)
-        }
+        let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)
         return textView
     }
@@ -36,10 +32,12 @@ final class TextKitStreamingController: ObservableObject {
         configure(textView, with: configuration)
         guard configuration.isSelectable else {
             _ = backend.apply(blocks: blocks, selection: NSRange(location: backend.length, length: 0))
+            textView.invalidateIntrinsicContentSize()
             return
         }
         let selection = backend.apply(blocks: blocks, selection: textView.selectedRange)
         textView.selectedRange = selection.clamped(maxLength: backend.length)
+        textView.invalidateIntrinsicContentSize()
     }
 
     private func configure(_ view: UITextView, with configuration: PicoTextKitConfiguration) {
@@ -63,6 +61,12 @@ final class TextKitStreamingController: ObservableObject {
         view.adjustsFontForContentSizeCategory = true
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        if !configuration.isScrollEnabled {
+            view.alwaysBounceVertical = false
+            view.showsVerticalScrollIndicator = false
+        }
     }
 #elseif canImport(AppKit)
     func makeTextKit1View(configuration: PicoTextKitConfiguration) -> NSTextView {
@@ -86,6 +90,7 @@ final class TextKitStreamingController: ObservableObject {
         if configuration.isSelectable {
             textView.setSelectedRange(selection.clamped(maxLength: backend.length))
         }
+        textView.invalidateIntrinsicContentSize()
     }
 
     private func configure(_ view: NSTextView, with configuration: PicoTextKitConfiguration) {
@@ -102,8 +107,8 @@ final class TextKitStreamingController: ObservableObject {
         view.textContainerInset = NSSize(width: configuration.horizontalInset,
                                          height: configuration.verticalInset)
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        view.isVerticallyResizable = true
-        view.isHorizontallyResizable = true
+        view.isVerticallyResizable = configuration.isScrollEnabled
+        view.isHorizontallyResizable = configuration.isScrollEnabled
         view.allowsUndo = false
         view.usesAdaptiveColorMappingForDarkAppearance = true
         view.textContainer?.widthTracksTextView = true
@@ -270,6 +275,50 @@ private final class StreamingTextKit1View: UITextView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+
+    override var intrinsicContentSize: CGSize {
+        guard !isScrollEnabled else { return super.intrinsicContentSize }
+        let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        let size = sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+        return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !isScrollEnabled {
+            invalidateIntrinsicContentSize()
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+@MainActor
+private final class StreamingTextKit2View: UITextView {
+    init(backend: TextKitStreamingBackend) {
+        super.init(frame: .zero, textContainer: nil)
+        if let layoutManager = textLayoutManager,
+           let contentStorage = layoutManager.textContentStorage {
+            backend.connect(to: contentStorage, layoutManager: layoutManager)
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        guard !isScrollEnabled else { return super.intrinsicContentSize }
+        let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
+        let size = sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
+        return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if !isScrollEnabled {
+            invalidateIntrinsicContentSize()
+        }
+    }
 }
 
 #elseif canImport(AppKit)
@@ -282,10 +331,33 @@ private final class StreamingTextKit1View: NSTextView {
         layoutManager.addTextContainer(textContainer)
         backend.connect(to: layoutManager)
         super.init(frame: .zero, textContainer: textContainer)
+        isVerticallyResizable = true
+        isHorizontallyResizable = true
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        guard !isVerticallyResizable else { return super.intrinsicContentSize }
+        return sizeThatFits()
+    }
+
+    override func layout() {
+        super.layout()
+        invalidateIntrinsicContentSize()
+    }
+
+    private func sizeThatFits() -> NSSize {
+        guard let textContainer = textContainer, let layoutManager = layoutManager else {
+            return super.intrinsicContentSize
+        }
+        let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
+        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
     }
 }
 #endif
