@@ -41,10 +41,8 @@ final class MarkdownStreamingViewModel {
         if mutated, let final, final != attributedText {
             attributedText = final
         }
-        let latestBlocks = await pipeline.blocksSnapshot()
-        if latestBlocks != blocks {
-            blocks = latestBlocks
-        }
+        // Skip redundant blocks fetch - already updated in last applyChunk()
+        // This prevents flicker from unnecessary SwiftUI view rebuilds
     }
 
     private func consume(stream: AsyncStream<String>) async {
@@ -55,10 +53,8 @@ final class MarkdownStreamingViewModel {
         if mutated, let final, final != attributedText {
             attributedText = final
         }
-        let latestBlocks = await pipeline.blocksSnapshot()
-        if latestBlocks != blocks {
-            blocks = latestBlocks
-        }
+        // Skip redundant blocks fetch - already updated in last applyChunk()
+        // This prevents flicker from unnecessary SwiftUI view rebuilds
     }
 
     private func replace(with value: String) async {
