@@ -3,30 +3,43 @@ import Observation
 
 public struct PicoMarkdownTextKit2View: View {
     private let input: MarkdownStreamingInput
+    private let configuration: PicoTextKitConfiguration
 
     @State private var viewModel: MarkdownStreamingViewModel
+    @StateObject private var controller = TextKitStreamingController()
 
-    private init(input: MarkdownStreamingInput, theme: MarkdownRenderTheme) {
+    private init(input: MarkdownStreamingInput,
+                 theme: MarkdownRenderTheme,
+                 configuration: PicoTextKitConfiguration) {
         self.input = input
+        self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
     }
 
-    public init(text: String) {
-        self.init(input: .text(text), theme: .default())
+    public init(_ text: String,
+                theme: MarkdownRenderTheme = .default(),
+                configuration: PicoTextKitConfiguration = .default()) {
+        self.init(input: .text(text), theme: theme, configuration: configuration)
     }
 
-    public init(chunks: [String]) {
-        self.init(input: .chunks(chunks), theme: .default())
+    public init(chunks: [String],
+                theme: MarkdownRenderTheme = .default(),
+                configuration: PicoTextKitConfiguration = .default()) {
+        self.init(input: .chunks(chunks), theme: theme, configuration: configuration)
     }
 
-    public init(stream: @escaping @Sendable () async -> AsyncStream<String>) {
-        self.init(input: .stream(stream), theme: .default())
+    public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
+                theme: MarkdownRenderTheme = .default(),
+                configuration: PicoTextKitConfiguration = .default()) {
+        self.init(input: .stream(stream), theme: theme, configuration: configuration)
     }
 
     public var body: some View {
         let bindable = Bindable(viewModel)
-        let snapshot = bindable.attributedText.wrappedValue
-        TextKit2Representable(attributedText: NSAttributedString(snapshot))
+        let blocks = bindable.blocks.wrappedValue
+        TextKit2Container(controller: controller,
+                          blocks: blocks,
+                          configuration: configuration)
             .task(id: input.id) {
                 await viewModel.consume(input)
             }
@@ -36,60 +49,41 @@ public struct PicoMarkdownTextKit2View: View {
 #if canImport(UIKit)
 import UIKit
 
-private struct TextKit2Representable: UIViewRepresentable {
-    var attributedText: NSAttributedString
+private struct TextKit2Container: UIViewRepresentable {
+    var controller: TextKitStreamingController
+    var blocks: [RenderedBlock]
+    var configuration: PicoTextKitConfiguration
 
     func makeUIView(context: Context) -> UITextView {
         if #available(iOS 16.0, *) {
-            let view = UITextView(usingTextLayoutManager: true)
-            configure(view)
-            return view
+            return controller.makeTextKit2View(configuration: configuration)
         } else {
-            let view = UITextView()
-            configure(view)
-            return view
+            return controller.makeTextKit1View(configuration: configuration)
         }
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
-        if uiView.attributedText != attributedText {
-            uiView.attributedText = attributedText
-        }
-    }
-
-    private func configure(_ view: UITextView) {
-        view.backgroundColor = .clear
-        view.isEditable = false
-        view.isSelectable = true
-        view.isScrollEnabled = false
-        view.textContainerInset = .zero
-        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        controller.update(textView: uiView, blocks: blocks, configuration: configuration)
     }
 }
 #elseif canImport(AppKit)
 import AppKit
 
-@available(macOS 13.0, *)
-private struct TextKit2Representable: NSViewRepresentable {
-    var attributedText: NSAttributedString
+private struct TextKit2Container: NSViewRepresentable {
+    var controller: TextKitStreamingController
+    var blocks: [RenderedBlock]
+    var configuration: PicoTextKitConfiguration
 
     func makeNSView(context: Context) -> NSTextView {
-        let textView = NSTextView(frame: .zero)
-        textView.usesAdaptiveColorMappingForDarkAppearance = true
-        textView.isEditable = false
-        textView.isSelectable = true
-        textView.backgroundColor = .clear
-        textView.textContainerInset = CGSize(width: 0, height: 0)
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        return textView
+        if #available(macOS 13.0, *) {
+            return controller.makeTextKit2View(configuration: configuration)
+        } else {
+            return controller.makeTextKit1View(configuration: configuration)
+        }
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
-        if nsView.attributedString() != attributedText {
-            nsView.textStorage?.setAttributedString(attributedText)
-        }
+        controller.update(textView: nsView, blocks: blocks, configuration: configuration)
     }
 }
 #endif
