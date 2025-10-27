@@ -270,7 +270,7 @@ struct MarkdownRendererTests {
         }
 
         #expect(abs(paragraph.lineHeightMultiple - 1.24) < 0.01)
-        #expect(paragraph.paragraphSpacing >= 7.5)
+        #expect(paragraph.paragraphSpacing >= 3.5)
         #expect(paragraph.paragraphSpacingBefore == 0)
     }
 
@@ -299,7 +299,7 @@ struct MarkdownRendererTests {
         }
 
         #expect(abs(paragraph.lineHeightMultiple - 1.18) < 0.01)
-        #expect(paragraph.paragraphSpacingBefore >= 23.0)
-        #expect(paragraph.paragraphSpacing >= 13.0)
+        #expect(paragraph.paragraphSpacingBefore >= 15.0)
+        #expect(paragraph.paragraphSpacing >= 9.0)
     }
 }

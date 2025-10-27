@@ -183,7 +183,11 @@ actor MarkdownAttributeBuilder {
         rendered.append(body)
         let paragraph = makeParagraphStyle(paragraphSpacing())
         rendered.addAttributes([.paragraphStyle: paragraph], range: NSRange(location: 0, length: rendered.length))
-        rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont, .paragraphStyle: paragraph]))
+        let listSpacing = paragraphSpacing()
+        let separator = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
+                                                           spacingBefore: 0,
+                                                           spacingAfter: 2))
+        rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont, .paragraphStyle: separator]))
 
         let metadata = RenderedListItem(bullet: bulletText,
                                         content: AttributedString(body),
@@ -209,27 +213,27 @@ actor MarkdownAttributeBuilder {
     private func paragraphSpacing() -> ParagraphSpacing {
         ParagraphSpacing(lineHeightMultiple: 1.24,
                          spacingBefore: 0,
-                         spacingAfter: 8)
+                         spacingAfter: 4)
     }
 
     private func headingParagraphSpacing(for level: Int) -> ParagraphSpacing {
         switch level {
         case 1:
             return ParagraphSpacing(lineHeightMultiple: 1.18,
-                                    spacingBefore: 24,
-                                    spacingAfter: 14)
-        case 2:
-            return ParagraphSpacing(lineHeightMultiple: 1.16,
-                                    spacingBefore: 20,
-                                    spacingAfter: 12)
-        case 3:
-            return ParagraphSpacing(lineHeightMultiple: 1.14,
                                     spacingBefore: 16,
                                     spacingAfter: 10)
+        case 2:
+            return ParagraphSpacing(lineHeightMultiple: 1.16,
+                                    spacingBefore: 14,
+                                    spacingAfter: 8)
+        case 3:
+            return ParagraphSpacing(lineHeightMultiple: 1.14,
+                                    spacingBefore: 10,
+                                    spacingAfter: 6)
         default:
             return ParagraphSpacing(lineHeightMultiple: 1.12,
-                                    spacingBefore: 12,
-                                    spacingAfter: 8)
+                                    spacingBefore: 8,
+                                    spacingAfter: 6)
         }
     }
 
