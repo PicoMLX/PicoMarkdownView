@@ -16,7 +16,7 @@ public struct PicoMarkdownTextKit2View: View {
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
     }
 
-    public init(_ text: String,
+    public init(text: String,
                 theme: MarkdownRenderTheme = .default(),
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .text(text), theme: theme, configuration: configuration)
