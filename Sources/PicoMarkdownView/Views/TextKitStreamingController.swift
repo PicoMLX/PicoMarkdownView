@@ -163,7 +163,6 @@ final class TextKitStreamingBackend {
         }
 
         var updatedSelection = selection
-        var mutated = false
 
         storage.beginEditing()
         defer { storage.endEditing() }
@@ -171,16 +170,21 @@ final class TextKitStreamingBackend {
             let record = records[index]
             let data = blockData[index]
             if record.content == data.block.content { continue }
+            
+            let oldLength = record.length
             let range = rangeForBlock(at: index, data: blockData)
             storage.replaceCharacters(in: range, with: data.attributed)
             updatedSelection = adjust(selection: updatedSelection, editedRange: range, replacementLength: data.attributed.length)
+            
             records[index].content = data.block.content
             records[index].length = data.attributed.length
-            mutated = true
-        }
-
-        if mutated {
-            rebuildRecords(using: blockData)
+            records[index].nsAttributed = data.attributed
+            
+            // Incremental offset update - O(1) for last block updates (streaming!)
+            let delta = data.attributed.length - oldLength
+            if delta != 0 {
+                updateOffsetsAfter(index: index, delta: delta)
+            }
         }
 
         return updatedSelection.clamped(maxLength: storage.length)
@@ -205,19 +209,39 @@ final class TextKitStreamingBackend {
     }
     
     private func rebuildOffsets() {
-        blockOffsets.removeAll(keepingCapacity: true)
-        blockOffsets.reserveCapacity(records.count)
-        var cumulative = 0
-        for record in records {
-            blockOffsets.append(cumulative)
-            cumulative += record.length
+        blockOffsets = Array(repeating: 0, count: records.count + 1)
+        for index in records.indices {
+            blockOffsets[index + 1] = blockOffsets[index] + records[index].length
+        }
+    }
+    
+    private func updateOffsetsAfter(index: Int, delta: Int) {
+        guard delta != 0 else { return }
+        // Incremental update: only adjust offsets after the changed block
+        // O(n - index) instead of O(n) - typically O(1) for streaming (last block)
+        let startOffset = index + 1
+        for i in startOffset..<blockOffsets.count {
+            blockOffsets[i] += delta
         }
     }
 
     private func rangeForBlock(at index: Int,
                                data: [(block: RenderedBlock, attributed: NSAttributedString)]) -> NSRange {
-        let location = index < blockOffsets.count ? blockOffsets[index] : 0
-        return NSRange(location: location, length: records[index].length)
+        let location: Int
+        if index < blockOffsets.count {
+            location = blockOffsets[index]
+        } else {
+            location = records.prefix(index).reduce(0) { $0 + $1.length }
+        }
+
+        let length: Int
+        if index + 1 < blockOffsets.count {
+            length = blockOffsets[index + 1] - location
+        } else {
+            length = records[index].length
+        }
+
+        return NSRange(location: location, length: length)
     }
 
     private func adjust(selection: NSRange,
