@@ -17,11 +17,8 @@ public struct MarkdownStreamingInput: Sendable {
         self.streamFactory = streamFactory
     }
 
-    // Use a stable ID for text replacements to prevent task restarts on text changes
-    private static let stableTextID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-
     public static func text(_ value: String) -> MarkdownStreamingInput {
-        MarkdownStreamingInput(id: stableTextID, payload: .replacement(value))
+        MarkdownStreamingInput(payload: .replacement(value))
     }
 
     public static func chunks(_ values: [String]) -> MarkdownStreamingInput {
