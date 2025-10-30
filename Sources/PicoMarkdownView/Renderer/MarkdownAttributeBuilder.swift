@@ -237,15 +237,43 @@ actor MarkdownAttributeBuilder {
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
         let body = renderInline(runs, font: theme.bodyFont)
         trimLeadingWhitespace(in: body)
-        let rendered = NSMutableAttributedString(string: bulletText + " ", attributes: [.font: theme.bodyFont])
+
+        // 1. actual text has only ONE space so tests stay stable
+        let bulletPrefix = bulletText + " "
+        let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: theme.bodyFont])
         rendered.append(body)
-        let paragraph = makeParagraphStyle(paragraphSpacing())
-        rendered.addAttributes([.paragraphStyle: paragraph], range: NSRange(location: 0, length: rendered.length))
+
         let listSpacing = paragraphSpacing()
-        let separator = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
-                                                           spacingBefore: 0,
-                                                           spacingAfter: 10))
-        rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont, .paragraphStyle: separator]))
+        let listParagraph = makeParagraphStyle(listSpacing)
+
+        // 2. measure what we actually drew
+        let bulletWidth = bulletPrefixWidth(for: bulletPrefix, font: theme.bodyFont)
+        // 3. reserved width for ordered lists ("10.", "100.")
+        let minOrderedWidth = ordered ? orderedBulletMinWidth(font: theme.bodyFont) : 0
+
+        // 4. this is the EXTRA horizontal gap you wanted
+        let extraPadding: CGFloat = 6   // <-- tweak here
+
+        // 5. final column where ALL wrapped lines should start
+        let headIndent = max(bulletWidth, minOrderedWidth) + extraPadding
+
+        // 6. first line already contains the bullet text,
+        // so only move it by the *difference* between what we drew and what we reserve
+        listParagraph.firstLineHeadIndent = headIndent - bulletWidth
+        listParagraph.headIndent = headIndent
+
+        rendered.addAttributes([.paragraphStyle: listParagraph],
+                               range: NSRange(location: 0, length: rendered.length))
+
+        // your separator stays the same
+        let separator = makeParagraphStyle(
+            ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
+                             spacingBefore: 0,
+                             spacingAfter: 10)
+        )
+        rendered.append(NSAttributedString(string: "\n",
+                                           attributes: [.font: theme.bodyFont,
+                                                        .paragraphStyle: separator]))
 
         let metadata = RenderedListItem(bullet: bulletText,
                                         content: AttributedString(body),
@@ -254,12 +282,25 @@ actor MarkdownAttributeBuilder {
                                         task: task)
 
         return RenderedContentResult(attributed: AttributedString(rendered),
-                                    table: nil,
-                                    listItem: metadata,
-                                    blockquote: nil,
-                                    math: nil,
-                                    images: inlineImages,
-                                    codeBlock: nil)
+                                     table: nil,
+                                     listItem: metadata,
+                                     blockquote: nil,
+                                     math: nil,
+                                     images: inlineImages,
+                                     codeBlock: nil)
+    }
+
+    private func bulletPrefixWidth(for bullet: String, font: PlatformFont) -> CGFloat {
+        let ns = bullet as NSString
+        let size = ns.size(withAttributes: [.font: font])
+        // Add a tiny extra padding so wrapped lines don't collide with the bullet
+        return ceil(size.width)
+    }
+
+    private func orderedBulletMinWidth(font: PlatformFont) -> CGFloat {
+        let sample = "99.  " as NSString
+        let size = sample.size(withAttributes: [.font: font])
+        return ceil(size.width)
     }
 
     private struct ParagraphSpacing {
