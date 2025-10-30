@@ -102,9 +102,18 @@ actor MarkdownAttributeBuilder {
                                         codeBlock: nil)
         case .math(let display):
             let tex = snapshot.mathText ?? snapshot.inlineRuns?.map { $0.text }.joined() ?? ""
+            
+            // Render math using InlineMathAttachment (same approach as inline math)
+            let mathNS = InlineMathAttachment.mathString(tex: tex,
+                                                        display: display,
+                                                        baseFont: theme.bodyFont)
+            let result = NSMutableAttributedString(attributedString: mathNS)
+            
             let suffix = display ? "\n\n" : ""
-            let attributed = AttributedString(tex + suffix)
-            return RenderedContentResult(attributed: attributed,
+            let suffixAttrs: [NSAttributedString.Key: Any] = [.font: theme.bodyFont]
+            result.append(NSAttributedString(string: suffix, attributes: suffixAttrs))
+            
+            return RenderedContentResult(attributed: AttributedString(result),
                                         table: nil,
                                         listItem: nil,
                                         blockquote: nil,
