@@ -1307,7 +1307,16 @@ struct StreamingParser {
                 current.append(character)
                 escaping = false
             } else if character == "\\" {
-                escaping = true
+                // Look ahead to see if we're escaping a pipe
+                let nextIndex = line.index(after: index)
+                if nextIndex < line.endIndex && line[nextIndex] == "|" {
+                    // Escaping a pipe - consume the backslash
+                    escaping = true
+                } else {
+                    // Not escaping a pipe - preserve the backslash for inline parsing
+                    current.append(character)
+                    escaping = true
+                }
             } else if character == "|" {
                 cells.append(current)
                 current.removeAll(keepingCapacity: true)
@@ -1317,7 +1326,7 @@ struct StreamingParser {
             index = line.index(after: index)
         }
         if escaping {
-            current.append("\\")
+            // Trailing backslash already appended above; leave as literal.
         }
         cells.append(current)
 
