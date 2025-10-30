@@ -244,7 +244,7 @@ actor MarkdownAttributeBuilder {
         let listSpacing = paragraphSpacing()
         let separator = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
                                                            spacingBefore: 0,
-                                                           spacingAfter: 6))
+                                                           spacingAfter: 10))
         rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont, .paragraphStyle: separator]))
 
         let metadata = RenderedListItem(bullet: bulletText,
@@ -283,7 +283,7 @@ actor MarkdownAttributeBuilder {
         case 2:
             return ParagraphSpacing(lineHeightMultiple: 1.16,
                                     spacingBefore: 14,
-                                    spacingAfter: 8)
+                                    spacingAfter: 12)
         case 3:
             return ParagraphSpacing(lineHeightMultiple: 1.14,
                                     spacingBefore: 10,
