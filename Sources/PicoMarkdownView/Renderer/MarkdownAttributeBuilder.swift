@@ -117,8 +117,7 @@ actor MarkdownAttributeBuilder {
     }
 
     private func renderHorizontalRule() -> NSAttributedString {
-        let spacing = paragraphSpacing()
-        let paragraph = makeParagraphStyle(spacing)
+        _ = paragraphSpacing()
 
         // Use a 1-column NSTextTable that spans 100% width with a top border to emulate an HR
         let table = NSTextTable()
@@ -147,7 +146,7 @@ actor MarkdownAttributeBuilder {
         blockParagraph.alignment = .left
         blockParagraph.lineBreakMode = .byWordWrapping
         blockParagraph.paragraphSpacing = 0
-        blockParagraph.paragraphSpacingBefore = 0
+        blockParagraph.paragraphSpacingBefore = 10
 
         let result = NSMutableAttributedString()
         // Add a thin, non-breaking space to instantiate the block
@@ -157,15 +156,12 @@ actor MarkdownAttributeBuilder {
             .foregroundColor: PlatformColor.rendererLabel
         ])
         result.append(cellContent)
-        // Trailing spacing around the rule
+        // Trailing spacing beneath the rule kept minimal; rely on next block's own spacing
         result.append(NSAttributedString(string: "\n", attributes: [
             .font: theme.bodyFont,
             .paragraphStyle: blockParagraph
         ]))
-        result.append(NSAttributedString(string: "\n", attributes: [
-            .font: theme.bodyFont,
-            .paragraphStyle: paragraph
-        ]))
+        // No extra blank paragraph appended here
         return result
     }
 
@@ -248,7 +244,7 @@ actor MarkdownAttributeBuilder {
         let listSpacing = paragraphSpacing()
         let separator = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
                                                            spacingBefore: 0,
-                                                           spacingAfter: 2))
+                                                           spacingAfter: 6))
         rendered.append(NSAttributedString(string: "\n", attributes: [.font: theme.bodyFont, .paragraphStyle: separator]))
 
         let metadata = RenderedListItem(bullet: bulletText,
