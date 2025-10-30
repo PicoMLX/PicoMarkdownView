@@ -112,6 +112,17 @@ struct StreamingReplacementEngine {
         colonState = .idle
     }
 
+    mutating func flushTrailingPeriods(into output: inout String) {
+        guard !literalTail.isEmpty else { return }
+        var flushed: [Character] = []
+        while let last = literalTail.last, last == "." {
+            flushed.append(last)
+            literalTail.removeLast()
+        }
+        guard !flushed.isEmpty else { return }
+        output.append(contentsOf: flushed.reversed())
+    }
+
     private mutating func handle(_ character: Character, into output: inout String) {
         let current = character
         var shouldReprocess = true

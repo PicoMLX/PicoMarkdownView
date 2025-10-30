@@ -162,6 +162,11 @@ public struct PicoMarkdownStackView: View {
                                               images: block.images)
                     .frame(maxWidth: .infinity, alignment: .leading)
             )
+        case .horizontalRule:
+            return AnyView(
+                Divider()
+                    .frame(maxWidth: .infinity)
+            )
         default:
             if block.kind == .paragraph, isHorizontalRule(block) {
                 return AnyView(
@@ -206,6 +211,9 @@ public struct PicoMarkdownStackView: View {
     }
 
     private func isHorizontalRule(_ block: RenderedBlock) -> Bool {
+        if case .horizontalRule = block.kind {
+            return true
+        }
         guard block.kind == .paragraph else { return false }
         guard let runs = block.snapshot.inlineRuns else { return false }
         let rawText = runs.map { $0.text }.joined()
@@ -225,6 +233,8 @@ public struct PicoMarkdownStackView: View {
         case .blockquote:
             return 8
         case .paragraph:
+            return 8
+        case .horizontalRule:
             return 8
         case .fencedCode:
             return 12
@@ -253,6 +263,8 @@ public struct PicoMarkdownStackView: View {
             return 8
         case .paragraph:
             return previous == .paragraph ? 6 : 8
+        case .horizontalRule:
+            return 12
         case .fencedCode:
             return 10
         case .math:

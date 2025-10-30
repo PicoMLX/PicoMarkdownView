@@ -41,6 +41,8 @@ struct DebugBlockFormatter {
             }
         case .table:
             emitTable(block, prefix: prefix, into: &lines)
+        case .horizontalRule:
+            break
         }
 
         if !block.images.isEmpty {
@@ -139,6 +141,8 @@ struct DebugBlockFormatter {
             return display ? "mathBlock" : "math"
         case .table:
             return "table"
+        case .horizontalRule:
+            return "horizontalRule"
         case .unknown:
             return "unknown"
         }

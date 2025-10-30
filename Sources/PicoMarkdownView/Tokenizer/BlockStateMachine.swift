@@ -29,6 +29,8 @@ struct StreamingParser {
         var eventStartIndex: Int
         var listIndent: Int
         var pendingSoftBreak: Bool = false
+        var pendingSameLineClose: Bool = false
+        var preventNextCoalesce: Bool = false
     }
 
     private struct TableState {
@@ -114,14 +116,18 @@ struct StreamingParser {
     private var events: [BlockEvent] = []
 
     mutating func feed(_ chunk: String) -> ChunkResult {
+        closePendingSameLineBlocks()
         process(normalizeLineEndings(chunk), isFinal: false)
+        flushTrailingPeriodsForOpenBlocks()
         let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks())
         events.removeAll(keepingCapacity: true)
         return result
     }
 
     mutating func finish() -> ChunkResult {
+        closePendingSameLineBlocks()
         process("", isFinal: true)
+        flushTrailingPeriodsForOpenBlocks()
         let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks())
         events.removeAll(keepingCapacity: true)
         return result
@@ -160,6 +166,8 @@ struct StreamingParser {
             return !ctx.fenceJustOpened
         case .math:
             return !ctx.fenceJustOpened
+        case .horizontalRule:
+            return false
         case .unknown:
             return !lineBuffer.isEmpty
         case .table:
@@ -183,11 +191,12 @@ struct StreamingParser {
 
         if contextStack.isEmpty {
             if let mathOpen = detectDisplayMathOpening(lineBuffer) {
-                if mathOpen.closesOnSameLine {
-                    emitSingleLineDisplayMath(content: mathOpen.content)
-                } else {
-                    openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
-                }
+                let closeAfterLine = mathOpen.closesOnSameLine
+                openDisplayMathBlock(marker: mathOpen.marker,
+                                     closing: mathOpen.closing,
+                                     initialContent: mathOpen.content,
+                                     indent: mathOpen.leadingIndent,
+                                     closeAfterCurrentLine: closeAfterLine)
                 emittedCount = lineBuffer.count
                 lineAnalyzed = true
                 return
@@ -227,6 +236,11 @@ struct StreamingParser {
                 return
             }
 
+            if isLineComplete, detectHorizontalRule(lineBuffer, indent: 0) {
+                emitHorizontalRuleBlock()
+                return
+            }
+
             if isLineComplete, lineBuffer.hasPrefix(":::") {
                 openUnknown()
                 appendUnknownLiteral(lineBuffer)
@@ -246,11 +260,12 @@ struct StreamingParser {
         case .paragraph:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
                     closeCurrentBlock()
-                    if mathOpen.closesOnSameLine {
-                        emitSingleLineDisplayMath(content: mathOpen.content)
-                    } else {
-                        openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
-                    }
+                    let closeAfterLine = mathOpen.closesOnSameLine
+                    openDisplayMathBlock(marker: mathOpen.marker,
+                                         closing: mathOpen.closing,
+                                         initialContent: mathOpen.content,
+                                         indent: mathOpen.leadingIndent,
+                                         closeAfterCurrentLine: closeAfterLine)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -291,29 +306,10 @@ struct StreamingParser {
                     return
                 }
             if isLineComplete, detectHorizontalRule(lineBuffer, indent: 0) {
-                let rule = lineBuffer.trimmingCharacters(in: .whitespaces)
-                appendToCurrent(rule)
-                closeCurrentBlock()
-                let divider = BlockContext(
-                    id: nextID,
-                    kind: .paragraph,
-                    inlineParser: InlineParser(),
-                    tableState: nil,
-                    fenceInfo: nil,
-                    literal: "",
-                    fenceJustOpened: false,
-                    linePrefixToStrip: 0,
-                    headingPendingSuffix: "",
-                    eventStartIndex: events.count,
-                    listIndent: 0
-                )
-                nextID &+= 1
-                events.append(.blockStart(id: divider.id, kind: .paragraph))
-                appendToCurrent(rule)
-                closeCurrentBlock()
-                lineAnalyzed = true
-                return
-            }
+                    closeCurrentBlock()
+                    emitHorizontalRuleBlock()
+                    return
+                }
             if isLineComplete, lineBuffer.hasPrefix(":::") {
                     closeCurrentBlock()
                     openUnknown()
@@ -328,11 +324,12 @@ struct StreamingParser {
             case .listItem:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
                     closeCurrentBlock()
-                    if mathOpen.closesOnSameLine {
-                        emitSingleLineDisplayMath(content: mathOpen.content)
-                    } else {
-                        openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
-                    }
+                    let closeAfterLine = mathOpen.closesOnSameLine
+                    openDisplayMathBlock(marker: mathOpen.marker,
+                                         closing: mathOpen.closing,
+                                         initialContent: mathOpen.content,
+                                         indent: mathOpen.leadingIndent,
+                                         closeAfterCurrentLine: closeAfterLine)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -383,11 +380,7 @@ struct StreamingParser {
                     if isLineComplete, detectHorizontalRule(lineBuffer, indent: current.listIndent) {
                         closeCurrentBlock()
                         closeListContexts(deeperThan: current.listIndent - 1)
-                        openInlineBlock(kind: .paragraph)
-                        emittedCount = 0
-                        appendToCurrent(lineBuffer)
-                        closeCurrentBlock()
-                        lineAnalyzed = true
+                        emitHorizontalRuleBlock()
                         return
                     }
                     if continuation > 0 {
@@ -404,11 +397,12 @@ struct StreamingParser {
             case .blockquote:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
                     closeCurrentBlock()
-                    if mathOpen.closesOnSameLine {
-                        emitSingleLineDisplayMath(content: mathOpen.content)
-                    } else {
-                        openDisplayMathBlock(marker: mathOpen.marker, closing: mathOpen.closing, initialContent: mathOpen.content, indent: mathOpen.leadingIndent)
-                    }
+                    let closeAfterLine = mathOpen.closesOnSameLine
+                    openDisplayMathBlock(marker: mathOpen.marker,
+                                         closing: mathOpen.closing,
+                                         initialContent: mathOpen.content,
+                                         indent: mathOpen.leadingIndent,
+                                         closeAfterCurrentLine: closeAfterLine)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
@@ -426,6 +420,8 @@ struct StreamingParser {
             case .math:
                 break
             case .fencedCode:
+                break
+            case .horizontalRule:
                 break
             case .table:
                 break
@@ -449,6 +445,28 @@ struct StreamingParser {
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
+        if case .math = context.kind, context.pendingSameLineClose {
+            emittedCount = lineBuffer.count
+            setCurrentBlock(context)
+            enforceLineBufferBudget()
+            return
+        }
+        if case .math = context.kind,
+           !context.fenceJustOpened,
+           let closingMarker = context.fenceInfo?.closingMarker,
+           let closingRange = delta.range(of: closingMarker) {
+            let beforeClosing = String(delta[..<closingRange.lowerBound])
+            if !beforeClosing.isEmpty {
+                append(beforeClosing, context: &context)
+            } else {
+                context.fenceJustOpened = false
+            }
+            context.pendingSameLineClose = true
+            emittedCount = lineBuffer.count
+            setCurrentBlock(context)
+            enforceLineBufferBudget()
+            return
+        }
         if case .fencedCode = context.kind,
            !context.fenceJustOpened,
            isClosingFence(trimmedLine, fence: context.fenceInfo) {
@@ -529,6 +547,8 @@ struct StreamingParser {
                 if (!ctx.fenceJustOpened && isClosingFence(trimmed, fence: ctx.fenceInfo)) || force {
                     closeCurrentBlock()
                 }
+            case .horizontalRule:
+                break
             case .table:
                 handleTableLine(rawLine: rawLine, trimmed: trimmed, terminated: terminated, force: force)
             }
@@ -547,13 +567,40 @@ struct StreamingParser {
         lineAnalyzed = false
     }
 
+    private mutating func closePendingSameLineBlocks() {
+        while let ctx = currentBlock, ctx.pendingSameLineClose {
+            closeCurrentBlock()
+        }
+    }
+
+    private mutating func flushTrailingPeriodsForOpenBlocks() {
+        guard !contextStack.isEmpty else { return }
+        for index in contextStack.indices {
+            var ctx = contextStack[index]
+            guard var parser = ctx.inlineParser else { continue }
+            let flushedRuns = parser.flushTrailingPeriods()
+            guard !flushedRuns.isEmpty else {
+                ctx.inlineParser = parser
+                contextStack[index] = ctx
+                continue
+            }
+            appendFlushedRuns(flushedRuns, to: &ctx)
+            ctx.inlineParser = parser
+            contextStack[index] = ctx
+        }
+    }
+
     private mutating func appendToCurrent(_ text: String) {
         guard var ctx = currentBlock else { return }
-        append(text, context: &ctx)
+        let preserveLiteralRuns = text == "\n"
+        append(text, context: &ctx, preserveLiteralRuns: preserveLiteralRuns)
+        if preserveLiteralRuns {
+            ctx.preventNextCoalesce = true
+        }
         setCurrentBlock(ctx)
     }
 
-    private mutating func append(_ text: String, context ctx: inout BlockContext) {
+    private mutating func append(_ text: String, context ctx: inout BlockContext, preserveLiteralRuns: Bool = false) {
         guard !text.isEmpty else { return }
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote:
@@ -564,19 +611,28 @@ struct StreamingParser {
                     ctx.pendingSoftBreak = false
                 }
                 var runs = parser.append(input)
-                coalesceInlineRuns(&runs)
+                let shouldCoalesceNewRuns = !preserveLiteralRuns
+                if shouldCoalesceNewRuns {
+                    coalesceInlineRuns(&runs)
+                }
                 if !runs.isEmpty {
                     if let lastIndex = events.indices.last,
                        case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
                        existingID == ctx.id {
                         existingRuns.append(contentsOf: runs)
-                        coalesceInlineRuns(&existingRuns)
+                        let shouldCoalesceExisting = shouldCoalesceNewRuns && !ctx.preventNextCoalesce
+                        if shouldCoalesceExisting {
+                            coalesceInlineRuns(&existingRuns)
+                        }
                         events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
                     } else {
                         events.append(.blockAppendInline(id: ctx.id, runs: runs))
                     }
                 }
                 ctx.inlineParser = parser
+                if ctx.preventNextCoalesce {
+                    ctx.preventNextCoalesce = false
+                }
             }
         case .heading:
             if var parser = ctx.inlineParser {
@@ -635,11 +691,28 @@ struct StreamingParser {
                 events.append(.blockAppendMath(id: ctx.id, textChunk: text))
             }
             ctx.fenceJustOpened = false
+        case .horizontalRule:
+            break
         case .table:
             // table text handled at line boundaries
             break
         }
         ctx.linePrefixToStrip = 0
+    }
+
+    private mutating func appendFlushedRuns(_ runs: [InlineRun], to ctx: inout BlockContext) {
+        var normalized = runs
+        coalesceInlineRuns(&normalized)
+        guard !normalized.isEmpty else { return }
+        if let lastIndex = events.indices.last,
+           case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
+           existingID == ctx.id {
+            existingRuns.append(contentsOf: normalized)
+            coalesceInlineRuns(&existingRuns)
+            events[lastIndex] = .blockAppendInline(id: ctx.id, runs: existingRuns)
+        } else {
+            events.append(.blockAppendInline(id: ctx.id, runs: normalized))
+        }
     }
 
     private func canCoalesce(_ lhs: InlineRun, _ rhs: InlineRun) -> Bool {
@@ -863,6 +936,7 @@ struct StreamingParser {
             appendToCurrent(info.indentText)
             if var updated = currentBlock {
                 updated.linePrefixToStrip = info.prefixLength
+                updated.preventNextCoalesce = true
                 setCurrentBlock(updated)
             }
         }
@@ -994,19 +1068,21 @@ struct StreamingParser {
         return nil
     }
 
-    private mutating func emitSingleLineDisplayMath(content: String) {
+    private mutating func emitHorizontalRuleBlock() {
         let blockID = nextID
         nextID &+= 1
-        let kind: BlockKind = .math(display: true)
-        events.append(.blockStart(id: blockID, kind: kind))
-        if !content.isEmpty {
-            events.append(.blockAppendMath(id: blockID, textChunk: content))
-        }
+        events.append(.blockStart(id: blockID, kind: .horizontalRule))
         events.append(.blockEnd(id: blockID))
+        emittedCount = lineBuffer.count
+        lineAnalyzed = true
     }
 
-    private mutating func openDisplayMathBlock(marker: String, closing: String, initialContent: String, indent: Int) {
-        let context = BlockContext(
+    private mutating func openDisplayMathBlock(marker: String,
+                                               closing: String,
+                                               initialContent: String,
+                                               indent: Int,
+                                               closeAfterCurrentLine: Bool = false) {
+        var context = BlockContext(
             id: nextID,
             kind: .math(display: true),
             inlineParser: nil,
@@ -1019,6 +1095,7 @@ struct StreamingParser {
             eventStartIndex: events.count,
             listIndent: 0
         )
+        context.pendingSameLineClose = closeAfterCurrentLine
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .math(display: true)))
         pushBlock(context)
@@ -1230,7 +1307,6 @@ struct StreamingParser {
                 current.append(character)
                 escaping = false
             } else if character == "\\" {
-                current.append(character)
                 escaping = true
             } else if character == "|" {
                 cells.append(current)
@@ -1241,7 +1317,7 @@ struct StreamingParser {
             index = line.index(after: index)
         }
         if escaping {
-            // Trailing backslash already appended above; leave as literal.
+            current.append("\\")
         }
         cells.append(current)
 

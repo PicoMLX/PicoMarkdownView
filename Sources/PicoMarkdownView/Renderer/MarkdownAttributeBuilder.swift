@@ -59,6 +59,24 @@ actor MarkdownAttributeBuilder {
                                         math: nil,
                                         images: [],
                                         codeBlock: RenderedCodeBlock(code: text, language: language))
+        case .horizontalRule:
+            let spacing = paragraphSpacing()
+            let paragraph = makeParagraphStyle(spacing)
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: theme.bodyFont,
+                .paragraphStyle: paragraph
+            ]
+            let ruleLine = String(repeating: "\u{2500}", count: 24)
+            let content = NSMutableAttributedString(string: "\n", attributes: attributes)
+            content.append(NSAttributedString(string: ruleLine, attributes: attributes))
+            content.append(NSAttributedString(string: "\n\n", attributes: attributes))
+            return RenderedContentResult(attributed: AttributedString(content),
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: nil,
+                                        images: [],
+                                        codeBlock: nil)
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
             let spacing = headingParagraphSpacing(for: level)

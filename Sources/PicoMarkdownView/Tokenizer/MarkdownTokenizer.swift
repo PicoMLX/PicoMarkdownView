@@ -90,6 +90,7 @@ public enum BlockKind: Sendable, Equatable {
     case fencedCode(language: String?)
     case math(display: Bool)
     case table
+    case horizontalRule
     case unknown
 }
 

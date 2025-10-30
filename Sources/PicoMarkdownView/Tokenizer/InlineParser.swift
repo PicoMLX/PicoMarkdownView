@@ -808,6 +808,13 @@ struct InlineParser {
         parser.pending = text
         return parser.consume(includeUnterminated: true)
     }
+
+    mutating func flushTrailingPeriods() -> [InlineRun] {
+        var output = ""
+        replacements.flushTrailingPeriods(into: &output)
+        guard !output.isEmpty else { return [] }
+        return makePlainRuns(from: output)
+    }
     
     // MARK: - Strikethrough helper (GFM)
     private func findStrikethroughClosing(in s: String, from: String.Index) -> String.Index? {

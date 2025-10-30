@@ -35,6 +35,24 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Horizontal rule emits dedicated block")
+    func horizontalRuleEmitsDedicatedBlock() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("---\n\n")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.horizontalRule),
+                .blockEnd(.horizontalRule)
+            ],
+            openBlocks: []
+        ), state: &state)
+
+        let final = await tokenizer.finish()
+        assertChunk(final, matches: .init(events: [], openBlocks: []), state: &state)
+    }
+
     @Test("Multiline paragraph retains punctuation")
     func multilineParagraphRetainsPunctuation() async {
         let tokenizer = MarkdownTokenizer()
@@ -1914,6 +1932,8 @@ private func describe(_ kind: BlockKind) -> String {
         return "math:\(display ? "display" : "inline")"
     case .table:
         return "table"
+    case .horizontalRule:
+        return "horizontalRule"
     case .unknown:
         return "unknown"
     }
