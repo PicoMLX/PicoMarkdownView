@@ -248,19 +248,35 @@ actor MarkdownAttributeBuilder {
 
         // 2. measure what we actually drew
         let bulletWidth = bulletPrefixWidth(for: bulletPrefix, font: theme.bodyFont)
-        // 3. reserved width for ordered lists ("10.", "100.")
         let minOrderedWidth = ordered ? orderedBulletMinWidth(font: theme.bodyFont) : 0
 
-        // 4. this is the EXTRA horizontal gap you wanted
-        let extraPadding: CGFloat = 6   // <-- tweak here
+        // gap *after* the bullet before the text begins
+        let bulletTextGap: CGFloat = 12
 
         // 5. final column where ALL wrapped lines should start
-        let headIndent = max(bulletWidth, minOrderedWidth) + extraPadding
+        let headIndent = max(bulletWidth, minOrderedWidth) + bulletTextGap
+
+        // same alignment fix as before
+        listParagraph.firstLineHeadIndent = headIndent - bulletWidth
+        listParagraph.headIndent = headIndent
+        
+        
+        
+        // 2. measure what we actually drew
+//        let bulletWidth = bulletPrefixWidth(for: bulletPrefix, font: theme.bodyFont)
+//        // 3. reserved width for ordered lists ("10.", "100.")
+//        let minOrderedWidth = ordered ? orderedBulletMinWidth(font: theme.bodyFont) : 0
+//
+//        // 4. this is the EXTRA horizontal gap you wanted
+//        let extraPadding: CGFloat = 6   // <-- tweak here
+//
+//        // 5. final column where ALL wrapped lines should start
+//        let headIndent = max(bulletWidth, minOrderedWidth) + extraPadding
 
         // 6. first line already contains the bullet text,
         // so only move it by the *difference* between what we drew and what we reserve
-        listParagraph.firstLineHeadIndent = headIndent - bulletWidth
-        listParagraph.headIndent = headIndent
+//        listParagraph.firstLineHeadIndent = headIndent - bulletWidth
+//        listParagraph.headIndent = headIndent
 
         rendered.addAttributes([.paragraphStyle: listParagraph],
                                range: NSRange(location: 0, length: rendered.length))
