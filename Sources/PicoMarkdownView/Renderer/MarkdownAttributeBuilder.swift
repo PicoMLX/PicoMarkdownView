@@ -132,11 +132,14 @@ actor MarkdownAttributeBuilder {
         block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxY)
         block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .minX)
         block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxX)
-        // Set a uniform hairline border thickness, color only on one edge to show a single line
-        block.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border)
-        block.setBorderColor(PlatformColor.rendererLabel, for: .minY)
+        // Draw a single hairline using secondary label color; zero-out other edges
+        block.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border, edge: .minY)
+        block.setBorderColor(PlatformColor.rendererSecondaryLabel, for: .minY)
+        block.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxY)
         block.setBorderColor(nil, for: .maxY)
+        block.setWidth(0, type: .absoluteValueType, for: .border, edge: .minX)
         block.setBorderColor(nil, for: .minX)
+        block.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxX)
         block.setBorderColor(nil, for: .maxX)
 
         let blockParagraph = NSMutableParagraphStyle()
@@ -629,6 +632,14 @@ private extension PlatformColor {
         return .systemBackground
 #else
         return .textBackgroundColor
+#endif
+    }
+
+    static var rendererSecondaryLabel: PlatformColor {
+#if canImport(UIKit)
+        return .secondaryLabel
+#else
+        return .secondaryLabelColor
 #endif
     }
 }
