@@ -34,6 +34,7 @@ public struct PicoMarkdownStackView: View {
             let contexts = buildContexts(for: blocks)
             renderBlocks(blocks, contexts: contexts)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: input.id) {
             await viewModel.consume(input)
         }

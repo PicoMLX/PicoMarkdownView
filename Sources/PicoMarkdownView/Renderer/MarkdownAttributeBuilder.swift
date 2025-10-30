@@ -60,16 +60,7 @@ actor MarkdownAttributeBuilder {
                                         images: [],
                                         codeBlock: RenderedCodeBlock(code: text, language: language))
         case .horizontalRule:
-            let spacing = paragraphSpacing()
-            let paragraph = makeParagraphStyle(spacing)
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: theme.bodyFont,
-                .paragraphStyle: paragraph
-            ]
-            let ruleLine = String(repeating: "\u{2500}", count: 24)
-            let content = NSMutableAttributedString(string: "\n", attributes: attributes)
-            content.append(NSAttributedString(string: ruleLine, attributes: attributes))
-            content.append(NSAttributedString(string: "\n\n", attributes: attributes))
+            let content = renderHorizontalRule()
             return RenderedContentResult(attributed: AttributedString(content),
                                         table: nil,
                                         listItem: nil,
@@ -123,6 +114,56 @@ actor MarkdownAttributeBuilder {
                                         images: [],
                                         codeBlock: nil)
         }
+    }
+
+    private func renderHorizontalRule() -> NSAttributedString {
+        let spacing = paragraphSpacing()
+        let paragraph = makeParagraphStyle(spacing)
+
+        // Use a 1-column NSTextTable that spans 100% width with a top border to emulate an HR
+        let table = NSTextTable()
+        table.numberOfColumns = 1
+        table.collapsesBorders = false
+        table.setContentWidth(100, type: .percentageValueType)
+
+        let block = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
+        // Minimal vertical padding so the rule is a thin line
+        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .minY)
+        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxY)
+        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .minX)
+        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxX)
+        // Set a uniform hairline border thickness, color only on one edge to show a single line
+        block.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border)
+        block.setBorderColor(PlatformColor.rendererLabel, for: .minY)
+        block.setBorderColor(nil, for: .maxY)
+        block.setBorderColor(nil, for: .minX)
+        block.setBorderColor(nil, for: .maxX)
+
+        let blockParagraph = NSMutableParagraphStyle()
+        blockParagraph.textBlocks = [block]
+        blockParagraph.alignment = .left
+        blockParagraph.lineBreakMode = .byWordWrapping
+        blockParagraph.paragraphSpacing = 0
+        blockParagraph.paragraphSpacingBefore = 0
+
+        let result = NSMutableAttributedString()
+        // Add a thin, non-breaking space to instantiate the block
+        let cellContent = NSAttributedString(string: "\u{00A0}", attributes: [
+            .paragraphStyle: blockParagraph,
+            .font: theme.bodyFont,
+            .foregroundColor: PlatformColor.rendererLabel
+        ])
+        result.append(cellContent)
+        // Trailing spacing around the rule
+        result.append(NSAttributedString(string: "\n", attributes: [
+            .font: theme.bodyFont,
+            .paragraphStyle: blockParagraph
+        ]))
+        result.append(NSAttributedString(string: "\n", attributes: [
+            .font: theme.bodyFont,
+            .paragraphStyle: paragraph
+        ]))
+        return result
     }
 
     private func renderInlineBlock(_ snapshot: BlockSnapshot,
