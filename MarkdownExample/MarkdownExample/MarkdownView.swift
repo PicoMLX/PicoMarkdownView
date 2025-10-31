@@ -27,7 +27,7 @@ struct MarkdownView: View {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
                     ScrollView {
-                        PicoMarkdownTextKit2View(text: markdown)
+                        PicoMarkdownView(text: markdown)
 //                        PicoMarkdownStackView(markdown)
                             .textSelection(.enabled)
                             .padding()

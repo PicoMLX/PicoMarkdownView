@@ -1,7 +1,7 @@
 import SwiftUI
 import Observation
 
-public struct PicoMarkdownTextKit2View: View {
+public struct PicoMarkdownView: View {
     private let input: MarkdownStreamingInput
     private let configuration: PicoTextKitConfiguration
 
@@ -16,7 +16,7 @@ public struct PicoMarkdownTextKit2View: View {
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
     }
 
-    public init(text: String,
+    public init(_ text: String,
                 theme: MarkdownRenderTheme = .default(),
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .text(text), theme: theme, configuration: configuration)

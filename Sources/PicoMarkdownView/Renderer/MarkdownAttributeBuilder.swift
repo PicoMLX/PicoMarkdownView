@@ -148,7 +148,7 @@ actor MarkdownAttributeBuilder {
         block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .minX)
         block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxX)
         // Draw a single hairline using secondary label color; zero-out other edges
-        block.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border, edge: .minY)
+        block.setWidth(horizontalRuleBorderWidth, type: .absoluteValueType, for: .border, edge: .minY)
         block.setBorderColor(PlatformColor.rendererSecondaryLabel, for: .minY)
         block.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxY)
         block.setBorderColor(nil, for: .maxY)
@@ -590,6 +590,14 @@ actor MarkdownAttributeBuilder {
         return max(1.0 / UIScreen.main.scale, 0.5)
 #else
         return 1.0
+#endif
+    }
+
+    private var horizontalRuleBorderWidth: CGFloat {
+#if canImport(UIKit)
+        return max(tableBorderWidth / 2, 0.25)
+#else
+        return tableBorderWidth / 2
 #endif
     }
 
