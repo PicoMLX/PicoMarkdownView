@@ -161,8 +161,8 @@ actor MarkdownAttributeBuilder {
         blockParagraph.textBlocks = [block]
         blockParagraph.alignment = .left
         blockParagraph.lineBreakMode = .byWordWrapping
-        blockParagraph.paragraphSpacing = 0
-        blockParagraph.paragraphSpacingBefore = 10
+        blockParagraph.paragraphSpacing = 20
+        blockParagraph.paragraphSpacingBefore = 20
 
         let result = NSMutableAttributedString()
         // Add a thin, non-breaking space to instantiate the block
@@ -173,10 +173,10 @@ actor MarkdownAttributeBuilder {
         ])
         result.append(cellContent)
         // Trailing spacing beneath the rule kept minimal; rely on next block's own spacing
-        result.append(NSAttributedString(string: "\n", attributes: [
-            .font: theme.bodyFont,
-            .paragraphStyle: blockParagraph
-        ]))
+//        result.append(NSAttributedString(string: "\n", attributes: [
+//            .font: theme.bodyFont,
+//            .paragraphStyle: blockParagraph
+//        ]))
         // No extra blank paragraph appended here
         return result
     }
@@ -595,9 +595,11 @@ actor MarkdownAttributeBuilder {
 
     private var horizontalRuleBorderWidth: CGFloat {
 #if canImport(UIKit)
-        return max(tableBorderWidth / 2, 0.25)
+        let baseBorder = max(1.0 / UIScreen.main.scale, 0.5)
+        let previousWidth = max(baseBorder / 2, 0.25)
+        return max(previousWidth / 2, 0.125)
 #else
-        return tableBorderWidth / 2
+        return 0.1
 #endif
     }
 

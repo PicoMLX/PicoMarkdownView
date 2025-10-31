@@ -63,8 +63,7 @@ let theme = MarkdownRenderTheme(
 )
 
 var body: some View {
-    PicoMarkdownStackView(text: markdown, theme: theme)
-    // or PicoMarkdownStackView(stream: streamFactory, theme: theme)
+    PicoMarkdownView(markdown, theme: theme)
 }
 ```
 
@@ -104,7 +103,7 @@ struct ZoomableMarkdownView: View {
                 Button("Actual Size") { zoom = 1.0 }
                 Button("Zoom In") { zoom = min(2.0, zoom + 0.1) }
             }
-            PicoMarkdownStackView(text: markdown, theme: scaledTheme)
+            PicoMarkdownView(markdown, theme: scaledTheme)
         }
         .padding()
     }
@@ -136,7 +135,7 @@ struct SplashCodeHighlighter: CodeSyntaxHighlighter {
 }
 
 var body: some View {
-    PicoMarkdownStackView(text: markdown)
+    PicoMarkdownView(markdown)
         .picoCodeTheme(.monospaced())
         .picoCodeHighlighter(SplashCodeHighlighter(theme: .midnight(withFont: Splash.Font(size: 14))))
 }
