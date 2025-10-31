@@ -29,7 +29,7 @@ enum InlineMathAttachment {
                                          labelMode: mode,
                                          textAlignment: .left)
 
-        let insetValue: CGFloat = display ? 6 : 2
+        let insetValue: CGFloat = 2
         imageGenerator.contentInsets = MTEdgeInsets(top: insetValue, left: 2, bottom: insetValue, right: 2)
 
         let (_, imageAny) = imageGenerator.asImage()
