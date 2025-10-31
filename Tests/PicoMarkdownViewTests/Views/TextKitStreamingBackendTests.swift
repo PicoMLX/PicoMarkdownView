@@ -11,8 +11,8 @@ final class TextKitStreamingBackendTests: XCTestCase {
         let selection = backend.apply(blocks: [block], selection: NSRange(location: 0, length: 0))
 
         XCTAssertEqual(selection.location, 0)
-        // Backend strips trailing newlines to avoid extra space at bottom
-        XCTAssertEqual(backend.snapshotAttributedString().string, "Hello")
+        // Backend now preserves newlines, spacing handled via paragraph styles
+        XCTAssertEqual(backend.snapshotAttributedString().string, "Hello\n")
     }
 
     func testAppendMaintainsCaretPosition() {

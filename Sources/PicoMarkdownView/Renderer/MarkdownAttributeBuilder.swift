@@ -45,7 +45,13 @@ actor MarkdownAttributeBuilder {
                 .foregroundColor: PlatformColor.rendererLabel
             ]
             let content = NSMutableAttributedString(string: text, attributes: attributes)
-            content.append(NSAttributedString(string: "\n\n", attributes: attributes))
+            let codeSpacing = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 12))
+            let suffixAttrs: [NSAttributedString.Key: Any] = [
+                .font: theme.codeFont,
+                .foregroundColor: PlatformColor.rendererLabel,
+                .paragraphStyle: codeSpacing
+            ]
+            content.append(NSAttributedString(string: "\n", attributes: suffixAttrs))
             let language: String?
             if case let .fencedCode(value) = snapshot.kind {
                 language = value
@@ -86,7 +92,7 @@ actor MarkdownAttributeBuilder {
         case .paragraph:
             fallthrough
         case .unknown:
-            let suffix = snapshot.kind == .paragraph ? "\n\n" : "\n\n"
+            let suffix = "\n"
             let spacing = paragraphSpacing()
             let (ns, images) = renderInlineBlock(snapshot,
                                                 prefix: nil,
@@ -109,8 +115,9 @@ actor MarkdownAttributeBuilder {
                                                         baseFont: theme.bodyFont)
             let result = NSMutableAttributedString(attributedString: mathNS)
             
-            let suffix = display ? "\n\n" : ""
-            let suffixAttrs: [NSAttributedString.Key: Any] = [.font: theme.bodyFont]
+            let suffix = display ? "\n" : ""
+            let mathSpacing = display ? makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 12)) : makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 0))
+            let suffixAttrs: [NSAttributedString.Key: Any] = [.font: theme.bodyFont, .paragraphStyle: mathSpacing]
             result.append(NSAttributedString(string: suffix, attributes: suffixAttrs))
             
             return RenderedContentResult(attributed: AttributedString(result),
@@ -252,7 +259,13 @@ actor MarkdownAttributeBuilder {
         let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: theme.bodyFont])
         rendered.append(body)
 
-        let listSpacing = paragraphSpacing()
+        // Calculate spacing - add extra space for empty lines between list items
+        var listSpacing = paragraphSpacing()
+        // If there's extra depth, this is part of a nested structure
+        if snapshot.depth > 0 {
+            // Reduce spacing for nested items
+            listSpacing.spacingAfter = max(0, listSpacing.spacingAfter - 5)
+        }
         let listParagraph = makeParagraphStyle(listSpacing)
 
         // 2. measure what we actually drew
@@ -261,9 +274,12 @@ actor MarkdownAttributeBuilder {
 
         // gap *after* the bullet before the text begins
         let bulletTextGap: CGFloat = 12
+        
+        // Add indentation for nested list items (depth 1 = 20pt, depth 2 = 40pt, etc.)
+        let nestingIndent: CGFloat = CGFloat(snapshot.depth) * 20
 
         // 5. final column where ALL wrapped lines should start
-        let headIndent = max(bulletWidth, minOrderedWidth) + bulletTextGap
+        let headIndent = nestingIndent + max(bulletWidth, minOrderedWidth) + bulletTextGap
 
         // same alignment fix as before
         listParagraph.firstLineHeadIndent = headIndent - bulletWidth
@@ -337,7 +353,7 @@ actor MarkdownAttributeBuilder {
     private func paragraphSpacing() -> ParagraphSpacing {
         ParagraphSpacing(lineHeightMultiple: 1.24,
                          spacingBefore: 0,
-                         spacingAfter: 4)
+                         spacingAfter: 12)
     }
 
     private func headingParagraphSpacing(for level: Int) -> ParagraphSpacing {

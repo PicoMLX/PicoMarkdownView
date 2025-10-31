@@ -199,41 +199,14 @@ final class TextKitStreamingBackend {
     private func replaceAll(with blockData: [(block: RenderedBlock, attributed: NSAttributedString)],
                             selection: NSRange) -> NSRange {
         let composed = NSMutableAttributedString()
-        var adjustedBlockData = blockData
-        
         for data in blockData {
             composed.append(data.attributed)
-        }
-        
-        // Strip trailing newlines from the final composed string to avoid extra space at bottom
-        let originalLength = composed.length
-        while composed.length > 0 {
-            let lastIndex = composed.length - 1
-            let lastChar = (composed.string as NSString).character(at: lastIndex)
-            if lastChar == 0x0A { // '\n'
-                composed.deleteCharacters(in: NSRange(location: lastIndex, length: 1))
-            } else {
-                break
-            }
-        }
-        
-        // If we stripped newlines and have blocks, adjust the last block's attributed string
-        let strippedCount = originalLength - composed.length
-        if strippedCount > 0 && !adjustedBlockData.isEmpty {
-            let lastIndex = adjustedBlockData.count - 1
-            let lastData = adjustedBlockData[lastIndex]
-            let lastAttributed = lastData.attributed
-            
-            // Create a trimmed version of the last block's attributed string
-            let newLength = max(0, lastAttributed.length - strippedCount)
-            let trimmedAttributed = lastAttributed.attributedSubstring(from: NSRange(location: 0, length: newLength))
-            adjustedBlockData[lastIndex] = (block: lastData.block, attributed: trimmedAttributed)
         }
         
         storage.beginEditing()
         storage.setAttributedString(composed)
         storage.endEditing()
-        rebuildRecords(using: adjustedBlockData)
+        rebuildRecords(using: blockData)
         return selection.clamped(maxLength: storage.length)
     }
 

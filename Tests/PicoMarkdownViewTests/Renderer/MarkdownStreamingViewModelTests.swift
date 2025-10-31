@@ -9,7 +9,7 @@ final class MarkdownStreamingViewModelTests: XCTestCase {
         await viewModel.consume(input)
 
         let result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "Hello world\n\n")
+        XCTAssertEqual(String(result.characters), "Hello world\n")
     }
 
     func testTextReplacementOverwritesExistingContent() async {
@@ -17,14 +17,14 @@ final class MarkdownStreamingViewModelTests: XCTestCase {
 
         await viewModel.consume(.text("the"))
         var result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "the\n\n")
+        XCTAssertEqual(String(result.characters), "the\n")
 
         await viewModel.consume(.text("the sky"))
         result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "the sky\n\n")
+        XCTAssertEqual(String(result.characters), "the sky\n")
 
         await viewModel.consume(.text("the sky is"))
         result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "the sky is\n\n")
+        XCTAssertEqual(String(result.characters), "the sky is\n")
     }
 }
