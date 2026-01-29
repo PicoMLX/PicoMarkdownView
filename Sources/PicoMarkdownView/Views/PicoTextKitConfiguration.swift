@@ -11,15 +11,18 @@ public struct PicoTextKitConfiguration {
     public var contentInsets: EdgeInsets
     public var isSelectable: Bool
     public var isScrollEnabled: Bool
+    public var isPaused: Bool
 
     public init(backgroundColor: MarkdownColor = .clear,
                 contentInsets: EdgeInsets = EdgeInsets(),
                 isSelectable: Bool = true,
-                isScrollEnabled: Bool = false) {
+                isScrollEnabled: Bool = false,
+                isPaused: Bool = false) {
         self.backgroundColor = backgroundColor
         self.contentInsets = contentInsets
         self.isSelectable = isSelectable
         self.isScrollEnabled = isScrollEnabled
+        self.isPaused = isPaused
     }
 
     public static func `default`() -> PicoTextKitConfiguration {

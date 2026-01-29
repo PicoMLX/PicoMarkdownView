@@ -11,6 +11,8 @@ import AppKit
 @MainActor
 final class TextKitStreamingController: ObservableObject {
     private let backend = TextKitStreamingBackend()
+    private var lastAppliedVersion: UInt64 = 0
+    private var lastAppliedReplaceToken: UInt64 = 0
 
 #if canImport(UIKit)
     func makeTextKit1View(configuration: PicoTextKitConfiguration) -> UITextView {
@@ -28,14 +30,38 @@ final class TextKitStreamingController: ObservableObject {
 
     func update(textView: UITextView,
                 blocks: [RenderedBlock],
+                diffs: [AssemblerDiff],
+                replaceToken: UInt64,
                 configuration: PicoTextKitConfiguration) {
         configure(textView, with: configuration)
-        guard configuration.isSelectable else {
-            _ = backend.apply(blocks: blocks, selection: NSRange(location: backend.length, length: 0))
+        backend.setPaused(configuration.isPaused)
+        if replaceToken != lastAppliedReplaceToken {
+            lastAppliedReplaceToken = replaceToken
+            lastAppliedVersion = 0
+            _ = backend.apply(blocks: blocks, selection: textView.selectedRange)
             textView.invalidateIntrinsicContentSize()
             return
         }
-        let selection = backend.apply(blocks: blocks, selection: textView.selectedRange)
+        let eligible = eligibleDiffs(from: diffs)
+        if eligible.diffs.isEmpty {
+            if configuration.isSelectable {
+                textView.selectedRange = textView.selectedRange.clamped(maxLength: backend.length)
+            }
+            textView.invalidateIntrinsicContentSize()
+            return
+        }
+        if !configuration.isSelectable {
+            _ = backend.apply(blocks: blocks, diffs: eligible.diffs, selection: NSRange(location: backend.length, length: 0))
+            if !configuration.isPaused {
+                lastAppliedVersion = eligible.lastVersion
+            }
+            textView.invalidateIntrinsicContentSize()
+            return
+        }
+        let selection = backend.apply(blocks: blocks, diffs: eligible.diffs, selection: textView.selectedRange)
+        if !configuration.isPaused {
+            lastAppliedVersion = eligible.lastVersion
+        }
         textView.selectedRange = selection.clamped(maxLength: backend.length)
         textView.invalidateIntrinsicContentSize()
     }
@@ -83,10 +109,31 @@ final class TextKitStreamingController: ObservableObject {
 
     func update(textView: NSTextView,
                 blocks: [RenderedBlock],
+                diffs: [AssemblerDiff],
+                replaceToken: UInt64,
                 configuration: PicoTextKitConfiguration) {
         configure(textView, with: configuration)
         let currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
-        let selection = backend.apply(blocks: blocks, selection: currentSelection)
+        backend.setPaused(configuration.isPaused)
+        if replaceToken != lastAppliedReplaceToken {
+            lastAppliedReplaceToken = replaceToken
+            lastAppliedVersion = 0
+            _ = backend.apply(blocks: blocks, selection: currentSelection)
+            textView.invalidateIntrinsicContentSize()
+            return
+        }
+        let eligible = eligibleDiffs(from: diffs)
+        if eligible.diffs.isEmpty {
+            if configuration.isSelectable {
+                textView.setSelectedRange(currentSelection.clamped(maxLength: backend.length))
+            }
+            textView.invalidateIntrinsicContentSize()
+            return
+        }
+        let selection = backend.apply(blocks: blocks, diffs: eligible.diffs, selection: currentSelection)
+        if !configuration.isPaused {
+            lastAppliedVersion = eligible.lastVersion
+        }
         if configuration.isSelectable {
             textView.setSelectedRange(selection.clamped(maxLength: backend.length))
         }
@@ -115,12 +162,27 @@ final class TextKitStreamingController: ObservableObject {
         view.backgroundColor = configuration.platformColor
     }
 #endif
+
+    private func eligibleDiffs(from diffs: [AssemblerDiff]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
+        guard !diffs.isEmpty else { return ([], lastAppliedVersion) }
+        var eligible: [AssemblerDiff] = []
+        eligible.reserveCapacity(diffs.count)
+        var latest = lastAppliedVersion
+        for diff in diffs where diff.documentVersion > latest {
+            eligible.append(diff)
+            latest = diff.documentVersion
+        }
+        return (eligible, latest)
+    }
 }
 
 @MainActor
 final class TextKitStreamingBackend {
     private var records: [BlockRecord] = []
     private var blockOffsets: [Int] = []
+    private var indexByID: [BlockID: Int] = [:]
+    private var isPaused = false
+    private var deferred: DeferredUpdate?
     
     private struct BlockRecord {
         var id: BlockID
@@ -129,24 +191,56 @@ final class TextKitStreamingBackend {
         var length: Int
     }
 
+    private struct DeferredUpdate {
+        var blocks: [RenderedBlock]
+        var diffs: [AssemblerDiff]
+    }
+
     private let storage = NSTextStorage()
 
     var length: Int {
         storage.length
     }
 
+    func setPaused(_ paused: Bool) {
+        isPaused = paused
+    }
+
     func apply(blocks: [RenderedBlock], selection: NSRange) -> NSRange {
+        apply(blocks: blocks, diffs: [], selection: selection)
+    }
+
+    func apply(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
+        if isPaused {
+            deferred = DeferredUpdate(blocks: blocks, diffs: diffs)
+            return selection.clamped(maxLength: storage.length)
+        }
+        if deferred != nil {
+            deferred = nil
+        }
+        guard !diffs.isEmpty else {
+            return applyFullScan(blocks: blocks, selection: selection)
+        }
+        guard canApplyDiffs(diffs, blocks: blocks) else {
+            return applyFullScan(blocks: blocks, selection: selection)
+        }
+        return applyDiffs(diffs, blocks: blocks, selection: selection)
+    }
+
+    private func applyFullScan(blocks: [RenderedBlock], selection: NSRange) -> NSRange {
         if blocks.isEmpty {
             if storage.length == 0 {
                 records = []
-                blockOffsets = []
+                blockOffsets = [0]
+                indexByID = [:]
                 return NSRange(location: 0, length: 0)
             }
             storage.beginEditing()
             storage.setAttributedString(NSAttributedString())
             storage.endEditing()
             records = []
-            blockOffsets = []
+            blockOffsets = [0]
+            indexByID = [:]
             return NSRange(location: 0, length: 0)
         }
 
@@ -176,16 +270,16 @@ final class TextKitStreamingBackend {
             let record = records[index]
             let data = blockData[index]
             if record.content == data.block.content { continue }
-            
+
             let oldLength = record.length
             let range = rangeForBlock(at: index, data: blockData)
             storage.replaceCharacters(in: range, with: data.attributed)
             updatedSelection = adjust(selection: updatedSelection, editedRange: range, replacementLength: data.attributed.length)
-            
+
             records[index].content = data.block.content
             records[index].length = data.attributed.length
             records[index].nsAttributed = data.attributed
-            
+
             // Incremental offset update - O(1) for last block updates (streaming!)
             let delta = data.attributed.length - oldLength
             if delta != 0 {
@@ -194,6 +288,160 @@ final class TextKitStreamingBackend {
         }
 
         return updatedSelection.clamped(maxLength: storage.length)
+    }
+
+    private func canApplyDiffs(_ diffs: [AssemblerDiff], blocks: [RenderedBlock]) -> Bool {
+        var expectedCount = records.count
+        var insertedIDs = Set<BlockID>()
+
+        for diff in diffs {
+            for change in diff.changes {
+                switch change {
+                case .blockStarted(let id, _, let position):
+                    if position < 0 || position > expectedCount { return false }
+                    if position < blocks.count, blocks[position].id != id { return false }
+                    insertedIDs.insert(id)
+                    expectedCount += 1
+                case .blocksDiscarded(let range):
+                    if range.lowerBound < 0 || range.upperBound > expectedCount { return false }
+                    expectedCount -= range.count
+                case .runsAppended(let id, _),
+                     .codeAppended(let id, _),
+                     .tableHeaderConfirmed(let id),
+                     .tableRowAppended(let id, _),
+                     .blockEnded(let id):
+                    if indexByID[id] == nil && !insertedIDs.contains(id) {
+                        return false
+                    }
+                    if let index = indexByID[id], index < blocks.count, blocks[index].id != id {
+                        return false
+                    }
+                }
+            }
+        }
+
+        return expectedCount == blocks.count
+    }
+
+    private func applyDiffs(_ diffs: [AssemblerDiff],
+                            blocks: [RenderedBlock],
+                            selection: NSRange) -> NSRange {
+        var updatedSelection = selection
+        storage.beginEditing()
+        defer { storage.endEditing() }
+
+        for diff in diffs {
+            updatedSelection = applyDiff(diff, blocks: blocks, selection: updatedSelection)
+        }
+
+        return updatedSelection.clamped(maxLength: storage.length)
+    }
+
+    private func applyDiff(_ diff: AssemblerDiff,
+                           blocks: [RenderedBlock],
+                           selection: NSRange) -> NSRange {
+        var updatedSelection = selection
+
+        for change in diff.changes {
+            switch change {
+            case .blocksDiscarded(let range):
+                updatedSelection = removeRecords(in: range, selection: updatedSelection)
+            case .blockStarted(let id, _, let position):
+                let index = max(0, min(position, blocks.count))
+                guard index < blocks.count, blocks[index].id == id else { continue }
+                updatedSelection = insertRecord(blocks[index], at: index, selection: updatedSelection)
+            case .runsAppended(let id, _),
+                 .codeAppended(let id, _),
+                 .tableHeaderConfirmed(let id),
+                 .tableRowAppended(let id, _),
+                 .blockEnded(let id):
+                updatedSelection = updateRecord(id: id, blocks: blocks, selection: updatedSelection)
+            }
+        }
+
+        return updatedSelection
+    }
+
+    private func insertRecord(_ block: RenderedBlock,
+                              at index: Int,
+                              selection: NSRange) -> NSRange {
+        let attributed = NSAttributedString(block.content)
+        let record = BlockRecord(id: block.id,
+                                 content: block.content,
+                                 nsAttributed: attributed,
+                                 length: attributed.length)
+        let clampedIndex = max(0, min(index, records.count))
+        let location = clampedIndex < blockOffsets.count ? blockOffsets[clampedIndex] : storage.length
+        let editedRange = NSRange(location: location, length: 0)
+
+        storage.replaceCharacters(in: editedRange, with: attributed)
+
+        records.insert(record, at: clampedIndex)
+        for i in clampedIndex..<records.count {
+            indexByID[records[i].id] = i
+        }
+        insertOffsets(at: clampedIndex, length: attributed.length)
+
+        return adjust(selection: selection, editedRange: editedRange, replacementLength: attributed.length)
+    }
+
+    private func updateRecord(id: BlockID,
+                              blocks: [RenderedBlock],
+                              selection: NSRange) -> NSRange {
+        guard let index = indexByID[id], index < records.count, index < blocks.count else {
+            return selection
+        }
+        let block = blocks[index]
+        let record = records[index]
+        guard record.content != block.content else { return selection }
+
+        let newAttributed = NSAttributedString(block.content)
+        let range = rangeForRecord(at: index)
+        storage.replaceCharacters(in: range, with: newAttributed)
+        let updatedSelection = adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)
+
+        let oldLength = record.length
+        records[index].content = block.content
+        records[index].length = newAttributed.length
+        records[index].nsAttributed = newAttributed
+
+        let delta = newAttributed.length - oldLength
+        if delta != 0 {
+            updateOffsetsAfter(index: index, delta: delta)
+        }
+
+        return updatedSelection
+    }
+
+    private func removeRecords(in range: Range<Int>,
+                               selection: NSRange) -> NSRange {
+        guard !records.isEmpty else { return selection }
+        let lower = max(0, range.lowerBound)
+        let upper = min(range.upperBound, records.count)
+        guard lower < upper else { return selection }
+        let removalRange = lower..<upper
+
+        let startLocation = lower < blockOffsets.count ? blockOffsets[lower] : 0
+        let endLocation = upper < blockOffsets.count ? blockOffsets[upper] : storage.length
+        let removalLength = max(0, endLocation - startLocation)
+        let editedRange = NSRange(location: startLocation, length: removalLength)
+
+        storage.replaceCharacters(in: editedRange, with: NSAttributedString())
+
+        let removed = records[removalRange]
+        for record in removed {
+            indexByID[record.id] = nil
+        }
+        records.removeSubrange(removalRange)
+        for i in lower..<records.count {
+            indexByID[records[i].id] = i
+        }
+        removeOffsets(in: removalRange, removedLength: removalLength)
+        if records.isEmpty {
+            blockOffsets = [0]
+        }
+
+        return adjust(selection: selection, editedRange: editedRange, replacementLength: 0)
     }
 
     private func replaceAll(with blockData: [(block: RenderedBlock, attributed: NSAttributedString)],
@@ -212,6 +460,7 @@ final class TextKitStreamingBackend {
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
         records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
+        indexByID = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
         rebuildOffsets()
     }
     
@@ -232,8 +481,62 @@ final class TextKitStreamingBackend {
         }
     }
 
+    private func insertOffsets(at index: Int, length: Int) {
+        if blockOffsets.isEmpty {
+            blockOffsets = [0]
+        }
+        let clampedIndex = max(0, min(index, blockOffsets.count - 1))
+        let base = blockOffsets[clampedIndex]
+        let insertPosition = clampedIndex + 1
+        if insertPosition <= blockOffsets.count {
+            blockOffsets.insert(base + length, at: insertPosition)
+            if length != 0 {
+                for i in (insertPosition + 1)..<blockOffsets.count {
+                    blockOffsets[i] += length
+                }
+            }
+        } else {
+            blockOffsets.append(base + length)
+        }
+    }
+
+    private func removeOffsets(in range: Range<Int>, removedLength: Int) {
+        guard !blockOffsets.isEmpty else { return }
+        let removeCount = range.count
+        guard removeCount > 0 else { return }
+        let startIndex = range.lowerBound + 1
+        let endIndex = min(startIndex + removeCount, blockOffsets.count)
+        if startIndex < endIndex {
+            blockOffsets.removeSubrange(startIndex..<endIndex)
+        }
+        guard removedLength != 0 else { return }
+        if startIndex < blockOffsets.count {
+            for i in startIndex..<blockOffsets.count {
+                blockOffsets[i] -= removedLength
+            }
+        }
+    }
+
     private func rangeForBlock(at index: Int,
                                data: [(block: RenderedBlock, attributed: NSAttributedString)]) -> NSRange {
+        let location: Int
+        if index < blockOffsets.count {
+            location = blockOffsets[index]
+        } else {
+            location = records.prefix(index).reduce(0) { $0 + $1.length }
+        }
+
+        let length: Int
+        if index + 1 < blockOffsets.count {
+            length = blockOffsets[index + 1] - location
+        } else {
+            length = records[index].length
+        }
+
+        return NSRange(location: location, length: length)
+    }
+
+    private func rangeForRecord(at index: Int) -> NSRange {
         let location: Int
         if index < blockOffsets.count {
             location = blockOffsets[index]

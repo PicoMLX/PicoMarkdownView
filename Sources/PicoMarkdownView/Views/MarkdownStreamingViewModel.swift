@@ -8,8 +8,14 @@ final class MarkdownStreamingViewModel {
     private var processedInputs: Set<UUID> = []
     private let theme: MarkdownRenderTheme
 
-    var attributedText: AttributedString = AttributedString()
     var blocks: [RenderedBlock] = []
+    var diffQueue: [AssemblerDiff] = []
+    var replaceToken: UInt64 = 0
+
+    private var pendingBlocks: [RenderedBlock]?
+    private var pendingDiffs: [AssemblerDiff] = []
+    private var pendingReplaceToken: UInt64?
+    private var updateScheduled = false
 
     init(theme: MarkdownRenderTheme = .default()) {
         self.theme = theme
@@ -37,22 +43,8 @@ final class MarkdownStreamingViewModel {
         for chunk in chunks {
             await applyChunk(chunk)
         }
-        let (final, mutated) = await pipeline.finish()
-        if mutated {
-            // Batch updates to prevent multiple SwiftUI renders
-            let latestBlocks = await pipeline.blocksSnapshot()
-            let needsTextUpdate = final != nil && final! != attributedText
-            let needsBlocksUpdate = latestBlocks != blocks
-            
-            if needsTextUpdate || needsBlocksUpdate {
-                // Update both properties together to minimize SwiftUI updates
-                if let final, needsTextUpdate {
-                    attributedText = final
-                }
-                if needsBlocksUpdate {
-                    blocks = latestBlocks
-                }
-            }
+        if let update = await pipeline.finish() {
+            enqueueUpdate(blocks: update.blocks, diff: update.diff)
         }
     }
 
@@ -60,60 +52,66 @@ final class MarkdownStreamingViewModel {
         for await chunk in stream {
             await applyChunk(chunk)
         }
-        let (final, mutated) = await pipeline.finish()
-        if mutated {
-            // Batch updates to prevent multiple SwiftUI renders
-            let latestBlocks = await pipeline.blocksSnapshot()
-            let needsTextUpdate = final != nil && final! != attributedText
-            let needsBlocksUpdate = latestBlocks != blocks
-            
-            if needsTextUpdate || needsBlocksUpdate {
-                // Update both properties together to minimize SwiftUI updates
-                if let final, needsTextUpdate {
-                    attributedText = final
-                }
-                if needsBlocksUpdate {
-                    blocks = latestBlocks
-                }
-            }
+        if let update = await pipeline.finish() {
+            enqueueUpdate(blocks: update.blocks, diff: update.diff)
         }
     }
 
     private func replace(with value: String) async {
         let newPipeline = MarkdownStreamingPipeline(theme: theme)
-        var latest = AttributedString()
+        var latestBlocks: [RenderedBlock] = []
 
         if !value.isEmpty {
-            if let updated = await newPipeline.feed(value) {
-                latest = updated
+            if let update = await newPipeline.feed(value) {
+                latestBlocks = update.blocks
             }
         }
 
-        let (final, mutated) = await newPipeline.finish()
-        if mutated, let final {
-            latest = final
+        if let update = await newPipeline.finish() {
+            latestBlocks = update.blocks
         }
 
         pipeline = newPipeline
-        if latest != attributedText {
-            attributedText = latest
-        }
-        let latestBlocks = await pipeline.blocksSnapshot()
-        if latestBlocks != blocks {
-            blocks = latestBlocks
-        }
+        enqueueUpdate(blocks: latestBlocks, diff: nil)
     }
 
     private func applyChunk(_ chunk: String) async {
         guard !chunk.isEmpty else { return }
-        if let updated = await pipeline.feed(chunk) {
-            if updated != attributedText {
-                attributedText = updated
-            }
+        if let update = await pipeline.feed(chunk) {
+            enqueueUpdate(blocks: update.blocks, diff: update.diff)
         }
-        let latestBlocks = await pipeline.blocksSnapshot()
-        if latestBlocks != blocks {
-            blocks = latestBlocks
+    }
+
+    private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?) {
+        pendingBlocks = blocks
+        if let diff {
+            pendingDiffs.append(diff)
+        } else {
+            pendingDiffs.removeAll(keepingCapacity: true)
+            pendingReplaceToken = replaceToken &+ 1
         }
+        scheduleFlushIfNeeded()
+    }
+
+    private func scheduleFlushIfNeeded() {
+        guard !updateScheduled else { return }
+        updateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.flushPendingUpdates()
+        }
+    }
+
+    private func flushPendingUpdates() {
+        updateScheduled = false
+        guard let blocks = pendingBlocks else { return }
+        self.blocks = blocks
+        self.diffQueue = pendingDiffs
+        if let token = pendingReplaceToken {
+            replaceToken = token
+            diffQueue = []
+        }
+        pendingBlocks = nil
+        pendingDiffs.removeAll(keepingCapacity: true)
+        pendingReplaceToken = nil
     }
 }

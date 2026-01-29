@@ -1,5 +1,10 @@
 import Foundation
 
+struct StreamingUpdate: Sendable {
+    var diff: AssemblerDiff
+    var blocks: [RenderedBlock]
+}
+
 actor MarkdownStreamingPipeline {
     private let tokenizer: MarkdownTokenizer
     private let assembler: MarkdownAssembler
@@ -16,21 +21,23 @@ actor MarkdownStreamingPipeline {
         self.renderer = renderer
     }
 
-    func feed(_ chunk: String) async -> AttributedString? {
+    func feed(_ chunk: String) async -> StreamingUpdate? {
         guard !chunk.isEmpty else { return nil }
         let result = await tokenizer.feed(chunk)
         let diff = await assembler.apply(result)
-        return await renderer.apply(diff)
+        guard !diff.changes.isEmpty else { return nil }
+        _ = await renderer.apply(diff)
+        let blocks = await renderer.renderedBlocks()
+        return StreamingUpdate(diff: diff, blocks: blocks)
     }
 
-    func finish() async -> (AttributedString?, Bool) {
+    func finish() async -> StreamingUpdate? {
         let result = await tokenizer.finish()
         let diff = await assembler.apply(result)
-        if let updated = await renderer.apply(diff) {
-            return (updated, !diff.changes.isEmpty)
-        }
-        let snapshot = await renderer.currentAttributedString()
-        return (snapshot, !diff.changes.isEmpty)
+        guard !diff.changes.isEmpty else { return nil }
+        _ = await renderer.apply(diff)
+        let blocks = await renderer.renderedBlocks()
+        return StreamingUpdate(diff: diff, blocks: blocks)
     }
 
     func snapshot() async -> AttributedString {
