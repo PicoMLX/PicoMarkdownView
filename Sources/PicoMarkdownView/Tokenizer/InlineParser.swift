@@ -815,6 +815,13 @@ struct InlineParser {
         guard !output.isEmpty else { return [] }
         return makePlainRuns(from: output)
     }
+
+    mutating func flushPendingTail() -> [InlineRun] {
+        var output = ""
+        replacements.flushPendingTail(into: &output)
+        guard !output.isEmpty else { return [] }
+        return makePlainRuns(from: output)
+    }
     
     // MARK: - Strikethrough helper (GFM)
     private func findStrikethroughClosing(in s: String, from: String.Index) -> String.Index? {

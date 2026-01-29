@@ -167,6 +167,21 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Trailing literal tail is flushed at chunk boundary")
+    func trailingLiteralTailFlushedAtChunkBoundary() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("Ends with colon:")
+        assertChunk(chunk, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Ends with colon:")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+    }
+
     @Test("Concurrent feed calls are serialized")
     func concurrentFeedCalls() async {
         let tokenizer = MarkdownTokenizer()

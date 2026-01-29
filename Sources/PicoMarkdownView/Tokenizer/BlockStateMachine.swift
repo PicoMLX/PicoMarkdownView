@@ -118,7 +118,7 @@ struct StreamingParser {
     mutating func feed(_ chunk: String) -> ChunkResult {
         closePendingSameLineBlocks()
         process(normalizeLineEndings(chunk), isFinal: false)
-        flushTrailingPeriodsForOpenBlocks()
+        flushPendingInlineTailForOpenBlocks()
         let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks())
         events.removeAll(keepingCapacity: true)
         return result
@@ -127,7 +127,7 @@ struct StreamingParser {
     mutating func finish() -> ChunkResult {
         closePendingSameLineBlocks()
         process("", isFinal: true)
-        flushTrailingPeriodsForOpenBlocks()
+        flushPendingInlineTailForOpenBlocks()
         let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks())
         events.removeAll(keepingCapacity: true)
         return result
@@ -573,12 +573,12 @@ struct StreamingParser {
         }
     }
 
-    private mutating func flushTrailingPeriodsForOpenBlocks() {
+    private mutating func flushPendingInlineTailForOpenBlocks() {
         guard !contextStack.isEmpty else { return }
         for index in contextStack.indices {
             var ctx = contextStack[index]
             guard var parser = ctx.inlineParser else { continue }
-            let flushedRuns = parser.flushTrailingPeriods()
+            let flushedRuns = parser.flushPendingTail()
             guard !flushedRuns.isEmpty else {
                 ctx.inlineParser = parser
                 contextStack[index] = ctx

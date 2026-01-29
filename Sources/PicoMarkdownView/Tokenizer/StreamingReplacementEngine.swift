@@ -232,6 +232,14 @@ struct StreamingReplacementEngine {
         }
     }
 
+    mutating func flushPendingTail(into output: inout String) {
+        if colonState != .idle {
+            flushColonBuffer(into: &output)
+            colonState = .idle
+        }
+        flushPendingLiteralTail(into: &output)
+    }
+
     private func longestPendingPrefixLength() -> Int {
         guard maxLiteralPatternLength > 1 else { return 0 }
         let maxLength = min(maxLiteralPatternLength - 1, literalTail.count)
