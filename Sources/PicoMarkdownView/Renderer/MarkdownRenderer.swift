@@ -12,17 +12,20 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
     public var blockquoteColor: MarkdownColor
     public var linkColor: MarkdownColor
     public var headingFonts: [Int: MarkdownFont]
+    public var imageMaxWidth: CGFloat?
 
     public init(bodyFont: MarkdownFont,
                 codeFont: MarkdownFont,
                 blockquoteColor: MarkdownColor,
                 linkColor: MarkdownColor,
-                headingFonts: [Int: MarkdownFont]) {
+                headingFonts: [Int: MarkdownFont],
+                imageMaxWidth: CGFloat? = nil) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
         self.linkColor = linkColor
         self.headingFonts = headingFonts
+        self.imageMaxWidth = imageMaxWidth
     }
 
     public static func `default`() -> MarkdownRenderTheme {
@@ -57,7 +60,8 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
                                    codeFont: code,
                                    blockquoteColor: blockquote,
                                    linkColor: link,
-                                   headingFonts: headings)
+                                   headingFonts: headings,
+                                   imageMaxWidth: nil)
     }
 }
 
@@ -72,9 +76,9 @@ actor MarkdownRenderer {
     private var cachedAttributedString = AttributedString()
     private var blockCharacterOffsets: [Int] = []
 
-    init(theme: MarkdownRenderTheme = .default(), snapshotProvider: @escaping SnapshotProvider) {
+    init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil, snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
-        self.attributeBuilder = MarkdownAttributeBuilder(theme: theme)
+        self.attributeBuilder = MarkdownAttributeBuilder(theme: theme, imageProvider: imageProvider)
         self.snapshotProvider = snapshotProvider
     }
 

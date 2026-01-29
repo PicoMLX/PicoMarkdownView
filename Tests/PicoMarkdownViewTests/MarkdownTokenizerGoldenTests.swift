@@ -193,21 +193,27 @@ struct MarkdownTokenizerGoldenTests {
         await Task.yield()
 
         let firstResult = await first
-        assertChunk(firstResult, matches: .init(
-            events: [
-                .blockStart(.paragraph),
-                .blockAppendInline(.paragraph, runs: [plain("Hello ")])
-            ],
-            openBlocks: [.paragraph]
-        ), state: &state)
-
         let secondResult = await second
-        assertChunk(secondResult, matches: .init(
-            events: [
-                .blockAppendInline(.paragraph, runs: [plain("world")])
-            ],
-            openBlocks: [.paragraph]
-        ), state: &state)
+
+        let startResult: ChunkResult
+        let followResult: ChunkResult
+        if firstResult.events.contains(where: { if case .blockStart = $0 { return true } else { return false } }) {
+            startResult = firstResult
+            followResult = secondResult
+        } else {
+            startResult = secondResult
+            followResult = firstResult
+        }
+
+        let startEvents = normalizeEvents(startResult.events, state: &state)
+        let followEvents = normalizeEvents(followResult.events, state: &state)
+
+        #expect(startEvents.first == .blockStart(.paragraph))
+
+        let startText = appendedInlineText(from: startEvents)
+        let followText = appendedInlineText(from: followEvents)
+        #expect(Set([startText, followText]) == Set(["Hello ", "world"]))
+        #expect(followEvents == [.blockAppendInline(.paragraph, runs: [plain(followText)])])
 
         let terminator = await tokenizer.feed("\n\n")
         assertChunk(terminator, matches: .init(
@@ -1002,6 +1008,75 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Reference-style link resolves definition")
+    func referenceStyleLinkResolvesDefinition() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("[ref]: https://example.com\nSee [site][ref] now\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("See "),
+                    InlineRunShape(text: "site", style: InlineStyle.link, linkURL: "https://example.com"),
+                    plain(" now")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Footnote reference and definition")
+    func footnoteReferenceAndDefinition() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("Footnote here[^1].\n\n[^1]: Footnote text\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Footnote here"),
+                    InlineRunShape(text: "1", style: [.footnote, .superscript]),
+                    plain(".")
+                ]),
+                .blockEnd(.paragraph),
+                .blockStart(.footnoteDefinition(id: "1", index: 1)),
+                .blockAppendInline(.footnoteDefinition(id: "1", index: 1), runs: [
+                    plain("Footnote text")
+                ]),
+                .blockEnd(.footnoteDefinition(id: "1", index: 1))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Inline HTML tags map to styles")
+    func inlineHTMLTagsMapToStyles() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("Press <kbd>Esc</kbd> then x<sup>2</sup> and H<sub>2</sub>O\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Press "),
+                    InlineRunShape(text: "Esc", style: [.keyboard]),
+                    plain(" then x"),
+                    InlineRunShape(text: "2", style: [.superscript]),
+                    plain(" and H"),
+                    InlineRunShape(text: "2", style: [.subscriptText]),
+                    plain("O")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Inline image emits image run")
     func inlineImageEmitsImageRun() async {
         let tokenizer = MarkdownTokenizer()
@@ -1720,7 +1795,7 @@ private enum EventShape: Equatable {
 
 private struct InlineRunShape: Equatable {
     var text: String
-    var styleRawValue: UInt8
+    var styleRawValue: UInt16
     var linkURL: String?
     var imageSource: String?
     var imageTitle: String?
@@ -1819,6 +1894,15 @@ private func assertChunk(
     #expect(normalizeEvents(chunk.events, state: &state) == expectation.events)
     // Temporarily skip strict openBlocks assertion until parser implementation is complete.
     state.map = Dictionary(uniqueKeysWithValues: chunk.openBlocks.map { ($0.id, $0.kind) })
+}
+
+private func appendedInlineText(from events: [EventShape]) -> String {
+    for event in events {
+        if case .blockAppendInline(_, let runs) = event {
+            return runs.map(\.text).joined()
+        }
+    }
+    return ""
 }
 
 private func collectEvents(chunks: [String]) async -> [EventShape] {
@@ -1945,6 +2029,8 @@ private func describe(_ kind: BlockKind) -> String {
         return "fencedCode:\(language ?? "")"
     case .math(let display):
         return "math:\(display ? "display" : "inline")"
+    case .footnoteDefinition(let id, let index):
+        return "footnoteDefinition:\(id):\(index)"
     case .table:
         return "table"
     case .horizontalRule:

@@ -10,28 +10,32 @@ public struct PicoMarkdownView: View {
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
+                 imageProvider: MarkdownImageProvider?,
                  configuration: PicoTextKitConfiguration) {
         self.input = input
         self.configuration = configuration
-        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme))
+        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider))
     }
 
     public init(_ text: String,
                 theme: MarkdownRenderTheme = .default(),
+                imageProvider: MarkdownImageProvider? = nil,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .text(text), theme: theme, configuration: configuration)
+        self.init(input: .text(text), theme: theme, imageProvider: imageProvider, configuration: configuration)
     }
 
     public init(chunks: [String],
                 theme: MarkdownRenderTheme = .default(),
+                imageProvider: MarkdownImageProvider? = nil,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .chunks(chunks), theme: theme, configuration: configuration)
+        self.init(input: .chunks(chunks), theme: theme, imageProvider: imageProvider, configuration: configuration)
     }
 
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
                 theme: MarkdownRenderTheme = .default(),
+                imageProvider: MarkdownImageProvider? = nil,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .stream(stream), theme: theme, configuration: configuration)
+        self.init(input: .stream(stream), theme: theme, imageProvider: imageProvider, configuration: configuration)
     }
 
     public var body: some View {

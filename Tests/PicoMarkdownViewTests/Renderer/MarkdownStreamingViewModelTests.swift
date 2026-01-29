@@ -8,23 +8,39 @@ final class MarkdownStreamingViewModelTests: XCTestCase {
 
         await viewModel.consume(input)
 
-        let result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "Hello world\n")
+        await drainMainQueue()
+        let blocks = await MainActor.run { viewModel.blocks }
+        XCTAssertEqual(renderedText(from: blocks), "Hello world\n")
     }
 
     func testTextReplacementOverwritesExistingContent() async {
         let viewModel = await MainActor.run { MarkdownStreamingViewModel() }
 
         await viewModel.consume(.text("the"))
-        var result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "the\n")
+        await drainMainQueue()
+        var blocks = await MainActor.run { viewModel.blocks }
+        XCTAssertEqual(renderedText(from: blocks), "the\n")
 
         await viewModel.consume(.text("the sky"))
-        result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "the sky\n")
+        await drainMainQueue()
+        blocks = await MainActor.run { viewModel.blocks }
+        XCTAssertEqual(renderedText(from: blocks), "the sky\n")
 
         await viewModel.consume(.text("the sky is"))
-        result = await MainActor.run { viewModel.attributedText }
-        XCTAssertEqual(String(result.characters), "the sky is\n")
+        await drainMainQueue()
+        blocks = await MainActor.run { viewModel.blocks }
+        XCTAssertEqual(renderedText(from: blocks), "the sky is\n")
+    }
+}
+
+private func renderedText(from blocks: [RenderedBlock]) -> String {
+    blocks.map { String($0.content.characters) }.joined()
+}
+
+private func drainMainQueue() async {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.main.async {
+            continuation.resume()
+        }
     }
 }

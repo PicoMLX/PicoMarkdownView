@@ -31,7 +31,7 @@ struct DebugBlockFormatter {
                              prefix: String,
                              into lines: inout [String]) {
         switch block.kind {
-        case .paragraph, .heading, .blockquote, .listItem, .unknown:
+        case .paragraph, .heading, .blockquote, .listItem, .footnoteDefinition, .unknown:
             emitInlineRuns(block.snapshot.inlineRuns, prefix: prefix, into: &lines)
         case .math:
             emitMath(block, prefix: prefix, into: &lines)
@@ -78,6 +78,10 @@ struct DebugBlockFormatter {
         if run.style.contains(.code) { modifiers.append("code") }
         if run.style.contains(.strikethrough) { modifiers.append("strikethrough") }
         if run.style.contains(.link) { modifiers.append("link") }
+        if run.style.contains(.keyboard) { modifiers.append("kbd") }
+        if run.style.contains(.superscript) { modifiers.append("sup") }
+        if run.style.contains(.subscriptText) { modifiers.append("sub") }
+        if run.style.contains(.footnote) { modifiers.append("footnote") }
 
         var parts: [String] = []
         parts.append(modifiers.isEmpty ? "text" : modifiers.joined(separator: "+"))
@@ -139,6 +143,8 @@ struct DebugBlockFormatter {
             return "codeBlock"
         case .math(let display):
             return display ? "mathBlock" : "math"
+        case .footnoteDefinition(let id, let index):
+            return "footnoteDefinition (\(id) #\(index))"
         case .table:
             return "table"
         case .horizontalRule:

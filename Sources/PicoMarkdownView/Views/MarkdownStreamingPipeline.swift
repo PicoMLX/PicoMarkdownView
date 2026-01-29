@@ -10,10 +10,10 @@ actor MarkdownStreamingPipeline {
     private let assembler: MarkdownAssembler
     private let renderer: MarkdownRenderer
 
-    init(theme: MarkdownRenderTheme = .default()) {
+    init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil) {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
-        let renderer = MarkdownRenderer(theme: theme) { id in
+        let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider) { id in
             await assembler.block(id)
         }
         self.tokenizer = tokenizer

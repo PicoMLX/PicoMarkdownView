@@ -18,15 +18,17 @@ struct RenderedContentResult {
 
 actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
+    private let imageProvider: MarkdownImageProvider?
 
-    init(theme: MarkdownRenderTheme) {
+    init(theme: MarkdownRenderTheme, imageProvider: MarkdownImageProvider? = nil) {
         self.theme = theme
+        self.imageProvider = imageProvider
     }
 
     func render(snapshot: BlockSnapshot) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
-            let (fallback, table, images) = renderTable(snapshot, font: theme.bodyFont)
+            let (fallback, table, images) = await renderTable(snapshot, font: theme.bodyFont)
             return RenderedContentResult(attributed: AttributedString(fallback),
                                         table: table,
                                         listItem: nil,
@@ -35,9 +37,9 @@ actor MarkdownAttributeBuilder {
                                         images: images,
                                         codeBlock: nil)
         case .listItem(let ordered, let index, let task):
-            return renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
+            return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
         case .blockquote:
-            return renderBlockquote(snapshot: snapshot)
+            return await renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
             let attributes: [NSAttributedString.Key: Any] = [
@@ -77,7 +79,7 @@ actor MarkdownAttributeBuilder {
         case .heading(let level):
             let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
             let spacing = headingParagraphSpacing(for: level)
-            let (ns, images) = renderInlineBlock(snapshot,
+            let (ns, images) = await renderInlineBlock(snapshot,
                                                 prefix: nil,
                                                 suffix: "\n",
                                                 font: font,
@@ -90,11 +92,40 @@ actor MarkdownAttributeBuilder {
                                         images: images,
                                         codeBlock: nil)
         case .paragraph:
-            fallthrough
+            let suffix = "\n"
+            let spacing = paragraphSpacing()
+            let (ns, images) = await renderInlineBlock(snapshot,
+                                                prefix: nil,
+                                                suffix: suffix,
+                                                font: theme.bodyFont,
+                                                spacing: spacing)
+            return RenderedContentResult(attributed: AttributedString(ns),
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: nil,
+                                        images: images,
+                                        codeBlock: nil)
+        case .footnoteDefinition(_, let index):
+            let prefixText = "[\(index)] "
+            let suffix = "\n"
+            let spacing = paragraphSpacing()
+            let (ns, images) = await renderInlineBlock(snapshot,
+                                                prefix: prefixText,
+                                                suffix: suffix,
+                                                font: theme.bodyFont,
+                                                spacing: spacing)
+            return RenderedContentResult(attributed: AttributedString(ns),
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: nil,
+                                        images: images,
+                                        codeBlock: nil)
         case .unknown:
             let suffix = "\n"
             let spacing = paragraphSpacing()
-            let (ns, images) = renderInlineBlock(snapshot,
+            let (ns, images) = await renderInlineBlock(snapshot,
                                                 prefix: nil,
                                                 suffix: suffix,
                                                 font: theme.bodyFont,
@@ -185,7 +216,7 @@ actor MarkdownAttributeBuilder {
                                    prefix: String?,
                                    suffix: String,
                                    font: PlatformFont,
-                                   spacing: ParagraphSpacing) -> (NSAttributedString, [RenderedImage]) {
+                                   spacing: ParagraphSpacing) async -> (NSAttributedString, [RenderedImage]) {
         var imageIndex = 0
         let result = NSMutableAttributedString()
         if let prefix {
@@ -193,7 +224,7 @@ actor MarkdownAttributeBuilder {
         }
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
-        let body = renderInline(bodyRuns, font: font)
+        let body = await renderInline(bodyRuns, font: font)
         result.append(body)
         let paragraph = makeParagraphStyle(spacing)
         if result.length > 0 {
@@ -226,10 +257,11 @@ actor MarkdownAttributeBuilder {
         return images
     }
 
-    private func renderInline(_ runs: [InlineRun], font: PlatformFont) -> NSMutableAttributedString {
-        let fragments = runs.map { render(run: $0, baseFont: font) }
-        let reduced = fragments.reduce(into: NSMutableAttributedString()) { result, fragment in
-            result.append(fragment)
+    private func renderInline(_ runs: [InlineRun], font: PlatformFont) async -> NSMutableAttributedString {
+        let reduced = NSMutableAttributedString()
+        for run in runs {
+            let fragment = await render(run: run, baseFont: font)
+            reduced.append(fragment)
         }
         return reduced
     }
@@ -237,7 +269,7 @@ actor MarkdownAttributeBuilder {
     private func renderListItem(snapshot: BlockSnapshot,
                                 ordered: Bool,
                                 index: Int?,
-                                task: TaskListState?) -> RenderedContentResult {
+                                task: TaskListState?) async -> RenderedContentResult {
         let bulletText: String
         if let task {
             bulletText = task.checked ? "☑︎" : "☐"
@@ -251,7 +283,7 @@ actor MarkdownAttributeBuilder {
         var imageIndex = 0
         let runs = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
-        let body = renderInline(runs, font: theme.bodyFont)
+        let body = await renderInline(runs, font: theme.bodyFont)
         trimLeadingWhitespace(in: body)
 
         // 1. actual text has only ONE space so tests stay stable
@@ -398,11 +430,11 @@ actor MarkdownAttributeBuilder {
         }
     }
 
-    private func renderBlockquote(snapshot: BlockSnapshot) -> RenderedContentResult {
+    private func renderBlockquote(snapshot: BlockSnapshot) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
-        let body = renderInline(bodyRuns, font: theme.bodyFont)
+        let body = await renderInline(bodyRuns, font: theme.bodyFont)
         let paragraphStyle = makeBlockquoteParagraphStyle()
         let lineColor = theme.blockquoteColor.withAlphaComponent(0.6)
         let textColor = PlatformColor.rendererLabel
@@ -459,7 +491,7 @@ actor MarkdownAttributeBuilder {
         return paragraphStyle
     }
 
-    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
+    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
         guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
 
         let maxRowColumns = table.rows.reduce(0) { max($0, $1.count) }
@@ -480,7 +512,7 @@ actor MarkdownAttributeBuilder {
         var currentRow = 0
 
         if let headers = table.headerCells, !headers.isEmpty {
-            let (headerAttributed, headerCells) = renderTableRow(cells: headers,
+            let (headerAttributed, headerCells) = await renderTableRow(cells: headers,
                                                                  rowIndex: currentRow,
                                                                  numberOfColumns: columnCount,
                                                                  textTable: textTable,
@@ -497,7 +529,7 @@ actor MarkdownAttributeBuilder {
 
         var renderedRows: [[AttributedString]] = []
         for row in table.rows {
-            let (rowAttributed, renderedCells) = renderTableRow(cells: row,
+            let (rowAttributed, renderedCells) = await renderTableRow(cells: row,
                                                                 rowIndex: currentRow,
                                                                 numberOfColumns: columnCount,
                                                                 textTable: textTable,
@@ -526,7 +558,7 @@ actor MarkdownAttributeBuilder {
                                 blockID: BlockID,
                                 imageCounter: inout Int,
                                 collectedImages: inout [RenderedImage],
-                                isHeader: Bool) -> (NSAttributedString, [AttributedString]) {
+                                isHeader: Bool) async -> (NSAttributedString, [AttributedString]) {
         let rowAttributed = NSMutableAttributedString()
         var renderedCells: [AttributedString] = []
         let displayFont = isHeader ? boldFont(from: font) : font
@@ -549,7 +581,7 @@ actor MarkdownAttributeBuilder {
             paragraph.paragraphSpacingBefore = rowIndex == 0 ? 0 : 0
 
             let inlineRuns = column < cells.count ? cells[column] : []
-            let inline = renderInline(inlineRuns, font: displayFont)
+            let inline = await renderInline(inlineRuns, font: displayFont)
             let images = collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter)
             if !images.isEmpty {
                 collectedImages.append(contentsOf: images)
@@ -603,7 +635,7 @@ actor MarkdownAttributeBuilder {
 #endif
     }
 
-    private func render(run: InlineRun, baseFont: PlatformFont) -> NSAttributedString {
+    private func render(run: InlineRun, baseFont: PlatformFont) async -> NSAttributedString {
         if run.style.contains(.math), let payload = run.math {
             return InlineMathAttachment.mathString(tex: payload.tex,
                                                    display: payload.display,
@@ -623,18 +655,54 @@ actor MarkdownAttributeBuilder {
         if run.style.contains(.code) {
             attributes[.font] = theme.codeFont
         }
+        if run.style.contains(.keyboard) {
+            attributes[.font] = theme.codeFont
+            attributes[.backgroundColor] = PlatformColor.rendererKeyboardBackground
+            attributes[.foregroundColor] = PlatformColor.rendererLabel
+        }
 
-        if run.image != nil {
-            return NSAttributedString()
+        if run.style.contains(.superscript) || run.style.contains(.subscriptText) {
+            let baseFont = (attributes[.font] as? PlatformFont) ?? baseFont
+            let size = baseFont.pointSize * 0.75
+#if canImport(UIKit)
+            let adjusted = UIFont(descriptor: baseFont.fontDescriptor, size: size)
+#else
+            let adjusted = NSFont(descriptor: baseFont.fontDescriptor, size: size) ?? baseFont
+#endif
+            attributes[.font] = adjusted
+            let offset = baseFont.pointSize * (run.style.contains(.superscript) ? 0.35 : -0.2)
+            attributes[.baselineOffset] = offset
+        }
+
+        if let imagePayload = run.image {
+            if let url = URL(string: imagePayload.source), let provider = imageProvider {
+                if let result = await provider.image(for: url) {
+                    let attachment = NSTextAttachment()
+                    attachment.image = result.image
+                    let size = result.size ?? result.image.size
+                    let target = constrainImageSize(size)
+                    attachment.bounds = CGRect(origin: .zero, size: target)
+                    return NSAttributedString(attachment: attachment)
+                }
+            }
+            // Fallback: render alt text if image not available
+            return NSAttributedString(string: run.text, attributes: attributes)
         }
 
         return NSAttributedString(string: run.text, attributes: attributes)
     }
 
+    private func constrainImageSize(_ size: CGSize) -> CGSize {
+        guard let maxWidth = theme.imageMaxWidth, maxWidth > 0 else { return size }
+        guard size.width > maxWidth else { return size }
+        let scale = maxWidth / size.width
+        return CGSize(width: maxWidth, height: size.height * scale)
+    }
+
     private func sanitizeInlineRuns(_ runs: [InlineRun], kind: BlockKind) -> [InlineRun] {
         guard !runs.isEmpty else { return runs }
         switch kind {
-        case .paragraph, .heading, .listItem, .blockquote:
+        case .paragraph, .heading, .listItem, .blockquote, .footnoteDefinition:
             return runs.map { run in
                 guard run.text.contains("\n"), run.text != "\n" else { return run }
                 guard !run.style.contains(.math) else { return run }
@@ -728,6 +796,14 @@ private extension PlatformColor {
         return .secondaryLabel
 #else
         return .secondaryLabelColor
+#endif
+    }
+
+    static var rendererKeyboardBackground: PlatformColor {
+#if canImport(UIKit)
+        return .systemGray5
+#else
+        return .controlBackgroundColor
 #endif
     }
 }

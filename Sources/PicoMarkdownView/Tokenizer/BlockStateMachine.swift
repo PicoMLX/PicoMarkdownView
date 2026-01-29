@@ -83,6 +83,9 @@ struct StreamingParser {
 
     private var nextID: BlockID = 1
     private var contextStack: [BlockContext] = []
+    private let linkReferenceStore = LinkReferenceStore()
+    private let footnoteRegistry = FootnoteRegistry()
+    private var lineIsLinkDefinition: Bool = false
 
     private var currentBlock: BlockContext? {
         contextStack.last
@@ -160,7 +163,7 @@ struct StreamingParser {
     private func shouldIncludeTerminatingNewline() -> Bool {
         guard let ctx = currentBlock else { return false }
         switch ctx.kind {
-        case .paragraph, .heading, .listItem, .blockquote:
+        case .paragraph, .heading, .listItem, .blockquote, .footnoteDefinition:
             return lineBuffer.hasSuffix("  ")
         case .fencedCode:
             return !ctx.fenceJustOpened
@@ -180,6 +183,18 @@ struct StreamingParser {
 
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
+        lineIsLinkDefinition = false
+        if isLineComplete, let linkDefinition = detectLinkDefinition(lineBuffer) {
+            linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
+            lineIsLinkDefinition = true
+            if let ctx = currentBlock, case .paragraph = ctx.kind {
+                closeCurrentBlock()
+            }
+            emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return
+        }
+
         if trimmed.isEmpty {
             if var ctx = currentBlock, case .listItem = ctx.kind {
                 ctx.linePrefixToStrip = 0
@@ -190,6 +205,14 @@ struct StreamingParser {
         }
 
         if contextStack.isEmpty {
+            if let footnote = detectFootnoteDefinition(lineBuffer) {
+                let index = footnoteRegistry.index(for: footnote.id)
+                openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
+                                prefixToStrip: footnote.prefixLength)
+                emittedCount = min(lineBuffer.count, footnote.prefixLength)
+                lineAnalyzed = true
+                return
+            }
             if let mathOpen = detectDisplayMathOpening(lineBuffer) {
                 let closeAfterLine = mathOpen.closesOnSameLine
                 openDisplayMathBlock(marker: mathOpen.marker,
@@ -257,7 +280,7 @@ struct StreamingParser {
 
         if var ctx = currentBlock {
             switch ctx.kind {
-        case .paragraph:
+        case .paragraph, .footnoteDefinition:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
                     closeCurrentBlock()
                     let closeAfterLine = mathOpen.closesOnSameLine
@@ -489,13 +512,17 @@ struct StreamingParser {
 
     private mutating func finalizeLine(terminated: Bool, force: Bool) {
         if !terminated && !force { return }
+        if lineIsLinkDefinition {
+            resetLineState()
+            return
+        }
         let rawLine = lineBuffer
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
         let isBlank = trimmed.isEmpty
 
         if var ctx = currentBlock {
             switch ctx.kind {
-            case .paragraph:
+            case .paragraph, .footnoteDefinition:
                 if terminated && !isBlank && rawLine.hasSuffix(" ") && !rawLine.hasSuffix("  ") {
                     trimTrailingSpace(for: &ctx)
                     setCurrentBlock(ctx)
@@ -573,6 +600,13 @@ struct StreamingParser {
         }
     }
 
+    private func makeInlineParser() -> InlineParser {
+        var parser = InlineParser()
+        parser.linkReferences = linkReferenceStore
+        parser.footnoteRegistry = footnoteRegistry
+        return parser
+    }
+
     private mutating func flushPendingInlineTailForOpenBlocks() {
         guard !contextStack.isEmpty else { return }
         for index in contextStack.indices {
@@ -603,7 +637,7 @@ struct StreamingParser {
     private mutating func append(_ text: String, context ctx: inout BlockContext, preserveLiteralRuns: Bool = false) {
         guard !text.isEmpty else { return }
         switch ctx.kind {
-        case .paragraph, .listItem, .blockquote:
+        case .paragraph, .listItem, .blockquote, .footnoteDefinition:
             if var parser = ctx.inlineParser {
                 var input = text
                 if ctx.kind == .paragraph, ctx.pendingSoftBreak {
@@ -900,7 +934,7 @@ struct StreamingParser {
         let context = BlockContext(
             id: nextID,
             kind: kind,
-            inlineParser: InlineParser(),
+            inlineParser: makeInlineParser(),
             tableState: nil,
             fenceInfo: nil,
             literal: "",
@@ -919,7 +953,7 @@ struct StreamingParser {
         let context = BlockContext(
             id: nextID,
             kind: .listItem(ordered: info.ordered, index: info.index, task: info.task),
-            inlineParser: InlineParser(),
+            inlineParser: makeInlineParser(),
             tableState: nil,
             fenceInfo: nil,
             literal: "",
@@ -1294,6 +1328,96 @@ struct StreamingParser {
             return leadingSpaces >= indent
         }
         return true
+    }
+
+    private func detectLinkDefinition(_ line: String) -> (label: String, url: String, title: String?)? {
+        var index = line.startIndex
+        var leadingSpaces = 0
+        while index < line.endIndex, line[index] == " ", leadingSpaces < 3 {
+            leadingSpaces += 1
+            index = line.index(after: index)
+        }
+        guard index < line.endIndex, line[index] == "[" else { return nil }
+        guard let closingBracket = line[index...].firstIndex(of: "]") else { return nil }
+        let afterBracket = line.index(after: closingBracket)
+        guard afterBracket < line.endIndex, line[afterBracket] == ":" else { return nil }
+        let labelStart = line.index(after: index)
+        let label = String(line[labelStart..<closingBracket])
+        if label.isEmpty { return nil }
+        if label.hasPrefix("^") { return nil }
+
+        var cursor = line.index(after: afterBracket)
+        while cursor < line.endIndex, line[cursor].isWhitespace {
+            cursor = line.index(after: cursor)
+        }
+        guard cursor < line.endIndex else { return nil }
+
+        let destination: String
+        if line[cursor] == "<" {
+            let destStart = line.index(after: cursor)
+            guard let closing = line[destStart...].firstIndex(of: ">") else { return nil }
+            destination = String(line[destStart..<closing])
+            cursor = line.index(after: closing)
+        } else {
+            let destStart = cursor
+            while cursor < line.endIndex, !line[cursor].isWhitespace {
+                cursor = line.index(after: cursor)
+            }
+            destination = String(line[destStart..<cursor])
+        }
+
+        while cursor < line.endIndex, line[cursor].isWhitespace {
+            cursor = line.index(after: cursor)
+        }
+        guard cursor < line.endIndex else {
+            return (label, destination, nil)
+        }
+
+        let title: String?
+        let quote = line[cursor]
+        if quote == "\"" || quote == "'" {
+            let titleStart = line.index(after: cursor)
+            if let closing = line[titleStart...].firstIndex(of: quote) {
+                title = String(line[titleStart..<closing])
+            } else {
+                title = nil
+            }
+        } else if quote == "(" {
+            let titleStart = line.index(after: cursor)
+            if let closing = line[titleStart...].firstIndex(of: ")") {
+                title = String(line[titleStart..<closing])
+            } else {
+                title = nil
+            }
+        } else {
+            title = nil
+        }
+
+        return (label, destination, title)
+    }
+
+    private func detectFootnoteDefinition(_ line: String) -> (id: String, prefixLength: Int)? {
+        var index = line.startIndex
+        var leadingSpaces = 0
+        while index < line.endIndex, line[index] == " ", leadingSpaces < 3 {
+            leadingSpaces += 1
+            index = line.index(after: index)
+        }
+        guard index < line.endIndex, line[index] == "[" else { return nil }
+        let caretIndex = line.index(after: index)
+        guard caretIndex < line.endIndex, line[caretIndex] == "^" else { return nil }
+        guard let closingBracket = line[caretIndex...].firstIndex(of: "]") else { return nil }
+        let afterBracket = line.index(after: closingBracket)
+        guard afterBracket < line.endIndex, line[afterBracket] == ":" else { return nil }
+        let idStart = line.index(after: caretIndex)
+        let id = String(line[idStart..<closingBracket])
+        guard !id.isEmpty else { return nil }
+        var cursor = line.index(after: afterBracket)
+        if cursor < line.endIndex, line[cursor] == " " {
+            cursor = line.index(after: cursor)
+        }
+        let prefixLength = line.distance(from: line.startIndex, to: cursor)
+        return (id, prefixLength)
     }
 
     private func splitCells(_ line: String) -> [String] {

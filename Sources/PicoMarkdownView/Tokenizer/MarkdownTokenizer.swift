@@ -5,9 +5,9 @@ import Foundation
 public typealias BlockID = UInt64
 
 public struct InlineStyle: OptionSet, Sendable {
-    public let rawValue: UInt8
+    public let rawValue: UInt16
 
-    public init(rawValue: UInt8) {
+    public init(rawValue: UInt16) {
         self.rawValue = rawValue
     }
 
@@ -18,6 +18,10 @@ public struct InlineStyle: OptionSet, Sendable {
     public static let strikethrough = InlineStyle(rawValue: 1 << 4)
     public static let image = InlineStyle(rawValue: 1 << 5)
     public static let math = InlineStyle(rawValue: 1 << 6)    
+    public static let keyboard = InlineStyle(rawValue: 1 << 7)
+    public static let superscript = InlineStyle(rawValue: 1 << 8)
+    public static let subscriptText = InlineStyle(rawValue: 1 << 9)
+    public static let footnote = InlineStyle(rawValue: 1 << 10)
 }
 
 public struct InlineRun: Sendable, Equatable {
@@ -89,6 +93,7 @@ public enum BlockKind: Sendable, Equatable {
     case blockquote
     case fencedCode(language: String?)
     case math(display: Bool)
+    case footnoteDefinition(id: String, index: Int)
     case table
     case horizontalRule
     case unknown

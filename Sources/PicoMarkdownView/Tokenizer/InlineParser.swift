@@ -1,5 +1,43 @@
 import Foundation
 
+struct LinkDefinition: Equatable {
+    let url: String
+    let title: String?
+}
+
+final class LinkReferenceStore {
+    private var definitions: [String: LinkDefinition] = [:]
+
+    func define(label: String, url: String, title: String?) {
+        let key = normalizeLinkLabel(label)
+        guard definitions[key] == nil else { return }
+        definitions[key] = LinkDefinition(url: url, title: title)
+    }
+
+    func resolve(label: String) -> LinkDefinition? {
+        definitions[normalizeLinkLabel(label)]
+    }
+
+    private func normalizeLinkLabel(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(whereSeparator: { $0.isWhitespace || $0 == "\n" || $0 == "\r" })
+        return parts.joined(separator: " ").lowercased()
+    }
+}
+
+final class FootnoteRegistry {
+    private var order: [String: Int] = [:]
+    private var nextIndex: Int = 1
+
+    func index(for id: String) -> Int {
+        if let existing = order[id] { return existing }
+        let assigned = nextIndex
+        order[id] = assigned
+        nextIndex += 1
+        return assigned
+    }
+}
+
 /// Minimal streaming inline parser supporting CommonMark emphasis, code spans, links, and hard breaks.
 struct InlineParser {
     private enum LineBreakParseResult {
@@ -9,6 +47,8 @@ struct InlineParser {
     private var pending: String = ""
     var replacements = StreamingReplacementEngine()
     private var mathState: InlineMathState?
+    var linkReferences: LinkReferenceStore?
+    var footnoteRegistry: FootnoteRegistry?
 
     private struct InlineMathState {
         enum Delimiter {
@@ -232,7 +272,27 @@ struct InlineParser {
                 return .incomplete
             }
             let afterBracket = text.index(after: closingBracket)
-            guard afterBracket < text.endIndex, text[afterBracket] == "(" else {
+            let labelStart = text.index(after: openBracketIndex)
+            let label = String(text[labelStart..<closingBracket])
+            if !treatAsImage, label.hasPrefix("^") {
+                let id = String(label.dropFirst())
+                if !id.isEmpty, let registry = footnoteRegistry {
+                    let number = registry.index(for: id)
+                    let run = InlineRun(text: String(number), style: [.footnote, .superscript])
+                    runs.append(run)
+                    consumedEnd = afterBracket
+                    plainStart = afterBracket
+                    return .handled(nextIndex: afterBracket)
+                }
+                return .literal
+            }
+            guard afterBracket < text.endIndex else {
+                return .literal
+            }
+            if text[afterBracket] != "(" {
+                if let reference = parseReferenceLink(label: label, afterBracket: afterBracket, treatAsImage: treatAsImage) {
+                    return reference
+                }
                 return .literal
             }
             var closingParen: String.Index?
@@ -255,8 +315,6 @@ struct InlineParser {
             guard let closing = closingParen else {
                 return .incomplete
             }
-            let labelStart = text.index(after: openBracketIndex)
-            let label = String(text[labelStart..<closingBracket])
             let urlStart = text.index(after: afterBracket)
             let (destination, title) = splitDestinationAndTitle(String(text[urlStart..<closing]))
 
@@ -270,6 +328,39 @@ struct InlineParser {
             consumedEnd = afterClose
             plainStart = afterClose
             return .handled(nextIndex: afterClose)
+        }
+
+        func parseReferenceLink(label: String,
+                                afterBracket: String.Index,
+                                treatAsImage: Bool) -> BracketParseResult? {
+            guard let store = linkReferences else { return nil }
+            var referenceLabel = label
+            var nextIndex = afterBracket
+
+            if text[afterBracket] == "[" {
+                guard let closing = text[text.index(after: afterBracket)..<text.endIndex].firstIndex(of: "]") else {
+                    return .incomplete
+                }
+                let innerStart = text.index(after: afterBracket)
+                let innerLabel = String(text[innerStart..<closing])
+                if !innerLabel.isEmpty {
+                    referenceLabel = innerLabel
+                }
+                nextIndex = text.index(after: closing)
+            }
+
+            guard let definition = store.resolve(label: referenceLabel), !definition.url.isEmpty else {
+                return .literal
+            }
+
+            if treatAsImage {
+                runs.append(InlineRun(text: label, style: [.image], image: InlineImage(source: definition.url, title: definition.title)))
+            } else {
+                runs.append(InlineRun(text: label, style: [.link], linkURL: definition.url))
+            }
+            consumedEnd = nextIndex
+            plainStart = nextIndex
+            return .handled(nextIndex: nextIndex)
         }
 
         enum AutolinkParseResult {
@@ -444,6 +535,48 @@ struct InlineParser {
             guard text[cursor] == ">" else { return nil }
             let nextIndex = text.index(after: cursor)
             return .handled(nextIndex: nextIndex)
+        }
+
+        enum InlineHTMLParseResult {
+            case handled(nextIndex: String.Index)
+            case needMore
+        }
+
+        func parseInlineHTMLTag(at index: String.Index) -> InlineHTMLParseResult? {
+            let remaining = text[index...]
+            if remaining.hasPrefix("<kbd>") {
+                return parseInlineHTMLTag(open: "<kbd>", close: "</kbd>", style: [.keyboard], at: index)
+            }
+            if remaining.hasPrefix("<sup>") {
+                return parseInlineHTMLTag(open: "<sup>", close: "</sup>", style: [.superscript], at: index)
+            }
+            if remaining.hasPrefix("<sub>") {
+                return parseInlineHTMLTag(open: "<sub>", close: "</sub>", style: [.subscriptText], at: index)
+            }
+            return nil
+        }
+
+        func parseInlineHTMLTag(open: String,
+                                close: String,
+                                style: InlineStyle,
+                                at index: String.Index) -> InlineHTMLParseResult? {
+            guard let openRange = text[index...].range(of: open) else { return nil }
+            let contentStart = openRange.upperBound
+            guard let closeRange = text[contentStart...].range(of: close) else {
+                return .needMore
+            }
+            flushPlain(upTo: index)
+            let inner = String(text[contentStart..<closeRange.lowerBound])
+            let nestedRuns = parseNestedRuns(from: inner, inheriting: style)
+            if nestedRuns.isEmpty {
+                appendRun(InlineRun(text: inner, style: style))
+            } else {
+                nestedRuns.forEach { appendRun($0) }
+            }
+            let afterClose = closeRange.upperBound
+            consumedEnd = afterClose
+            plainStart = afterClose
+            return .handled(nextIndex: afterClose)
         }
 
         parsing: while index < text.endIndex {
@@ -735,6 +868,18 @@ struct InlineParser {
                     case .handled(let nextIndex):
                         flushPlain(upTo: index)
                         runs.append(InlineRun(text: "\n"))
+                        consumedEnd = nextIndex
+                        index = nextIndex
+                        plainStart = nextIndex
+                        continue parsing
+                    case .needMore:
+                        consumedAll = false
+                        break parsing
+                    }
+                }
+                if let htmlResult = parseInlineHTMLTag(at: index) {
+                    switch htmlResult {
+                    case .handled(let nextIndex):
                         consumedEnd = nextIndex
                         index = nextIndex
                         plainStart = nextIndex

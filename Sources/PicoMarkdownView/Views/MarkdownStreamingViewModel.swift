@@ -7,6 +7,7 @@ final class MarkdownStreamingViewModel {
     private var pipeline: MarkdownStreamingPipeline
     private var processedInputs: Set<UUID> = []
     private let theme: MarkdownRenderTheme
+    private let imageProvider: MarkdownImageProvider?
 
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
@@ -17,9 +18,10 @@ final class MarkdownStreamingViewModel {
     private var pendingReplaceToken: UInt64?
     private var updateScheduled = false
 
-    init(theme: MarkdownRenderTheme = .default()) {
+    init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil) {
         self.theme = theme
-        self.pipeline = MarkdownStreamingPipeline(theme: theme)
+        self.imageProvider = imageProvider
+        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
     }
 
     func consume(_ input: MarkdownStreamingInput) async {
@@ -58,7 +60,7 @@ final class MarkdownStreamingViewModel {
     }
 
     private func replace(with value: String) async {
-        let newPipeline = MarkdownStreamingPipeline(theme: theme)
+        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
         var latestBlocks: [RenderedBlock] = []
 
         if !value.isEmpty {
