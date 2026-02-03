@@ -103,8 +103,9 @@ final class TextKitStreamingController: ObservableObject {
 
     @available(macOS 13.0, *)
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
-        // Fallback to TextKit 1 host on macOS until TextKit 2 configuration can be customized.
-        return makeTextKit1View(configuration: configuration)
+        let textView = StreamingTextKit2View(backend: backend)
+        configure(textView, with: configuration)
+        return textView
     }
 
     func update(textView: NSTextView,
@@ -656,7 +657,7 @@ private final class StreamingTextKit2View: UITextView {
     init(backend: TextKitStreamingBackend) {
         super.init(frame: .zero, textContainer: nil)
         if let layoutManager = textLayoutManager,
-           let contentStorage = layoutManager.textContentStorage {
+           let contentStorage = textContentStorage {
             backend.connect(to: contentStorage, layoutManager: layoutManager)
         }
     }
@@ -716,6 +717,59 @@ private final class StreamingTextKit1View: NSTextView {
         textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
+        return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
+    }
+}
+
+@available(macOS 13.0, *)
+@MainActor
+private final class StreamingTextKit2View: NSTextView {
+    init(backend: TextKitStreamingBackend) {
+        super.init(frame: .zero)
+        if let layoutManager = textLayoutManager,
+           let contentStorage = textContentStorage {
+            backend.connect(to: contentStorage, layoutManager: layoutManager)
+        } else if let legacyLayout = layoutManager {
+            backend.connect(to: legacyLayout)
+        }
+        isVerticallyResizable = true
+        isHorizontallyResizable = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        guard !isVerticallyResizable else { return super.intrinsicContentSize }
+        return sizeThatFits()
+    }
+
+    override func layout() {
+        super.layout()
+        if !isVerticallyResizable {
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    private func sizeThatFits() -> NSSize {
+        if let layoutManager = textLayoutManager,
+           let textContainer = layoutManager.textContainer {
+            let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
+            textContainer.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            let targetBounds = CGRect(origin: .zero, size: textContainer.size)
+            layoutManager.ensureLayout(for: targetBounds)
+            let used = layoutManager.usageBoundsForTextContainer
+            return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
+        }
+
+        guard let textContainer = textContainer, let legacyLayout = layoutManager else {
+            return super.intrinsicContentSize
+        }
+        let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
+        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        legacyLayout.ensureLayout(for: textContainer)
+        let used = legacyLayout.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
     }
 }

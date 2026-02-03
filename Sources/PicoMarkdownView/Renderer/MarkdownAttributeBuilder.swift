@@ -42,18 +42,47 @@ actor MarkdownAttributeBuilder {
             return await renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: theme.codeFont,
-                .foregroundColor: PlatformColor.rendererLabel
-            ]
-            let content = NSMutableAttributedString(string: text, attributes: attributes)
             let codeSpacing = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 12))
-            let suffixAttrs: [NSAttributedString.Key: Any] = [
-                .font: theme.codeFont,
-                .foregroundColor: PlatformColor.rendererLabel,
-                .paragraphStyle: codeSpacing
-            ]
-            content.append(NSAttributedString(string: "\n", attributes: suffixAttrs))
+            let content: NSMutableAttributedString
+            if let codeTheme = theme.codeBlockTheme {
+                let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+                let highlighted = highlighter.highlight(text, language: {
+                    if case let .fencedCode(value) = snapshot.kind {
+                        return value
+                    }
+                    return nil
+                }(), theme: codeTheme)
+                content = NSMutableAttributedString(highlighted)
+
+                if content.length > 0 {
+                    content.addAttribute(.paragraphStyle, value: codeSpacing, range: NSRange(location: 0, length: content.length))
+                    if codeTheme.backgroundColor != .clear {
+                        content.addAttribute(.backgroundColor, value: codeTheme.backgroundColor, range: NSRange(location: 0, length: content.length))
+                    }
+                }
+
+                var suffixAttrs: [NSAttributedString.Key: Any] = [
+                    .font: codeTheme.font,
+                    .paragraphStyle: codeSpacing
+                ]
+                suffixAttrs[.foregroundColor] = codeTheme.foregroundColor
+                if codeTheme.backgroundColor != .clear {
+                    suffixAttrs[.backgroundColor] = codeTheme.backgroundColor
+                }
+                content.append(NSAttributedString(string: "\n", attributes: suffixAttrs))
+            } else {
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: theme.codeFont,
+                    .foregroundColor: PlatformColor.rendererLabel
+                ]
+                content = NSMutableAttributedString(string: text, attributes: attributes)
+                let suffixAttrs: [NSAttributedString.Key: Any] = [
+                    .font: theme.codeFont,
+                    .foregroundColor: PlatformColor.rendererLabel,
+                    .paragraphStyle: codeSpacing
+                ]
+                content.append(NSAttributedString(string: "\n", attributes: suffixAttrs))
+            }
             let language: String?
             if case let .fencedCode(value) = snapshot.kind {
                 language = value

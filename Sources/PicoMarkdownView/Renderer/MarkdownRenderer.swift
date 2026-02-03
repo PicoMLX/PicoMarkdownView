@@ -13,19 +13,25 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
     public var linkColor: MarkdownColor
     public var headingFonts: [Int: MarkdownFont]
     public var imageMaxWidth: CGFloat?
+    public var codeBlockTheme: CodeBlockTheme?
+    public var codeHighlighter: AnyCodeSyntaxHighlighter?
 
     public init(bodyFont: MarkdownFont,
                 codeFont: MarkdownFont,
                 blockquoteColor: MarkdownColor,
                 linkColor: MarkdownColor,
                 headingFonts: [Int: MarkdownFont],
-                imageMaxWidth: CGFloat? = nil) {
+                imageMaxWidth: CGFloat? = nil,
+                codeBlockTheme: CodeBlockTheme? = nil,
+                codeHighlighter: AnyCodeSyntaxHighlighter? = nil) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
         self.linkColor = linkColor
         self.headingFonts = headingFonts
         self.imageMaxWidth = imageMaxWidth
+        self.codeBlockTheme = codeBlockTheme
+        self.codeHighlighter = codeHighlighter
     }
 
     public static func `default`() -> MarkdownRenderTheme {
@@ -61,7 +67,9 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
                                    blockquoteColor: blockquote,
                                    linkColor: link,
                                    headingFonts: headings,
-                                   imageMaxWidth: nil)
+                                   imageMaxWidth: nil,
+                                   codeBlockTheme: nil,
+                                   codeHighlighter: nil)
     }
 }
 

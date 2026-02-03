@@ -17,30 +17,40 @@ Then add `PicoMarkdownView` to the target dependencies that require it.
 ```swift
 import PicoMarkdownView
 
-@StateObject private var stream = PicoMarkdownStream()
+@State private var text = "Hello **Markdown**"
 
 var body: some View {
-    PicoMarkdownView(stream: stream)
-}
-
-func appendChunk(_ markdown: String) {
-    Task { await stream.append(markdown: markdown) }
+    PicoMarkdownView(text)
 }
 ```
 
-`PicoMarkdownStream` performs incremental parsing. Feed it new Markdown as it arrives (for example from an LLM streaming response). The view maintains continuous selection and reuses layout via a shared `NSTextStorage` / TextKit 2 host under the hood.
+For streaming, pass chunks or an async stream:
+
+```swift
+PicoMarkdownView(chunks: ["Hello ", "world", "\n\n"])
+
+PicoMarkdownView(stream: {
+    AsyncStream { continuation in
+        continuation.yield("Hello ")
+        continuation.yield("world\n\n")
+        continuation.finish()
+    }
+})
+```
+
+The view maintains continuous selection and reuses layout via a shared `NSTextStorage` / TextKit host under the hood.
 
 ### Configuration
 
 ```swift
-let config = PicoMarkdownViewConfiguration(
+let config = PicoTextKitConfiguration(
     backgroundColor: .clear,
     contentInsets: EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16),
     isSelectable: true,
     isScrollEnabled: false
 )
 
-PicoMarkdownView(stream: stream, configuration: config)
+PicoMarkdownView("Hello", configuration: config)
 ```
 
 ### Custom Theme (Fonts & Colors)
@@ -112,7 +122,7 @@ struct ZoomableMarkdownView: View {
 
 ### Code Block Highlighting
 
-Code fences default to a monospaced system font. To customize styling or integrate your own syntax highlighter, provide a `CodeBlockTheme` and `CodeSyntaxHighlighter` via the supplied modifiers:
+Code fences default to the theme’s monospaced font. To customize styling or plug in a syntax highlighter, set `codeBlockTheme` and `codeHighlighter` on `MarkdownRenderTheme`:
 
 ```swift
 import PicoMarkdownView
@@ -134,20 +144,24 @@ struct SplashCodeHighlighter: CodeSyntaxHighlighter {
     }
 }
 
+var themed = MarkdownRenderTheme.default()
+themed.codeBlockTheme = CodeBlockTheme.monospaced()
+themed.codeHighlighter = AnyCodeSyntaxHighlighter(SplashCodeHighlighter(theme: .midnight(withFont: Splash.Font(size: 14))))
+
 var body: some View {
-    PicoMarkdownView(markdown)
-        .picoCodeTheme(.monospaced())
-        .picoCodeHighlighter(SplashCodeHighlighter(theme: .midnight(withFont: Splash.Font(size: 14))))
+    PicoMarkdownView(markdown, theme: themed)
 }
 ```
 
-By default the view uses `PlainCodeSyntaxHighlighter`, which simply applies the theme’s monospaced font.
-
 ### Resetting Content
 
+To replace content, pass a new string/chunks/stream so the view creates a fresh input:
+
 ```swift
-Task {
-    await stream.reset(markdown: "")
+@State private var text = "First"
+
+var body: some View {
+    PicoMarkdownView(text)
 }
 ```
 
@@ -158,4 +172,3 @@ Run the bundled tests to exercise streaming and table rendering:
 ```bash
 swift test
 ```
-
