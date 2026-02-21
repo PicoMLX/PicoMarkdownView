@@ -27,11 +27,39 @@ struct MarkdownView: View {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
                     ScrollView {
-                        PicoMarkdownView(markdown)
+                        PicoMarkdownView(stream: { [markdown] in
+                            AsyncStream<String> { continuation in
+                                let task = Task {
+                                    // Stream word-by-word at ~20 words/sec to simulate fast LLM inference
+                                    var chunk = ""
+                                    var wordSeen = false
+                                    for char in markdown {
+                                        guard !Task.isCancelled else { break }
+                                        chunk.append(char)
+                                        if char.isWhitespace {
+                                            if wordSeen {
+                                                continuation.yield(chunk)
+                                                chunk = ""
+                                                wordSeen = false
+                                                try? await Task.sleep(nanoseconds: 50_000_000)
+                                            }
+                                        } else {
+                                            wordSeen = true
+                                        }
+                                    }
+                                    if !chunk.isEmpty && !Task.isCancelled {
+                                        continuation.yield(chunk)
+                                    }
+                                    continuation.finish()
+                                }
+                                continuation.onTermination = { _ in
+                                    task.cancel()
+                                }
+                            }
+                        })
                             .textSelection(.enabled)
                             .padding()
-                            .onOpenLink { url in                                
-                                // Present confirmation for opening external link
+                            .onOpenLink { url in
                                 openURL(url)
                                 return .handled
                             }
