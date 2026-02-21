@@ -10,59 +10,46 @@ import PicoMarkdownView
 import WebKit
 
 struct MarkdownView: View {
-    
+
     @Environment(\.openURL) var openURL
-    
+
     private let webURL: URL
     private let markdown: String
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    @State private var isAutoScrolling = true
 
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
         self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
     }
-    
+
     var body: some View {
-        
+
         HStack {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
                     ScrollView {
-                        PicoMarkdownView(stream: { [markdown] in
-                            AsyncStream<String> { continuation in
-                                let task = Task {
-                                    // Stream word-by-word at ~20 words/sec to simulate fast LLM inference
-                                    var chunk = ""
-                                    var wordSeen = false
-                                    for char in markdown {
-                                        guard !Task.isCancelled else { break }
-                                        chunk.append(char)
-                                        if char.isWhitespace {
-                                            if wordSeen {
-                                                continuation.yield(chunk)
-                                                chunk = ""
-                                                wordSeen = false
-                                                try? await Task.sleep(nanoseconds: 50_000_000)
-                                            }
-                                        } else {
-                                            wordSeen = true
-                                        }
-                                    }
-                                    if !chunk.isEmpty && !Task.isCancelled {
-                                        continuation.yield(chunk)
-                                    }
-                                    continuation.finish()
-                                }
-                                continuation.onTermination = { _ in
-                                    task.cancel()
-                                }
-                            }
-                        })
-                            .textSelection(.enabled)
-                            .padding()
-                            .onOpenLink { url in
-                                openURL(url)
-                                return .handled
-                            }
+                        // Extracted into a subview so that scrollPosition state
+                        // changes don't re-evaluate PicoMarkdownView's body
+                        // (which would restart the stream).
+                        StreamingMarkdownContent(markdown: markdown)
+                    }
+                    .scrollPosition($scrollPosition)
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
+                        return geometry.contentSize.height - visibleBottom < 80
+                    } action: { _, isNearBottom in
+                        isAutoScrolling = isNearBottom
+                    }
+                    .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                        geometry.contentSize.height
+                    } action: { oldHeight, newHeight in
+                        if newHeight > oldHeight, isAutoScrolling {
+                            scrollPosition.scrollTo(edge: .bottom)
+                        }
+                        if newHeight < oldHeight {
+                            isAutoScrolling = true
+                        }
                     }
                 }
                 Tab("Debug", systemImage: "ladybug") {
@@ -77,12 +64,63 @@ struct MarkdownView: View {
                 }
             }
             .textSelection(.enabled)
-                        
+
             WebView(url: webURL) { configuration in
                 // To shut up Nyan Cat
                 configuration.mediaTypesRequiringUserActionForPlayback = .all
             }
                 .id(webURL)
+        }
+    }
+}
+
+/// Isolated subview whose only stored property is an Equatable `String`.
+/// SwiftUI skips re-evaluating its body when the parent re-renders due to
+/// scroll-position state changes, preventing the stream from restarting.
+private struct StreamingMarkdownContent: View {
+    let markdown: String
+    @Environment(\.openURL) var openURL
+
+    var body: some View {
+        PicoMarkdownView(stream: { [markdown] in
+            wordStream(from: markdown)
+        })
+            .textSelection(.enabled)
+            .padding()
+            .onOpenLink { url in
+                openURL(url)
+                return .handled
+            }
+    }
+}
+
+/// Creates a word-by-word AsyncStream from markdown text, simulating ~30 words/sec LLM inference.
+private func wordStream(from markdown: String) -> AsyncStream<String> {
+    AsyncStream<String> { continuation in
+        let task = Task {
+            var chunk = ""
+            var wordSeen = false
+            for char in markdown {
+                guard !Task.isCancelled else { break }
+                chunk.append(char)
+                if char.isWhitespace {
+                    if wordSeen {
+                        continuation.yield(chunk)
+                        chunk = ""
+                        wordSeen = false
+                        try? await Task.sleep(nanoseconds: 33_333_333)
+                    }
+                } else {
+                    wordSeen = true
+                }
+            }
+            if !chunk.isEmpty && !Task.isCancelled {
+                continuation.yield(chunk)
+            }
+            continuation.finish()
+        }
+        continuation.onTermination = { _ in
+            task.cancel()
         }
     }
 }
