@@ -1,9 +1,12 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 final class MarkdownStreamingViewModel {
+    private static let logger = Logger(subsystem: "com.picomarkdown", category: "ViewModel")
+
     private var pipeline: MarkdownStreamingPipeline
     private var processedInputs: Set<UUID> = []
     private let theme: MarkdownRenderTheme
@@ -60,20 +63,28 @@ final class MarkdownStreamingViewModel {
     }
 
     private func replace(with value: String) async {
+        Self.logger.debug("replace(with:) called, value length=\(value.count)")
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
         var latestBlocks: [RenderedBlock] = []
 
         if !value.isEmpty {
             if let update = await newPipeline.feed(value) {
                 latestBlocks = update.blocks
+                Self.logger.debug("feed produced \(latestBlocks.count) blocks")
+            } else {
+                Self.logger.warning("feed returned nil for non-empty value")
             }
         }
 
         if let update = await newPipeline.finish() {
             latestBlocks = update.blocks
+            Self.logger.debug("finish produced \(latestBlocks.count) blocks")
+        } else {
+            Self.logger.debug("finish returned nil (blocks from feed: \(latestBlocks.count))")
         }
 
         pipeline = newPipeline
+        Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
         enqueueUpdate(blocks: latestBlocks, diff: nil)
     }
 
@@ -105,7 +116,11 @@ final class MarkdownStreamingViewModel {
 
     private func flushPendingUpdates() {
         updateScheduled = false
-        guard let blocks = pendingBlocks else { return }
+        guard let blocks = pendingBlocks else {
+            Self.logger.debug("flushPendingUpdates: no pending blocks")
+            return
+        }
+        Self.logger.debug("flushPendingUpdates: \(blocks.count) blocks, replaceToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
         self.blocks = blocks
         self.diffQueue = pendingDiffs
         if let token = pendingReplaceToken {

@@ -26,6 +26,9 @@ let package = Package(
             name: "PicoMarkdownView",
             dependencies: [
                 .product(name: "SwiftMath", package: "SwiftMath")
+            ],
+            resources: [
+                .process("Resources")
             ]
         ),
         .testTarget(

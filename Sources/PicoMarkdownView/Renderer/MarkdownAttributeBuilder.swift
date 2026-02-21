@@ -20,15 +20,34 @@ actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
 
+    // Resolved platform types — created once at init, isolated to this actor.
+    private let bodyFont: PlatformFont
+    private let codeFont: PlatformFont
+    private let headingFonts: [Int: PlatformFont]
+    private let blockquoteColor: PlatformColor
+    private let linkColor: PlatformColor
+
     init(theme: MarkdownRenderTheme, imageProvider: MarkdownImageProvider? = nil) {
         self.theme = theme
         self.imageProvider = imageProvider
+
+        // Resolve Sendable specs to platform types inside the actor
+        self.bodyFont = theme.bodyFont.resolved()
+        self.codeFont = theme.codeFont.resolved()
+        self.blockquoteColor = theme.blockquoteColor.resolved()
+        self.linkColor = theme.linkColor.resolved()
+
+        var resolved: [Int: PlatformFont] = [:]
+        for (level, spec) in theme.headingFonts {
+            resolved[level] = spec.resolved()
+        }
+        self.headingFonts = resolved
     }
 
-    func render(snapshot: BlockSnapshot) async -> RenderedContentResult {
+    func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
-            let (fallback, table, images) = await renderTable(snapshot, font: theme.bodyFont)
+            let (fallback, table, images) = await renderTable(snapshot, font: bodyFont)
             return RenderedContentResult(attributed: AttributedString(fallback),
                                         table: table,
                                         listItem: nil,
@@ -37,16 +56,16 @@ actor MarkdownAttributeBuilder {
                                         images: images,
                                         codeBlock: nil)
         case .listItem(let ordered, let index, let task):
-            return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task)
+            return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task, previousBlockKind: previousBlockKind)
         case .blockquote:
             return await renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
-            let codeSpacing = makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 12))
+            let codeSpacing = makeParagraphStyle(collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind))
             let content: NSMutableAttributedString
             if let codeTheme = theme.codeBlockTheme {
                 let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
-                let highlighted = highlighter.highlight(text, language: {
+                let highlighted = await highlighter.highlight(text, language: {
                     if case let .fencedCode(value) = snapshot.kind {
                         return value
                     }
@@ -54,30 +73,35 @@ actor MarkdownAttributeBuilder {
                 }(), theme: codeTheme)
                 content = NSMutableAttributedString(highlighted)
 
+                let resolvedCodeFont = codeTheme.resolvedFont()
+                let resolvedFg = codeTheme.resolvedForegroundColor()
+                let resolvedBg = codeTheme.resolvedBackgroundColor()
+                let hasBackground = codeTheme.backgroundColor != .clear
+
                 if content.length > 0 {
                     content.addAttribute(.paragraphStyle, value: codeSpacing, range: NSRange(location: 0, length: content.length))
-                    if codeTheme.backgroundColor != .clear {
-                        content.addAttribute(.backgroundColor, value: codeTheme.backgroundColor, range: NSRange(location: 0, length: content.length))
+                    if hasBackground {
+                        content.addAttribute(.backgroundColor, value: resolvedBg, range: NSRange(location: 0, length: content.length))
                     }
                 }
 
                 var suffixAttrs: [NSAttributedString.Key: Any] = [
-                    .font: codeTheme.font,
+                    .font: resolvedCodeFont,
                     .paragraphStyle: codeSpacing
                 ]
-                suffixAttrs[.foregroundColor] = codeTheme.foregroundColor
-                if codeTheme.backgroundColor != .clear {
-                    suffixAttrs[.backgroundColor] = codeTheme.backgroundColor
+                suffixAttrs[.foregroundColor] = resolvedFg
+                if hasBackground {
+                    suffixAttrs[.backgroundColor] = resolvedBg
                 }
                 content.append(NSAttributedString(string: "\n", attributes: suffixAttrs))
             } else {
                 let attributes: [NSAttributedString.Key: Any] = [
-                    .font: theme.codeFont,
+                    .font: codeFont,
                     .foregroundColor: PlatformColor.rendererLabel
                 ]
                 content = NSMutableAttributedString(string: text, attributes: attributes)
                 let suffixAttrs: [NSAttributedString.Key: Any] = [
-                    .font: theme.codeFont,
+                    .font: codeFont,
                     .foregroundColor: PlatformColor.rendererLabel,
                     .paragraphStyle: codeSpacing
                 ]
@@ -106,8 +130,8 @@ actor MarkdownAttributeBuilder {
                                         images: [],
                                         codeBlock: nil)
         case .heading(let level):
-            let font = theme.headingFonts[level] ?? theme.headingFonts[theme.headingFonts.keys.sorted().last ?? 1] ?? theme.bodyFont
-            let spacing = headingParagraphSpacing(for: level)
+            let font = headingFonts[level] ?? headingFonts[headingFonts.keys.sorted().last ?? 1] ?? bodyFont
+            let spacing = headingParagraphSpacing(for: level, previousKind: previousBlockKind)
             let (ns, images) = await renderInlineBlock(snapshot,
                                                 prefix: nil,
                                                 suffix: "\n",
@@ -122,11 +146,11 @@ actor MarkdownAttributeBuilder {
                                         codeBlock: nil)
         case .paragraph:
             let suffix = "\n"
-            let spacing = paragraphSpacing()
+            let spacing = paragraphSpacing(previousKind: previousBlockKind)
             let (ns, images) = await renderInlineBlock(snapshot,
                                                 prefix: nil,
                                                 suffix: suffix,
-                                                font: theme.bodyFont,
+                                                font: bodyFont,
                                                 spacing: spacing)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
@@ -138,11 +162,11 @@ actor MarkdownAttributeBuilder {
         case .footnoteDefinition(_, let index):
             let prefixText = "[\(index)] "
             let suffix = "\n"
-            let spacing = paragraphSpacing()
+            let spacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
             let (ns, images) = await renderInlineBlock(snapshot,
                                                 prefix: prefixText,
                                                 suffix: suffix,
-                                                font: theme.bodyFont,
+                                                font: bodyFont,
                                                 spacing: spacing)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
@@ -153,11 +177,11 @@ actor MarkdownAttributeBuilder {
                                         codeBlock: nil)
         case .unknown:
             let suffix = "\n"
-            let spacing = paragraphSpacing()
+            let spacing = collapsedSpacing(for: .unknown, previousKind: previousBlockKind)
             let (ns, images) = await renderInlineBlock(snapshot,
                                                 prefix: nil,
                                                 suffix: suffix,
-                                                font: theme.bodyFont,
+                                                font: bodyFont,
                                                 spacing: spacing)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
@@ -172,12 +196,12 @@ actor MarkdownAttributeBuilder {
             // Render math using InlineMathAttachment (same approach as inline math)
             let mathNS = InlineMathAttachment.mathString(tex: tex,
                                                         display: display,
-                                                        baseFont: theme.bodyFont)
+                                                        baseFont: bodyFont)
             let result = NSMutableAttributedString(attributedString: mathNS)
             
             let suffix = display ? "\n" : ""
-            let mathSpacing = display ? makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 12)) : makeParagraphStyle(ParagraphSpacing(lineHeightMultiple: 1.24, spacingBefore: 0, spacingAfter: 0))
-            let suffixAttrs: [NSAttributedString.Key: Any] = [.font: theme.bodyFont, .paragraphStyle: mathSpacing]
+            let mathSpacing = makeParagraphStyle(collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind))
+            let suffixAttrs: [NSAttributedString.Key: Any] = [.font: bodyFont, .paragraphStyle: mathSpacing]
             result.append(NSAttributedString(string: suffix, attributes: suffixAttrs))
             
             return RenderedContentResult(attributed: AttributedString(result),
@@ -186,7 +210,7 @@ actor MarkdownAttributeBuilder {
                                         blockquote: nil,
                                         math: RenderedMath(tex: tex,
                                                            display: display,
-                                                           fontSize: theme.bodyFont.pointSize),
+                                                           fontSize: bodyFont.pointSize),
                                         images: [],
                                         codeBlock: nil)
         }
@@ -228,13 +252,13 @@ actor MarkdownAttributeBuilder {
         // Add a thin, non-breaking space to instantiate the block
         let cellContent = NSAttributedString(string: "\u{00A0}", attributes: [
             .paragraphStyle: blockParagraph,
-            .font: theme.bodyFont,
+            .font: bodyFont,
             .foregroundColor: PlatformColor.rendererLabel
         ])
         result.append(cellContent)
         // Trailing spacing beneath the rule kept minimal; rely on next block's own spacing
 //        result.append(NSAttributedString(string: "\n", attributes: [
-//            .font: theme.bodyFont,
+//            .font: bodyFont,
 //            .paragraphStyle: blockParagraph
 //        ]))
         // No extra blank paragraph appended here
@@ -298,7 +322,8 @@ actor MarkdownAttributeBuilder {
     private func renderListItem(snapshot: BlockSnapshot,
                                 ordered: Bool,
                                 index: Int?,
-                                task: TaskListState?) async -> RenderedContentResult {
+                                task: TaskListState?,
+                                previousBlockKind: BlockKind?) async -> RenderedContentResult {
         let bulletText: String
         if let task {
             bulletText = task.checked ? "☑︎" : "☐"
@@ -312,69 +337,54 @@ actor MarkdownAttributeBuilder {
         var imageIndex = 0
         let runs = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
-        let body = await renderInline(runs, font: theme.bodyFont)
+        let body = await renderInline(runs, font: bodyFont)
         trimLeadingWhitespace(in: body)
 
-        // 1. actual text has only ONE space so tests stay stable
         let bulletPrefix = bulletText + " "
-        let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: theme.bodyFont])
+        let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: bodyFont])
         rendered.append(body)
 
-        // Calculate spacing - add extra space for empty lines between list items
-        var listSpacing = paragraphSpacing()
-        // If there's extra depth, this is part of a nested structure
+        // Spacing via margin collapsing
+        var listSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
         if snapshot.depth > 0 {
-            // Reduce spacing for nested items
-            listSpacing.spacingAfter = max(0, listSpacing.spacingAfter - 5)
+            listSpacing.spacingAfter = max(0, listSpacing.spacingAfter - 2)
         }
         let listParagraph = makeParagraphStyle(listSpacing)
 
-        // 2. measure what we actually drew
-        let bulletWidth = bulletPrefixWidth(for: bulletPrefix, font: theme.bodyFont)
-        let minOrderedWidth = ordered ? orderedBulletMinWidth(font: theme.bodyFont) : 0
+        // Measure the actual bullet width
+        let bulletWidth = bulletPrefixWidth(for: bulletPrefix, font: bodyFont)
 
-        // gap *after* the bullet before the text begins
+        // Reserve minimum width so all items in the list align.
+        // For ordered lists, compute based on digit count of the current index
+        // to handle "1." through "999." consistently at each magnitude.
+        let minReservedWidth: CGFloat
+        if ordered {
+            minReservedWidth = orderedBulletMinWidth(for: index ?? 1, font: bodyFont)
+        } else if task != nil {
+            // Task list checkboxes are uniform width
+            minReservedWidth = bulletWidth
+        } else {
+            minReservedWidth = 0
+        }
+
         let bulletTextGap: CGFloat = 12
-        
-        // Add indentation for nested list items (depth 1 = 20pt, depth 2 = 40pt, etc.)
         let nestingIndent: CGFloat = CGFloat(snapshot.depth) * 20
 
-        // 5. final column where ALL wrapped lines should start
-        let headIndent = nestingIndent + max(bulletWidth, minOrderedWidth) + bulletTextGap
-
-        // same alignment fix as before
+        // Final column where ALL wrapped lines start
+        let headIndent = nestingIndent + max(bulletWidth, minReservedWidth) + bulletTextGap
         listParagraph.firstLineHeadIndent = headIndent - bulletWidth
         listParagraph.headIndent = headIndent
-        
-        
-        
-        // 2. measure what we actually drew
-//        let bulletWidth = bulletPrefixWidth(for: bulletPrefix, font: theme.bodyFont)
-//        // 3. reserved width for ordered lists ("10.", "100.")
-//        let minOrderedWidth = ordered ? orderedBulletMinWidth(font: theme.bodyFont) : 0
-//
-//        // 4. this is the EXTRA horizontal gap you wanted
-//        let extraPadding: CGFloat = 6   // <-- tweak here
-//
-//        // 5. final column where ALL wrapped lines should start
-//        let headIndent = max(bulletWidth, minOrderedWidth) + extraPadding
-
-        // 6. first line already contains the bullet text,
-        // so only move it by the *difference* between what we drew and what we reserve
-//        listParagraph.firstLineHeadIndent = headIndent - bulletWidth
-//        listParagraph.headIndent = headIndent
 
         rendered.addAttributes([.paragraphStyle: listParagraph],
                                range: NSRange(location: 0, length: rendered.length))
 
-        // your separator stays the same
         let separator = makeParagraphStyle(
             ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
                              spacingBefore: 0,
-                             spacingAfter: 10)
+                             spacingAfter: 6)
         )
         rendered.append(NSAttributedString(string: "\n",
-                                           attributes: [.font: theme.bodyFont,
+                                           attributes: [.font: bodyFont,
                                                         .paragraphStyle: separator]))
 
         let metadata = RenderedListItem(bullet: bulletText,
@@ -399,8 +409,11 @@ actor MarkdownAttributeBuilder {
         return ceil(size.width)
     }
 
-    private func orderedBulletMinWidth(font: PlatformFont) -> CGFloat {
-        let sample = "99.  " as NSString
+    /// Compute minimum bullet width for ordered lists based on the magnitude of the index.
+    /// All items in the same digit range (1-9, 10-99, 100-999) get the same reserved width.
+    private func orderedBulletMinWidth(for index: Int, font: PlatformFont) -> CGFloat {
+        let digits = max(1, String(max(index, 1)).count)
+        let sample = String(repeating: "0", count: digits) + ". " as NSString
         let size = sample.size(withAttributes: [.font: font])
         return ceil(size.width)
     }
@@ -411,31 +424,77 @@ actor MarkdownAttributeBuilder {
         var spacingAfter: CGFloat
     }
 
-    private func paragraphSpacing() -> ParagraphSpacing {
-        ParagraphSpacing(lineHeightMultiple: 1.24,
-                         spacingBefore: 0,
-                         spacingAfter: 12)
+    // MARK: - Block Margin System (CSS-style collapsing)
+
+    /// Desired margins for a block kind. Adjacent blocks collapse:
+    /// the gap between A and B = max(A.bottomMargin, B.topMargin).
+    private struct BlockMargins {
+        var topMargin: CGFloat
+        var bottomMargin: CGFloat
+        var lineHeightMultiple: CGFloat
     }
 
-    private func headingParagraphSpacing(for level: Int) -> ParagraphSpacing {
-        switch level {
-        case 1:
-            return ParagraphSpacing(lineHeightMultiple: 1.18,
-                                    spacingBefore: 16,
-                                    spacingAfter: 10)
-        case 2:
-            return ParagraphSpacing(lineHeightMultiple: 1.16,
-                                    spacingBefore: 14,
-                                    spacingAfter: 12)
-        case 3:
-            return ParagraphSpacing(lineHeightMultiple: 1.14,
-                                    spacingBefore: 10,
-                                    spacingAfter: 6)
-        default:
-            return ParagraphSpacing(lineHeightMultiple: 1.12,
-                                    spacingBefore: 8,
-                                    spacingAfter: 6)
+    private func margins(for kind: BlockKind) -> BlockMargins {
+        switch kind {
+        case .heading(let level):
+            switch level {
+            case 1:  return BlockMargins(topMargin: 24, bottomMargin: 10, lineHeightMultiple: 1.18)
+            case 2:  return BlockMargins(topMargin: 20, bottomMargin: 10, lineHeightMultiple: 1.16)
+            case 3:  return BlockMargins(topMargin: 16, bottomMargin: 6, lineHeightMultiple: 1.14)
+            default: return BlockMargins(topMargin: 12, bottomMargin: 6, lineHeightMultiple: 1.12)
+            }
+        case .paragraph:
+            return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
+        case .fencedCode:
+            return BlockMargins(topMargin: 12, bottomMargin: 12, lineHeightMultiple: 1.24)
+        case .blockquote:
+            return BlockMargins(topMargin: 8, bottomMargin: 8, lineHeightMultiple: 1.24)
+        case .listItem:
+            return BlockMargins(topMargin: 0, bottomMargin: 4, lineHeightMultiple: 1.24)
+        case .horizontalRule:
+            return BlockMargins(topMargin: 20, bottomMargin: 20, lineHeightMultiple: 1.0)
+        case .table:
+            return BlockMargins(topMargin: 8, bottomMargin: 8, lineHeightMultiple: 1.24)
+        case .math(let display):
+            if display {
+                return BlockMargins(topMargin: 8, bottomMargin: 12, lineHeightMultiple: 1.24)
+            }
+            return BlockMargins(topMargin: 0, bottomMargin: 0, lineHeightMultiple: 1.24)
+        case .footnoteDefinition:
+            return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
+        case .unknown:
+            return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
         }
+    }
+
+    /// Compute collapsed spacing between the current block and its predecessor.
+    /// If `previousKind` is nil (first block), uses the block's own top margin.
+    private func collapsedSpacing(for kind: BlockKind, previousKind: BlockKind?) -> ParagraphSpacing {
+        let current = margins(for: kind)
+        let spacingBefore: CGFloat
+
+        if let previousKind {
+            let previous = margins(for: previousKind)
+            // CSS-style margin collapsing: desired gap = max(prev.bottom, current.top)
+            // prev.bottom is already applied as prev's paragraphSpacing.
+            // So current.spacingBefore = max(0, desired_gap - prev.bottom)
+            let desiredGap = max(previous.bottomMargin, current.topMargin)
+            spacingBefore = max(0, desiredGap - previous.bottomMargin)
+        } else {
+            spacingBefore = current.topMargin
+        }
+
+        return ParagraphSpacing(lineHeightMultiple: current.lineHeightMultiple,
+                                spacingBefore: spacingBefore,
+                                spacingAfter: current.bottomMargin)
+    }
+
+    private func paragraphSpacing(previousKind: BlockKind? = nil) -> ParagraphSpacing {
+        collapsedSpacing(for: .paragraph, previousKind: previousKind)
+    }
+
+    private func headingParagraphSpacing(for level: Int, previousKind: BlockKind? = nil) -> ParagraphSpacing {
+        collapsedSpacing(for: .heading(level: level), previousKind: previousKind)
     }
 
     private func makeParagraphStyle(_ spacing: ParagraphSpacing) -> NSMutableParagraphStyle {
@@ -463,19 +522,19 @@ actor MarkdownAttributeBuilder {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
-        let body = await renderInline(bodyRuns, font: theme.bodyFont)
+        let body = await renderInline(bodyRuns, font: bodyFont)
         let paragraphStyle = makeBlockquoteParagraphStyle()
-        let lineColor = theme.blockquoteColor.withAlphaComponent(0.6)
+        let lineColor = blockquoteColor.withAlphaComponent(0.6)
         let textColor = PlatformColor.rendererLabel
 
         let prefixAttributes: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
+            .font: bodyFont,
             .foregroundColor: lineColor,
             .paragraphStyle: paragraphStyle
         ]
 
         let bodyAttributes: [NSAttributedString.Key: Any] = [
-            .font: theme.bodyFont,
+            .font: bodyFont,
             .foregroundColor: textColor,
             .paragraphStyle: paragraphStyle
         ]
@@ -678,14 +737,14 @@ actor MarkdownAttributeBuilder {
             attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         }
         if run.style.contains(.link), let url = run.linkURL, let linkURL = URL(string: url) {
-            attributes[.foregroundColor] = theme.linkColor
+            attributes[.foregroundColor] = linkColor
             attributes[.link] = linkURL
         }
         if run.style.contains(.code) {
-            attributes[.font] = theme.codeFont
+            attributes[.font] = codeFont
         }
         if run.style.contains(.keyboard) {
-            attributes[.font] = theme.codeFont
+            attributes[.font] = codeFont
             attributes[.backgroundColor] = PlatformColor.rendererKeyboardBackground
             attributes[.foregroundColor] = PlatformColor.rendererLabel
         }
@@ -745,7 +804,7 @@ actor MarkdownAttributeBuilder {
     }
 
     private func font(for style: InlineStyle, baseFont: PlatformFont) -> PlatformFont {
-        var font = style.contains(.code) ? theme.codeFont : baseFont
+        var font = style.contains(.code) ? codeFont : baseFont
 #if canImport(UIKit)
         if style.contains(.bold) && style.contains(.italic) {
             let descriptor = font.fontDescriptor.withSymbolicTraits([.traitBold, .traitItalic]) ?? font.fontDescriptor

@@ -39,14 +39,10 @@ public struct PicoMarkdownView: View {
     }
 
     public var body: some View {
-        let bindable = Bindable(viewModel)
-        let blocks = bindable.blocks.wrappedValue
-        let diffs = bindable.diffQueue.wrappedValue
-        let replaceToken = bindable.replaceToken.wrappedValue
         TextKit2Container(controller: controller,
-                          blocks: blocks,
-                          diffs: diffs,
-                          replaceToken: replaceToken,
+                          blocks: viewModel.blocks,
+                          diffs: viewModel.diffQueue,
+                          replaceToken: viewModel.replaceToken,
                           configuration: configuration)
             .task(id: input.id) {
                 await viewModel.consume(input)

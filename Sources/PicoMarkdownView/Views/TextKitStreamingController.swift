@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 #if canImport(UIKit) || canImport(AppKit)
 
@@ -10,6 +11,7 @@ import AppKit
 
 @MainActor
 final class TextKitStreamingController: ObservableObject {
+    private static let logger = Logger(subsystem: "com.picomarkdown", category: "Controller")
     private let backend = TextKitStreamingBackend()
     private var lastAppliedVersion: UInt64 = 0
     private var lastAppliedReplaceToken: UInt64 = 0
@@ -113,6 +115,7 @@ final class TextKitStreamingController: ObservableObject {
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
                 configuration: PicoTextKitConfiguration) {
+        Self.logger.debug("update: \(blocks.count) blocks, replaceToken=\(replaceToken), lastApplied=\(self.lastAppliedReplaceToken), storageLen=\(self.backend.length)")
         configure(textView, with: configuration)
         let currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
         backend.setPaused(configuration.isPaused)
@@ -120,6 +123,7 @@ final class TextKitStreamingController: ObservableObject {
             lastAppliedReplaceToken = replaceToken
             lastAppliedVersion = 0
             _ = backend.apply(blocks: blocks, selection: currentSelection)
+            Self.logger.debug("applied full replace: storageLen=\(self.backend.length)")
             textView.invalidateIntrinsicContentSize()
             return
         }
@@ -197,7 +201,7 @@ final class TextKitStreamingBackend {
         var diffs: [AssemblerDiff]
     }
 
-    private let storage = NSTextStorage()
+    private var storage = NSTextStorage()
 
     var length: Int {
         storage.length
@@ -589,20 +593,26 @@ final class TextKitStreamingBackend {
 
 #if canImport(UIKit)
     fileprivate func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
-        textContentStorage.textStorage = storage
-        for manager in textContentStorage.textLayoutManagers {
-            textContentStorage.removeTextLayoutManager(manager)
+        // Adopt the content storage's existing text storage so the TextKit2 observation
+        // chain stays intact. Writing to this storage will flow through
+        // NSTextContentStorage → NSTextLayoutManager → NSTextContainer → view.
+        if let existingStorage = textContentStorage.textStorage {
+            self.storage = existingStorage
+        } else {
+            textContentStorage.textStorage = storage
         }
-        textContentStorage.addTextLayoutManager(layoutManager)
     }
 #elseif canImport(AppKit)
     @available(macOS 13.0, *)
     fileprivate func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
-        textContentStorage.textStorage = storage
-        for manager in textContentStorage.textLayoutManagers {
-            textContentStorage.removeTextLayoutManager(manager)
+        // Adopt the content storage's existing text storage so the TextKit2 observation
+        // chain stays intact. Writing to this storage will flow through
+        // NSTextContentStorage → NSTextLayoutManager → NSTextContainer → view.
+        if let existingStorage = textContentStorage.textStorage {
+            self.storage = existingStorage
+        } else {
+            textContentStorage.textStorage = storage
         }
-        textContentStorage.addTextLayoutManager(layoutManager)
     }
 #endif
 
@@ -725,13 +735,16 @@ private final class StreamingTextKit1View: NSTextView {
 @MainActor
 private final class StreamingTextKit2View: NSTextView {
     init(backend: TextKitStreamingBackend) {
-        super.init(frame: .zero)
-        if let layoutManager = textLayoutManager,
-           let contentStorage = textContentStorage {
-            backend.connect(to: contentStorage, layoutManager: layoutManager)
-        } else if let legacyLayout = layoutManager {
-            backend.connect(to: legacyLayout)
-        }
+        // Use TextKit 1 initialization: the backend storage connection works by
+        // adding a layout manager to the backend's own NSTextStorage. TextKit 2's
+        // NSTextContentStorage observation chain does not properly relay
+        // programmatic NSTextStorage edits on macOS, resulting in blank views.
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                         height: CGFloat.greatestFiniteMagnitude))
+        layoutManager.addTextContainer(textContainer)
+        backend.connect(to: layoutManager)
+        super.init(frame: .zero, textContainer: textContainer)
         isVerticallyResizable = true
         isHorizontallyResizable = true
     }
@@ -753,23 +766,13 @@ private final class StreamingTextKit2View: NSTextView {
     }
 
     private func sizeThatFits() -> NSSize {
-        if let layoutManager = textLayoutManager,
-           let textContainer = layoutManager.textContainer {
-            let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
-            textContainer.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-            let targetBounds = CGRect(origin: .zero, size: textContainer.size)
-            layoutManager.ensureLayout(for: targetBounds)
-            let used = layoutManager.usageBoundsForTextContainer
-            return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
-        }
-
-        guard let textContainer = textContainer, let legacyLayout = layoutManager else {
+        guard let textContainer = textContainer, let layoutManager = layoutManager else {
             return super.intrinsicContentSize
         }
         let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
         textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
-        legacyLayout.ensureLayout(for: textContainer)
-        let used = legacyLayout.usedRect(for: textContainer)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
     }
 }

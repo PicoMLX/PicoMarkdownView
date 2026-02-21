@@ -6,21 +6,26 @@ import UIKit
 import AppKit
 #endif
 
-public struct MarkdownRenderTheme: @unchecked Sendable {
-    public var bodyFont: MarkdownFont
-    public var codeFont: MarkdownFont
-    public var blockquoteColor: MarkdownColor
-    public var linkColor: MarkdownColor
-    public var headingFonts: [Int: MarkdownFont]
-    public var imageMaxWidth: CGFloat?
-    public var codeBlockTheme: CodeBlockTheme?
-    public var codeHighlighter: AnyCodeSyntaxHighlighter?
+/// Theme configuration for Markdown rendering.
+///
+/// All properties are genuinely `Sendable` — no `@unchecked` needed.
+/// Fonts and colors are stored as specifications (`FontSpec`, `ThemeColor`)
+/// and resolved to platform types at render time inside the renderer actor.
+public struct MarkdownRenderTheme: Sendable {
+    public let bodyFont: FontSpec
+    public let codeFont: FontSpec
+    public let blockquoteColor: ThemeColor
+    public let linkColor: ThemeColor
+    public let headingFonts: [Int: FontSpec]
+    public let imageMaxWidth: CGFloat?
+    public let codeBlockTheme: CodeBlockTheme?
+    public let codeHighlighter: AnyCodeSyntaxHighlighter?
 
-    public init(bodyFont: MarkdownFont,
-                codeFont: MarkdownFont,
-                blockquoteColor: MarkdownColor,
-                linkColor: MarkdownColor,
-                headingFonts: [Int: MarkdownFont],
+    public init(bodyFont: FontSpec,
+                codeFont: FontSpec,
+                blockquoteColor: ThemeColor,
+                linkColor: ThemeColor,
+                headingFonts: [Int: FontSpec],
                 imageMaxWidth: CGFloat? = nil,
                 codeBlockTheme: CodeBlockTheme? = nil,
                 codeHighlighter: AnyCodeSyntaxHighlighter? = nil) {
@@ -35,41 +40,33 @@ public struct MarkdownRenderTheme: @unchecked Sendable {
     }
 
     public static func `default`() -> MarkdownRenderTheme {
-#if canImport(UIKit)
-        let preferredBody = UIFont.preferredFont(forTextStyle: .body)
-        let body = preferredBody.withSize(preferredBody.pointSize + 2)
-        let code = UIFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)
-        let blockquote = UIColor.secondaryLabel
-        let link = UIColor.systemBlue
-        var headings: [Int: UIFont] = [:]
-        headings[1] = UIFont.systemFont(ofSize: body.pointSize * 1.6, weight: .bold)
-        headings[2] = UIFont.systemFont(ofSize: body.pointSize * 1.4, weight: .bold)
-        headings[3] = UIFont.systemFont(ofSize: body.pointSize * 1.2, weight: .semibold)
-        headings[4] = UIFont.systemFont(ofSize: body.pointSize * 1.1, weight: .semibold)
-        headings[5] = UIFont.systemFont(ofSize: body.pointSize, weight: .semibold)
-        headings[6] = UIFont.systemFont(ofSize: body.pointSize, weight: .regular)
-#else
-        let preferredBody = NSFont.preferredFont(forTextStyle: .body)
-        let body = NSFont(descriptor: preferredBody.fontDescriptor, size: preferredBody.pointSize + 2) ?? preferredBody
-        let code = NSFont.monospacedSystemFont(ofSize: body.pointSize, weight: .regular)
-        let blockquote = NSColor.secondaryLabelColor
-        let link = NSColor.systemBlue
-        var headings: [Int: NSFont] = [:]
-        headings[1] = NSFont.systemFont(ofSize: body.pointSize * 1.6, weight: .bold)
-        headings[2] = NSFont.systemFont(ofSize: body.pointSize * 1.4, weight: .bold)
-        headings[3] = NSFont.systemFont(ofSize: body.pointSize * 1.2, weight: .semibold)
-        headings[4] = NSFont.systemFont(ofSize: body.pointSize * 1.1, weight: .semibold)
-        headings[5] = NSFont.systemFont(ofSize: body.pointSize, weight: .semibold)
-        headings[6] = NSFont.systemFont(ofSize: body.pointSize, weight: .regular)
-#endif
-        return MarkdownRenderTheme(bodyFont: body,
-                                   codeFont: code,
-                                   blockquoteColor: blockquote,
-                                   linkColor: link,
-                                   headingFonts: headings,
-                                   imageMaxWidth: nil,
-                                   codeBlockTheme: nil,
-                                   codeHighlighter: nil)
+        let bodySize: CGFloat
+        #if canImport(UIKit)
+        bodySize = UIFont.preferredFont(forTextStyle: .body).pointSize + 2
+        #else
+        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize + 2
+        #endif
+
+        let body = FontSpec(size: bodySize)
+        let code = FontSpec(size: bodySize, design: .monospaced)
+
+        return MarkdownRenderTheme(
+            bodyFont: body,
+            codeFont: code,
+            blockquoteColor: .secondaryLabel,
+            linkColor: .link,
+            headingFonts: [
+                1: FontSpec(size: bodySize * 1.6, weight: .bold),
+                2: FontSpec(size: bodySize * 1.4, weight: .bold),
+                3: FontSpec(size: bodySize * 1.2, weight: .semibold),
+                4: FontSpec(size: bodySize * 1.1, weight: .semibold),
+                5: FontSpec(size: bodySize, weight: .semibold),
+                6: FontSpec(size: bodySize),
+            ],
+            imageMaxWidth: nil,
+            codeBlockTheme: .prismDefault(),
+            codeHighlighter: AnyCodeSyntaxHighlighter(PrismCodeHighlighter())
+        )
     }
 }
 
@@ -132,7 +129,8 @@ actor MarkdownRenderer {
     private func insertBlock(id: BlockID, at position: Int) async {
         guard indexByID[id] == nil else { return }
         let snapshot = await snapshotProvider(id)
-        let block = await buildRenderedBlock(id: id, snapshot: snapshot)
+        let previousKind = previousBlockKind(at: position)
+        let block = await buildRenderedBlock(id: id, snapshot: snapshot, previousBlockKind: previousKind)
         let index = max(0, min(position, blocks.count))
         
         let insertionPoint = rangeStartForBlock(at: index)
@@ -146,7 +144,8 @@ actor MarkdownRenderer {
     private func refreshBlock(id: BlockID) async {
         guard let index = indexByID[id] else { return }
         let snapshot = await snapshotProvider(id)
-        let rendered = await attributeBuilder.render(snapshot: snapshot)
+        let previousKind = previousBlockKind(at: index)
+        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousKind)
         
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
@@ -203,8 +202,13 @@ actor MarkdownRenderer {
         }
     }
 
-    private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot) async -> RenderedBlock {
-        let rendered = await attributeBuilder.render(snapshot: snapshot)
+    private func previousBlockKind(at index: Int) -> BlockKind? {
+        guard index > 0, index <= blocks.count else { return nil }
+        return blocks[index - 1].kind
+    }
+
+    private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {
+        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
