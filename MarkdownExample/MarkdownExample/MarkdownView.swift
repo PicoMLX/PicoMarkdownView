@@ -11,8 +11,6 @@ import WebKit
 
 struct MarkdownView: View {
 
-    @Environment(\.openURL) var openURL
-
     private let webURL: URL
     private let markdown: String
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
@@ -29,9 +27,9 @@ struct MarkdownView: View {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
                     ScrollView {
-                        // Extracted into a subview so that scrollPosition state
-                        // changes don't re-evaluate PicoMarkdownView's body
-                        // (which would restart the stream).
+                        // Extracted into an Equatable subview with no dynamic
+                        // properties so scrollPosition state changes don't
+                        // re-evaluate PicoMarkdownView's body (restarting the stream).
                         StreamingMarkdownContent(markdown: markdown)
                     }
                     .scrollPosition($scrollPosition)
@@ -74,12 +72,18 @@ struct MarkdownView: View {
     }
 }
 
-/// Isolated subview whose only stored property is an Equatable `String`.
-/// SwiftUI skips re-evaluating its body when the parent re-renders due to
-/// scroll-position state changes, preventing the stream from restarting.
-private struct StreamingMarkdownContent: View {
+/// Equatable subview that compares only `markdown`.
+/// SwiftUI skips body re-evaluation when the parent re-renders due to
+/// scroll-position changes, preventing the stream from restarting.
+/// `.onOpenLink` lives inside so a new closure isn't created on every
+/// parent body eval (which would bypass the Equatable optimization).
+private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     @Environment(\.openURL) var openURL
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.markdown == rhs.markdown
+    }
 
     var body: some View {
         PicoMarkdownView(stream: { [markdown] in
@@ -87,7 +91,7 @@ private struct StreamingMarkdownContent: View {
         })
             .textSelection(.enabled)
             .padding()
-            .onOpenLink { url in
+            .onOpenLink { [openURL] url in
                 openURL(url)
                 return .handled
             }
