@@ -11,6 +11,8 @@ import WebKit
 
 struct MarkdownView: View {
 
+    @Environment(\.openURL) private var openURL
+
     private let webURL: URL
     private let markdown: String
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
@@ -30,7 +32,7 @@ struct MarkdownView: View {
                         // Extracted into an Equatable subview with no dynamic
                         // properties so scrollPosition state changes don't
                         // re-evaluate PicoMarkdownView's body (restarting the stream).
-                        StreamingMarkdownContent(markdown: markdown)
+                        StreamingMarkdownContent(markdown: markdown, onOpenURL: { openURL($0) })
                     }
                     .scrollPosition($scrollPosition)
                     .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -72,14 +74,14 @@ struct MarkdownView: View {
     }
 }
 
-/// Equatable subview that compares only `markdown`.
-/// SwiftUI skips body re-evaluation when the parent re-renders due to
-/// scroll-position changes, preventing the stream from restarting.
-/// `.onOpenLink` lives inside so a new closure isn't created on every
-/// parent body eval (which would bypass the Equatable optimization).
+/// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
+/// SwiftUI compares only the `markdown` string via `==` and skips body
+/// re-evaluation when the parent re-renders due to scroll-position changes,
+/// preventing the stream from restarting. The `onOpenURL` closure is excluded
+/// from `==` — it's stable (captures the parent's openURL action).
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
-    @Environment(\.openURL) var openURL
+    let onOpenURL: (URL) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.markdown == rhs.markdown
@@ -89,10 +91,11 @@ private struct StreamingMarkdownContent: View, Equatable {
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
         })
+            .id(markdown)
             .textSelection(.enabled)
             .padding()
-            .onOpenLink { [openURL] url in
-                openURL(url)
+            .onOpenLink { [onOpenURL] url in
+                onOpenURL(url)
                 return .handled
             }
     }
