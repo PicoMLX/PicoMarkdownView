@@ -21,6 +21,33 @@ This goal of this project is to create a SwiftUI view that displays plain text, 
 - Keep in mind that apps using PicoMarkdownView will be showing a list of PicoMarkdownViews in a List or LazyVStack. We'll be using one single PicoMarkdownView per message.
 - The text size should be adjustable programmatically and adjust to the user's accessibility setting if available
 
+## Streaming Invariants (Explicit, Non-Negotiable)
+
+These rules apply to tokenizer/parser fixes and streaming behavior changes.
+
+- No reparse of already-emitted blocks or inline runs
+- No lookback beyond the parser’s existing local pending buffer/state
+- No provisional events followed by later corrections
+- O(k) per chunk processing (`k = current chunk length`)
+- Deterministic event stream for identical chunk sequences
+
+### Additional streaming implementation guardrails
+
+- Parser fixes must be state-local. Prefer changing behavior while a block/inline state is open instead of adding global rescans.
+- If a construct is ambiguous at a chunk boundary, buffer in existing local parser state and wait for more input. Do not emit incorrect text and "fix it later."
+- Keep tokenizer/assembler event semantics stable. Renderer issues (TextKit layout, attachment placement, unsupported math commands) should be fixed in renderer/view layers unless the tokenizer is provably emitting wrong runs/events.
+- Renderer fallbacks (for unsupported math commands) must not alter token/event output. They are presentation-only and should happen after tokenization/assembly.
+- Any tokenizer change that touches streaming edge cases must add/adjust:
+    - chunk-split golden tests
+    - deterministic single-shot vs streamed equivalence tests (where applicable)
+    - at least one regression case for the reported bug
+- Re-run tokenizer benchmarks after parser changes. If throughput regresses materially, document why before merging.
+- Default to block-local or run-local rendering fixes. Avoid full-document replacement/reflow strategies unless a block-local fix is insufficient.
+- For table + math bugs, validate both:
+    - event correctness (no leaked raw TeX/plain-text duplication from parser)
+    - final visual layout (row height/clipping) in the example app
+- Any math fallback sanitizer must be conservative (brace-aware where needed) and must not implement macro expansion or broad regex rewrites.
+
 ## Phase 1 — Streaming Markdown Tokenizer (Parser Core)
 
 Objective
