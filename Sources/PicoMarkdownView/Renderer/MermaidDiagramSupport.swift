@@ -120,6 +120,7 @@ private actor BeautifulMermaidProvider: MermaidDiagramProvider {
         guard !normalized.isEmpty else { return nil }
         guard normalized.utf8.count <= maxSourceLength else { return nil }
         guard normalized.split(separator: "\n", omittingEmptySubsequences: false).count <= maxLineCount else { return nil }
+        _ = request.targetWidth // current backend output is width-independent; Pico rescales attachments
 
         let appearance = await MainActor.run { MermaidAppearance.current() }
         let scaleBucket = Int((request.scale * 100).rounded(.toNearestOrAwayFromZero))
