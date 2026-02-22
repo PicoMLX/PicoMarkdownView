@@ -185,7 +185,7 @@ struct MarkdownRendererTests {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
         let provider = TestMermaidProvider(imageSize: CGSize(width: 240, height: 120))
-        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default().withMermaidRendering(.onFenceClose),
+        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default(),
                                         mermaidProvider: provider) { id in
             await assembler.block(id)
         }
@@ -223,6 +223,104 @@ struct MarkdownRendererTests {
         }
         #expect(foundAttachment)
         #expect(!String(block.content.characters).contains("sequenceDiagram"))
+    }
+
+    @Test("Default theme enables mermaid rendering on fence close")
+    func defaultThemeEnablesMermaid() {
+        #expect(MarkdownRenderTheme.default().mermaidRenderingMode == .onFenceClose)
+    }
+
+    @Test("Mermaid diagrams resize with content width updates and bucket coalescing")
+    func mermaidResizesWithContentWidthUpdates() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let provider = TestMermaidProvider(imageSize: CGSize(width: 1000, height: 500))
+        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default(),
+                                        mermaidProvider: provider) { id in
+            await assembler.block(id)
+        }
+
+        let markdown = """
+        ```mermaid
+        graph LR
+        A-->B
+        ```
+
+        """
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        var blocks = await renderer.renderedBlocks()
+        guard let initial = blocks.first?.mermaidDiagram else {
+            Issue.record("Missing initial mermaid diagram")
+            return
+        }
+        #expect(initial.size.width == 1000)
+        #expect(await provider.callCount() == 1)
+
+        let resizedNarrow = await renderer.updateMermaidContentWidth(320)
+        #expect(resizedNarrow != nil)
+        blocks = await renderer.renderedBlocks()
+        guard let narrow = blocks.first?.mermaidDiagram else {
+            Issue.record("Missing narrow mermaid diagram")
+            return
+        }
+        #expect(abs(narrow.size.width - 320) < 0.1)
+        #expect(abs(narrow.size.height - 160) < 0.1)
+        #expect(await provider.callCount() == 2)
+
+        let sameBucket = await renderer.updateMermaidContentWidth(323)
+        #expect(sameBucket == nil)
+        #expect(await provider.callCount() == 2)
+
+        let resizedWide = await renderer.updateMermaidContentWidth(520)
+        #expect(resizedWide != nil)
+        blocks = await renderer.renderedBlocks()
+        guard let wide = blocks.first?.mermaidDiagram else {
+            Issue.record("Missing widened mermaid diagram")
+            return
+        }
+        #expect(abs(wide.size.width - 520) < 0.1)
+        #expect(abs(wide.size.height - 260) < 0.1)
+        #expect(await provider.callCount() == 3)
+    }
+
+    @Test("Mermaid width updates are ignored when mermaid rendering is disabled")
+    func mermaidWidthUpdatesIgnoredWhenDisabled() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let provider = TestMermaidProvider(imageSize: CGSize(width: 300, height: 150))
+        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default().withMermaidRendering(.disabled),
+                                        mermaidProvider: provider) { id in
+            await assembler.block(id)
+        }
+
+        let markdown = """
+        ```mermaid
+        graph LR
+        A-->B
+        ```
+
+        """
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        let widthUpdate = await renderer.updateMermaidContentWidth(240)
+        #expect(widthUpdate == nil)
+        #expect(await provider.callCount() == 0)
+
+        let blocks = await renderer.renderedBlocks()
+        #expect(blocks.first?.mermaidDiagram == nil)
+        #expect(blocks.first?.codeBlock?.language == "mermaid")
     }
 
     @Test("Open mermaid fences remain code until closed")

@@ -77,7 +77,6 @@ private struct MermaidThemeDescriptor: Sendable, Hashable {
     var accent: ThemeColor
     var muted: ThemeColor
     var fontSize: CGFloat
-    var widthBucket: Int?
 
     init(theme: MarkdownRenderTheme) {
         let codeTheme = theme.codeBlockTheme
@@ -87,17 +86,11 @@ private struct MermaidThemeDescriptor: Sendable, Hashable {
         self.accent = theme.linkColor
         self.muted = .secondaryLabel
         self.fontSize = theme.bodyFont.pointSize
-        if let maxWidth = theme.imageMaxWidth, maxWidth > 0 {
-            self.widthBucket = Int((maxWidth / 8).rounded(.toNearestOrAwayFromZero))
-        } else {
-            self.widthBucket = nil
-        }
     }
 }
 
 private struct MermaidCacheKey: Hashable {
     var source: String
-    var widthBucket: Int?
     var scaleBucket: Int
     var appearance: MermaidAppearance
     var themeDescriptor: MermaidThemeDescriptor
@@ -129,10 +122,8 @@ private actor BeautifulMermaidProvider: MermaidDiagramProvider {
         guard normalized.split(separator: "\n", omittingEmptySubsequences: false).count <= maxLineCount else { return nil }
 
         let appearance = await MainActor.run { MermaidAppearance.current() }
-        let widthBucket = bucketWidth(request.targetWidth)
         let scaleBucket = Int((request.scale * 100).rounded(.toNearestOrAwayFromZero))
         let key = MermaidCacheKey(source: normalized,
-                                  widthBucket: widthBucket,
                                   scaleBucket: scaleBucket,
                                   appearance: appearance,
                                   themeDescriptor: themeDescriptor,
@@ -166,11 +157,6 @@ private actor BeautifulMermaidProvider: MermaidDiagramProvider {
 
     private func normalize(_ source: String) -> String {
         source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
-    }
-
-    private func bucketWidth(_ width: CGFloat?) -> Int? {
-        guard let width, width > 0 else { return nil }
-        return Int((width / 8).rounded(.toNearestOrAwayFromZero))
     }
 
     private func touch(_ key: MermaidCacheKey) {

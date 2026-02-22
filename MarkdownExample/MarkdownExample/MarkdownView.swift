@@ -155,10 +155,9 @@ private struct StreamingMarkdownContent: View, Equatable {
     }
 
     var body: some View {
-        let theme = MarkdownRenderTheme.default().withMermaidRendering(.onFenceClose)
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
-        }, theme: theme)
+        })
             .id(markdown)
             .textSelection(.enabled)
             .padding()

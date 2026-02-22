@@ -20,6 +20,8 @@ final class MarkdownStreamingViewModel {
     private var pendingDiffs: [AssemblerDiff] = []
     private var pendingReplaceToken: UInt64?
     private var updateScheduled = false
+    private var mermaidContentWidth: CGFloat?
+    private var mermaidContentWidthBucket: Int?
 
     init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil) {
         self.theme = theme
@@ -67,6 +69,8 @@ final class MarkdownStreamingViewModel {
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
         var latestBlocks: [RenderedBlock] = []
 
+        _ = await newPipeline.updateMermaidContentWidth(mermaidContentWidth)
+
         if !value.isEmpty {
             if let update = await newPipeline.feed(value) {
                 latestBlocks = update.blocks
@@ -92,6 +96,24 @@ final class MarkdownStreamingViewModel {
         guard !chunk.isEmpty else { return }
         if let update = await pipeline.feed(chunk) {
             enqueueUpdate(blocks: update.blocks, diff: update.diff)
+        }
+    }
+
+    func updateMermaidContentWidth(_ width: CGFloat?) async {
+        guard theme.mermaidRenderingMode.isEnabled else { return }
+
+        let normalizedWidth: CGFloat? = {
+            guard let width, width > 0 else { return nil }
+            return width
+        }()
+        let nextBucket = mermaidWidthBucket(for: normalizedWidth)
+        guard nextBucket != mermaidContentWidthBucket else { return }
+
+        mermaidContentWidth = normalizedWidth
+        mermaidContentWidthBucket = nextBucket
+
+        if let updatedBlocks = await pipeline.updateMermaidContentWidth(normalizedWidth) {
+            enqueueUpdate(blocks: updatedBlocks, diff: nil)
         }
     }
 
@@ -130,5 +152,10 @@ final class MarkdownStreamingViewModel {
         pendingBlocks = nil
         pendingDiffs.removeAll(keepingCapacity: true)
         pendingReplaceToken = nil
+    }
+
+    private func mermaidWidthBucket(for width: CGFloat?) -> Int? {
+        guard let width, width > 0 else { return nil }
+        return Int((width / 8).rounded(.toNearestOrAwayFromZero))
     }
 }

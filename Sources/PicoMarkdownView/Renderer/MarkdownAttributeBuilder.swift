@@ -21,6 +21,7 @@ actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
+    private var runtimeMermaidMaxWidth: CGFloat?
 
     // Resolved platform types — created once at init, isolated to this actor.
     private let bodyFont: PlatformFont
@@ -47,6 +48,14 @@ actor MarkdownAttributeBuilder {
             resolved[level] = spec.resolved()
         }
         self.headingFonts = resolved
+    }
+
+    func setRuntimeMermaidMaxWidth(_ width: CGFloat?) {
+        if let width, width > 0 {
+            runtimeMermaidMaxWidth = width
+        } else {
+            runtimeMermaidMaxWidth = nil
+        }
     }
 
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
@@ -572,8 +581,9 @@ actor MarkdownAttributeBuilder {
         let source = snapshot.codeText ?? ""
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
+        let mermaidMaxWidth = effectiveMermaidMaxWidth()
         let request = MermaidRenderRequest(source: source,
-                                           targetWidth: theme.imageMaxWidth,
+                                           targetWidth: mermaidMaxWidth,
                                            scale: await mermaidRenderScale())
         guard let diagram = await provider.render(request) else {
             return nil
@@ -581,7 +591,7 @@ actor MarkdownAttributeBuilder {
 
         let attachment = NSTextAttachment()
         attachment.image = diagram.image
-        let targetSize = constrainImageSize(diagram.intrinsicSize)
+        let targetSize = constrainImageSize(diagram.intrinsicSize, maxWidth: mermaidMaxWidth)
         attachment.bounds = CGRect(origin: .zero, size: targetSize)
 
         let spacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
@@ -626,6 +636,21 @@ actor MarkdownAttributeBuilder {
         #else
         return 2.0
         #endif
+    }
+
+    private func effectiveMermaidMaxWidth() -> CGFloat? {
+        let runtime = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
+        let themeCap = theme.imageMaxWidth.flatMap { $0 > 0 ? $0 : nil }
+        switch (runtime, themeCap) {
+        case let (.some(runtime), .some(themeCap)):
+            return min(runtime, themeCap)
+        case let (.some(runtime), .none):
+            return runtime
+        case let (.none, .some(themeCap)):
+            return themeCap
+        case (.none, .none):
+            return nil
+        }
     }
 
     private func trimLeadingWhitespace(in attributedString: NSMutableAttributedString) {
@@ -888,7 +913,7 @@ actor MarkdownAttributeBuilder {
                     let attachment = NSTextAttachment()
                     attachment.image = result.image
                     let size = result.size ?? result.image.size
-                    let target = constrainImageSize(size)
+                    let target = constrainImageSize(size, maxWidth: theme.imageMaxWidth)
                     attachment.bounds = CGRect(origin: .zero, size: target)
                     return NSAttributedString(attachment: attachment)
                 }
@@ -900,8 +925,8 @@ actor MarkdownAttributeBuilder {
         return NSAttributedString(string: run.text, attributes: attributes)
     }
 
-    private func constrainImageSize(_ size: CGSize) -> CGSize {
-        guard let maxWidth = theme.imageMaxWidth, maxWidth > 0 else { return size }
+    private func constrainImageSize(_ size: CGSize, maxWidth: CGFloat?) -> CGSize {
+        guard let maxWidth, maxWidth > 0 else { return size }
         guard size.width > maxWidth else { return size }
         let scale = maxWidth / size.width
         return CGSize(width: maxWidth, height: size.height * scale)

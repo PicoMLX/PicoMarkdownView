@@ -179,6 +179,20 @@ final class TextKitStreamingController: ObservableObject {
         }
         return (eligible, latest)
     }
+
+#if canImport(UIKit)
+    func mermaidContentWidth(for textView: UITextView) -> CGFloat? {
+        let insets = textView.textContainerInset
+        let width = textView.bounds.width - insets.left - insets.right
+        return width > 0 ? width : nil
+    }
+#elseif canImport(AppKit)
+    func mermaidContentWidth(for textView: NSTextView) -> CGFloat? {
+        let inset = textView.textContainerInset
+        let width = textView.bounds.width - inset.width * 2
+        return width > 0 ? width : nil
+    }
+#endif
 }
 
 @MainActor

@@ -30,7 +30,7 @@ public struct MarkdownRenderTheme: Sendable {
                 imageMaxWidth: CGFloat? = nil,
                 codeBlockTheme: CodeBlockTheme? = nil,
                 codeHighlighter: AnyCodeSyntaxHighlighter? = nil,
-                mermaidRenderingMode: MermaidRenderingMode = .disabled) {
+                mermaidRenderingMode: MermaidRenderingMode = .onFenceClose) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
@@ -69,7 +69,7 @@ public struct MarkdownRenderTheme: Sendable {
             imageMaxWidth: nil,
             codeBlockTheme: .prismDefault(),
             codeHighlighter: AnyCodeSyntaxHighlighter(PrismCodeHighlighter()),
-            mermaidRenderingMode: .disabled
+            mermaidRenderingMode: .onFenceClose
         )
     }
 }
@@ -84,6 +84,7 @@ actor MarkdownRenderer {
     private var indexByID: [BlockID: Int] = [:]
     private var cachedAttributedString = AttributedString()
     private var blockCharacterOffsets: [Int] = []
+    private var mermaidContentWidthBucket: Int?
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
@@ -113,8 +114,7 @@ actor MarkdownRenderer {
                  .tableHeaderConfirmed(let id),
                  .tableRowAppended(let id, _),
                  .blockEnded(let id):
-                await refreshBlock(id: id)
-                mutated = true
+                mutated = await refreshBlock(id: id) || mutated
             case .blocksDiscarded(let range):
                 removeBlocks(in: range)
                 mutated = true
@@ -130,6 +130,25 @@ actor MarkdownRenderer {
 
     func renderedBlocks() -> [RenderedBlock] {
         blocks
+    }
+
+    func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
+        guard theme.mermaidRenderingMode.isEnabled else { return nil }
+
+        let effectiveWidth = effectiveMermaidContentWidth(for: width)
+        let bucket = mermaidWidthBucket(for: effectiveWidth)
+        guard bucket != mermaidContentWidthBucket else { return nil }
+        mermaidContentWidthBucket = bucket
+
+        await attributeBuilder.setRuntimeMermaidMaxWidth(width)
+
+        var mutated = false
+        let candidateIDs = blocks.filter(shouldRefreshForMermaidWidthChange).map(\.id)
+        for id in candidateIDs {
+            mutated = await refreshBlock(id: id) || mutated
+        }
+
+        return mutated ? blocks : nil
     }
 
     private func makeSnapshot() -> AttributedString {
@@ -151,8 +170,8 @@ actor MarkdownRenderer {
         rebuildCharacterOffsets(startingAt: index)
     }
 
-    private func refreshBlock(id: BlockID) async {
-        guard let index = indexByID[id] else { return }
+    private func refreshBlock(id: BlockID) async -> Bool {
+        guard let index = indexByID[id] else { return false }
         let snapshot = await snapshotProvider(id)
         let previousKind = previousBlockKind(at: index)
         let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousKind)
@@ -160,6 +179,7 @@ actor MarkdownRenderer {
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
         
+        var didMutate = false
         if oldContent != newContent {
             let range = rangeForBlock(at: index)
             cachedAttributedString.replaceSubrange(range, with: newContent)
@@ -168,6 +188,7 @@ actor MarkdownRenderer {
             if oldContent.characters.count != newContent.characters.count {
                 rebuildCharacterOffsets(startingAt: index + 1)
             }
+            didMutate = true
         }
         
         blocks[index].kind = snapshot.kind
@@ -180,6 +201,7 @@ actor MarkdownRenderer {
         blocks[index].images = rendered.images
         blocks[index].codeBlock = rendered.codeBlock
         blocks[index].mermaidDiagram = rendered.mermaidDiagram
+        return didMutate
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -216,6 +238,45 @@ actor MarkdownRenderer {
     private func previousBlockKind(at index: Int) -> BlockKind? {
         guard index > 0, index <= blocks.count else { return nil }
         return blocks[index - 1].kind
+    }
+
+    private func shouldRefreshForMermaidWidthChange(_ block: RenderedBlock) -> Bool {
+        if block.mermaidDiagram != nil {
+            return true
+        }
+        guard block.snapshot.isClosed else { return false }
+        guard case let .fencedCode(language) = block.kind else { return false }
+        return isMermaidLanguage(language)
+    }
+
+    private func isMermaidLanguage(_ language: String?) -> Bool {
+        guard let language else { return false }
+        switch language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "mermaid", "mmd", "mermaidjs":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func effectiveMermaidContentWidth(for runtimeWidth: CGFloat?) -> CGFloat? {
+        let normalizedRuntime = runtimeWidth.flatMap { $0 > 0 ? $0 : nil }
+        let themeWidth = theme.imageMaxWidth.flatMap { $0 > 0 ? $0 : nil }
+        switch (normalizedRuntime, themeWidth) {
+        case let (.some(runtime), .some(themeCap)):
+            return min(runtime, themeCap)
+        case let (.some(runtime), .none):
+            return runtime
+        case let (.none, .some(themeCap)):
+            return themeCap
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func mermaidWidthBucket(for width: CGFloat?) -> Int? {
+        guard let width, width > 0 else { return nil }
+        return Int((width / 8).rounded(.toNearestOrAwayFromZero))
     }
 
     private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {

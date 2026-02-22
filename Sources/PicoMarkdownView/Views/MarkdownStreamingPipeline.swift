@@ -40,6 +40,10 @@ actor MarkdownStreamingPipeline {
         return StreamingUpdate(diff: diff, blocks: blocks)
     }
 
+    func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
+        await renderer.updateMermaidContentWidth(width)
+    }
+
     func snapshot() async -> AttributedString {
         await renderer.currentAttributedString()
     }

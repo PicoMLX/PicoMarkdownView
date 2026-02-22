@@ -43,7 +43,12 @@ public struct PicoMarkdownView: View {
                           blocks: viewModel.blocks,
                           diffs: viewModel.diffQueue,
                           replaceToken: viewModel.replaceToken,
-                          configuration: configuration)
+                          configuration: configuration,
+                          onMeasuredContentWidth: { width in
+                              Task {
+                                  await viewModel.updateMermaidContentWidth(width)
+                              }
+                          })
             .task(id: input.id) {
                 await viewModel.consume(input)
             }
@@ -59,6 +64,7 @@ private struct TextKit2Container: UIViewRepresentable {
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
     var configuration: PicoTextKitConfiguration
+    var onMeasuredContentWidth: (CGFloat?) -> Void
 
     func makeUIView(context: Context) -> UITextView {
         if #available(iOS 16.0, *) {
@@ -70,6 +76,7 @@ private struct TextKit2Container: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        onMeasuredContentWidth(controller.mermaidContentWidth(for: uiView))
     }
 }
 #elseif canImport(AppKit)
@@ -81,6 +88,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
     var configuration: PicoTextKitConfiguration
+    var onMeasuredContentWidth: (CGFloat?) -> Void
 
     func makeNSView(context: Context) -> NSTextView {
         if #available(macOS 13.0, *) {
@@ -92,6 +100,7 @@ private struct TextKit2Container: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
     }
 }
 #endif
