@@ -598,6 +598,19 @@ struct InlineParser {
                             mathState = nil
                             continue parsing
                         }
+                        // Inside \(...\) / \[...\], keep backslashes as TeX content unless
+                        // they close the current math span. Do not apply Markdown escaping.
+                        if nextIndex < text.endIndex {
+                            index = nextIndex
+                            continue parsing
+                        }
+                        if includeUnterminated {
+                            index = nextIndex
+                            continue parsing
+                        } else {
+                            consumedAll = false
+                            break parsing
+                        }
                     default:
                         break
                     }

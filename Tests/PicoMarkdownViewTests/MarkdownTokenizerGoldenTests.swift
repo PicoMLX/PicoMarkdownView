@@ -387,6 +387,31 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Mermaid fences stream as fenced code deltas")
+    func mermaidFenceStreaming() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("```mermaid\nsequenceDiagram\nAlice->>Bob: Hi")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: "mermaid")),
+                .blockAppendFencedCode(.fencedCode(language: "mermaid"),
+                                       textChunk: "sequenceDiagram\nAlice->>Bob: Hi")
+            ],
+            openBlocks: [.fencedCode(language: "mermaid")]
+        ), state: &state)
+
+        let second = await tokenizer.feed("\n```\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendFencedCode(.fencedCode(language: "mermaid"), textChunk: "\n"),
+                .blockEnd(.fencedCode(language: "mermaid"))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Heading then paragraph")
     func headingThenParagraph() async {
         let tokenizer = MarkdownTokenizer()
@@ -1669,6 +1694,90 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Inline math via command delimiters preserves TeX commands")
+    func inlineMathCommandDelimitersPreserveTeXCommands() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("Calc \\(\\displaystyle \\int_a^b f(x)\\,dx\\) now\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [
+                    plain("Calc "),
+                    mathInline("\\displaystyle \\int_a^b f(x)\\,dx"),
+                    plain(" now")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Inline math command delimiters survive opener and command chunk splits")
+    func inlineMathCommandDelimitersAcrossChunks() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("Speed \\")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph)
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("(c \\displa")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain("Speed ")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let third = await tokenizer.feed("ystyle \\times 10^8\\\\")
+        assertChunk(third, matches: .init(
+            events: [],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let fourth = await tokenizer.feed(") done\n\n")
+        assertChunk(fourth, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [
+                    mathInline("c \\displaystyle \\times 10^8\\"),
+                    plain(" done")
+                ]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table row inline math with TeX commands does not leak plain commands")
+    func tableRowInlineMathCommandDoesNotLeakPlainText() async {
+        let markdown = """
+        | Formula |
+        | --- |
+        | \\(\\displaystyle \\int_a^b f(x)\\,dx\\) |
+
+        """
+
+        let summaries = summarizeBlocks(from: await collectEvents(chunks: wordChunksLikeExampleApp(markdown)))
+        #expect(summaries.count == 1)
+
+        guard case let .table(_, _, rows) = summaries[0] else {
+            Issue.record("Expected table summary, got \(summaries)")
+            return
+        }
+
+        #expect(rows.count == 1)
+        #expect(rows[0].count == 1)
+        let cellRuns = rows[0][0]
+        #expect(cellRuns.contains(where: { $0.math?.tex == "\\displaystyle \\int_a^b f(x)\\,dx" }))
+        #expect(!cellRuns.contains(where: { $0.math == nil && ($0.text.contains("displaystyle") || $0.text.contains("int_a")) }))
+    }
+
     @Test("Display math via double dollars")
     func displayMathDoubleDollars() async {
         let tokenizer = MarkdownTokenizer()
@@ -1945,6 +2054,19 @@ struct MarkdownTokenizerGoldenTests {
             tell application "Foo"
                 beep
             end tell
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
+    @Test("Example-app word stream preserves command-delimited inline math")
+    func exampleWordStreamInlineMathCommandDelimiterDeterministic() async {
+        let markdown = """
+        Einstein inline: \\(c \\approx 3.00 \\times 10^8 \\, \\text{m/s}\\).
 
         """
 

@@ -14,11 +14,13 @@ struct RenderedContentResult {
     var math: RenderedMath?
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
+    var mermaidDiagram: RenderedMermaidDiagram? = nil
 }
 
 actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
+    private let mermaidProvider: (any MermaidDiagramProvider)?
 
     // Resolved platform types — created once at init, isolated to this actor.
     private let bodyFont: PlatformFont
@@ -27,9 +29,12 @@ actor MarkdownAttributeBuilder {
     private let blockquoteColor: PlatformColor
     private let linkColor: PlatformColor
 
-    init(theme: MarkdownRenderTheme, imageProvider: MarkdownImageProvider? = nil) {
+    init(theme: MarkdownRenderTheme,
+         imageProvider: MarkdownImageProvider? = nil,
+         mermaidProvider: (any MermaidDiagramProvider)? = nil) {
         self.theme = theme
         self.imageProvider = imageProvider
+        self.mermaidProvider = mermaidProvider
 
         // Resolve Sendable specs to platform types inside the actor
         self.bodyFont = theme.bodyFont.resolved()
@@ -60,6 +65,9 @@ actor MarkdownAttributeBuilder {
         case .blockquote:
             return await renderBlockquote(snapshot: snapshot)
         case .fencedCode:
+            if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
+                return mermaid
+            }
             let text = snapshot.codeText ?? ""
             let codeBlockSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
             let content: NSMutableAttributedString
@@ -552,6 +560,72 @@ actor MarkdownAttributeBuilder {
         content.addAttribute(.paragraphStyle,
                              value: firstParagraphStyle,
                              range: firstParagraphRange)
+    }
+
+    private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
+                                               previousBlockKind: BlockKind?) async -> RenderedContentResult? {
+        guard theme.mermaidRenderingMode.isEnabled else { return nil }
+        guard snapshot.isClosed else { return nil }
+        guard let provider = mermaidProvider else { return nil }
+        guard case let .fencedCode(language) = snapshot.kind, isMermaidLanguage(language) else { return nil }
+
+        let source = snapshot.codeText ?? ""
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        let request = MermaidRenderRequest(source: source,
+                                           targetWidth: theme.imageMaxWidth,
+                                           scale: await mermaidRenderScale())
+        guard let diagram = await provider.render(request) else {
+            return nil
+        }
+
+        let attachment = NSTextAttachment()
+        attachment.image = diagram.image
+        let targetSize = constrainImageSize(diagram.intrinsicSize)
+        attachment.bounds = CGRect(origin: .zero, size: targetSize)
+
+        let spacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
+        let result = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+        let suffixAttributes: [NSAttributedString.Key: Any] = [
+            .font: bodyFont
+        ]
+        result.append(NSAttributedString(string: "\n", attributes: suffixAttributes))
+        if result.length > 0 {
+            result.addAttribute(.paragraphStyle,
+                                value: makeParagraphStyle(spacing),
+                                range: NSRange(location: 0, length: result.length))
+        }
+
+        return RenderedContentResult(attributed: AttributedString(result),
+                                     table: nil,
+                                     listItem: nil,
+                                     blockquote: nil,
+                                     math: nil,
+                                     images: [],
+                                     codeBlock: RenderedCodeBlock(code: source, language: language),
+                                     mermaidDiagram: RenderedMermaidDiagram(source: source,
+                                                                          size: targetSize,
+                                                                          diagnostics: diagram.diagnostics))
+    }
+
+    private func isMermaidLanguage(_ language: String?) -> Bool {
+        guard let language else { return false }
+        switch language.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "mermaid", "mmd", "mermaidjs":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func mermaidRenderScale() async -> CGFloat {
+        #if canImport(UIKit)
+        return await MainActor.run { UIScreen.main.scale }
+        #elseif canImport(AppKit)
+        return await MainActor.run { NSScreen.main?.backingScaleFactor ?? 2.0 }
+        #else
+        return 2.0
+        #endif
     }
 
     private func trimLeadingWhitespace(in attributedString: NSMutableAttributedString) {

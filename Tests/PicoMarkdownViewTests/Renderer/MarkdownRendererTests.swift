@@ -110,6 +110,38 @@ struct MarkdownRendererTests {
         #expect(!normalized.contains("|"))
     }
 
+    @Test("Table rendering with inline math does not leak TeX commands")
+    func tableRenderingInlineMathDoesNotLeakTeXCommands() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let markdown = """
+        | Formula | Notes |
+        | --- | --- |
+        | \\(\\displaystyle \\int_a^b f(x)\\,dx\\) | integral |
+
+        """
+
+        let first = await tokenizer.feed(markdown)
+        let diff1 = await assembler.apply(first)
+        _ = await renderer.apply(diff1)
+
+        let final = await tokenizer.finish()
+        let diff2 = await assembler.apply(final)
+        _ = await renderer.apply(diff2)
+
+        let output = await renderer.currentAttributedString()
+        let rendered = NSAttributedString(output).string
+
+        #expect(rendered.contains("Formula"))
+        #expect(rendered.contains("integral"))
+        #expect(!rendered.contains("displaystyle"))
+        #expect(!rendered.contains("int_a"))
+    }
+
     @Test("Multiline code blocks avoid per-line paragraph margins")
     func multilineCodeBlocksAvoidPerLineMargins() async {
         let tokenizer = MarkdownTokenizer()
@@ -146,6 +178,90 @@ struct MarkdownRendererTests {
         #expect(firstStyle.paragraphSpacing == 0)
         #expect(secondStyle.paragraphSpacing == 0)
         #expect(secondStyle.paragraphSpacingBefore == 0)
+    }
+
+    @Test("Closed mermaid fences render diagram attachments")
+    func closedMermaidFenceRendersAttachment() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let provider = TestMermaidProvider(imageSize: CGSize(width: 240, height: 120))
+        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default().withMermaidRendering(.onFenceClose),
+                                        mermaidProvider: provider) { id in
+            await assembler.block(id)
+        }
+
+        let markdown = """
+        ```mermaid
+        sequenceDiagram
+        Alice->>Bob: Hello
+        ```
+
+        """
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        guard let block = blocks.first else {
+            Issue.record("Missing rendered block")
+            return
+        }
+        #expect(block.codeBlock?.language == "mermaid")
+        #expect(block.mermaidDiagram != nil)
+        #expect(await provider.callCount() >= 1)
+
+        let ns = NSAttributedString(block.content)
+        var foundAttachment = false
+        ns.enumerateAttribute(.attachment, in: NSRange(location: 0, length: ns.length), options: []) { value, _, stop in
+            if value is NSTextAttachment {
+                foundAttachment = true
+                stop.pointee = true
+            }
+        }
+        #expect(foundAttachment)
+        #expect(!String(block.content.characters).contains("sequenceDiagram"))
+    }
+
+    @Test("Open mermaid fences remain code until closed")
+    func openMermaidFenceDefersRendering() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let provider = TestMermaidProvider(imageSize: CGSize(width: 160, height: 90))
+        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default().withMermaidRendering(.onFenceClose),
+                                        mermaidProvider: provider) { id in
+            await assembler.block(id)
+        }
+
+        let first = await tokenizer.feed("```mermaid\nsequenceDiagram\nAlice->>Bob: Hi")
+        let diff1 = await assembler.apply(first)
+        _ = await renderer.apply(diff1)
+
+        var blocks = await renderer.renderedBlocks()
+        guard let openBlock = blocks.first else {
+            Issue.record("Missing open rendered block")
+            return
+        }
+        #expect(openBlock.codeBlock?.language == "mermaid")
+        #expect(openBlock.mermaidDiagram == nil)
+        #expect(await provider.callCount() == 0)
+
+        let second = await tokenizer.feed("\n```\n\n")
+        let diff2 = await assembler.apply(second)
+        _ = await renderer.apply(diff2)
+        let final = await tokenizer.finish()
+        let finalDiff = await assembler.apply(final)
+        _ = await renderer.apply(finalDiff)
+
+        blocks = await renderer.renderedBlocks()
+        guard let closedBlock = blocks.first else {
+            Issue.record("Missing closed rendered block")
+            return
+        }
+        #expect(closedBlock.mermaidDiagram != nil)
+        #expect(await provider.callCount() >= 1)
     }
 
     @Test("Empty diff produces no update")
@@ -366,6 +482,45 @@ struct MarkdownRendererTests {
         let output = await renderer.currentAttributedString()
         #expect(output.characters.isEmpty)
     }
+}
+
+private actor TestMermaidProvider: MermaidDiagramProvider {
+    private let imageSize: CGSize?
+    private var calls = 0
+
+    init(imageSize: CGSize?) {
+        self.imageSize = imageSize
+    }
+
+    func render(_ request: MermaidRenderRequest) async -> MermaidRenderResult? {
+        calls += 1
+        guard let imageSize else { return nil }
+        let image = makeTestImage(size: imageSize)
+        return MermaidRenderResult(image: image, intrinsicSize: imageSize, diagnostics: nil)
+    }
+
+    func callCount() -> Int {
+        calls
+    }
+}
+
+private func makeTestImage(size: CGSize) -> MarkdownImage {
+    #if canImport(UIKit)
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = 1
+    let renderer = UIGraphicsImageRenderer(size: size, format: format)
+    return renderer.image { context in
+        UIColor.systemBlue.setFill()
+        context.fill(CGRect(origin: .zero, size: size))
+    }
+    #else
+    let image = NSImage(size: size)
+    image.lockFocus()
+    NSColor.systemBlue.setFill()
+    NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+    image.unlockFocus()
+    return image
+    #endif
 }
 
 private actor TestSnapshotStore {

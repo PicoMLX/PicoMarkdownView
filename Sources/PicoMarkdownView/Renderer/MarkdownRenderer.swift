@@ -20,6 +20,7 @@ public struct MarkdownRenderTheme: Sendable {
     public let imageMaxWidth: CGFloat?
     public let codeBlockTheme: CodeBlockTheme?
     public let codeHighlighter: AnyCodeSyntaxHighlighter?
+    public let mermaidRenderingMode: MermaidRenderingMode
 
     public init(bodyFont: FontSpec,
                 codeFont: FontSpec,
@@ -28,7 +29,8 @@ public struct MarkdownRenderTheme: Sendable {
                 headingFonts: [Int: FontSpec],
                 imageMaxWidth: CGFloat? = nil,
                 codeBlockTheme: CodeBlockTheme? = nil,
-                codeHighlighter: AnyCodeSyntaxHighlighter? = nil) {
+                codeHighlighter: AnyCodeSyntaxHighlighter? = nil,
+                mermaidRenderingMode: MermaidRenderingMode = .disabled) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
@@ -37,6 +39,7 @@ public struct MarkdownRenderTheme: Sendable {
         self.imageMaxWidth = imageMaxWidth
         self.codeBlockTheme = codeBlockTheme
         self.codeHighlighter = codeHighlighter
+        self.mermaidRenderingMode = mermaidRenderingMode
     }
 
     public static func `default`() -> MarkdownRenderTheme {
@@ -65,7 +68,8 @@ public struct MarkdownRenderTheme: Sendable {
             ],
             imageMaxWidth: nil,
             codeBlockTheme: .prismDefault(),
-            codeHighlighter: AnyCodeSyntaxHighlighter(PrismCodeHighlighter())
+            codeHighlighter: AnyCodeSyntaxHighlighter(PrismCodeHighlighter()),
+            mermaidRenderingMode: .disabled
         )
     }
 }
@@ -81,9 +85,15 @@ actor MarkdownRenderer {
     private var cachedAttributedString = AttributedString()
     private var blockCharacterOffsets: [Int] = []
 
-    init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil, snapshotProvider: @escaping SnapshotProvider) {
+    init(theme: MarkdownRenderTheme = .default(),
+         imageProvider: MarkdownImageProvider? = nil,
+         mermaidProvider: (any MermaidDiagramProvider)? = nil,
+         snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
-        self.attributeBuilder = MarkdownAttributeBuilder(theme: theme, imageProvider: imageProvider)
+        let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
+        self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
+                                                         imageProvider: imageProvider,
+                                                         mermaidProvider: resolvedMermaidProvider)
         self.snapshotProvider = snapshotProvider
     }
 
@@ -169,6 +179,7 @@ actor MarkdownRenderer {
         blocks[index].math = rendered.math
         blocks[index].images = rendered.images
         blocks[index].codeBlock = rendered.codeBlock
+        blocks[index].mermaidDiagram = rendered.mermaidDiagram
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -218,7 +229,8 @@ actor MarkdownRenderer {
                              blockquote: rendered.blockquote,
                              math: rendered.math,
                              images: rendered.images,
-                             codeBlock: rendered.codeBlock)
+                             codeBlock: rendered.codeBlock,
+                             mermaidDiagram: rendered.mermaidDiagram)
     }
     
     private func rebuildCharacterOffsets(startingAt start: Int = 0) {
@@ -288,6 +300,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var math: RenderedMath?
     var images: [RenderedImage] = []
     var codeBlock: RenderedCodeBlock?
+    var mermaidDiagram: RenderedMermaidDiagram?
 }
 
 extension RenderedBlock {
@@ -301,7 +314,8 @@ extension RenderedBlock {
         lhs.blockquote == rhs.blockquote &&
         lhs.math == rhs.math &&
         lhs.images == rhs.images &&
-        lhs.codeBlock == rhs.codeBlock
+        lhs.codeBlock == rhs.codeBlock &&
+        lhs.mermaidDiagram == rhs.mermaidDiagram
     }
 }
 
@@ -332,4 +346,10 @@ struct RenderedMath: Sendable, Equatable {
 struct RenderedCodeBlock: Sendable, Equatable {
     var code: String
     var language: String?
+}
+
+struct RenderedMermaidDiagram: Sendable, Equatable {
+    var source: String
+    var size: CGSize
+    var diagnostics: String?
 }
