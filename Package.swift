@@ -38,6 +38,9 @@ let package = Package(
         .testTarget(
             name: "PicoMarkdownViewBenchmarks",
             dependencies: ["PicoMarkdownView"],
+            exclude: [
+                "benchmark-results.md"
+            ],
             resources: [
                 .process("Benchmarks/sample1.md")
             ]

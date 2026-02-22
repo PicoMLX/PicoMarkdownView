@@ -16,7 +16,27 @@ struct MarkdownAssemblerBenchmarks {
         try await runBenchmark(on: contents, chunkSize: chunkSize, iterations: 25)
     }
 
+    @Test("Assembler sample1 example word-stream benchmark")
+    func assemblerSample1ExampleWordStreamBenchmark() async throws {
+        guard ProcessInfo.processInfo.environment["RUN_BENCHMARKS"] == "1" else {
+            return
+        }
+
+        let url = try #require(Bundle.module.url(forResource: "sample1", withExtension: "md"))
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        let chunks = wordChunksLikeExampleApp(contents)
+        try await runBenchmark(onChunks: chunks, iterations: 25)
+    }
+
     private func runBenchmark(on text: String, chunkSize: Int, iterations: Int) async throws {
+        try await runBenchmark(onChunks: chunk(text, size: chunkSize),
+                               iterations: iterations,
+                               label: "Assembler sample1 chunkSize=\(chunkSize)")
+    }
+
+    private func runBenchmark(onChunks chunks: [String],
+                              iterations: Int,
+                              label: String = "Assembler sample1 example-word-stream") async throws {
         var aggregate = Metrics()
         let clock = ContinuousClock()
 
@@ -24,10 +44,7 @@ struct MarkdownAssemblerBenchmarks {
             let tokenizer = MarkdownTokenizer()
             let assembler = MarkdownAssembler()
 
-            var index = text.startIndex
-            while index < text.endIndex {
-                let end = text.index(index, offsetBy: chunkSize, limitedBy: text.endIndex) ?? text.endIndex
-                let chunk = String(text[index..<end])
+            for chunk in chunks {
                 let result = await tokenizer.feed(chunk)
 
                 let applyStart = clock.now
@@ -35,7 +52,6 @@ struct MarkdownAssemblerBenchmarks {
                 let elapsed = applyStart.duration(to: clock.now)
 
                 aggregate.update(with: result, diff: diff, duration: elapsed, chunkBytes: chunk.utf8.count)
-                index = end
             }
 
             let finalResult = await tokenizer.finish()
@@ -49,13 +65,46 @@ struct MarkdownAssemblerBenchmarks {
             aggregate.finishIteration(iteration: iteration)
         }
 
-        aggregate.printReport(chunkSize: chunkSize, iterations: iterations)
+        aggregate.printReport(label: label, iterations: iterations)
 
         if let average = aggregate.averageDurationPerApply {
             #expect(average < Duration.milliseconds(10))
         }
         #expect(aggregate.totalEvents > 0)
         #expect(aggregate.maxBufferedBytes > 0)
+    }
+
+    private func chunk(_ text: String, size: Int) -> [String] {
+        var result: [String] = []
+        var index = text.startIndex
+        while index < text.endIndex {
+            let end = text.index(index, offsetBy: size, limitedBy: text.endIndex) ?? text.endIndex
+            result.append(String(text[index..<end]))
+            index = end
+        }
+        return result
+    }
+
+    private func wordChunksLikeExampleApp(_ markdown: String) -> [String] {
+        var result: [String] = []
+        var chunk = ""
+        var wordSeen = false
+        for character in markdown {
+            chunk.append(character)
+            if character.isWhitespace {
+                if wordSeen {
+                    result.append(chunk)
+                    chunk.removeAll(keepingCapacity: true)
+                    wordSeen = false
+                }
+            } else {
+                wordSeen = true
+            }
+        }
+        if !chunk.isEmpty {
+            result.append(chunk)
+        }
+        return result
     }
 }
 
@@ -158,9 +207,9 @@ private struct Metrics {
         if totalBufferedBytes < 0 { totalBufferedBytes = 0 }
     }
 
-    func printReport(chunkSize: Int, iterations: Int) {
+    func printReport(label: String, iterations: Int) {
         let avgDuration = averageDurationPerApply.map { format($0) } ?? "n/a"
-        print("Assembler sample1 chunkSize=\(chunkSize) iterations=\(iterations) applies=\(applyCount) avg=\(avgDuration) totalEvents=\(totalEvents) maxBufferedBytes=\(maxBufferedBytes) maxOpenBlocks=\(maxOpenBlocks) maxActiveBlocks=\(maxActiveBlocks)")
+        print("\(label) iterations=\(iterations) applies=\(applyCount) avg=\(avgDuration) totalEvents=\(totalEvents) maxBufferedBytes=\(maxBufferedBytes) maxOpenBlocks=\(maxOpenBlocks) maxActiveBlocks=\(maxActiveBlocks)")
     }
 
     private func format(_ duration: Duration) -> String {

@@ -110,6 +110,44 @@ struct MarkdownRendererTests {
         #expect(!normalized.contains("|"))
     }
 
+    @Test("Multiline code blocks avoid per-line paragraph margins")
+    func multilineCodeBlocksAvoidPerLineMargins() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let markdown = "```swift\nlet a = 1\nprint(a)\n```\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        let output = await renderer.currentAttributedString()
+        let ns = NSAttributedString(output)
+        let rendered = ns.string
+
+        guard let firstLineIndex = rendered.range(of: "let a = 1").map({ rendered.distance(from: rendered.startIndex, to: $0.lowerBound) }),
+              let secondLineIndex = rendered.range(of: "print(a)").map({ rendered.distance(from: rendered.startIndex, to: $0.lowerBound) }) else {
+            Issue.record("Could not locate code lines in rendered output: \(rendered)")
+            return
+        }
+
+        guard let firstStyle = ns.attribute(.paragraphStyle, at: firstLineIndex, effectiveRange: nil) as? NSParagraphStyle,
+              let secondStyle = ns.attribute(.paragraphStyle, at: secondLineIndex, effectiveRange: nil) as? NSParagraphStyle else {
+            Issue.record("Missing paragraph styles on code lines")
+            return
+        }
+
+        #expect(firstStyle.paragraphSpacing == 0)
+        #expect(secondStyle.paragraphSpacing == 0)
+        #expect(secondStyle.paragraphSpacingBefore == 0)
+    }
+
     @Test("Empty diff produces no update")
     func emptyDiffReturnsNil() async {
         let assembler = MarkdownAssembler()

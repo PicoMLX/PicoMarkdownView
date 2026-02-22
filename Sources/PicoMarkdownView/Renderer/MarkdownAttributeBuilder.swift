@@ -61,7 +61,7 @@ actor MarkdownAttributeBuilder {
             return await renderBlockquote(snapshot: snapshot)
         case .fencedCode:
             let text = snapshot.codeText ?? ""
-            let codeSpacing = makeParagraphStyle(collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind))
+            let codeBlockSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
             let content: NSMutableAttributedString
             if let codeTheme = theme.codeBlockTheme {
                 let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
@@ -79,15 +79,20 @@ actor MarkdownAttributeBuilder {
                 let hasBackground = codeTheme.backgroundColor != .clear
 
                 if content.length > 0 {
-                    content.addAttribute(.paragraphStyle, value: codeSpacing, range: NSRange(location: 0, length: content.length))
+                    applyCodeBlockParagraphStyles(to: content, spacing: codeBlockSpacing)
                     if hasBackground {
                         content.addAttribute(.backgroundColor, value: resolvedBg, range: NSRange(location: 0, length: content.length))
                     }
                 }
 
+                let suffixParagraphStyle = makeCodeParagraphStyle(
+                    lineHeightMultiple: codeBlockSpacing.lineHeightMultiple,
+                    spacingBefore: content.length == 0 ? codeBlockSpacing.spacingBefore : 0,
+                    spacingAfter: codeBlockSpacing.spacingAfter
+                )
                 var suffixAttrs: [NSAttributedString.Key: Any] = [
                     .font: resolvedCodeFont,
-                    .paragraphStyle: codeSpacing
+                    .paragraphStyle: suffixParagraphStyle
                 ]
                 suffixAttrs[.foregroundColor] = resolvedFg
                 if hasBackground {
@@ -100,10 +105,18 @@ actor MarkdownAttributeBuilder {
                     .foregroundColor: PlatformColor.rendererLabel
                 ]
                 content = NSMutableAttributedString(string: text, attributes: attributes)
+                if content.length > 0 {
+                    applyCodeBlockParagraphStyles(to: content, spacing: codeBlockSpacing)
+                }
+                let suffixParagraphStyle = makeCodeParagraphStyle(
+                    lineHeightMultiple: codeBlockSpacing.lineHeightMultiple,
+                    spacingBefore: content.length == 0 ? codeBlockSpacing.spacingBefore : 0,
+                    spacingAfter: codeBlockSpacing.spacingAfter
+                )
                 let suffixAttrs: [NSAttributedString.Key: Any] = [
                     .font: codeFont,
                     .foregroundColor: PlatformColor.rendererLabel,
-                    .paragraphStyle: codeSpacing
+                    .paragraphStyle: suffixParagraphStyle
                 ]
                 content.append(NSAttributedString(string: "\n", attributes: suffixAttrs))
             }
@@ -506,6 +519,39 @@ actor MarkdownAttributeBuilder {
         style.headIndent = 0
         style.firstLineHeadIndent = 0
         return style
+    }
+
+    private func makeCodeParagraphStyle(lineHeightMultiple: CGFloat,
+                                        spacingBefore: CGFloat,
+                                        spacingAfter: CGFloat) -> NSMutableParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.lineHeightMultiple = lineHeightMultiple
+        style.paragraphSpacingBefore = spacingBefore
+        style.paragraphSpacing = spacingAfter
+        style.headIndent = 0
+        style.firstLineHeadIndent = 0
+        return style
+    }
+
+    private func applyCodeBlockParagraphStyles(to content: NSMutableAttributedString,
+                                               spacing: ParagraphSpacing) {
+        guard content.length > 0 else { return }
+
+        let innerStyle = makeCodeParagraphStyle(lineHeightMultiple: spacing.lineHeightMultiple,
+                                                spacingBefore: 0,
+                                                spacingAfter: 0)
+        content.addAttribute(.paragraphStyle,
+                             value: innerStyle,
+                             range: NSRange(location: 0, length: content.length))
+
+        let firstParagraphRange = (content.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+        let firstParagraphStyle = makeCodeParagraphStyle(lineHeightMultiple: spacing.lineHeightMultiple,
+                                                         spacingBefore: spacing.spacingBefore,
+                                                         spacingAfter: 0)
+        content.addAttribute(.paragraphStyle,
+                             value: firstParagraphStyle,
+                             range: firstParagraphRange)
     }
 
     private func trimLeadingWhitespace(in attributedString: NSMutableAttributedString) {

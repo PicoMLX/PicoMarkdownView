@@ -1777,6 +1777,183 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Heading marker-only chunk does not emit stray paragraph")
+    func headingMarkerOnlyChunk() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("# ")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.heading(level: 1))
+            ],
+            openBlocks: [.heading(level: 1)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("Title\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.heading(level: 1), runs: [plain("Title")]),
+                .blockEnd(.heading(level: 1))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Unordered list marker-only chunk stays in same item")
+    func unorderedListMarkerOnlyChunk() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("* ")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: false, index: nil, task: nil))
+            ],
+            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("Item\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("Item"), plain("\n")]),
+                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Ordered list marker-only chunk stays in same item")
+    func orderedListMarkerOnlyChunk() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("1. ")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.listItem(ordered: true, index: 1, task: nil))
+            ],
+            openBlocks: [.listItem(ordered: true, index: 1, task: nil)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("Item\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.listItem(ordered: true, index: 1, task: nil), runs: [plain("Item"), plain("\n")]),
+                .blockEnd(.listItem(ordered: true, index: 1, task: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Blockquote marker-only chunk does not emit stray text")
+    func blockquoteMarkerOnlyChunk() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> ")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.blockquote)
+            ],
+            openBlocks: [.blockquote]
+        ), state: &state)
+
+        let second = await tokenizer.feed("Quote\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.blockquote, runs: [plain("Quote"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Indented code block parses as code deltas")
+    func indentedCodeBlockParsesAsCode() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("    This is a code block.\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: nil)),
+                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "This is a code block.\n\n")
+            ],
+            openBlocks: [.fencedCode(language: nil)]
+        ), state: &state)
+
+        let finish = await tokenizer.finish()
+        assertChunk(finish, matches: .init(
+            events: [
+                .blockEnd(.fencedCode(language: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Indented code block preserves nested indentation and HTML text")
+    func indentedCodePreservesVerbatimContent() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let markdown = """
+            \u{20}\u{20}\u{20}\u{20}<div class="footer">
+            \u{20}\u{20}\u{20}\u{20}\u{20}\u{20}\u{20}\u{20}&copy; 2004 Foo Corporation
+            \u{20}\u{20}\u{20}\u{20}</div>
+
+            """
+
+        let result = await tokenizer.feed(markdown)
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: nil)),
+                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "<div class=\"footer\">\n    &copy; 2004 Foo Corporation\n</div>\n")
+            ],
+            openBlocks: [.fencedCode(language: nil)]
+        ), state: &state)
+
+        let finish = await tokenizer.finish()
+        assertChunk(finish, matches: .init(
+            events: [
+                .blockEnd(.fencedCode(language: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Example-app word stream keeps markdown-it heading and TOC shapes")
+    func exampleWordStreamMarkdownItHeadingAndTOC() async {
+        let markdown = """
+        # Markdown: Syntax
+
+        *   [Overview](#overview)
+            *   [Philosophy](#philosophy)
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown + "\n\n"])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown + "\n\n"))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
+    @Test("Example-app word stream keeps TEST indented code block shape")
+    func exampleWordStreamTestIndentedCodeShape() async {
+        let markdown = """
+        Here is an example of AppleScript:
+
+            tell application "Foo"
+                beep
+            end tell
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
 private struct ChunkExpectation: Sendable {
     var events: [EventShape]
     var openBlocks: [BlockKind] = []
@@ -1928,6 +2105,30 @@ private func chunk(_ source: String, seed: Int) -> [String] {
         let end = source.index(index, offsetBy: step, limitedBy: source.endIndex) ?? source.endIndex
         result.append(String(source[index..<end]))
         index = end
+    }
+    return result
+}
+
+private func wordChunksLikeExampleApp(_ markdown: String) -> [String] {
+    var result: [String] = []
+    var chunk = ""
+    var wordSeen = false
+
+    for character in markdown {
+        chunk.append(character)
+        if character.isWhitespace {
+            if wordSeen {
+                result.append(chunk)
+                chunk.removeAll(keepingCapacity: true)
+                wordSeen = false
+            }
+        } else {
+            wordSeen = true
+        }
+    }
+
+    if !chunk.isEmpty {
+        result.append(chunk)
     }
     return result
 }

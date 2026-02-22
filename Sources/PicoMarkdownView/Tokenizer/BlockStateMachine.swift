@@ -44,11 +44,13 @@ struct StreamingParser {
         var marker: String
         var language: String?
         var closingMarker: String?
+        var isIndented: Bool
 
-        init(marker: String, language: String?, closingMarker: String? = nil) {
+        init(marker: String, language: String?, closingMarker: String? = nil, isIndented: Bool = false) {
             self.marker = marker
             self.language = language
             self.closingMarker = closingMarker
+            self.isIndented = isIndented
         }
     }
 
@@ -230,6 +232,12 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return
             }
+            if let prefixLength = detectIndentedCodePrefix(lineBuffer) {
+                openIndentedCode(prefixLength: prefixLength)
+                emittedCount = min(lineBuffer.count, prefixLength)
+                lineAnalyzed = true
+                return
+            }
 
             if let heading = detectHeading(lineBuffer) {
                 openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
@@ -268,6 +276,11 @@ struct StreamingParser {
                 openUnknown()
                 appendUnknownLiteral(lineBuffer)
                 emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return
+            }
+
+            if !isLineComplete, shouldDeferParagraphFallback(for: lineBuffer) {
                 lineAnalyzed = true
                 return
             }
@@ -443,6 +456,22 @@ struct StreamingParser {
             case .math:
                 break
             case .fencedCode:
+                if isIndentedCodeBlock(ctx) {
+                    if let prefixLength = detectIndentedCodePrefix(lineBuffer) {
+                        ctx.linePrefixToStrip = prefixLength
+                        setCurrentBlock(ctx)
+                        if emittedCount < prefixLength {
+                            emittedCount = min(lineBuffer.count, prefixLength)
+                        }
+                        lineAnalyzed = true
+                        return
+                    }
+                    if !trimmed.isEmpty {
+                        closeCurrentBlock()
+                        analyzeLineIfNeeded(isLineComplete: isLineComplete)
+                        return
+                    }
+                }
                 break
             case .horizontalRule:
                 break
@@ -1021,6 +1050,25 @@ struct StreamingParser {
         }
     }
 
+    private mutating func openIndentedCode(prefixLength: Int) {
+        let context = BlockContext(
+            id: nextID,
+            kind: .fencedCode(language: nil),
+            inlineParser: nil,
+            tableState: nil,
+            fenceInfo: FenceInfo(marker: "", language: nil, closingMarker: nil, isIndented: true),
+            literal: "",
+            fenceJustOpened: false,
+            linePrefixToStrip: prefixLength,
+            headingPendingSuffix: "",
+            eventStartIndex: events.count,
+            listIndent: 0
+        )
+        nextID &+= 1
+        events.append(.blockStart(id: context.id, kind: .fencedCode(language: nil)))
+        pushBlock(context)
+    }
+
     private mutating func openTable(_ line: String) {
         var context = BlockContext(
             id: nextID,
@@ -1140,6 +1188,7 @@ struct StreamingParser {
 
     private func isClosingFence(_ line: String, fence: FenceInfo?) -> Bool {
         guard let fence = fence else { return false }
+        if fence.isIndented { return false }
         let marker = fence.closingMarker ?? fence.marker
         guard line.hasPrefix(marker) else { return false }
         let remainder = line.dropFirst(marker.count)
@@ -1155,7 +1204,6 @@ struct StreamingParser {
         }
         guard level > 0, index < line.endIndex, line[index] == " " else { return nil }
         let prefixLength = level + 1 // heading markers + following space
-        guard line.count > prefixLength else { return nil }
         return HeadingInfo(level: level, prefixLength: prefixLength)
     }
 
@@ -1289,7 +1337,7 @@ struct StreamingParser {
 
     private func shouldStartNewListItem(currentContext: BlockContext, list: ListInfo, emittedCount: Int) -> Bool {
         guard case .listItem(let currentOrdered, let currentIndex, let currentTask) = currentContext.kind else { return true }
-        if emittedCount > list.prefixLength {
+        if emittedCount >= list.prefixLength {
             if list.ordered == currentOrdered,
                list.index == currentIndex,
                list.task == currentTask {
@@ -1308,6 +1356,79 @@ struct StreamingParser {
             return true
         }
         return emittedCount <= list.prefixLength
+    }
+
+    private func isIndentedCodeBlock(_ context: BlockContext) -> Bool {
+        guard case .fencedCode = context.kind else { return false }
+        return context.fenceInfo?.isIndented == true
+    }
+
+    private func detectIndentedCodePrefix(_ line: String) -> Int? {
+        guard !line.isEmpty else { return nil }
+        if line.trimmingCharacters(in: .whitespaces).isEmpty {
+            return nil
+        }
+        if line.hasPrefix("\t") {
+            return 1
+        }
+        let spaces = line.prefix { $0 == " " }.count
+        return spaces >= 4 ? 4 : nil
+    }
+
+    private func shouldDeferParagraphFallback(for line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+
+        if trimmed.first == "|" { return true }          // table candidate
+        if trimmed.hasPrefix(":::") { return true }      // unknown block extension fallback
+
+        if trimmed.allSatisfy({ $0 == "#" || $0 == " " }) {
+            return true // heading marker may be split before text arrives
+        }
+        if trimmed.allSatisfy({ $0 == ">" || $0 == " " }) && trimmed.contains(">") {
+            return true // blockquote markers only
+        }
+        if isPotentialListMarkerOnly(trimmed) {
+            return true
+        }
+        if isPotentialFencePrefixOnly(trimmed) {
+            return true
+        }
+        if trimmed.allSatisfy({ $0 == "-" || $0 == "*" || $0 == "_" || $0 == " " }) {
+            return true // could still become horizontal rule on newline
+        }
+        return false
+    }
+
+    private func isPotentialListMarkerOnly(_ trimmed: String) -> Bool {
+        if trimmed == "-" || trimmed == "*" || trimmed == "+" { return true }
+        if (trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ")) &&
+            trimmed.dropFirst(2).allSatisfy({ $0 == " " }) {
+            return true
+        }
+
+        var digits = 0
+        var seenDot = false
+        for character in trimmed {
+            if character.isNumber, !seenDot {
+                digits += 1
+                continue
+            }
+            if character == ".", !seenDot, digits > 0 {
+                seenDot = true
+                continue
+            }
+            if character == " ", seenDot {
+                continue
+            }
+            return false
+        }
+        return digits > 0 && seenDot
+    }
+
+    private func isPotentialFencePrefixOnly(_ trimmed: String) -> Bool {
+        guard let first = trimmed.first, first == "`" || first == "~" else { return false }
+        return trimmed.allSatisfy { $0 == first || $0 == " " }
     }
 
     private func detectTableCandidate(_ line: String) -> Bool {
