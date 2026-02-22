@@ -12,11 +12,15 @@ import WebKit
 struct MarkdownView: View {
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let webURL: URL
     private let markdown: String
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
+    @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
+
+    private let autoScrollClock = ContinuousClock()
 
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
@@ -35,21 +39,16 @@ struct MarkdownView: View {
                         StreamingMarkdownContent(markdown: markdown, onOpenURL: { openURL($0) })
                     }
                     .scrollPosition($scrollPosition)
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        let visibleBottom = geometry.contentOffset.y + geometry.containerSize.height
-                        return geometry.contentSize.height - visibleBottom < 80
-                    } action: { _, isNearBottom in
-                        isAutoScrolling = isNearBottom
-                    }
-                    .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                        geometry.contentSize.height
-                    } action: { oldHeight, newHeight in
-                        if newHeight > oldHeight, isAutoScrolling {
-                            scrollPosition.scrollTo(edge: .bottom)
-                        }
-                        if newHeight < oldHeight {
-                            isAutoScrolling = true
-                        }
+                    .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
+                        let contentHeight = geometry.contentSize.height
+                        let offsetY = geometry.contentOffset.y
+                        let visibleBottom = offsetY + geometry.containerSize.height
+                        let isNearBottom = contentHeight - visibleBottom < AutoScrollConfig.nearBottomThreshold
+                        return ScrollMetrics(contentHeight: contentHeight,
+                                             offsetY: offsetY,
+                                             isNearBottom: isNearBottom)
+                    } action: { oldMetrics, newMetrics in
+                        handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
                     }
                 }
                 Tab("Debug", systemImage: "ladybug") {
@@ -72,6 +71,74 @@ struct MarkdownView: View {
                 .id(webURL)
         }
     }
+
+    private func handleScrollMetricsChange(from old: ScrollMetrics, to new: ScrollMetrics) {
+        let didGrow = new.contentHeight > old.contentHeight + AutoScrollConfig.heightEpsilon
+        let scrollDeltaY = new.offsetY - old.offsetY
+
+        let now = autoScrollClock.now
+        // Ignore transient "not at bottom" snapshots while our own short scroll animation catches up.
+        let suppressionActive = autoScrollSuppressionDeadline.map { $0 > now } ?? false
+        if !suppressionActive, autoScrollSuppressionDeadline != nil {
+            autoScrollSuppressionDeadline = nil
+        }
+
+        var requestedProgrammaticScroll = false
+        if didGrow, isAutoScrolling {
+            requestedProgrammaticScroll = true
+            autoScrollSuppressionDeadline = now.advanced(by: AutoScrollConfig.suppressionWindow)
+            scrollToBottom(animated: !reduceMotion)
+        }
+
+        if new.isNearBottom {
+            if !isAutoScrolling {
+                isAutoScrolling = true
+            }
+            return
+        }
+
+        if requestedProgrammaticScroll {
+            return
+        }
+
+        if suppressionActive {
+            if scrollDeltaY < -AutoScrollConfig.manualCancelDeltaThreshold {
+                if isAutoScrolling {
+                    isAutoScrolling = false
+                }
+                autoScrollSuppressionDeadline = nil
+            }
+            return
+        }
+
+        if isAutoScrolling {
+            isAutoScrolling = false
+        }
+    }
+
+    private func scrollToBottom(animated: Bool) {
+        if animated {
+            withAnimation(.smooth(duration: AutoScrollConfig.animationDuration)) {
+                scrollPosition.scrollTo(edge: .bottom)
+            }
+        } else {
+            scrollPosition.scrollTo(edge: .bottom)
+        }
+    }
+}
+
+private struct ScrollMetrics: Equatable {
+    let contentHeight: CGFloat
+    let offsetY: CGFloat
+    let isNearBottom: Bool
+}
+
+private enum AutoScrollConfig {
+    static let nearBottomThreshold: CGFloat = 80
+    static let manualCancelDeltaThreshold: CGFloat = 3
+    static let heightEpsilon: CGFloat = 0.5
+    static let animationDuration: Double = 0.10
+    static let suppressionWindow: Duration = .milliseconds(140)
 }
 
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
