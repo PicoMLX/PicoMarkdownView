@@ -18,7 +18,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3")),
-        .package(url: "https://github.com/lukilabs/beautiful-mermaid-swift.git", from: "0.1.1")
+        .package(url: "https://github.com/PicoMLX/beautiful-mermaid-swift", branch: "br-tag")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.

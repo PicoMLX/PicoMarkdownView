@@ -4,10 +4,10 @@
     {
       "identity" : "beautiful-mermaid-swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lukilabs/beautiful-mermaid-swift.git",
+      "location" : "https://github.com/PicoMLX/beautiful-mermaid-swift",
       "state" : {
-        "revision" : "c6a63655285c5e479d6641c774acb0a8739f8ad7",
-        "version" : "0.1.1"
+        "branch" : "br-tag",
+        "revision" : "bd0a8df677d7352a4513bba408066b41ef18d05b"
       }
     },
     {
