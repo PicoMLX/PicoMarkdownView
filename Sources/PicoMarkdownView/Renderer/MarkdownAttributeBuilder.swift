@@ -639,6 +639,14 @@ actor MarkdownAttributeBuilder {
     }
 
     private func effectiveMermaidMaxWidth() -> CGFloat? {
+        effectiveAttachmentMaxWidth()
+    }
+
+    private func effectiveInlineImageMaxWidth() -> CGFloat? {
+        effectiveAttachmentMaxWidth()
+    }
+
+    private func effectiveAttachmentMaxWidth() -> CGFloat? {
         let runtime = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
         let themeCap = theme.imageMaxWidth.flatMap { $0 > 0 ? $0 : nil }
         switch (runtime, themeCap) {
@@ -913,7 +921,7 @@ actor MarkdownAttributeBuilder {
                     let attachment = NSTextAttachment()
                     attachment.image = result.image
                     let size = result.size ?? result.image.size
-                    let target = constrainImageSize(size, maxWidth: theme.imageMaxWidth)
+                    let target = constrainImageSize(size, maxWidth: effectiveInlineImageMaxWidth())
                     attachment.bounds = CGRect(origin: .zero, size: target)
                     return NSAttributedString(attachment: attachment)
                 }

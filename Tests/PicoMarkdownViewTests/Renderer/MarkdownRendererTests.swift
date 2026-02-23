@@ -326,6 +326,65 @@ struct MarkdownRendererTests {
         #expect(blocks.first?.codeBlock?.language == "mermaid")
     }
 
+    @Test("Inline images resize with content width updates and bucket coalescing")
+    func inlineImagesResizeWithContentWidthUpdates() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let provider = TestImageProvider(imageSize: CGSize(width: 1000, height: 500))
+        let renderer = MarkdownRenderer(theme: MarkdownRenderTheme.default(),
+                                        imageProvider: provider) { id in
+            await assembler.block(id)
+        }
+
+        let chunk = await tokenizer.feed("![diagram](https://example.com/diagram.png)\n\n")
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finishChunk = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finishChunk)
+        _ = await renderer.apply(finishDiff)
+
+        var blocks = await renderer.renderedBlocks()
+        guard let initialBlock = blocks.first else {
+            Issue.record("Missing rendered image block")
+            return
+        }
+        guard let initialBounds = firstAttachmentBounds(in: initialBlock.content) else {
+            Issue.record("Missing initial image attachment")
+            return
+        }
+        #expect(abs(initialBounds.width - 1000) < 0.1)
+        #expect(abs(initialBounds.height - 500) < 0.1)
+        let initialCallCount = await provider.callCount()
+        #expect(initialCallCount >= 1)
+
+        let resizedNarrow = await renderer.updateMermaidContentWidth(320)
+        #expect(resizedNarrow != nil)
+        blocks = await renderer.renderedBlocks()
+        guard let narrowBounds = blocks.first.flatMap({ firstAttachmentBounds(in: $0.content) }) else {
+            Issue.record("Missing narrow image attachment")
+            return
+        }
+        #expect(abs(narrowBounds.width - 320) < 0.1)
+        #expect(abs(narrowBounds.height - 160) < 0.1)
+        let narrowCallCount = await provider.callCount()
+        #expect(narrowCallCount > initialCallCount)
+
+        let sameBucket = await renderer.updateMermaidContentWidth(323)
+        #expect(sameBucket == nil)
+        #expect(await provider.callCount() == narrowCallCount)
+
+        let resizedWide = await renderer.updateMermaidContentWidth(520)
+        #expect(resizedWide != nil)
+        blocks = await renderer.renderedBlocks()
+        guard let wideBounds = blocks.first.flatMap({ firstAttachmentBounds(in: $0.content) }) else {
+            Issue.record("Missing widened image attachment")
+            return
+        }
+        #expect(abs(wideBounds.width - 520) < 0.1)
+        #expect(abs(wideBounds.height - 260) < 0.1)
+        #expect(await provider.callCount() > narrowCallCount)
+    }
+
     @Test("Open mermaid fences remain code until closed")
     func openMermaidFenceDefersRendering() async {
         let tokenizer = MarkdownTokenizer()
@@ -441,7 +500,7 @@ struct MarkdownRendererTests {
         let renderedString = String(paragraph.content.characters)
         #expect(renderedString.contains("Intro"))
         #expect(renderedString.contains("outro"))
-        #expect(!renderedString.contains("diagram"))
+        #expect(renderedString.contains("diagram"))
     }
 
     @Test("Tables render with text table blocks")
@@ -603,6 +662,38 @@ private actor TestMermaidProvider: MermaidDiagramProvider {
     func callCount() -> Int {
         calls
     }
+}
+
+private actor TestImageProvider: MarkdownImageProvider {
+    private let imageSize: CGSize?
+    private var calls = 0
+
+    init(imageSize: CGSize?) {
+        self.imageSize = imageSize
+    }
+
+    func image(for url: URL) async -> MarkdownImageResult? {
+        calls += 1
+        guard let imageSize else { return nil }
+        let image = makeTestImage(size: imageSize)
+        return MarkdownImageResult(image: image, size: imageSize)
+    }
+
+    func callCount() -> Int {
+        calls
+    }
+}
+
+private func firstAttachmentBounds(in content: AttributedString) -> CGRect? {
+    let ns = NSAttributedString(content)
+    var found: CGRect?
+    ns.enumerateAttribute(.attachment, in: NSRange(location: 0, length: ns.length), options: []) { value, _, stop in
+        if let attachment = value as? NSTextAttachment {
+            found = attachment.bounds
+            stop.pointee = true
+        }
+    }
+    return found
 }
 
 private func makeTestImage(size: CGSize) -> MarkdownImage {

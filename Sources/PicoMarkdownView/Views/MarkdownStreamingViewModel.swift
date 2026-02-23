@@ -22,6 +22,10 @@ final class MarkdownStreamingViewModel {
     private var updateScheduled = false
     private var mermaidContentWidth: CGFloat?
     private var mermaidContentWidthBucket: Int?
+    private var imageBlockDependencies: [URL: Set<BlockID>] = [:]
+    private var requestedRemoteImageURLs: Set<URL> = []
+    private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
+    private var imagePrefetchGeneration: UInt64 = 0
 
     init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil) {
         self.theme = theme
@@ -66,6 +70,7 @@ final class MarkdownStreamingViewModel {
 
     private func replace(with value: String) async {
         Self.logger.debug("replace(with:) called, value length=\(value.count)")
+        resetImagePrefetchState()
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
         var latestBlocks: [RenderedBlock] = []
 
@@ -100,8 +105,6 @@ final class MarkdownStreamingViewModel {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async {
-        guard theme.mermaidRenderingMode.isEnabled else { return }
-
         let normalizedWidth: CGFloat? = {
             guard let width, width > 0 else { return nil }
             return width
@@ -118,6 +121,8 @@ final class MarkdownStreamingViewModel {
     }
 
     private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?) {
+        updateImageDependencies(using: blocks)
+        scheduleImagePrefetchIfNeeded(using: blocks)
         pendingBlocks = blocks
         if let diff {
             pendingDiffs.append(diff)
@@ -157,5 +162,90 @@ final class MarkdownStreamingViewModel {
     private func mermaidWidthBucket(for width: CGFloat?) -> Int? {
         guard let width, width > 0 else { return nil }
         return Int((width / 8).rounded(.toNearestOrAwayFromZero))
+    }
+
+    private func resetImagePrefetchState() {
+        imagePrefetchGeneration &+= 1
+        for task in imagePrefetchTasks.values {
+            task.cancel()
+        }
+        imagePrefetchTasks.removeAll(keepingCapacity: true)
+        imageBlockDependencies.removeAll(keepingCapacity: true)
+        requestedRemoteImageURLs.removeAll(keepingCapacity: true)
+    }
+
+    private func updateImageDependencies(using blocks: [RenderedBlock]) {
+        var dependencies: [URL: Set<BlockID>] = [:]
+        for block in blocks {
+            for image in block.images {
+                guard let url = image.url, isRemoteImageURL(url) else { continue }
+                dependencies[url, default: []].insert(block.id)
+            }
+        }
+
+        let validURLs = Set(dependencies.keys)
+        for (url, task) in imagePrefetchTasks where !validURLs.contains(url) {
+            task.cancel()
+            imagePrefetchTasks[url] = nil
+        }
+
+        imageBlockDependencies = dependencies
+    }
+
+    private func scheduleImagePrefetchIfNeeded(using blocks: [RenderedBlock]) {
+        guard !blocks.isEmpty else { return }
+        guard let prefetcher = imageProvider as? any MarkdownImagePrefetchingProvider else { return }
+
+        for url in imageBlockDependencies.keys.sorted(by: { $0.absoluteString < $1.absoluteString }) {
+            guard requestedRemoteImageURLs.insert(url).inserted else { continue }
+            let generation = imagePrefetchGeneration
+            imagePrefetchTasks[url] = Task { [weak self] in
+                guard let self else { return }
+                let result = await prefetcher.prefetch(url)
+                guard result != nil else {
+                    await MainActor.run {
+                        self.imagePrefetchTasks[url] = nil
+                    }
+                    return
+                }
+                if Task.isCancelled {
+                    await MainActor.run {
+                        self.imagePrefetchTasks[url] = nil
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    self.handleImagePrefetchCompletion(url: url, generation: generation)
+                }
+            }
+        }
+    }
+
+    private func handleImagePrefetchCompletion(url: URL, generation: UInt64) {
+        guard generation == imagePrefetchGeneration else {
+            imagePrefetchTasks[url] = nil
+            return
+        }
+        guard let affectedBlocks = imageBlockDependencies[url], !affectedBlocks.isEmpty else {
+            imagePrefetchTasks[url] = nil
+            return
+        }
+
+        imagePrefetchTasks[url] = nil
+
+        Task { [weak self] in
+            guard let self else { return }
+            guard let update = await self.pipeline.refreshBlocks(affectedBlocks) else { return }
+            await MainActor.run {
+                guard generation == self.imagePrefetchGeneration else { return }
+                self.enqueueUpdate(blocks: update.blocks, diff: update.diff)
+            }
+        }
+    }
+
+    private func isRemoteImageURL(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 }

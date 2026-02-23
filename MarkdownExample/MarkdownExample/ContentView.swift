@@ -42,6 +42,9 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "tables",
             webURL: "https://github.com/gonzalezreal/swift-markdown-ui/blob/main/Examples/Demo/Demo/TablesView.swift"),
         MarkdownExample(
+            localFilename: "RemoteImages",
+            webURL: "https://httpbin.org/#/Images"),
+        MarkdownExample(
             localFilename: "CodeBlocks",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/CodeBlocks.md"),
         MarkdownExample(

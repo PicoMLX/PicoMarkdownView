@@ -20,22 +20,34 @@ public struct PicoMarkdownView: View {
     public init(_ text: String,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
+                remoteImagesEnabled: Bool = true,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .text(text), theme: theme, imageProvider: imageProvider, configuration: configuration)
+        self.init(input: .text(text),
+                  theme: theme,
+                  imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
+                  configuration: configuration)
     }
 
     public init(chunks: [String],
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
+                remoteImagesEnabled: Bool = true,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .chunks(chunks), theme: theme, imageProvider: imageProvider, configuration: configuration)
+        self.init(input: .chunks(chunks),
+                  theme: theme,
+                  imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
+                  configuration: configuration)
     }
 
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
+                remoteImagesEnabled: Bool = true,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .stream(stream), theme: theme, imageProvider: imageProvider, configuration: configuration)
+        self.init(input: .stream(stream),
+                  theme: theme,
+                  imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
+                  configuration: configuration)
     }
 
     public var body: some View {
@@ -52,6 +64,14 @@ public struct PicoMarkdownView: View {
             .task(id: input.id) {
                 await viewModel.consume(input)
             }
+    }
+
+    private static func resolveImageProvider(_ provider: MarkdownImageProvider?,
+                                             remoteImagesEnabled: Bool) -> MarkdownImageProvider? {
+        if let provider {
+            return provider
+        }
+        return remoteImagesEnabled ? URLSessionMarkdownImageProvider.shared : nil
     }
 }
 

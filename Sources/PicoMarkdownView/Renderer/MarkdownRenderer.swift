@@ -132,9 +132,29 @@ actor MarkdownRenderer {
         blocks
     }
 
-    func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
-        guard theme.mermaidRenderingMode.isEnabled else { return nil }
+    func refreshBlocks(_ ids: Set<BlockID>) async -> [BlockID] {
+        guard !ids.isEmpty else { return [] }
 
+        let orderedIDs = ids.compactMap { id -> (index: Int, id: BlockID)? in
+            guard let index = indexByID[id] else { return nil }
+            return (index, id)
+        }
+        .sorted { $0.index < $1.index }
+        .map(\.id)
+
+        guard !orderedIDs.isEmpty else { return [] }
+
+        var refreshed: [BlockID] = []
+        refreshed.reserveCapacity(orderedIDs.count)
+        for id in orderedIDs {
+            if await refreshBlock(id: id) {
+                refreshed.append(id)
+            }
+        }
+        return refreshed
+    }
+
+    func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
         let effectiveWidth = effectiveMermaidContentWidth(for: width)
         let bucket = mermaidWidthBucket(for: effectiveWidth)
         guard bucket != mermaidContentWidthBucket else { return nil }
@@ -143,7 +163,7 @@ actor MarkdownRenderer {
         await attributeBuilder.setRuntimeMermaidMaxWidth(width)
 
         var mutated = false
-        let candidateIDs = blocks.filter(shouldRefreshForMermaidWidthChange).map(\.id)
+        let candidateIDs = blocks.filter(shouldRefreshForContentWidthChange).map(\.id)
         for id in candidateIDs {
             mutated = await refreshBlock(id: id) || mutated
         }
@@ -240,7 +260,11 @@ actor MarkdownRenderer {
         return blocks[index - 1].kind
     }
 
-    private func shouldRefreshForMermaidWidthChange(_ block: RenderedBlock) -> Bool {
+    private func shouldRefreshForContentWidthChange(_ block: RenderedBlock) -> Bool {
+        if !block.images.isEmpty {
+            return true
+        }
+        guard theme.mermaidRenderingMode.isEnabled else { return false }
         if block.mermaidDiagram != nil {
             return true
         }
