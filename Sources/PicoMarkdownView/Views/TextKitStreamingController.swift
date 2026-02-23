@@ -186,11 +186,29 @@ final class TextKitStreamingController: ObservableObject {
         let width = textView.bounds.width - insets.left - insets.right
         return width > 0 ? width : nil
     }
+
+    func installMermaidWidthObserver(on textView: UITextView, _ observer: @escaping (CGFloat?) -> Void) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.onMermaidContentWidthChanged = observer
+        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.onMermaidContentWidthChanged = observer
+        }
+        observer(mermaidContentWidth(for: textView))
+    }
 #elseif canImport(AppKit)
     func mermaidContentWidth(for textView: NSTextView) -> CGFloat? {
         let inset = textView.textContainerInset
         let width = textView.bounds.width - inset.width * 2
         return width > 0 ? width : nil
+    }
+
+    func installMermaidWidthObserver(on textView: NSTextView, _ observer: @escaping (CGFloat?) -> Void) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.onMermaidContentWidthChanged = observer
+        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.onMermaidContentWidthChanged = observer
+        }
+        observer(mermaidContentWidth(for: textView))
     }
 #endif
 }
@@ -648,6 +666,9 @@ private extension NSRange {
 #if canImport(UIKit)
 @MainActor
 private final class StreamingTextKit1View: UITextView {
+    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    private var lastMermaidWidthBucket: Int?
+
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(size: .zero)
@@ -669,15 +690,29 @@ private final class StreamingTextKit1View: UITextView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        notifyMermaidContentWidthIfNeeded()
         if !isScrollEnabled {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func notifyMermaidContentWidthIfNeeded() {
+        let insets = textContainerInset
+        let width = bounds.width - insets.left - insets.right
+        let normalized = width > 0 ? width : nil
+        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
+        guard bucket != lastMermaidWidthBucket else { return }
+        lastMermaidWidthBucket = bucket
+        onMermaidContentWidthChanged?(normalized)
     }
 }
 
 @available(iOS 16.0, *)
 @MainActor
 private final class StreamingTextKit2View: UITextView {
+    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    private var lastMermaidWidthBucket: Int?
+
     init(backend: TextKitStreamingBackend) {
         super.init(frame: .zero, textContainer: nil)
         if let layoutManager = textLayoutManager,
@@ -699,15 +734,29 @@ private final class StreamingTextKit2View: UITextView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        notifyMermaidContentWidthIfNeeded()
         if !isScrollEnabled {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func notifyMermaidContentWidthIfNeeded() {
+        let insets = textContainerInset
+        let width = bounds.width - insets.left - insets.right
+        let normalized = width > 0 ? width : nil
+        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
+        guard bucket != lastMermaidWidthBucket else { return }
+        lastMermaidWidthBucket = bucket
+        onMermaidContentWidthChanged?(normalized)
     }
 }
 
 #elseif canImport(AppKit)
 @MainActor
 private final class StreamingTextKit1View: NSTextView {
+    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    private var lastMermaidWidthBucket: Int?
+
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
         let textContainer = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
@@ -730,6 +779,7 @@ private final class StreamingTextKit1View: NSTextView {
 
     override func layout() {
         super.layout()
+        notifyMermaidContentWidthIfNeeded()
         invalidateIntrinsicContentSize()
     }
 
@@ -743,11 +793,23 @@ private final class StreamingTextKit1View: NSTextView {
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
     }
+
+    private func notifyMermaidContentWidthIfNeeded() {
+        let width = bounds.width - textContainerInset.width * 2
+        let normalized = width > 0 ? width : nil
+        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
+        guard bucket != lastMermaidWidthBucket else { return }
+        lastMermaidWidthBucket = bucket
+        onMermaidContentWidthChanged?(normalized)
+    }
 }
 
 @available(macOS 13.0, *)
 @MainActor
 private final class StreamingTextKit2View: NSTextView {
+    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    private var lastMermaidWidthBucket: Int?
+
     init(backend: TextKitStreamingBackend) {
         // Use TextKit 1 initialization: the backend storage connection works by
         // adding a layout manager to the backend's own NSTextStorage. TextKit 2's
@@ -774,6 +836,7 @@ private final class StreamingTextKit2View: NSTextView {
 
     override func layout() {
         super.layout()
+        notifyMermaidContentWidthIfNeeded()
         if !isVerticallyResizable {
             invalidateIntrinsicContentSize()
         }
@@ -788,6 +851,15 @@ private final class StreamingTextKit2View: NSTextView {
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
+    }
+
+    private func notifyMermaidContentWidthIfNeeded() {
+        let width = bounds.width - textContainerInset.width * 2
+        let normalized = width > 0 ? width : nil
+        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
+        guard bucket != lastMermaidWidthBucket else { return }
+        lastMermaidWidthBucket = bucket
+        onMermaidContentWidthChanged?(normalized)
     }
 }
 #endif

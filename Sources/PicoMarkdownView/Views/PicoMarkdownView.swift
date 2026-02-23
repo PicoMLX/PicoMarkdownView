@@ -67,11 +67,14 @@ private struct TextKit2Container: UIViewRepresentable {
     var onMeasuredContentWidth: (CGFloat?) -> Void
 
     func makeUIView(context: Context) -> UITextView {
+        let view: UITextView
         if #available(iOS 16.0, *) {
-            return controller.makeTextKit2View(configuration: configuration)
+            view = controller.makeTextKit2View(configuration: configuration)
         } else {
-            return controller.makeTextKit1View(configuration: configuration)
+            view = controller.makeTextKit1View(configuration: configuration)
         }
+        controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
+        return view
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
@@ -91,11 +94,14 @@ private struct TextKit2Container: NSViewRepresentable {
     var onMeasuredContentWidth: (CGFloat?) -> Void
 
     func makeNSView(context: Context) -> NSTextView {
+        let view: NSTextView
         if #available(macOS 13.0, *) {
-            return controller.makeTextKit2View(configuration: configuration)
+            view = controller.makeTextKit2View(configuration: configuration)
         } else {
-            return controller.makeTextKit1View(configuration: configuration)
+            view = controller.makeTextKit1View(configuration: configuration)
         }
+        controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
+        return view
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
