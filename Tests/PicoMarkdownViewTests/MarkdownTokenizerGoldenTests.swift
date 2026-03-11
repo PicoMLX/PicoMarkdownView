@@ -2076,6 +2076,194 @@ struct MarkdownTokenizerGoldenTests {
         #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
     }
 
+    // MARK: - LLM token-boundary streaming tests
+
+    @Test("Fence with language split across tokens (LLM streaming)")
+    func fenceSplitLanguageLLMStreaming() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // LLM sends "```" and "mermaid\n" as separate tokens
+        let first = await tokenizer.feed("```")
+        assertChunk(first, matches: .init(
+            events: [],
+            openBlocks: []
+        ), state: &state)
+
+        let second = await tokenizer.feed("mermaid\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: "mermaid"))
+            ],
+            openBlocks: [.fencedCode(language: "mermaid")]
+        ), state: &state)
+
+        let third = await tokenizer.feed("graph TD\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockAppendFencedCode(.fencedCode(language: "mermaid"), textChunk: "graph TD\n")
+            ],
+            openBlocks: [.fencedCode(language: "mermaid")]
+        ), state: &state)
+
+        let fourth = await tokenizer.feed("```\n\n")
+        assertChunk(fourth, matches: .init(
+            events: [
+                .blockEnd(.fencedCode(language: "mermaid"))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Fence with split backticks then language (LLM streaming)")
+    func fenceSplitBackticksLLMStreaming() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // Backticks split across tokens
+        let first = await tokenizer.feed("``")
+        assertChunk(first, matches: .init(
+            events: [],
+            openBlocks: []
+        ), state: &state)
+
+        let second = await tokenizer.feed("`swift\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: "swift"))
+            ],
+            openBlocks: [.fencedCode(language: "swift")]
+        ), state: &state)
+
+        let third = await tokenizer.feed("let x = 1\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockAppendFencedCode(.fencedCode(language: "swift"), textChunk: "let x = 1\n")
+            ],
+            openBlocks: [.fencedCode(language: "swift")]
+        ), state: &state)
+
+        let fourth = await tokenizer.feed("```\n\n")
+        assertChunk(fourth, matches: .init(
+            events: [
+                .blockEnd(.fencedCode(language: "swift"))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Bare fence split from newline (LLM streaming)")
+    func bareFenceSplitFromNewline() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("```")
+        assertChunk(first, matches: .init(
+            events: [],
+            openBlocks: []
+        ), state: &state)
+
+        let second = await tokenizer.feed("\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.fencedCode(language: nil))
+            ],
+            openBlocks: [.fencedCode(language: nil)]
+        ), state: &state)
+
+        let third = await tokenizer.feed("code\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "code\n")
+            ],
+            openBlocks: [.fencedCode(language: nil)]
+        ), state: &state)
+
+        let fourth = await tokenizer.feed("```\n\n")
+        assertChunk(fourth, matches: .init(
+            events: [
+                .blockEnd(.fencedCode(language: nil))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Display math $$ split from content (LLM streaming)")
+    func displayMathDollarSplitLLMStreaming() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // $$ opens math immediately (unambiguous display math marker)
+        let first = await tokenizer.feed("$$")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.math(display: true))
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let second = await tokenizer.feed("\nE=mc^2\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendMath(.math(display: true), textChunk: "E=mc^2\n")
+            ],
+            openBlocks: [.math(display: true)]
+        ), state: &state)
+
+        let third = await tokenizer.feed("$$\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockEnd(.math(display: true))
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table with token-split lines (LLM streaming)")
+    func tableSplitLinesLLMStreaming() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // Table header arrives in pieces
+        let first = await tokenizer.feed("|")
+        assertChunk(first, matches: .init(
+            events: [],
+            openBlocks: []
+        ), state: &state)
+
+        let second = await tokenizer.feed(" Month")
+        assertChunk(second, matches: .init(
+            events: [],
+            openBlocks: []
+        ), state: &state)
+
+        let third = await tokenizer.feed(" | Temp |\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [plain("Month"), plain("Temp")])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let fourth = await tokenizer.feed("| --- | --- |\n")
+        assertChunk(fourth, matches: .init(
+            events: [
+                .tableHeaderConfirmed(.table, alignments: [.left, .left])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let fifth = await tokenizer.feed("| Jan | 57 |\n\n")
+        assertChunk(fifth, matches: .init(
+            events: [
+                .tableAppendRow(.table, cells: [[plain("Jan")], [plain("57")]]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
 private struct ChunkExpectation: Sendable {
     var events: [EventShape]
     var openBlocks: [BlockKind] = []

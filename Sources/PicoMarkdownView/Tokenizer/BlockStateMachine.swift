@@ -141,6 +141,7 @@ struct StreamingParser {
     private mutating func process(_ text: String, isFinal: Bool) {
         for character in text {
             if character == "\n" {
+                lineAnalyzed = false   // force re-analysis now that line is complete
                 analyzeLineIfNeeded(isLineComplete: true)
                 let includeNewline = shouldIncludeTerminatingNewline()
                 appendDeltaIfNeeded(includeTerminatingNewline: includeNewline)
@@ -226,7 +227,7 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return
             }
-            if let fence = detectFenceOpening(lineBuffer) {
+            if isLineComplete, let fence = detectFenceOpening(lineBuffer) {
                 openFencedCode(fence)
                 emittedCount = lineBuffer.count
                 lineAnalyzed = true
@@ -306,7 +307,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let fence = detectFenceOpening(lineBuffer) {
+                if isLineComplete, let fence = detectFenceOpening(lineBuffer) {
                     closeCurrentBlock()
                     openFencedCode(fence)
                     emittedCount = lineBuffer.count
@@ -1381,6 +1382,7 @@ struct StreamingParser {
 
         if trimmed.first == "|" { return true }          // table candidate
         if trimmed.hasPrefix(":::") { return true }      // unknown block extension fallback
+        if trimmed.hasPrefix("$$") || trimmed.hasPrefix("\\[") { return true } // display math
 
         if trimmed.allSatisfy({ $0 == "#" || $0 == " " }) {
             return true // heading marker may be split before text arrives
@@ -1428,7 +1430,10 @@ struct StreamingParser {
 
     private func isPotentialFencePrefixOnly(_ trimmed: String) -> Bool {
         guard let first = trimmed.first, first == "`" || first == "~" else { return false }
-        return trimmed.allSatisfy { $0 == first || $0 == " " }
+        if trimmed.allSatisfy({ $0 == first || $0 == " " }) { return true }
+        // 3+ markers followed by content = fence with partial/full language identifier
+        let markerCount = trimmed.prefix(while: { $0 == first }).count
+        return markerCount >= 3
     }
 
     private func detectTableCandidate(_ line: String) -> Bool {
