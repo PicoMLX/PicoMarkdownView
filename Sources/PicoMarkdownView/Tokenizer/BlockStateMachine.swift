@@ -247,7 +247,7 @@ struct StreamingParser {
                 return
             }
 
-            if let list = detectList(lineBuffer) {
+            if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
                 openListItem(list)
                 emittedCount = min(lineBuffer.count, list.prefixLength)
                 lineAnalyzed = true
@@ -321,7 +321,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let list = detectList(lineBuffer) {
+                if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
                     closeCurrentBlock()
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
@@ -371,7 +371,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let list = detectList(lineBuffer) {
+                if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
                     closeListContexts(deeperThan: list.indent)
 
                     if let current = currentBlock, case .listItem = current.kind {
@@ -1208,7 +1208,7 @@ struct StreamingParser {
         return HeadingInfo(level: level, prefixLength: prefixLength)
     }
 
-    private func detectList(_ line: String) -> ListInfo? {
+    private func detectList(_ line: String, isLineComplete: Bool = false) -> ListInfo? {
         var index = line.startIndex
         var indent = 0
         while index < line.endIndex {
@@ -1243,12 +1243,18 @@ struct StreamingParser {
             }
             if digits > 0, numberEnd < line.endIndex, line[numberEnd] == "." {
                 let afterDot = line.index(after: numberEnd)
-                if afterDot < line.endIndex, line[afterDot] == " " {
+                // "1. " followed by content (standard case)
+                let hasSpaceAfterDot = afterDot < line.endIndex && line[afterDot] == " "
+                // "1." at end of line — empty list item, only when line is complete
+                let isEmptyMarker = isLineComplete && afterDot >= line.endIndex
+                if hasSpaceAfterDot || isEmptyMarker {
                     let numberPart = line[index..<numberEnd]
                     if let number = Int(numberPart) {
                         ordered = true
                         listIndex = number
-                        markerLength = digits + 2 // digits + ". "
+                        markerLength = hasSpaceAfterDot
+                            ? digits + 2   // "1. " — digits + ". "
+                            : digits + 1   // "1." — no trailing space
                     }
                 }
             }
@@ -1425,7 +1431,9 @@ struct StreamingParser {
             }
             return false
         }
-        return digits > 0 && seenDot
+        // digits only (e.g. "1") — could still become "1. " ordered list marker
+        // digits + dot (e.g. "1.") or digits + dot + spaces (e.g. "1. ")
+        return digits > 0
     }
 
     private func isPotentialFencePrefixOnly(_ trimmed: String) -> Bool {
