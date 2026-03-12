@@ -47,7 +47,13 @@ final class TextKitStreamingController: ObservableObject {
         }
         let eligible = eligibleDiffs(from: diffs)
         if eligible.diffs.isEmpty {
-            if configuration.isSelectable {
+            // Safety net: if the blocks have changed but all diffs were already
+            // consumed (e.g. coalesced flush delivered stale diff versions),
+            // force a full apply so the view stays in sync.
+            if backend.needsFullApply(for: blocks) {
+                _ = backend.apply(blocks: blocks, selection: textView.selectedRange)
+                textView.setNeedsDisplay()
+            } else if configuration.isSelectable {
                 textView.selectedRange = textView.selectedRange.clamped(maxLength: backend.length)
             }
             textView.invalidateIntrinsicContentSize()
@@ -133,7 +139,13 @@ final class TextKitStreamingController: ObservableObject {
         }
         let eligible = eligibleDiffs(from: diffs)
         if eligible.diffs.isEmpty {
-            if configuration.isSelectable {
+            // Safety net: if the blocks have changed but all diffs were already
+            // consumed (e.g. coalesced flush delivered stale diff versions),
+            // force a full apply so the view stays in sync.
+            if backend.needsFullApply(for: blocks) {
+                _ = backend.apply(blocks: blocks, selection: currentSelection)
+                textView.needsDisplay = true
+            } else if configuration.isSelectable {
                 textView.setSelectedRange(currentSelection.clamped(maxLength: backend.length))
             }
             textView.invalidateIntrinsicContentSize()
@@ -655,6 +667,18 @@ final class TextKitStreamingBackend {
 
     func snapshotAttributedString() -> NSAttributedString {
         NSAttributedString(attributedString: storage)
+    }
+
+    /// Returns true when the given blocks differ from the backend's current records
+    /// (different count, different IDs, or different content).
+    func needsFullApply(for blocks: [RenderedBlock]) -> Bool {
+        guard blocks.count == records.count else { return true }
+        for i in blocks.indices {
+            if blocks[i].id != records[i].id || blocks[i].content != records[i].content {
+                return true
+            }
+        }
+        return false
     }
 }
 

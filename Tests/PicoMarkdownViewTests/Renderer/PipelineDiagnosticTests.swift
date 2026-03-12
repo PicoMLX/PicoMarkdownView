@@ -116,6 +116,136 @@ struct PipelineDiagnosticTests {
         return result
     }
 
+    @Test("Full nested list document renders all content during streaming")
+    func fullNestedListDocumentStreaming() async {
+        let markdown = """
+        ### 3. Project Management Style
+        *Best for Agile sprints, product roadmaps, or team meeting agendas.*
+
+        1.  **Sprint Objectives**
+            *   Feature completion
+            *   Code review pass rate
+            *   User acceptance testing
+        2.  **Team Roles**
+            *   Project Manager
+            *   Senior Developer
+            *   QA Engineer
+        3.  **Release Schedule**
+            *   Week 1: Development
+            *   Week 2: Testing
+            *   Week 3: Deployment
+
+        ### 4. Creative & Descriptive Style
+        *Best for blogs, feature descriptions, or marketing materials.*
+
+        1.  **Eco-Friendly Design**
+            *   Minimalist aesthetics
+            *   Renewable energy features
+            *   Biodegradable materials
+
+        """
+
+        // Stream word-by-word
+        let pipeline = MarkdownStreamingPipeline()
+        let chunks = wordChunks(markdown)
+        var lastBlocks: [RenderedBlock] = []
+        var updateCount = 0
+        for chunk in chunks {
+            if let update = await pipeline.feed(chunk) {
+                lastBlocks = update.blocks
+                updateCount += 1
+            }
+        }
+        if let update = await pipeline.finish() {
+            lastBlocks = update.blocks
+            updateCount += 1
+        }
+
+        let allText = lastBlocks.map { String($0.content.characters) }.joined()
+
+        // Check that key content from all sections is present
+        #expect(allText.contains("Sprint Objectives"), "Missing Sprint Objectives")
+        #expect(allText.contains("Feature completion"), "Missing Feature completion")
+        #expect(allText.contains("Team Roles"), "Missing Team Roles")
+        #expect(allText.contains("QA Engineer"), "Missing QA Engineer")
+        #expect(allText.contains("Release Schedule"), "Missing Release Schedule")
+        #expect(allText.contains("Week 1: Development"), "Missing Week 1")
+        #expect(allText.contains("Week 3: Deployment"), "Missing Week 3")
+        #expect(allText.contains("Creative"), "Missing Creative heading")
+        #expect(allText.contains("Eco-Friendly"), "Missing Eco-Friendly")
+        #expect(allText.contains("Biodegradable"), "Missing Biodegradable")
+
+        // Should have produced multiple updates during streaming
+        #expect(updateCount > 5, "Expected many updates during streaming, got \(updateCount)")
+
+        // Compare with single-shot
+        let singlePipeline = MarkdownStreamingPipeline()
+        _ = await singlePipeline.feed(markdown)
+        _ = await singlePipeline.finish()
+        let singleBlocks = await singlePipeline.blocksSnapshot()
+
+        #expect(lastBlocks.count == singleBlocks.count,
+                "Block count mismatch: stream=\(lastBlocks.count) single=\(singleBlocks.count)")
+    }
+
+    @Test("TextKit backend receives all streaming updates")
+    func textKitBackendReceivesAllUpdates() async {
+        let markdown = """
+        ### 3. Project Management Style
+        *Best for Agile sprints, product roadmaps, or team meeting agendas.*
+
+        1.  **Sprint Objectives**
+            *   Feature completion
+            *   Code review pass rate
+            *   User acceptance testing
+        2.  **Team Roles**
+            *   Project Manager
+            *   Senior Developer
+            *   QA Engineer
+        3.  **Release Schedule**
+            *   Week 1: Development
+            *   Week 2: Testing
+            *   Week 3: Deployment
+
+        ### 4. Creative & Descriptive Style
+
+        """
+
+        let pipeline = MarkdownStreamingPipeline()
+        let backend = await TextKitStreamingBackend()
+        let chunks = wordChunks(markdown)
+        var lastAppliedVersion: UInt64 = 0
+
+        for chunk in chunks {
+            if let update = await pipeline.feed(chunk) {
+                // Filter eligible diffs (same logic as controller)
+                let eligible = update.diff.documentVersion > lastAppliedVersion ? [update.diff] : []
+                if !eligible.isEmpty {
+                    _ = await MainActor.run {
+                        backend.apply(blocks: update.blocks, diffs: eligible, selection: NSRange(location: 0, length: 0))
+                    }
+                    lastAppliedVersion = update.diff.documentVersion
+                }
+            }
+        }
+        if let update = await pipeline.finish() {
+            let eligible = update.diff.documentVersion > lastAppliedVersion ? [update.diff] : []
+            if !eligible.isEmpty {
+                _ = await MainActor.run {
+                    backend.apply(blocks: update.blocks, diffs: eligible, selection: NSRange(location: 0, length: 0))
+                }
+                lastAppliedVersion = update.diff.documentVersion
+            }
+        }
+
+        let text = await MainActor.run { backend.snapshotAttributedString().string }
+
+        #expect(text.contains("Release Schedule"), "Missing Release Schedule in backend: \(text.prefix(200))")
+        #expect(text.contains("Week 1"), "Missing Week 1 in backend")
+        #expect(text.contains("Week 3"), "Missing Week 3 in backend")
+        #expect(text.contains("Creative"), "Missing Creative heading in backend")
+    }
+
     @Test("NSAttributedString conversion preserves content")
     func nsAttributedStringConversion() async {
         let pipeline = MarkdownStreamingPipeline()
