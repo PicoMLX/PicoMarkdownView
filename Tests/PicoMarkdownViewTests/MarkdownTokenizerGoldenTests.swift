@@ -2046,6 +2046,78 @@ struct MarkdownTokenizerGoldenTests {
         #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
     }
 
+    @Test("Asterisk list after bold paragraph does not leak marker")
+    func asteriskListAfterBoldParagraph() async {
+        let markdown = """
+        **1. Standard Project Management**
+        *   Complete initial market research by Q3.
+        *   Finalize the budget approval in December.
+        *   Schedule and launch the product launch event.
+
+        **2. Resume Bullet Points**
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
+    @Test("Nested list with asterisk markers does not leak marker into parent")
+    func nestedListAsteriskMarkerNoLeak() async {
+        let markdown = """
+        *   **Mount Elbrus (2,692.5 m)**
+            *   **Location:** Russia (Caucasus Mountains)
+            *   **Country:** Russia
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
+    @Test("Heading after list item breaks out of list context")
+    func headingAfterListItem() async {
+        let markdown = """
+        *   **Company A** (Parent Entity)
+            *   *Purpose:* The main organization or legal entity.
+
+        #### **Level 1: Departments / Wings**
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        // Verify heading is a separate block, not merged into list
+        let blocks = summarizeBlocks(from: singleShot)
+        let hasHeading = blocks.contains { if case .inline(let kind, _) = $0 { return kind.hasPrefix("heading:") } else { return false } }
+        #expect(hasHeading)
+        #expect(summarizeBlocks(from: streamed) == blocks)
+    }
+
+    @Test("Three-level nested list preserves order across streaming chunks")
+    func threeLevelNestedListOrder() async {
+        let markdown = """
+        *   **Level 1.1: Human Resources**
+            *   *Sub-Level 1.1:1*
+                *   Recruitment Team
+                *   Payroll Specialists
+            *   *Sub-Level 1.1:2*
+                *   Benefits Admin
+                *   Training & Development
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
     @Test("Example-app word stream keeps TEST indented code block shape")
     func exampleWordStreamTestIndentedCodeShape() async {
         let markdown = """

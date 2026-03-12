@@ -250,7 +250,14 @@ private extension MarkdownAssembler {
                 reverseIndex -= 1
                 let prevID = finalOpenIDs[reverseIndex]
                 if let prevPosition = indexByID[prevID] {
-                    return prevPosition + 1
+                    // Walk past all descendants of prevID so new siblings
+                    // are appended after existing children, not before them.
+                    let parentDepth = blocks[prevPosition].depth
+                    var insertPos = prevPosition + 1
+                    while insertPos < blocks.count && blocks[insertPos].depth > parentDepth {
+                        insertPos += 1
+                    }
+                    return insertPos
                 }
             }
         }

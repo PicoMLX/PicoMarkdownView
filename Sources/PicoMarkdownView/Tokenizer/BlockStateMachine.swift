@@ -371,6 +371,24 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
+                // A heading at column 0 breaks out of all open list contexts.
+                if let heading = detectHeading(lineBuffer) {
+                    closeCurrentBlock()
+                    closeListContexts(deeperThan: -1)
+                    openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
+                    emittedCount = min(lineBuffer.count, heading.prefixLength)
+                    lineAnalyzed = true
+                    return
+                }
+                // A fenced code block at column 0 breaks out of all open list contexts.
+                if isLineComplete, let fence = detectFenceOpening(lineBuffer) {
+                    closeCurrentBlock()
+                    closeListContexts(deeperThan: -1)
+                    openFencedCode(fence)
+                    emittedCount = lineBuffer.count
+                    lineAnalyzed = true
+                    return
+                }
                 if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
                     closeListContexts(deeperThan: list.indent)
 
@@ -495,6 +513,19 @@ struct StreamingParser {
         var context = ctx
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         guard emittedCount < sourceLine.count else { return }
+        // When the line buffer still looks like an incomplete block-level
+        // construct (list marker, heading, fence, etc.), defer emission so
+        // marker characters don't leak into the current block's content.
+        // Once enough characters arrive to resolve the ambiguity, the full
+        // content is emitted (or a block transition consumes the prefix).
+        if !includeTerminatingNewline {
+            switch context.kind {
+            case .paragraph, .listItem, .blockquote, .footnoteDefinition, .heading:
+                if shouldDeferParagraphFallback(for: lineBuffer) { return }
+            default:
+                break
+            }
+        }
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
