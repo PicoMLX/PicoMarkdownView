@@ -69,7 +69,9 @@ final class MarkdownStreamingViewModel {
     }
 
     private func replace(with value: String) async {
+        #if DEBUG
         Self.logger.debug("replace(with:) called, value length=\(value.count)")
+        #endif
         resetImagePrefetchState()
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
         var latestBlocks: [RenderedBlock] = []
@@ -79,21 +81,31 @@ final class MarkdownStreamingViewModel {
         if !value.isEmpty {
             if let update = await newPipeline.feed(value) {
                 latestBlocks = update.blocks
+                #if DEBUG
                 Self.logger.debug("feed produced \(latestBlocks.count) blocks")
+                #endif
             } else {
+                #if DEBUG
                 Self.logger.warning("feed returned nil for non-empty value")
+                #endif
             }
         }
 
         if let update = await newPipeline.finish() {
             latestBlocks = update.blocks
+            #if DEBUG
             Self.logger.debug("finish produced \(latestBlocks.count) blocks")
+            #endif
         } else {
+            #if DEBUG
             Self.logger.debug("finish returned nil (blocks from feed: \(latestBlocks.count))")
+            #endif
         }
 
         pipeline = newPipeline
+        #if DEBUG
         Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
+        #endif
         enqueueUpdate(blocks: latestBlocks, diff: nil)
     }
 
@@ -144,10 +156,14 @@ final class MarkdownStreamingViewModel {
     private func flushPendingUpdates() {
         updateScheduled = false
         guard let blocks = pendingBlocks else {
+            #if DEBUG
             Self.logger.debug("flushPendingUpdates: no pending blocks")
+            #endif
             return
         }
+        #if DEBUG
         Self.logger.debug("flushPendingUpdates: \(blocks.count) blocks, replaceToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
+        #endif
         self.blocks = blocks
         self.diffQueue = pendingDiffs
         if let token = pendingReplaceToken {
