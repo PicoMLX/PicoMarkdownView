@@ -41,6 +41,7 @@ final class TextKitStreamingController: ObservableObject {
             lastAppliedReplaceToken = replaceToken
             lastAppliedVersion = 0
             _ = backend.apply(blocks: blocks, selection: textView.selectedRange)
+            textView.setNeedsDisplay()
             textView.invalidateIntrinsicContentSize()
             return
         }
@@ -57,6 +58,7 @@ final class TextKitStreamingController: ObservableObject {
             if !configuration.isPaused {
                 lastAppliedVersion = eligible.lastVersion
             }
+            textView.setNeedsDisplay()
             textView.invalidateIntrinsicContentSize()
             return
         }
@@ -65,6 +67,7 @@ final class TextKitStreamingController: ObservableObject {
             lastAppliedVersion = eligible.lastVersion
         }
         textView.selectedRange = selection.clamped(maxLength: backend.length)
+        textView.setNeedsDisplay()
         textView.invalidateIntrinsicContentSize()
     }
 
@@ -124,6 +127,7 @@ final class TextKitStreamingController: ObservableObject {
             lastAppliedVersion = 0
             _ = backend.apply(blocks: blocks, selection: currentSelection)
             Self.logger.debug("applied full replace: storageLen=\(self.backend.length)")
+            textView.needsDisplay = true
             textView.invalidateIntrinsicContentSize()
             return
         }
@@ -142,6 +146,7 @@ final class TextKitStreamingController: ObservableObject {
         if configuration.isSelectable {
             textView.setSelectedRange(selection.clamped(maxLength: backend.length))
         }
+        textView.needsDisplay = true
         textView.invalidateIntrinsicContentSize()
     }
 
@@ -688,6 +693,14 @@ private final class StreamingTextKit1View: UITextView {
         return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            setNeedsDisplay()
+            invalidateIntrinsicContentSize()
+        }
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         notifyMermaidContentWidthIfNeeded()
@@ -730,6 +743,14 @@ private final class StreamingTextKit2View: UITextView {
         let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
         let size = sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
         return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            setNeedsDisplay()
+            invalidateIntrinsicContentSize()
+        }
     }
 
     override func layoutSubviews() {
@@ -775,6 +796,14 @@ private final class StreamingTextKit1View: NSTextView {
     override var intrinsicContentSize: NSSize {
         guard !isVerticallyResizable else { return super.intrinsicContentSize }
         return sizeThatFits()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            needsDisplay = true
+            invalidateIntrinsicContentSize()
+        }
     }
 
     override func layout() {
@@ -832,6 +861,14 @@ private final class StreamingTextKit2View: NSTextView {
     override var intrinsicContentSize: NSSize {
         guard !isVerticallyResizable else { return super.intrinsicContentSize }
         return sizeThatFits()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil {
+            needsDisplay = true
+            invalidateIntrinsicContentSize()
+        }
     }
 
     override func layout() {
