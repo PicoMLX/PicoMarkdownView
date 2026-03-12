@@ -1603,9 +1603,21 @@ struct StreamingParser {
         let cells = splitCells(line)
         guard !cells.isEmpty else { return nil }
 
-        var result: [TableAlignment] = []
+        // Flatten cells: LLMs sometimes produce ":--- :---" (space instead of pipe)
+        var flatCells: [String] = []
         for raw in cells {
-            var s = raw.trimmingCharacters(in: .whitespaces)
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            let parts = trimmed.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            if parts.count > 1, parts.allSatisfy({ $0.allSatisfy({ $0 == ":" || $0 == "-" }) }) {
+                flatCells.append(contentsOf: parts)
+            } else {
+                flatCells.append(trimmed)
+            }
+        }
+
+        var result: [TableAlignment] = []
+        for cell in flatCells {
+            var s = cell
 
             // Only colons and hyphens are allowed
             guard s.allSatisfy({ $0 == ":" || $0 == "-" }) else { return nil }
