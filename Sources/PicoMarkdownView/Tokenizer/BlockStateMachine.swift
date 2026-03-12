@@ -31,6 +31,7 @@ struct StreamingParser {
         var pendingSoftBreak: Bool = false
         var pendingSameLineClose: Bool = false
         var preventNextCoalesce: Bool = false
+        var sawBlankInSubContext: Bool = false
     }
 
     private struct TableState {
@@ -440,10 +441,24 @@ struct StreamingParser {
                     }
                     if continuation > 0 {
                         current.linePrefixToStrip = continuation
+                        current.sawBlankInSubContext = false
                         setCurrentBlock(current)
                         if emittedCount < continuation {
                             emittedCount = min(lineBuffer.count, continuation)
                         }
+                        lineAnalyzed = true
+                        return
+                    }
+                    // Non-indented text that is not a list marker, heading,
+                    // fence, etc.  If a blank line previously closed a child
+                    // context, this text starts a new paragraph outside the
+                    // list.  Without a prior blank line, it is a lazy
+                    // continuation of the current list item.
+                    if current.sawBlankInSubContext {
+                        closeCurrentBlock()
+                        closeListContexts(deeperThan: -1)
+                        openInlineBlock(kind: .paragraph)
+                        emittedCount = 0
                         lineAnalyzed = true
                         return
                     }
@@ -607,6 +622,13 @@ struct StreamingParser {
                 }
                 if isBlank || force {
                     closeCurrentBlock()
+                    // When a blank line closes a list item, mark the parent
+                    // list item (if any) so that non-continuation text on the
+                    // next line ends the list instead of being lazily appended.
+                    if isBlank, var parent = currentBlock, case .listItem = parent.kind {
+                        parent.sawBlankInSubContext = true
+                        setCurrentBlock(parent)
+                    }
                 } else {
                     appendToCurrent("\n")
                 }

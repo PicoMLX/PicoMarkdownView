@@ -2118,6 +2118,36 @@ struct MarkdownTokenizerGoldenTests {
         #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
     }
 
+    @Test("Ordered list with nested unordered sub-items followed by paragraph")
+    func orderedListWithNestedSubItemsFollowedByParagraph() async {
+        let markdown = """
+        Here is a list with sub-items:
+
+        1.  **Header Item**
+            *   Sub-item A
+            *   Sub-item B
+            *   Sub-item C
+
+        2.  **Main Category**
+            *   Sub-point 1
+            *   Sub-point 2
+            *   Sub-point 3
+
+        3.  **Simple List**
+            *   Item One
+            *   Item Two
+            *   Item Three
+
+        Would you like to try adding more complex nesting (like lists within lists) or something else?
+
+        """
+
+        let singleShot = await collectEvents(chunks: [markdown])
+        let streamed = await collectEvents(chunks: wordChunksLikeExampleApp(markdown))
+
+        #expect(summarizeBlocks(from: streamed) == summarizeBlocks(from: singleShot))
+    }
+
     @Test("Example-app word stream keeps TEST indented code block shape")
     func exampleWordStreamTestIndentedCodeShape() async {
         let markdown = """
