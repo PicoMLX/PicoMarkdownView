@@ -139,11 +139,47 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
-    @Test("Trailing period split across chunk boundary survives close")
-    func trailingPeriodAcrossChunkBoundary() async {
+    @Test("Trailing period at end of chunk is flushed at feed boundary")
+    func trailingPeriodAtEndOfChunkFlushedAtFeedBoundary() async {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // Period is the FINAL character of the chunk. It can begin a "..."
+        // literal-pattern lookahead, so StreamingReplacementEngine holds it in
+        // literalTail rather than emitting it from parser.append. The
+        // flushPendingInlineTailForOpenBlocks call at the end of feed() must
+        // drain that tail before the ChunkResult is observed.
+        let first = await tokenizer.feed("This is a sentence.")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("This is a sentence.")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let second = await tokenizer.feed("\n\nNext paragraph.")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockEnd(.paragraph),
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Next paragraph.")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+    }
+
+    @Test("Trailing period continued across chunks survives paragraph close")
+    func trailingPeriodContinuedAcrossChunksSurvivesClose() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // Chunk 1 leaves an open paragraph with no buffered tail. Chunk 2
+        // appends "ce.", which sends "." into literalTail, then closes the
+        // paragraph via a blank line. The close path runs through
+        // closeCurrentBlock -> parser.finish() -> replacements.finish(); that
+        // is the path responsible for flushing the buffered "." into the
+        // existing blockAppendInline event before blockEnd fires.
         let first = await tokenizer.feed("This is a senten")
         assertChunk(first, matches: .init(
             events: [
@@ -153,9 +189,6 @@ struct MarkdownTokenizerGoldenTests {
             openBlocks: [.paragraph]
         ), state: &state)
 
-        // Final char is ".", which can start a "..." literal pattern lookahead.
-        // The "." must survive the chunk boundary and remain available for the
-        // paragraph close that follows.
         let second = await tokenizer.feed("ce.\n\nNext paragraph.")
         assertChunk(second, matches: .init(
             events: [
