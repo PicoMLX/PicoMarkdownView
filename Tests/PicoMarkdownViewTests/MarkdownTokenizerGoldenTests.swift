@@ -107,40 +107,75 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
         
         
-        // FIXME: !!!!! REGRESSION. FINAL . IS STILL MISSING in last paragraph (but can't replicate it in example app)
-        
-//        ChunkResult(events: [
-//            PicoMarkdownView.BlockEvent.blockStart(id: 1, kind: PicoMarkdownView.BlockKind.paragraph),
-//            PicoMarkdownView.BlockEvent.blockAppendInline(id: 1, runs: [
-//                PicoMarkdownView.InlineRun(text: "This document is itself written using Markdown; you can see the source for it by adding text to the URL.", style: PicoMarkdownView.InlineStyle(rawValue: 0), linkURL: nil, image: nil, math: nil)
-//            ]),
-//            PicoMarkdownView.BlockEvent.blockEnd(id: 1),
-//            PicoMarkdownView.BlockEvent.blockStart(id: 2, kind: PicoMarkdownView.BlockKind.paragraph),
-//            PicoMarkdownView.BlockEvent.blockAppendInline(id: 2, runs: [
-//                PicoMarkdownView.InlineRun(text: "This is the final paragraph", style: PicoMarkdownView.InlineStyle(rawValue: 0), linkURL: nil, image: nil, math: nil)
-//            ])], openBlocks: [PicoMarkdownView.OpenBlockState(id: 2, kind: PicoMarkdownView.BlockKind.paragraph, parentID: nil, depth: 0)])
-        
-        
-        
-        
-        // This is the result when StreamingReplacementEngine deleted last characters like `.`, and `:`
-        // Do not delete
-        /*
-        assertChunk(chunks, matches: .init(
+        // Historic regression: StreamingReplacementEngine briefly dropped trailing
+        // characters that could begin a literal-pattern lookahead (".", ":") when
+        // a paragraph closed mid-stream. Code analysis (Nov 2026) suggests the
+        // path is now correct — closeCurrentBlock calls parser.finish(), and
+        // flushPendingInlineTailForOpenBlocks runs at end of every feed/finish
+        // for any still-open blocks. The variants below cover the same scenario
+        // across chunk boundaries and across an explicit finish() call.
+    }
+
+    @Test("Trailing period survives an explicit finish()")
+    func trailingPeriodSurvivesFinish() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let chunk = await tokenizer.feed("Hello world.")
+        assertChunk(chunk, matches: .init(
             events: [
                 .blockStart(.paragraph),
-                .blockAppendInline(.paragraph, runs: [
-                    plain("This document is itself written using Markdown; you"),
-                    plain(" can see the source for it by adding text to the URL"),
-                ]),
-                .blockEnd(.paragraph),
-                .blockStart(.paragraph),
-                .blockAppendInline(.paragraph, runs: [plain("This is the final paragraph")]),
+                .blockAppendInline(.paragraph, runs: [plain("Hello world.")])
             ],
             openBlocks: [.paragraph]
         ), state: &state)
-         */
+
+        let final = await tokenizer.finish()
+        assertChunk(final, matches: .init(
+            events: [
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
     }
+
+    @Test("Trailing period split across chunk boundary survives close")
+    func trailingPeriodAcrossChunkBoundary() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("This is a senten")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("This is a senten")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        // Final char is ".", which can start a "..." literal pattern lookahead.
+        // The "." must survive the chunk boundary and remain available for the
+        // paragraph close that follows.
+        let second = await tokenizer.feed("ce.\n\nNext paragraph.")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.paragraph, runs: [plain("ce.")]),
+                .blockEnd(.paragraph),
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Next paragraph.")])
+            ],
+            openBlocks: [.paragraph]
+        ), state: &state)
+
+        let final = await tokenizer.finish()
+        assertChunk(final, matches: .init(
+            events: [
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     
     
     @Test("Unterminated strikethrough flushed on finish")
