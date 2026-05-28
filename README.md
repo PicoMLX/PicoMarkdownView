@@ -200,13 +200,33 @@ contain math.
 
 #### Character rules
 
-A tag ends at one of:
+**Left boundary** (when an opener counts as one):
+
+A tag opener (`@`, `#`, `[[`, etc.) only fires when the character
+immediately preceding it is one of: beginning of input, whitespace, a
+hard-stop character (see below), or a trailing-strip character (see
+below). ASCII letters, digits, `_`, `-`, and `+` *suppress* the opener,
+so `john@example.com`, `v1.2+rc1`, and similar word-continuations do
+not become tags. Non-ASCII characters (emoji, CJK, accented letters)
+never suppress, so `🎯@user` and `张伟@user` still recognise the mention.
+
+A practical consequence: adjacent mentions without a separator (`@beh@lool`)
+emit one tag followed by plain text, not two tags — matching how Slack,
+Discord, and Twitter render mentions. Use a space or punctuation between
+mentions to get two tags.
+
+Paired-delimiter tags (`[[wiki]]`) are exempt from the left-boundary
+suppression — their multi-character opening already provides a natural
+boundary — so `abc[[wiki]]` still matches.
+
+**Right boundary** (where a tag ends):
+
+A tag ends at the first of:
 
 - **Whitespace** (any Unicode whitespace, including newline).
 - **Hard-stop characters** (the character stays in the surrounding text):
   `(` `)` `[` `]` `{` `}` `<` `>` `"` `'` `/` `\` `|` `*` `_` `~` `` ` ``.
-- **The opening character of any registered tag prefix** — so `@beh@lool`
-  splits into two tags.
+- **The opening character of any registered tag prefix**.
 
 Six characters may appear *inside* a tag but are stripped from the trailing
 edge: `.` `,` `:` `;` `!` `?`. So `@behlool!` matches identifier `"behlool"`,

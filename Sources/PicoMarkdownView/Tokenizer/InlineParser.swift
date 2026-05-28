@@ -652,13 +652,26 @@ struct InlineParser {
         }
 
         /// Build the synthetic URL string used by the renderer to route tag
-        /// taps/hovers back to the host. Both the prefix and the identifier
-        /// are percent-encoded so reserved characters survive round-tripping.
+        /// taps/hovers back to the host.
+        ///
+        /// Format: ``pico-tag:///<prefix>/<identifier>`` with an explicitly
+        /// empty host (three slashes) so neither component lands in URL host
+        /// position — important because `urlHostAllowed` is stricter than
+        /// `urlPathAllowed`, and because an unencoded ``@`` (the default
+        /// mention prefix!) in the host position would be parsed as a
+        /// userinfo separator (`scheme://user@host`).
+        ///
+        /// Encoding: ``CharacterSet.alphanumerics``-only allowed — anything
+        /// else is percent-encoded. The URL is opaque to the host (they get
+        /// the ``Tag`` payload via callback); readability isn't a goal, but
+        /// round-trip safety is, regardless of what characters appear in
+        /// the prefix or identifier (slashes, fragments, query separators,
+        /// userinfo separators, percent signs, anything).
         func makePicoTagURL(prefix: String, identifier: String) -> String {
-            let allowed = CharacterSet.urlPathAllowed
+            let allowed = CharacterSet.alphanumerics
             let encodedPrefix = prefix.addingPercentEncoding(withAllowedCharacters: allowed) ?? prefix
             let encodedIdentifier = identifier.addingPercentEncoding(withAllowedCharacters: allowed) ?? identifier
-            return "pico-tag://\(encodedPrefix)/\(encodedIdentifier)"
+            return "pico-tag:///\(encodedPrefix)/\(encodedIdentifier)"
         }
 
         /// Try the ``@[Display Text](identifier)`` markdown-link form.
@@ -734,10 +747,35 @@ struct InlineParser {
             return .handled(nextIndex: nextIndex)
         }
 
+        /// True if a character immediately preceding a tag opener should
+        /// SUPPRESS that opener — i.e. the opener is glued to text that
+        /// looks like the local part of an email address or similar
+        /// word-continuation. Suppresses on ASCII letters / digits /
+        /// `_` / `-` / `+` so that `john@example.com`, `v1.0+rc1`, etc.
+        /// don't turn into tags. Non-ASCII characters (emoji, CJK,
+        /// accented letters) deliberately do NOT suppress so that
+        /// `🎯@user` and `张伟@user` still recognise the mention.
+        func suppressesAdjacentTag(_ ch: Character) -> Bool {
+            guard ch.isASCII else { return false }
+            if ch.isLetter || ch.isNumber { return true }
+            return ch == "_" || ch == "-" || ch == "+"
+        }
+
         /// Parse a tag starting at ``index`` using ``prefix``. Routes between
         /// the paired form (``[[wiki]]``), the markdown-link form
         /// (``@[John](id)``), and the bare form (``@behlool``).
         func parseTag(at index: String.Index, prefix: TagPrefix) -> TagParseResult {
+            // Left-boundary check — see suppressesAdjacentTag above.
+            // Skip for beginning-of-buffer (no preceding char) and for paired
+            // delimiters (their multi-char opening already provides a natural
+            // boundary; "abc[[wiki]]" still recognises the wiki link).
+            if index > text.startIndex, prefix.closing == nil {
+                let prev = text[text.index(before: index)]
+                if suppressesAdjacentTag(prev) {
+                    return .literal
+                }
+            }
+
             let openingLength = prefix.opening.count
             guard let openEnd = text.index(index, offsetBy: openingLength, limitedBy: text.endIndex) else {
                 return includeUnterminated ? .literal : .needMore

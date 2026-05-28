@@ -52,15 +52,21 @@ public struct InlineRun: Sendable, Equatable {
     /// tokenizer, assembler, and renderer share a single source of truth; if a
     /// new payload is added to ``InlineRun``, only this check needs to grow.
     ///
+    /// Runs carrying an *atomic* payload — ``tag``, ``math``, or ``image`` —
+    /// are never coalesced, even when their payloads compare equal. Each such
+    /// element in the source represents a distinct semantic unit, and merging
+    /// two of them would corrupt the per-element rawText / source-range
+    /// invariants the host relies on (e.g. two adjacent ``@user`` mentions
+    /// would become one run whose `tag.rawText` represents only the first).
+    ///
     /// Callers that also need to enforce line-break boundaries (e.g. don't
     /// merge across a hard line break) must apply that as a separate guard on
     /// top of this check.
     public func canCoalesce(with other: InlineRun) -> Bool {
-        style == other.style
-            && linkURL == other.linkURL
-            && image == other.image
-            && math == other.math
-            && tag == other.tag
+        if tag != nil || other.tag != nil { return false }
+        if math != nil || other.math != nil { return false }
+        if image != nil || other.image != nil { return false }
+        return style == other.style && linkURL == other.linkURL
     }
 }
 

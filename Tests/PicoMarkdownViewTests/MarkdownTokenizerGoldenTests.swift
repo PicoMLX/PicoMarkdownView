@@ -2467,18 +2467,162 @@ func midTagDotKeptTrailingDotStripped() async {
     ), state: &state)
 }
 
-@Test("Adjacent mentions split at the second opener")
+@Test("Adjacent mentions without separator: first matches, second is suppressed by left-boundary rule")
 func adjacentMentionsSplit() async {
     let tokenizer = MarkdownTokenizer()
     var state = EventNormalizationState()
 
+    // `@beh@lool` (no separator): the first `@` matches at start of input,
+    // its bare scan stops at the second `@` (hardStop = registered prefix
+    // opener), emitting tag "@beh". The second `@` then has prev char "h"
+    // (ASCII letter), which suppresses tag opening — matching Slack /
+    // Discord / Twitter convention that mentions require a separator. The
+    // tail "@lool" stays as plain text.
     let chunk = await tokenizer.feed("@beh@lool\n\n")
     assertChunk(chunk, matches: .init(
         events: [
             .blockStart(.paragraph),
             .blockAppendInline(.paragraph, runs: [
                 tagRun(prefix: "@", identifier: "beh"),
-                tagRun(prefix: "@", identifier: "lool")
+                plain("@lool")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Adjacent mentions WITH separator yield two tags")
+func adjacentMentionsWithSeparatorYieldTwoTags() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("@user1 @user2\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@", identifier: "user1"),
+                plain(" "),
+                tagRun(prefix: "@", identifier: "user2")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Email address is not parsed as a mention")
+func emailAddressIsNotParsedAsMention() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // Classic email — letter before @ suppresses the tag opener so the
+    // whole thing stays as plain text.
+    let chunk = await tokenizer.feed("Contact john@example.com please\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Contact john@example.com please")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Email-like patterns with digits and dots are not parsed as mentions")
+func emailLikePatternIsNotParsedAsMention() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // Digit before @ also suppresses; dot inside local-part stays plain.
+    let chunk = await tokenizer.feed("Versioned v1.2@deploy\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Versioned v1.2@deploy")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Mention after sentence punctuation (boundary chars) still matches")
+func mentionAfterSentencePunctuationStillMatches() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // Comma, exclamation, and question are all in TagCharacterRules
+    // .trailingStrip and are therefore valid left-boundary characters
+    // for a tag opener.
+    //
+    // Period and colon are also valid in principle but trip a separate
+    // pre-existing StreamingReplacementEngine ordering quirk when they
+    // sit immediately before an inline element (the "..." / ":-)"
+    // shortcode lookahead holds them in literalTail). That's tracked
+    // separately and is not specific to tags — the same quirk affects
+    // links, code spans, and autolinks today.
+    let chunk = await tokenizer.feed("Hi,@first ok!@second wow?@third\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Hi,"),
+                tagRun(prefix: "@", identifier: "first"),
+                plain(" ok!"),
+                tagRun(prefix: "@", identifier: "second"),
+                plain(" wow?"),
+                tagRun(prefix: "@", identifier: "third")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Mention after emoji or CJK character still matches")
+func mentionAfterEmojiOrCJKStillMatches() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // The email-suppression rule applies to ASCII alphanumerics only,
+    // so non-ASCII characters never block a mention.
+    let chunk = await tokenizer.feed("🎯@first 张伟@second\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("🎯"),
+                tagRun(prefix: "@", identifier: "first"),
+                plain(" 张伟"),
+                tagRun(prefix: "@", identifier: "second")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Adjacent identical tags do not coalesce")
+func adjacentIdenticalTagsDoNotCoalesce() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // Two `@user` tags separated by a space — both identical in style,
+    // linkURL, and tag payload. They must remain two separate runs so
+    // the tag.rawText invariant per element holds.
+    let chunk = await tokenizer.feed("@user @user\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@", identifier: "user"),
+                plain(" "),
+                tagRun(prefix: "@", identifier: "user")
             ]),
             .blockEnd(.paragraph)
         ],
@@ -2908,11 +3052,13 @@ private func plain(_ text: String) -> InlineRunShape {
 
 /// Build the expected URL string for a tag the same way the inline parser
 /// constructs it, so test fixtures don't have to hand-encode reserved chars.
+/// Mirrors `InlineParser.makePicoTagURL` exactly: `alphanumerics`-only
+/// allowed, empty host (three slashes), both components in path position.
 private func picoTagURL(prefix: String, identifier: String) -> String {
-    let allowed = CharacterSet.urlPathAllowed
+    let allowed = CharacterSet.alphanumerics
     let p = prefix.addingPercentEncoding(withAllowedCharacters: allowed) ?? prefix
     let i = identifier.addingPercentEncoding(withAllowedCharacters: allowed) ?? identifier
-    return "pico-tag://\(p)/\(i)"
+    return "pico-tag:///\(p)/\(i)"
 }
 
 private func tagRun(prefix: String,
