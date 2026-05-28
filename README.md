@@ -165,6 +165,110 @@ var body: some View {
 }
 ```
 
+### Inline Tags (Mentions / Hashtags / Tickers / Wiki-Links)
+
+PicoMarkdownView recognises lightweight inline tags so a host app can attach
+custom interactions — Slack-style user popovers, hashtag filters, wiki
+links — without forking the parser. The tokenizer emits these as
+`InlineRun`s with `style` containing `.tag` and a populated `tag: Tag`
+payload; the renderer (in the follow-up PR) will wire them through the
+same link-routing path used for `[text](url)`.
+
+#### Defaults
+
+Two prefixes are registered automatically:
+
+- `@` — user mentions
+- `#` — hashtags / topics
+
+#### Opt-in prefixes
+
+Pass an explicit set to `MarkdownTokenizer` to add others:
+
+```swift
+let tokenizer = MarkdownTokenizer(tagPrefixes: [
+    .mention,                                  // @
+    .hashtag,                                  // #
+    .ticker,                                   // $  (collides with TeX; see below)
+    .paired(open: "[[", close: "]]")           // [[wiki-link]]
+])
+```
+
+The `$` ticker is **not** in the defaults because it collides with TeX/KaTeX
+inline math (`$x = mc^2$`). Enable it only when the content does not
+contain math.
+
+#### Character rules
+
+**Left boundary** (when an opener counts as one):
+
+A tag opener (`@`, `#`, `[[`, etc.) only fires when the character
+immediately preceding it is one of: beginning of input, whitespace, a
+hard-stop character (see below), or a trailing-strip character (see
+below). ASCII letters, digits, `_`, `-`, and `+` *suppress* the opener,
+so `john@example.com`, `v1.2+rc1`, and similar word-continuations do
+not become tags. Non-ASCII characters (emoji, CJK, accented letters)
+never suppress, so `🎯@user` and `张伟@user` still recognise the mention.
+
+A practical consequence: adjacent mentions without a separator (`@beh@lool`)
+emit one tag followed by plain text, not two tags — matching how Slack,
+Discord, and Twitter render mentions. Use a space or punctuation between
+mentions to get two tags.
+
+Paired-delimiter tags (`[[wiki]]`) are exempt from the left-boundary
+suppression — their multi-character opening already provides a natural
+boundary — so `abc[[wiki]]` still matches.
+
+**Right boundary** (where a tag ends):
+
+A tag ends at the first of:
+
+- **Whitespace** (any Unicode whitespace, including newline).
+- **Hard-stop characters** (the character stays in the surrounding text):
+  `(` `)` `[` `]` `{` `}` `<` `>` `"` `'` `/` `\` `|` `*` `_` `~` `` ` ``.
+- **The opening character of any registered tag prefix**.
+
+Six characters may appear *inside* a tag but are stripped from the trailing
+edge: `.` `,` `:` `;` `!` `?`. So `@behlool!` matches identifier `"behlool"`,
+and `@john.doe.` matches `"john.doe"` (only the trailing `.` is stripped).
+
+Everything else flows in — emoji, CJK, accented letters, digits,
+underscores, hyphens. The host receives the raw identifier and decides
+what to do with it.
+
+#### Markdown-link form
+
+In addition to the bare form, the parser also recognises the markdown-link
+form with a tag prefix glued on:
+
+```
+@[John Doe](u-2345)
+```
+
+This emits:
+
+```swift
+Tag(prefix: "@",
+    identifier: "u-2345",
+    displayText: "@John Doe",
+    rawText: "@[John Doe](u-2345)")
+```
+
+This decouples the visible name from the lookup key — useful when the
+identifier is an opaque ID and the display name might contain spaces.
+
+#### Streaming guarantees
+
+Tag recognition is local within a block and never violates the streaming
+invariants:
+
+- A tag opener that arrives without its terminator (e.g. chunk ends mid
+  `@behlool` or mid `@[John Doe](`) is buffered; preceding plain text is
+  emitted immediately, the opener waits for the next chunk.
+- No provisional tag events are emitted that later need correction.
+- Verbatim content: no further inline parsing happens *inside* a tag, so
+  `@**unclosed` does not destabilise emphasis state later in the document.
+
 ### Benchmarking
 
 Run the bundled tests to exercise streaming and table rendering:

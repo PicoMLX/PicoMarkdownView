@@ -38,7 +38,21 @@ final class FootnoteRegistry {
     }
 }
 
-/// Minimal streaming inline parser supporting CommonMark emphasis, code spans, links, and hard breaks.
+/// Result of attempting to parse a tag at the current position.
+private enum TagParseResult {
+    /// A tag was successfully recognised and emitted; resume at this index.
+    case handled(nextIndex: String.Index)
+    /// The opener didn't form a real tag (e.g. ``@`` followed by a hard-stop
+    /// character). Let the normal switch handle this position instead.
+    case literal
+    /// Streaming-incomplete — the buffer doesn't yet contain enough characters
+    /// to resolve the tag (e.g. paired ``[[`` without ``]]`` yet, or markdown-
+    /// link form ``@[John](`` waiting for ``)``). Caller should pause.
+    case needMore
+}
+
+/// Minimal streaming inline parser supporting CommonMark emphasis, code spans, links, hard breaks,
+/// and inline custom tags (mentions/hashtags/tickers/paired wiki-links).
 struct InlineParser {
     private enum LineBreakParseResult {
         case handled(nextIndex: String.Index)
@@ -49,6 +63,34 @@ struct InlineParser {
     private var mathState: InlineMathState?
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
+
+    /// Registered tag prefixes. ``MarkdownTokenizer`` populates this via its
+    /// init parameter; the default is ``TagPrefix/defaults`` (``@`` + ``#``).
+    /// Sorted at init by descending opening length so that longer prefixes
+    /// (``[[``) are tried before shorter ones (``[``) when both could match.
+    let tagPrefixes: [TagPrefix]
+
+    /// Quick-reject set of single-character prefix openings — used to
+    /// short-circuit the per-position scan in ``matchingTagPrefix(at:in:)``
+    /// without walking the prefix array on every character.
+    let tagPrefixOpeningFirstChars: Set<Character>
+
+    init(tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+        // Longest opening first so e.g. "[[" wins over "["
+        self.tagPrefixes = tagPrefixes.sorted { $0.opening.count > $1.opening.count }
+        self.tagPrefixOpeningFirstChars = Set(
+            tagPrefixes.compactMap { $0.opening.first }
+        )
+    }
+
+    /// Fast-path initializer used when both the sorted-prefix array and the
+    /// first-char lookup set are already in hand — avoids the sort + set
+    /// conversion on every nested parse triggered by emphasis/strikethrough.
+    private init(sortedTagPrefixes: [TagPrefix],
+                 tagPrefixOpeningFirstChars: Set<Character>) {
+        self.tagPrefixes = sortedTagPrefixes
+        self.tagPrefixOpeningFirstChars = tagPrefixOpeningFirstChars
+    }
 
     private struct InlineMathState {
         enum Delimiter {
@@ -82,6 +124,12 @@ struct InlineParser {
         var plainStart = text.startIndex
         var consumedEnd = text.startIndex
         var consumedAll = true
+
+        // Capture immutable parser configuration into locals so the nested
+        // helpers below don't need to reach back through `self` (which is
+        // `inout` inside this mutating method).
+        let parserTagPrefixes = self.tagPrefixes
+        let parserTagPrefixOpeningFirstChars = self.tagPrefixOpeningFirstChars
 
         func appendProcessed(_ text: String) {
             guard !text.isEmpty else { return }
@@ -152,10 +200,16 @@ struct InlineParser {
 
         func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
             guard !text.isEmpty else { return [] }
-            var nested = InlineParser()
+            // Use the fast-path init: the outer parser already sorted the
+            // prefix array and computed the first-char set, so the nested
+            // parser doesn't need to redo either on every emphasis span.
+            var nested = InlineParser(sortedTagPrefixes: parserTagPrefixes,
+                                      tagPrefixOpeningFirstChars: parserTagPrefixOpeningFirstChars)
             var result = nested.append(text)
             result += nested.finish()
             guard !result.isEmpty else { return [] }
+            // Tags are styled text (not opaque attachments like code/math/image),
+            // so surrounding emphasis SHOULD apply — "**@behlool**" → bold tag.
             let nonInheriting: InlineStyle = [.code, .math, .image]
             return result.map { run in
                 guard run.style.intersection(nonInheriting).isEmpty else { return run }
@@ -166,11 +220,12 @@ struct InlineParser {
         }
 
         func appendRun(_ run: InlineRun) {
+            // Payload-identity check is shared with the assembler and the
+            // state machine via `InlineRun.canCoalesce(with:)`; the two
+            // line-break guards are local to inline parsing (don't merge
+            // across a hard line break) and stay here.
             if let last = runs.last,
-               last.style == run.style,
-               last.linkURL == run.linkURL,
-               last.image == run.image,
-               last.math == run.math,
+               last.canCoalesce(with: run),
                !last.text.hasSuffix("\n"),
                !run.text.hasPrefix("\n") {
                 runs[runs.count - 1].text += run.text
@@ -579,7 +634,276 @@ struct InlineParser {
             return .handled(nextIndex: afterClose)
         }
 
+        // MARK: - Inline tag parsing
+
+        /// Returns the longest registered ``TagPrefix`` whose opening matches
+        /// the buffer starting at ``index``, or ``nil`` if none match.
+        /// ``tagPrefixes`` is pre-sorted longest-first at init, so this picks
+        /// e.g. ``[[`` over ``[``.
+        func matchingTagPrefix(at index: String.Index) -> TagPrefix? {
+            // Cheap reject: first character must match at least one opening.
+            guard parserTagPrefixOpeningFirstChars.contains(text[index]) else { return nil }
+            for prefix in parserTagPrefixes {
+                if text[index...].hasPrefix(prefix.opening) {
+                    return prefix
+                }
+            }
+            return nil
+        }
+
+        /// Build the synthetic URL string used by the renderer to route tag
+        /// taps/hovers back to the host.
+        ///
+        /// Format: ``pico-tag:///<prefix>/<identifier>`` with an explicitly
+        /// empty host (three slashes) so neither component lands in URL host
+        /// position — important because `urlHostAllowed` is stricter than
+        /// `urlPathAllowed`, and because an unencoded ``@`` (the default
+        /// mention prefix!) in the host position would be parsed as a
+        /// userinfo separator (`scheme://user@host`).
+        ///
+        /// Encoding: ``CharacterSet.alphanumerics``-only allowed — anything
+        /// else is percent-encoded. The URL is opaque to the host (they get
+        /// the ``Tag`` payload via callback); readability isn't a goal, but
+        /// round-trip safety is, regardless of what characters appear in
+        /// the prefix or identifier (slashes, fragments, query separators,
+        /// userinfo separators, percent signs, anything).
+        func makePicoTagURL(prefix: String, identifier: String) -> String {
+            let allowed = CharacterSet.alphanumerics
+            let encodedPrefix = prefix.addingPercentEncoding(withAllowedCharacters: allowed) ?? prefix
+            let encodedIdentifier = identifier.addingPercentEncoding(withAllowedCharacters: allowed) ?? identifier
+            return "pico-tag:///\(encodedPrefix)/\(encodedIdentifier)"
+        }
+
+        /// Try the ``@[Display Text](identifier)`` markdown-link form.
+        /// Returns ``.handled`` on success, ``.needMore`` if the buffer is
+        /// streaming-incomplete (no closing ``]`` or ``)`` yet), or ``nil``
+        /// to indicate "not the markdown-link form" so the caller can fall
+        /// back to the bare-tag scan.
+        func parseMarkdownLinkTagForm(openerStart: String.Index,
+                                      prefix: TagPrefix,
+                                      bracketStart: String.Index) -> TagParseResult? {
+            let labelStart = text.index(after: bracketStart)
+            guard labelStart <= text.endIndex else {
+                return includeUnterminated ? nil : .needMore
+            }
+            guard let labelClose = text[labelStart..<text.endIndex].firstIndex(of: "]") else {
+                return includeUnterminated ? nil : .needMore
+            }
+            let afterLabelClose = text.index(after: labelClose)
+            guard afterLabelClose < text.endIndex else {
+                return includeUnterminated ? nil : .needMore
+            }
+            guard text[afterLabelClose] == "(" else {
+                // Not the markdown-link form. Caller falls back to bare scan.
+                return nil
+            }
+
+            var closingParen: String.Index?
+            var cursor = text.index(after: afterLabelClose)
+            var depth = 0
+            while cursor < text.endIndex {
+                let c = text[cursor]
+                if c == "(" {
+                    depth += 1
+                } else if c == ")" {
+                    if depth == 0 {
+                        closingParen = cursor
+                        break
+                    } else {
+                        depth -= 1
+                    }
+                }
+                cursor = text.index(after: cursor)
+            }
+            guard let close = closingParen else {
+                return includeUnterminated ? nil : .needMore
+            }
+
+            let label = String(text[labelStart..<labelClose])
+            let urlStart = text.index(after: afterLabelClose)
+            let rawIdentifier = String(text[urlStart..<close])
+            let identifier = rawIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Empty label or empty identifier — not a useful tag. Fall back so
+            // the caller can try the bare form / treat as literal.
+            guard !label.isEmpty, !identifier.isEmpty else { return nil }
+
+            let displayText = prefix.opening + label
+            let nextIndex = text.index(after: close)
+            let raw = String(text[openerStart..<nextIndex])
+            let tagPayload = Tag(prefix: prefix.opening,
+                                 identifier: identifier,
+                                 displayText: displayText,
+                                 rawText: raw)
+            let url = makePicoTagURL(prefix: prefix.opening, identifier: identifier)
+
+            flushPlain(upTo: openerStart)
+            appendRun(InlineRun(text: displayText,
+                                style: [.tag, .link],
+                                linkURL: url,
+                                tag: tagPayload))
+            consumedEnd = nextIndex
+            plainStart = nextIndex
+            return .handled(nextIndex: nextIndex)
+        }
+
+        /// True if a character immediately preceding a tag opener should
+        /// SUPPRESS that opener — i.e. the opener is glued to text that
+        /// looks like the local part of an email address or similar
+        /// word-continuation. Suppresses on ASCII letters / digits /
+        /// `_` / `-` / `+` so that `john@example.com`, `v1.0+rc1`, etc.
+        /// don't turn into tags. Non-ASCII characters (emoji, CJK,
+        /// accented letters) deliberately do NOT suppress so that
+        /// `🎯@user` and `张伟@user` still recognise the mention.
+        func suppressesAdjacentTag(_ ch: Character) -> Bool {
+            guard ch.isASCII else { return false }
+            if ch.isLetter || ch.isNumber { return true }
+            return ch == "_" || ch == "-" || ch == "+"
+        }
+
+        /// Parse a tag starting at ``index`` using ``prefix``. Routes between
+        /// the paired form (``[[wiki]]``), the markdown-link form
+        /// (``@[John](id)``), and the bare form (``@behlool``).
+        func parseTag(at index: String.Index, prefix: TagPrefix) -> TagParseResult {
+            // Left-boundary check — see suppressesAdjacentTag above.
+            // Skip for beginning-of-buffer (no preceding char) and for paired
+            // delimiters (their multi-char opening already provides a natural
+            // boundary; "abc[[wiki]]" still recognises the wiki link).
+            if index > text.startIndex, prefix.closing == nil {
+                let prev = text[text.index(before: index)]
+                if suppressesAdjacentTag(prev) {
+                    return .literal
+                }
+            }
+
+            let openingLength = prefix.opening.count
+            guard let openEnd = text.index(index, offsetBy: openingLength, limitedBy: text.endIndex) else {
+                return includeUnterminated ? .literal : .needMore
+            }
+
+            // ---- Paired form (e.g. [[wiki]]) ----
+            if let closing = prefix.closing {
+                // Look for the closing delimiter starting after the opening.
+                guard let closeRange = text[openEnd..<text.endIndex].range(of: closing) else {
+                    return includeUnterminated ? .literal : .needMore
+                }
+                let inner = String(text[openEnd..<closeRange.lowerBound])
+                let identifier = inner.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !identifier.isEmpty else { return .literal }
+                // Reject if the inner content contains the OPENING delimiter
+                // again — that's almost certainly malformed input, treat as literal.
+                if inner.contains(prefix.opening) { return .literal }
+
+                let nextIndex = closeRange.upperBound
+                let raw = String(text[index..<nextIndex])
+                let displayText = raw
+                let tagPayload = Tag(prefix: prefix.opening,
+                                     identifier: identifier,
+                                     displayText: displayText,
+                                     rawText: raw)
+                let url = makePicoTagURL(prefix: prefix.opening, identifier: identifier)
+
+                flushPlain(upTo: index)
+                appendRun(InlineRun(text: displayText,
+                                    style: [.tag, .link],
+                                    linkURL: url,
+                                    tag: tagPayload))
+                consumedEnd = nextIndex
+                plainStart = nextIndex
+                return .handled(nextIndex: nextIndex)
+            }
+
+            // ---- Single-char opener: try the markdown-link form first ----
+            if openEnd < text.endIndex, text[openEnd] == "[" {
+                if let result = parseMarkdownLinkTagForm(openerStart: index,
+                                                         prefix: prefix,
+                                                         bracketStart: openEnd) {
+                    return result
+                }
+                // nil → not the markdown-link form; fall through to bare scan.
+            }
+
+            // ---- Bare form: scan until terminator ----
+            // Stop at: whitespace, any TagCharacterRules.hardStop, or the
+            // opening character of any registered tag prefix (including the
+            // current one — so "@beh@lool" splits into two tags).
+            var cursor = openEnd
+            while cursor < text.endIndex {
+                let c = text[cursor]
+                if c.isWhitespace { break }
+                if TagCharacterRules.hardStop.contains(c) { break }
+                if parserTagPrefixOpeningFirstChars.contains(c) { break }
+                cursor = text.index(after: cursor)
+            }
+
+            // If we didn't consume any identifier characters, this isn't a tag.
+            if cursor == openEnd { return .literal }
+
+            // Streaming: if we hit the end of the buffer without a terminator,
+            // wait for more — otherwise we might cut off a trailing-strip char
+            // and miss the chance to keep it as a separator.
+            if cursor == text.endIndex && !includeUnterminated {
+                return .needMore
+            }
+
+            // Trailing-strip: walk back across .,:;!? so "@behlool!" leaves "!"
+            // outside the tag identifier.
+            var endIndex = cursor
+            while endIndex > openEnd {
+                let prevIndex = text.index(before: endIndex)
+                if TagCharacterRules.trailingStrip.contains(text[prevIndex]) {
+                    endIndex = prevIndex
+                } else {
+                    break
+                }
+            }
+            // Reject tags consisting entirely of trailing-strip chars (e.g. "@.").
+            if endIndex == openEnd { return .literal }
+
+            let identifier = String(text[openEnd..<endIndex])
+            let displayText = String(text[index..<endIndex])
+            let rawText = displayText  // bare form: raw == display
+            let tagPayload = Tag(prefix: prefix.opening,
+                                 identifier: identifier,
+                                 displayText: displayText,
+                                 rawText: rawText)
+            let url = makePicoTagURL(prefix: prefix.opening, identifier: identifier)
+
+            flushPlain(upTo: index)
+            appendRun(InlineRun(text: displayText,
+                                style: [.tag, .link],
+                                linkURL: url,
+                                tag: tagPayload))
+            consumedEnd = endIndex
+            plainStart = endIndex
+            return .handled(nextIndex: endIndex)
+        }
+
         parsing: while index < text.endIndex {
+            // Inline tag dispatch — fires before the normal switch so that
+            // characters which also have other meanings (e.g. "$" is also a
+            // math delimiter, "[" is also a link opener) prefer the tag form
+            // only when the registered prefix actually matches. Skipped while
+            // inside a math span — tags are not parsed inside TeX content.
+            if mathState == nil, let prefix = matchingTagPrefix(at: index) {
+                switch parseTag(at: index, prefix: prefix) {
+                case .handled(let nextIndex):
+                    index = nextIndex
+                    continue parsing
+                case .literal:
+                    break  // fall through to the normal switch
+                case .needMore:
+                    // Mirror the strikethrough-streaming pattern: emit any
+                    // plain text accumulated before the opener, then pause
+                    // at the opener so the next chunk resumes from there.
+                    flushPlain(upTo: index)
+                    consumedEnd = index
+                    plainStart = index
+                    consumedAll = false
+                    break parsing
+                }
+            }
+
             let ch = text[index]
             switch ch {
             case "\\":
@@ -961,8 +1285,9 @@ struct InlineParser {
         return runs
     }
 
-    static func parseAll(_ text: String) -> [InlineRun] {
-        var parser = InlineParser()
+    static func parseAll(_ text: String,
+                         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) -> [InlineRun] {
+        var parser = InlineParser(tagPrefixes: tagPrefixes)
         parser.pending = text
         return parser.consume(includeUnterminated: true)
     }
