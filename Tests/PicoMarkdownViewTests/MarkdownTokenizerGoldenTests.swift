@@ -2366,6 +2366,468 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+// MARK: - Inline tag parsing
+
+@Test("Bare mention emits a tag run")
+func bareMentionEmitsTagRun() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Hello @behlool world\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Hello "),
+                tagRun(prefix: "@", identifier: "behlool"),
+                plain(" world")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Bare hashtag emits a tag run")
+func bareHashtagEmitsTagRun() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Topic: #release-notes today\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Topic: "),
+                tagRun(prefix: "#", identifier: "release-notes"),
+                plain(" today")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Trailing punctuation is stripped from the tag identifier")
+func trailingPunctuationStripped() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Hi @behlool! Welcome.\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Hi "),
+                tagRun(prefix: "@", identifier: "behlool"),
+                plain("! Welcome.")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Repeated trailing punctuation is stripped")
+func repeatedTrailingPunctuationStripped() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("@behlool!?! end\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@", identifier: "behlool"),
+                plain("!?! end")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Dots in the middle of a tag are kept; only trailing dot is stripped")
+func midTagDotKeptTrailingDotStripped() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Ping @john.doe. now.\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Ping "),
+                tagRun(prefix: "@", identifier: "john.doe"),
+                plain(". now.")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Adjacent mentions split at the second opener")
+func adjacentMentionsSplit() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("@beh@lool\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@", identifier: "beh"),
+                tagRun(prefix: "@", identifier: "lool")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Hard-stop character ends the tag and starts emphasis")
+func hardStopEndsTagAndStartsEmphasis() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Look @beh*lool* now\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Look "),
+                tagRun(prefix: "@", identifier: "beh"),
+                InlineRunShape(text: "lool", style: InlineStyle.italic),
+                plain(" now")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Emoji flow into the tag identifier")
+func emojiFlowsIntoTagIdentifier() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Hi @behlool🎯 there\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Hi "),
+                tagRun(prefix: "@", identifier: "behlool🎯"),
+                plain(" there")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Non-ASCII characters flow into the tag identifier")
+func nonASCIIFlowsIntoTagIdentifier() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Hi @张伟 there\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Hi "),
+                tagRun(prefix: "@", identifier: "张伟"),
+                plain(" there")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Closing paren after a parenthesised mention ends the tag")
+func parenthesisedMention() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("(see @behlool)\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("(see "),
+                tagRun(prefix: "@", identifier: "behlool"),
+                plain(")")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Bare opener with no identifier characters falls back to literal")
+func bareOpenerNoIdentifierFallsBackToLiteral() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Email @ me later\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Email @ me later")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Markdown-link form encodes identifier separately from display")
+func markdownLinkFormEncodesIdentifierSeparately() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Ping @[John Doe](u-2345) now\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Ping "),
+                tagRun(prefix: "@",
+                       identifier: "u-2345",
+                       displayText: "@John Doe",
+                       rawText: "@[John Doe](u-2345)"),
+                plain(" now")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Markdown-link form trims whitespace around the identifier")
+func markdownLinkFormTrimsWhitespace() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("@[John](  u-2345  )\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@",
+                       identifier: "u-2345",
+                       displayText: "@John",
+                       rawText: "@[John](  u-2345  )")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Tag inside bold inherits the bold style")
+func tagInsideBoldInheritsStyle() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("**@behlool** says hi\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@", identifier: "behlool", extraStyle: .bold),
+                plain(" says hi")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Bare tag streams across chunk boundary")
+func bareTagStreamsAcrossChunkBoundary() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // The tokenizer must hold off emitting any tag-related run until the
+    // identifier terminates. The preceding plain text "Hi " is emitted
+    // immediately; the partial "@behl" stays buffered.
+    let first = await tokenizer.feed("Hi @behl")
+    assertChunk(first, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [plain("Hi ")])
+        ],
+        openBlocks: [.paragraph]
+    ), state: &state)
+
+    let second = await tokenizer.feed("ool there\n\n")
+    assertChunk(second, matches: .init(
+        events: [
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@", identifier: "behlool"),
+                plain(" there")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Markdown-link tag streams across an incomplete-paren chunk boundary")
+func markdownLinkTagStreamsAcrossBoundary() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // Chunk 1 ends in the middle of the (id) component. The leading "Hi "
+    // is emitted but the tag opener "@[John](" must remain buffered until
+    // the closing ")" arrives.
+    let first = await tokenizer.feed("Hi @[John Doe](")
+    assertChunk(first, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [plain("Hi ")])
+        ],
+        openBlocks: [.paragraph]
+    ), state: &state)
+
+    let second = await tokenizer.feed("u-2345)\n\n")
+    assertChunk(second, matches: .init(
+        events: [
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "@",
+                       identifier: "u-2345",
+                       displayText: "@John Doe",
+                       rawText: "@[John Doe](u-2345)")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Paired tag delimiter recognised when opt-in")
+func pairedTagDelimiterRecognised() async {
+    let tokenizer = MarkdownTokenizer(tagPrefixes: [
+        .mention,
+        .hashtag,
+        .paired(open: "[[", close: "]]")
+    ])
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("See [[Home Page]] for details\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("See "),
+                tagRun(prefix: "[[",
+                       identifier: "Home Page",
+                       displayText: "[[Home Page]]",
+                       rawText: "[[Home Page]]"),
+                plain(" for details")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Paired delimiter streams across a chunk boundary")
+func pairedDelimiterStreamsAcrossBoundary() async {
+    let tokenizer = MarkdownTokenizer(tagPrefixes: [
+        .paired(open: "[[", close: "]]")
+    ])
+    var state = EventNormalizationState()
+
+    let first = await tokenizer.feed("Link [[Home")
+    assertChunk(first, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [plain("Link ")])
+        ],
+        openBlocks: [.paragraph]
+    ), state: &state)
+
+    let second = await tokenizer.feed(" Page]] follows\n\n")
+    assertChunk(second, matches: .init(
+        events: [
+            .blockAppendInline(.paragraph, runs: [
+                tagRun(prefix: "[[",
+                       identifier: "Home Page",
+                       displayText: "[[Home Page]]",
+                       rawText: "[[Home Page]]"),
+                plain(" follows")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Tickers are opt-in: default tokenizer leaves '$AAPL' to math handling")
+func tickersAreOptIn() async {
+    let tokenizer = MarkdownTokenizer()
+    var state = EventNormalizationState()
+
+    // No closing $ ever arrives, so math handling falls back to literal.
+    let chunk = await tokenizer.feed("Buy $AAPL today!\n\n")
+    let final = await tokenizer.finish()
+    let allEvents = chunk.events + final.events
+    let allShapes = normalizeEvents(allEvents, state: &state)
+    // Whatever the math fallback produces, the run must NOT have the .tag bit.
+    for shape in allShapes {
+        if case let .blockAppendInline(_, runs) = shape {
+            for run in runs {
+                #expect(InlineStyle(rawValue: run.styleRawValue).contains(.tag) == false,
+                        "$AAPL should not produce a tag run when '$' is not registered")
+            }
+        }
+    }
+}
+
+@Test("Opt-in ticker prefix emits a tag run")
+func optInTickerEmitsTag() async {
+    let tokenizer = MarkdownTokenizer(tagPrefixes: [.mention, .hashtag, .ticker])
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Buy $AAPL today\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Buy "),
+                tagRun(prefix: "$", identifier: "AAPL"),
+                plain(" today")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
+@Test("Disabling tag prefixes yields plain text")
+func disablingTagPrefixesYieldsPlainText() async {
+    let tokenizer = MarkdownTokenizer(tagPrefixes: [])
+    var state = EventNormalizationState()
+
+    let chunk = await tokenizer.feed("Hello @behlool #topic\n\n")
+    assertChunk(chunk, matches: .init(
+        events: [
+            .blockStart(.paragraph),
+            .blockAppendInline(.paragraph, runs: [
+                plain("Hello @behlool #topic")
+            ]),
+            .blockEnd(.paragraph)
+        ],
+        openBlocks: []
+    ), state: &state)
+}
+
 private struct ChunkExpectation: Sendable {
     var events: [EventShape]
     var openBlocks: [BlockKind] = []
@@ -2389,14 +2851,21 @@ private struct InlineRunShape: Equatable {
     var imageSource: String?
     var imageTitle: String?
     var math: MathShape?
+    var tag: TagShape?
 
-    init(text: String, style: InlineStyle = [], linkURL: String? = nil, imageSource: String? = nil, imageTitle: String? = nil) {
+    init(text: String,
+         style: InlineStyle = [],
+         linkURL: String? = nil,
+         imageSource: String? = nil,
+         imageTitle: String? = nil,
+         tag: TagShape? = nil) {
         self.text = text
         self.styleRawValue = style.rawValue
         self.linkURL = linkURL
         self.imageSource = imageSource
         self.imageTitle = imageTitle
         self.math = nil
+        self.tag = tag
     }
 
     init(_ run: InlineRun) {
@@ -2410,6 +2879,14 @@ private struct InlineRunShape: Equatable {
         } else {
             self.math = nil
         }
+        if let payload = run.tag {
+            self.tag = TagShape(prefix: payload.prefix,
+                                identifier: payload.identifier,
+                                displayText: payload.displayText,
+                                rawText: payload.rawText)
+        } else {
+            self.tag = nil
+        }
     }
 }
 
@@ -2418,8 +2895,44 @@ private struct MathShape: Equatable {
     var display: Bool
 }
 
+private struct TagShape: Equatable {
+    var prefix: String
+    var identifier: String
+    var displayText: String
+    var rawText: String
+}
+
 private func plain(_ text: String) -> InlineRunShape {
     InlineRunShape(text: text)
+}
+
+/// Build the expected URL string for a tag the same way the inline parser
+/// constructs it, so test fixtures don't have to hand-encode reserved chars.
+private func picoTagURL(prefix: String, identifier: String) -> String {
+    let allowed = CharacterSet.urlPathAllowed
+    let p = prefix.addingPercentEncoding(withAllowedCharacters: allowed) ?? prefix
+    let i = identifier.addingPercentEncoding(withAllowedCharacters: allowed) ?? identifier
+    return "pico-tag://\(p)/\(i)"
+}
+
+private func tagRun(prefix: String,
+                    identifier: String,
+                    displayText: String? = nil,
+                    rawText: String? = nil,
+                    extraStyle: InlineStyle = []) -> InlineRunShape {
+    let display = displayText ?? (prefix + identifier)
+    let raw = rawText ?? display
+    var style: InlineStyle = [.tag, .link]
+    style.formUnion(extraStyle)
+    return InlineRunShape(
+        text: display,
+        style: style,
+        linkURL: picoTagURL(prefix: prefix, identifier: identifier),
+        tag: TagShape(prefix: prefix,
+                      identifier: identifier,
+                      displayText: display,
+                      rawText: raw)
+    )
 }
 
 private func image(_ alt: String, source: String, title: String? = nil) -> InlineRunShape {
