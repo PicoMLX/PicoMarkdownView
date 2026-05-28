@@ -816,8 +816,18 @@ private final class StreamingTextKit1View: NSTextView {
         guard let textContainer = textContainer, let layoutManager = layoutManager else {
             return super.intrinsicContentSize
         }
-        let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
-        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        // Defer measurement until SwiftUI has assigned a real width. The old fallback
+        // laid out at an infinite container width when bounds.width == 0, which happens
+        // on a cold launch: ContentView auto-selects the first example in .onAppear, so
+        // the text view starts receiving streamed edits before its frame is set. Measuring
+        // (and drawing) at infinite width mis-sizes the content and leaves stale glyph
+        // fragments stacked at the top. Reporting "no intrinsic metric" here is corrected
+        // automatically — layout()/viewDidMoveToWindow() invalidate the intrinsic size as
+        // soon as a real width arrives.
+        guard bounds.width > 0 else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
@@ -883,8 +893,18 @@ private final class StreamingTextKit2View: NSTextView {
         guard let textContainer = textContainer, let layoutManager = layoutManager else {
             return super.intrinsicContentSize
         }
-        let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
-        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        // Defer measurement until SwiftUI has assigned a real width. The old fallback
+        // laid out at an infinite container width when bounds.width == 0, which happens
+        // on a cold launch: ContentView auto-selects the first example in .onAppear, so
+        // the text view starts receiving streamed edits before its frame is set. Measuring
+        // (and drawing) at infinite width mis-sizes the content and leaves stale glyph
+        // fragments stacked at the top. Reporting "no intrinsic metric" here is corrected
+        // automatically — layout()/viewDidMoveToWindow() invalidate the intrinsic size as
+        // soon as a real width arrives.
+        guard bounds.width > 0 else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
