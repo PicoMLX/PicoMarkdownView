@@ -410,7 +410,7 @@ private struct BlockEntry {
     }
 
     private static func canCoalesce(_ lhs: InlineRun, _ rhs: InlineRun) -> Bool {
-        lhs.style == rhs.style && lhs.linkURL == rhs.linkURL && lhs.image == rhs.image
+        lhs.canCoalesce(with: rhs)
     }
 
     private static func coalescedRuns(_ runs: [InlineRun]) -> [InlineRun] {
