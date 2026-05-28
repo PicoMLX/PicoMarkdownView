@@ -836,11 +836,7 @@ struct StreamingParser {
     }
 
     private func canCoalesce(_ lhs: InlineRun, _ rhs: InlineRun) -> Bool {
-        lhs.style == rhs.style
-            && lhs.linkURL == rhs.linkURL
-            && lhs.image == rhs.image
-            && lhs.math == rhs.math
-            && lhs.tag == rhs.tag
+        lhs.canCoalesce(with: rhs)
     }
 
     private func coalesceInlineRuns(_ runs: inout [InlineRun]) {

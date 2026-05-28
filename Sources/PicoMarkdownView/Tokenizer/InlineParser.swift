@@ -83,6 +83,15 @@ struct InlineParser {
         )
     }
 
+    /// Fast-path initializer used when both the sorted-prefix array and the
+    /// first-char lookup set are already in hand — avoids the sort + set
+    /// conversion on every nested parse triggered by emphasis/strikethrough.
+    private init(sortedTagPrefixes: [TagPrefix],
+                 tagPrefixOpeningFirstChars: Set<Character>) {
+        self.tagPrefixes = sortedTagPrefixes
+        self.tagPrefixOpeningFirstChars = tagPrefixOpeningFirstChars
+    }
+
     private struct InlineMathState {
         enum Delimiter {
             case dollar(count: Int, display: Bool)
@@ -191,7 +200,11 @@ struct InlineParser {
 
         func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
             guard !text.isEmpty else { return [] }
-            var nested = InlineParser(tagPrefixes: Set(parserTagPrefixes))
+            // Use the fast-path init: the outer parser already sorted the
+            // prefix array and computed the first-char set, so the nested
+            // parser doesn't need to redo either on every emphasis span.
+            var nested = InlineParser(sortedTagPrefixes: parserTagPrefixes,
+                                      tagPrefixOpeningFirstChars: parserTagPrefixOpeningFirstChars)
             var result = nested.append(text)
             result += nested.finish()
             guard !result.isEmpty else { return [] }
@@ -207,12 +220,12 @@ struct InlineParser {
         }
 
         func appendRun(_ run: InlineRun) {
+            // Payload-identity check is shared with the assembler and the
+            // state machine via `InlineRun.canCoalesce(with:)`; the two
+            // line-break guards are local to inline parsing (don't merge
+            // across a hard line break) and stay here.
             if let last = runs.last,
-               last.style == run.style,
-               last.linkURL == run.linkURL,
-               last.image == run.image,
-               last.math == run.math,
-               last.tag == run.tag,
+               last.canCoalesce(with: run),
                !last.text.hasSuffix("\n"),
                !run.text.hasPrefix("\n") {
                 runs[runs.count - 1].text += run.text

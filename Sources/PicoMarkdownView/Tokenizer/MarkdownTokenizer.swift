@@ -46,6 +46,22 @@ public struct InlineRun: Sendable, Equatable {
         self.math = math
         self.tag = tag
     }
+
+    /// Whether two runs can be merged into one by concatenating their ``text``
+    /// while preserving every observable attribute. Centralised here so the
+    /// tokenizer, assembler, and renderer share a single source of truth; if a
+    /// new payload is added to ``InlineRun``, only this check needs to grow.
+    ///
+    /// Callers that also need to enforce line-break boundaries (e.g. don't
+    /// merge across a hard line break) must apply that as a separate guard on
+    /// top of this check.
+    public func canCoalesce(with other: InlineRun) -> Bool {
+        style == other.style
+            && linkURL == other.linkURL
+            && image == other.image
+            && math == other.math
+            && tag == other.tag
+    }
 }
 
 public struct MathInlinePayload: Sendable, Equatable {
@@ -154,6 +170,12 @@ public struct TagPrefix: Sendable, Equatable, Hashable {
     public let closing: String?
 
     public init(opening: String, closing: String? = nil) {
+        precondition(!opening.isEmpty,
+                     "TagPrefix opening delimiter cannot be empty")
+        if let closing {
+            precondition(!closing.isEmpty,
+                         "TagPrefix closing delimiter cannot be empty (use nil for single-char prefixes)")
+        }
         self.opening = opening
         self.closing = closing
     }
