@@ -5,8 +5,10 @@ struct StreamingParser {
 
     private let maxLineLookBehind: Int
     private let lookBehindSlack: Int
+    private let tagPrefixes: Set<TagPrefix>
 
-    init(maxLookBehind: Int = StreamingParser.defaultMaxLookBehind) {
+    init(maxLookBehind: Int = StreamingParser.defaultMaxLookBehind,
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
         let capped = max(0, maxLookBehind)
         self.maxLineLookBehind = capped
         if capped == 0 {
@@ -14,6 +16,7 @@ struct StreamingParser {
         } else {
             self.lookBehindSlack = max(32, capped / 2)
         }
+        self.tagPrefixes = tagPrefixes
     }
 
     private struct BlockContext {
@@ -684,7 +687,7 @@ struct StreamingParser {
     }
 
     private func makeInlineParser() -> InlineParser {
-        var parser = InlineParser()
+        var parser = InlineParser(tagPrefixes: tagPrefixes)
         parser.linkReferences = linkReferenceStore
         parser.footnoteRegistry = footnoteRegistry
         return parser
@@ -833,7 +836,11 @@ struct StreamingParser {
     }
 
     private func canCoalesce(_ lhs: InlineRun, _ rhs: InlineRun) -> Bool {
-        lhs.style == rhs.style && lhs.linkURL == rhs.linkURL && lhs.image == rhs.image && lhs.math == rhs.math
+        lhs.style == rhs.style
+            && lhs.linkURL == rhs.linkURL
+            && lhs.image == rhs.image
+            && lhs.math == rhs.math
+            && lhs.tag == rhs.tag
     }
 
     private func coalesceInlineRuns(_ runs: inout [InlineRun]) {
@@ -1694,7 +1701,7 @@ struct StreamingParser {
     }
 
     private func parseRow(_ line: String) -> [[InlineRun]] {
-        splitCells(line).map { InlineParser.parseAll($0) }
+        splitCells(line).map { InlineParser.parseAll($0, tagPrefixes: tagPrefixes) }
     }
 
     private func snapshotOpenBlocks() -> [OpenBlockState] {
