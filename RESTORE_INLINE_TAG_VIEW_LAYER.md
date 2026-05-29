@@ -80,26 +80,51 @@ clean reads this session:
    pipeline init line ≈ 11). `TagPrefix` already exposes
    `.mention/.hashtag/.ticker/.paired(open:close:)/.defaults`.
 
-## Progress
+## Progress — ALL PHASES IMPLEMENTED (compile-unverified)
+
+> ⚠️ **None of this was compiled or tested** — the agent environment has no
+> Swift toolchain. Each file was verified structurally only (balanced braces,
+> balanced `#if/#endif`, expected symbol counts). **Build in Xcode on macOS and
+> expect to fix issues** before relying on any of it. The pure-Foundation
+> `PicoTagURL` decode is covered by `PicoTagURLTests` (runnable on macOS).
 
 - [x] **Phase 1 — `tagPrefixes` config** — commit `a3b7292`. Threaded through
       all three `PicoMarkdownView` inits → `MarkdownStreamingViewModel` →
       `MarkdownStreamingPipeline` → `MarkdownTokenizer(tagPrefixes:)`.
-- [x] **Phase 2 — `onContentSize` callback** — commit `8d44cf9`. The
-      "callback when a newline is added". `.onContentSize { (CGSize) in }`
-      modifier, mirroring the mermaid width-observer on all four text-view
-      subclasses. *Compile-unverified (no toolchain here).*
-- [ ] **Phase 0 — link bridge** (prerequisite for taps; net-new, no existing
-      code to mirror).
-- [ ] **Phase 3 — `onTagTap`**.
-- [ ] **Phase 4 — `onTagHover` / `onLinkHover`** (macOS).
-- [ ] **Phase 5 — `onOpenLink` Anchor overload + docs**.
+- [x] **Phase 2 — `onContentSize` callback** — commit `387fa35`. The
+      "callback when a newline is added". `.onContentSize { (CGSize) in }`,
+      mirroring the mermaid width-observer on all four text-view subclasses.
+- [x] **Decode helper + tests** — commit `742fbe0`. `PicoTagURL.decode/makeTag`
+      reverses `makePicoTagURL`; 8 round-trip tests.
+- [x] **Phase 0 + Phase 3 — link bridge + `onTagTap`** — commit `76c4855`.
+      UIKit `UITextViewDelegate.shouldInteractWith` + AppKit
+      `clicked(onLink:at:)` → `linkActionHandler`; `@Environment(\.openURL)`
+      bridged; `pico-tag://` decoded to `Tag` for `onTagTap`, else `openURL`.
+- [x] **Phase 4 — `onTagHover` / `onLinkHover`** — commit `75d816d`. macOS
+      `NSTrackingArea` + `hoverLink(at:)` hit-test; iOS no-op.
 
-> ⚠️ Phases 0/3/4 are the **highest-risk** part: the tap-routing
-> infrastructure does **not currently exist** (`setLinkHandler` has zero
-> callers, no `UITextViewDelegate`/`NSTextViewDelegate`, no `NSTrackingArea`),
-> so there is no existing pattern to mirror and nothing can be compiled in this
-> environment. Best authored in Xcode on macOS.
+### Deviations from the original PR #2 plan
+
+- **`onTagTap(Tag)`**, not `onTagTap(Tag, Anchor<CGRect>?)`. SwiftUI's
+  `Anchor<CGRect>` has **no public initializer**, so it cannot be produced
+  inside an AppKit/UIKit view. Hover variants therefore return **`CGRect?`**
+  (glyph rect in view coordinates) instead of `Anchor`. Tap does not return a
+  rect at all (UIKit's delegate gives no usable geometry without extra
+  hit-testing); add one later if needed.
+- **No `onOpenLink` Anchor overload** (Phase 5) — same `Anchor` limitation. The
+  existing URL-only `onOpenLink` is unchanged and still the link path.
+
+### Still TODO / verify on macOS
+
+- [ ] Compile the package + example app; fix any errors.
+- [ ] Confirm a plain `[x](url)` tap reaches `onOpenLink` (this delegate wiring
+      is **net-new** — links may not have been tappable before).
+- [ ] Confirm `shouldInteractWith` is the right delegate hook for the iOS
+      version target (it's deprecated in iOS 17+ in favor of
+      `UITextItem`/`primaryAction`; may need the newer API or
+      `textView(_:menuConfigurationFor:defaultMenu:)` path).
+- [ ] Verify hover rect coordinate space matches what a SwiftUI `.popover`
+      anchor expects; may need a flip on AppKit's non-flipped views.
 
 ## Phased plan (do in order; commit per phase)
 

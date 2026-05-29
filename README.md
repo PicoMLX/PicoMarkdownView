@@ -169,10 +169,20 @@ var body: some View {
 
 PicoMarkdownView recognises lightweight inline tags so a host app can attach
 custom interactions — Slack-style user popovers, hashtag filters, wiki
-links — without forking the parser. The tokenizer emits these as
-`InlineRun`s with `style` containing `.tag` and a populated `tag: Tag`
-payload; the renderer (in the follow-up PR) will wire them through the
-same link-routing path used for `[text](url)`.
+links — without forking the parser. Tags are rendered as tappable links and
+routed to your handler as a decoded `Tag` (prefix, identifier, display text,
+raw text), using the same hit-testing path as `[text](url)` links.
+
+```swift
+PicoMarkdownView(markdown, tagPrefixes: [.mention, .hashtag])
+    .onTagTap { tag in
+        // tag.prefix == "@", tag.identifier == "behlool", …
+        showProfilePopover(for: tag.identifier)
+    }
+    .onOpenLink { url in
+        openURL(url)            // ordinary [text](url) links still come here
+    }
+```
 
 #### Defaults
 
@@ -183,16 +193,32 @@ Two prefixes are registered automatically:
 
 #### Opt-in prefixes
 
-Pass an explicit set to `MarkdownTokenizer` to add others:
+Pass an explicit set via the `tagPrefixes:` initializer parameter (forwarded to
+the internal `MarkdownTokenizer`):
 
 ```swift
-let tokenizer = MarkdownTokenizer(tagPrefixes: [
+PicoMarkdownView(markdown, tagPrefixes: [
     .mention,                                  // @
     .hashtag,                                  // #
     .ticker,                                   // $  (collides with TeX; see below)
     .paired(open: "[[", close: "]]")           // [[wiki-link]]
 ])
 ```
+
+Pass `tagPrefixes: []` to disable inline-tag recognition entirely.
+
+#### Interaction callbacks
+
+| Modifier | Fires when | Payload |
+|---|---|---|
+| `.onTagTap { Tag in }` | a tag is tapped/clicked | decoded `Tag` |
+| `.onOpenLink { URL in }` | a regular link is tapped (and tags, if no `onTagTap` is set — they arrive as a `pico-tag://` URL) | `URL` |
+| `.onTagHover { (Tag?, CGRect?) in }` | **macOS only** — hover enters/exits a tag | `Tag` + bounding rect on enter, `(nil, nil)` on exit |
+| `.onLinkHover { (URL?, CGRect?) in }` | **macOS only** — hover enters/exits a regular link | `URL` + bounding rect on enter, `(nil, nil)` on exit |
+| `.onContentSize { CGSize in }` | rendered content size changes (e.g. streaming adds a line) | content `CGSize` |
+
+The hover rect is in the text view's coordinate space — anchor a popover
+against it. On iOS the hover modifiers are no-ops (iOS has no hover).
 
 The `$` ticker is **not** in the defaults because it collides with TeX/KaTeX
 inline math (`$x = mc^2$`). Enable it only when the content does not
