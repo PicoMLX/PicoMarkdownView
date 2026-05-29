@@ -8,11 +8,10 @@ public struct PicoMarkdownView: View {
     @State private var viewModel: MarkdownStreamingViewModel
     @StateObject private var controller = TextKitStreamingController()
     @Environment(\.openURL) private var openURL
-
-    private var onContentSize: ((CGSize) -> Void)?
-    private var onTagTap: ((Tag) -> Void)?
-    private var onTagHover: ((Tag?, CGRect?) -> Void)?
-    private var onLinkHover: ((URL?, CGRect?) -> Void)?
+    @Environment(\.picoOnTagTap) private var onTagTap
+    @Environment(\.picoOnTagHover) private var onTagHover
+    @Environment(\.picoOnLinkHover) private var onLinkHover
+    @Environment(\.picoOnContentSize) private var onContentSize
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -22,52 +21,6 @@ public struct PicoMarkdownView: View {
         self.input = input
         self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
-    }
-
-    /// Reports the rendered content size whenever it changes — e.g. when
-    /// streaming adds a newline and the content grows taller. Fires on the main
-    /// actor during layout, de-duplicated so it only calls when the size
-    /// actually changes (> 0.5pt). Width reflects the current view width;
-    /// height reflects the laid-out content height including vertical insets.
-    public func onContentSize(_ handler: @escaping (CGSize) -> Void) -> PicoMarkdownView {
-        var copy = self
-        copy.onContentSize = handler
-        return copy
-    }
-
-    /// Routes taps on inline tags (`@mentions`, `#hashtags`, `[[wiki-links]]`,
-    /// etc.) to a typed handler that receives the decoded ``Tag`` — prefix,
-    /// identifier, display text, and raw text. When set, tag taps go here
-    /// instead of the ``onOpenLink``/`openURL` path; ordinary `[text](url)`
-    /// links still route through `openURL`. When *not* set, tag taps fall back
-    /// to `openURL` carrying the `pico-tag://` URL, so existing `onOpenLink`
-    /// handlers keep working unchanged.
-    public func onTagTap(_ handler: @escaping (Tag) -> Void) -> PicoMarkdownView {
-        var copy = self
-        copy.onTagTap = handler
-        return copy
-    }
-
-    /// Reports hover enter/exit over inline tags (**macOS only** — no-op on
-    /// iOS, which has no hover). On enter the handler receives the decoded
-    /// ``Tag`` and its bounding rect in the view's coordinate space (anchor a
-    /// popover against it); on exit it receives `(nil, nil)`. Hovering a
-    /// non-tag link reports an exit for any previously-hovered tag.
-    public func onTagHover(_ handler: @escaping (Tag?, CGRect?) -> Void) -> PicoMarkdownView {
-        var copy = self
-        copy.onTagHover = handler
-        return copy
-    }
-
-    /// Reports hover enter/exit over ordinary `[text](url)` links (**macOS
-    /// only** — no-op on iOS). On enter the handler receives the link `URL` and
-    /// its bounding rect in the view's coordinate space; on exit it receives
-    /// `(nil, nil)`. Inline-tag links are not reported here — use
-    /// ``onTagHover(_:)`` for those.
-    public func onLinkHover(_ handler: @escaping (URL?, CGRect?) -> Void) -> PicoMarkdownView {
-        var copy = self
-        copy.onLinkHover = handler
-        return copy
     }
 
     public init(_ text: String,
