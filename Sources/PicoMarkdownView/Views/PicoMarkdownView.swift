@@ -11,20 +11,23 @@ public struct PicoMarkdownView: View {
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
                  imageProvider: MarkdownImageProvider?,
+                 tagPrefixes: Set<TagPrefix>,
                  configuration: PicoTextKitConfiguration) {
         self.input = input
         self.configuration = configuration
-        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider))
+        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
     }
 
     public init(_ text: String,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
+                tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .text(text),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
+                  tagPrefixes: tagPrefixes,
                   configuration: configuration)
     }
 
@@ -32,10 +35,12 @@ public struct PicoMarkdownView: View {
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
+                tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .chunks(chunks),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
+                  tagPrefixes: tagPrefixes,
                   configuration: configuration)
     }
 
@@ -43,10 +48,12 @@ public struct PicoMarkdownView: View {
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
+                tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .stream(stream),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
+                  tagPrefixes: tagPrefixes,
                   configuration: configuration)
     }
 

@@ -11,8 +11,10 @@ actor MarkdownStreamingPipeline {
     private let renderer: MarkdownRenderer
     private var emittedDiffVersion: UInt64 = 0
 
-    init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil) {
-        let tokenizer = MarkdownTokenizer()
+    init(theme: MarkdownRenderTheme = .default(),
+         imageProvider: MarkdownImageProvider? = nil,
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+        let tokenizer = MarkdownTokenizer(tagPrefixes: tagPrefixes)
         let assembler = MarkdownAssembler()
         let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider) { id in
             await assembler.block(id)
