@@ -16,15 +16,26 @@ struct MarkdownView: View {
 
     private let webURL: URL
     private let markdown: String
+    private let tagPrefixes: Set<TagPrefix>
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
+
+    // Tag/link interaction readouts driven by PicoMarkdownView's callbacks.
+    // Tag and link hover are tracked separately: hovering a tag also reports a
+    // nil link-hover (and vice versa), so a single combined string would get
+    // clobbered by the "exit" of the other source.
+    @State private var lastTappedTag: Tag?
+    @State private var tagHoverReadout: String?
+    @State private var linkHoverReadout: String?
+    @State private var contentSize: CGSize?
 
     private let autoScrollClock = ContinuousClock()
 
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
         self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
+        self.tagPrefixes = example.tagPrefixes
     }
 
     var body: some View {
@@ -32,23 +43,32 @@ struct MarkdownView: View {
         HStack {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
-                    ScrollView {
-                        // Extracted into an Equatable subview with no dynamic
-                        // properties so scrollPosition state changes don't
-                        // re-evaluate PicoMarkdownView's body (restarting the stream).
-                        StreamingMarkdownContent(markdown: markdown, onOpenURL: { openURL($0) })
-                    }
-                    .scrollPosition($scrollPosition)
-                    .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
-                        let contentHeight = geometry.contentSize.height
-                        let offsetY = geometry.contentOffset.y
-                        let visibleBottom = offsetY + geometry.containerSize.height
-                        let isNearBottom = contentHeight - visibleBottom < AutoScrollConfig.nearBottomThreshold
-                        return ScrollMetrics(contentHeight: contentHeight,
-                                             offsetY: offsetY,
-                                             isNearBottom: isNearBottom)
-                    } action: { oldMetrics, newMetrics in
-                        handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
+                    VStack(spacing: 0) {
+                        tagStatusPanel
+                        ScrollView {
+                            // Extracted into an Equatable subview with no dynamic
+                            // properties so scrollPosition state changes don't
+                            // re-evaluate PicoMarkdownView's body (restarting the stream).
+                            StreamingMarkdownContent(markdown: markdown,
+                                                     tagPrefixes: tagPrefixes,
+                                                     onOpenURL: { openURL($0) },
+                                                     onTagTap: { lastTappedTag = $0 },
+                                                     onTagHover: { tagHoverReadout = $0 },
+                                                     onLinkHover: { linkHoverReadout = $0 },
+                                                     onContentSize: { contentSize = $0 })
+                        }
+                        .scrollPosition($scrollPosition)
+                        .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
+                            let contentHeight = geometry.contentSize.height
+                            let offsetY = geometry.contentOffset.y
+                            let visibleBottom = offsetY + geometry.containerSize.height
+                            let isNearBottom = contentHeight - visibleBottom < AutoScrollConfig.nearBottomThreshold
+                            return ScrollMetrics(contentHeight: contentHeight,
+                                                 offsetY: offsetY,
+                                                 isNearBottom: isNearBottom)
+                        } action: { oldMetrics, newMetrics in
+                            handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
+                        }
                     }
                 }
                 Tab("Debug", systemImage: "ladybug") {
@@ -70,6 +90,46 @@ struct MarkdownView: View {
             }
                 .id(webURL)
         }
+    }
+
+    /// Live readout of the inline-tag / link / content-size callbacks, shown
+    /// above the rendered Markdown so the demo makes each callback observable.
+    @ViewBuilder
+    private var tagStatusPanel: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let tag = lastTappedTag {
+                Label {
+                    Text("Tapped ")
+                        + Text(tag.displayText).bold()
+                        + Text("  ·  prefix \(tag.prefix)  ·  id \(tag.identifier)")
+                } icon: {
+                    Image(systemName: "hand.tap")
+                }
+                .font(.callout)
+            } else {
+                Label("Tap a tag (@mention, #hashtag, [[wiki]], $ticker)", systemImage: "hand.tap")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 16) {
+                #if os(macOS)
+                let hover = tagHoverReadout ?? linkHoverReadout
+                Label(hover ?? "Hover a tag or link", systemImage: "cursorarrow.rays")
+                    .foregroundStyle(hover == nil ? .secondary : .primary)
+                #endif
+                if let contentSize {
+                    Label(String(format: "Content %.0f × %.0f", contentSize.width, contentSize.height),
+                          systemImage: "arrow.up.left.and.arrow.down.right")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     private func handleScrollMetricsChange(from old: ScrollMetrics, to new: ScrollMetrics) {
@@ -144,11 +204,16 @@ private enum AutoScrollConfig {
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
 /// SwiftUI compares only the `markdown` string via `==` and skips body
 /// re-evaluation when the parent re-renders due to scroll-position changes,
-/// preventing the stream from restarting. The `onOpenURL` closure is excluded
-/// from `==` — it's stable (captures the parent's openURL action).
+/// preventing the stream from restarting. The closures and `tagPrefixes` are
+/// excluded from `==` — they're stable for a given document.
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
+    let tagPrefixes: Set<TagPrefix>
     let onOpenURL: (URL) -> Void
+    let onTagTap: (Tag) -> Void
+    let onTagHover: (String?) -> Void
+    let onLinkHover: (String?) -> Void
+    let onContentSize: (CGSize) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.markdown == rhs.markdown
@@ -157,13 +222,25 @@ private struct StreamingMarkdownContent: View, Equatable {
     var body: some View {
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
-        })
+        }, tagPrefixes: tagPrefixes)
             .id(markdown)
             .textSelection(.enabled)
             .padding()
             .onOpenLink { [onOpenURL] url in
                 onOpenURL(url)
                 return .handled
+            }
+            .onTagTap { [onTagTap] tag in
+                onTagTap(tag)
+            }
+            .onTagHover { [onTagHover] tag, _ in
+                onTagHover(tag.map { "Hovering \($0.displayText)  ·  id \($0.identifier)" })
+            }
+            .onLinkHover { [onLinkHover] url, _ in
+                onLinkHover(url.map { "Hovering link \($0.absoluteString)" })
+            }
+            .onContentSize { [onContentSize] size in
+                onContentSize(size)
             }
     }
 }

@@ -6,26 +6,38 @@
 //
 
 import SwiftUI
+import PicoMarkdownView
 
 struct MarkdownExample: Identifiable, Hashable {
     var id = UUID()
-        
+
     let name: String
     let localPath: String
     let webURL: URL
-    
-    init(localFilename: String, webURL: String) {
+    /// Inline-tag prefixes the renderer should recognise for this document.
+    /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
+    /// `$` ticker and `[[ ]]` wiki paired delimiter too.
+    let tagPrefixes: Set<TagPrefix>
+
+    init(localFilename: String,
+         webURL: String,
+         tagPrefixes: Set<TagPrefix> = .defaults) {
         self.name = localFilename
         self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
         self.webURL = URL(string: webURL)!
+        self.tagPrefixes = tagPrefixes
     }
-    
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(localPath)
         hasher.combine(webURL)
     }
-    
+
     static let examples = [
+        MarkdownExample(
+            localFilename: "Tags",
+            webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Tags.md",
+            tagPrefixes: [.mention, .hashtag, .ticker, .paired(open: "[[", close: "]]")]),
         MarkdownExample(
             localFilename: "TEST",
             webURL: "https://github.com/mxstbr/markdown-test-file/blob/master/TEST.md"),
