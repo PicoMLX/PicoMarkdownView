@@ -45,4 +45,35 @@ enum PicoTagURL {
                    displayText: display,
                    rawText: display)
     }
+
+    /// Index key for resolving a `pico-tag://` URL back to its authentic
+    /// ``Tag``. The URL encodes exactly `prefix` + `identifier`, so that pair is
+    /// the lookup key.
+    struct TagKey: Hashable {
+        let prefix: String
+        let identifier: String
+    }
+
+    /// Builds a resolver that maps a tapped/hovered `pico-tag://` URL back to
+    /// the **authentic** ``Tag`` the parser emitted, preserving `rawText`
+    /// exactly (e.g. `"@[John Doe](u-2345)"`) — which ``makeTag(from:displayText:)``
+    /// cannot recover from the URL alone. Indexes `runs` by their tag's
+    /// `(prefix, identifier)`; the returned closure decodes the URL with
+    /// ``decode(_:)`` (robust to URL normalization) and returns the stored
+    /// `Tag`, falling back to ``makeTag(from:displayText:)`` only when the URL
+    /// isn't a pico-tag link or no matching run is present.
+    static func resolver(for runs: [InlineRun]) -> (URL, String) -> Tag? {
+        var index: [TagKey: Tag] = [:]
+        for run in runs {
+            guard let tag = run.tag else { continue }
+            index[TagKey(prefix: tag.prefix, identifier: tag.identifier)] = tag
+        }
+        return { url, displayText in
+            guard let (prefix, identifier) = decode(url) else { return nil }
+            if let tag = index[TagKey(prefix: prefix, identifier: identifier)] {
+                return tag
+            }
+            return makeTag(from: url, displayText: displayText)
+        }
+    }
 }

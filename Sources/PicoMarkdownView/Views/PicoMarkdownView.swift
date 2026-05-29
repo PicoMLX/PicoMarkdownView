@@ -23,6 +23,23 @@ public struct PicoMarkdownView: View {
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
     }
 
+    /// Creates a view that renders `text` as Markdown.
+    ///
+    /// - Important: `theme`, `imageProvider`, and `tagPrefixes` are
+    ///   **construction-time configuration**: they are captured once when the
+    ///   view's backing model is first created for a given view identity, and
+    ///   are *not* re-read when you pass different values to an existing view.
+    ///   To reconfigure them at runtime — e.g. toggling `$` ticker recognition
+    ///   on or off — change the view's identity so SwiftUI rebuilds it, for
+    ///   example with `.id(...)`:
+    ///
+    ///   ```swift
+    ///   PicoMarkdownView(text, tagPrefixes: prefixes)
+    ///       .id(prefixes)   // forces a fresh tokenizer when the set changes
+    ///   ```
+    ///
+    ///   (`content` *does* update live; only this configuration is fixed per
+    ///   identity.)
     public init(_ text: String,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
@@ -91,13 +108,14 @@ public struct PicoMarkdownView: View {
         guard onTagHover != nil || onLinkHover != nil else { return nil }
         let onTagHover = self.onTagHover
         let onLinkHover = self.onLinkHover
+        let tagLookup = makeTagLookup()
         return { url, displayText, rect in
             guard let url else {
                 onTagHover?(nil, nil)
                 onLinkHover?(nil, nil)
                 return
             }
-            if let tag = PicoTagURL.makeTag(from: url, displayText: displayText) {
+            if let tag = tagLookup(url, displayText) {
                 onTagHover?(tag, rect)
                 onLinkHover?(nil, nil)
             } else {
@@ -108,19 +126,30 @@ public struct PicoMarkdownView: View {
     }
 
     /// Builds the closure the text views invoke on link tap/click. Tag links
-    /// (`pico-tag://…`) are decoded into a ``Tag`` and sent to ``onTagTap`` when
-    /// present; everything else (and tags, when no `onTagTap` is set) goes to
-    /// the SwiftUI `openURL` action so `onOpenLink` continues to work.
+    /// (`pico-tag://…`) are resolved to their authentic ``Tag`` and sent to
+    /// ``onTagTap`` when present; everything else (and tags, when no `onTagTap`
+    /// is set) goes to the SwiftUI `openURL` action so `onOpenLink` continues
+    /// to work.
     private func makeLinkHandler() -> (URL, String) -> Void {
         let onTagTap = self.onTagTap
         let openURL = self.openURL
+        let tagLookup = makeTagLookup()
         return { url, displayText in
-            if let onTagTap, let tag = PicoTagURL.makeTag(from: url, displayText: displayText) {
+            if let onTagTap, let tag = tagLookup(url, displayText) {
                 onTagTap(tag)
             } else {
                 openURL(url)
             }
         }
+    }
+
+    /// Resolves a tapped/hovered `pico-tag://` URL back to the **authentic**
+    /// ``Tag`` the parser emitted — preserving `rawText` exactly (e.g.
+    /// `"@[John Doe](u-2345)"`), which a URL round-trip cannot recover. The
+    /// index is built from the runs the parser already attached to the current
+    /// blocks; see ``PicoTagURL/resolver(for:)`` for the resolution logic.
+    private func makeTagLookup() -> (URL, String) -> Tag? {
+        PicoTagURL.resolver(for: viewModel.blocks.flatMap { $0.snapshot.tagRuns })
     }
 
     private static func resolveImageProvider(_ provider: MarkdownImageProvider?,
@@ -129,6 +158,24 @@ public struct PicoMarkdownView: View {
             return provider
         }
         return remoteImagesEnabled ? URLSessionMarkdownImageProvider.shared : nil
+    }
+}
+
+private extension BlockSnapshot {
+    /// All inline runs in this block that may carry a ``Tag`` — both the
+    /// block's own `inlineRuns` and any table header/row cells, since a tag can
+    /// appear inside a table cell too.
+    var tagRuns: [InlineRun] {
+        var runs = inlineRuns ?? []
+        if let table {
+            if let headers = table.headerCells {
+                for cell in headers { runs.append(contentsOf: cell) }
+            }
+            for row in table.rows {
+                for cell in row { runs.append(contentsOf: cell) }
+            }
+        }
+        return runs
     }
 }
 
@@ -156,9 +203,7 @@ private struct TextKit2Container: UIViewRepresentable {
             view = controller.makeTextKit1View(configuration: configuration)
         }
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
-        if let onContentSize {
-            controller.installContentSizeObserver(on: view, onContentSize)
-        }
+        controller.installContentSizeObserver(on: view, onContentSize)
         controller.installLinkHandler(on: view, linkHandler)
         return view
     }
@@ -166,9 +211,7 @@ private struct TextKit2Container: UIViewRepresentable {
     func updateUIView(_ uiView: UITextView, context: Context) {
         controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: uiView))
-        if let onContentSize {
-            controller.installContentSizeObserver(on: uiView, onContentSize)
-        }
+        controller.installContentSizeObserver(on: uiView, onContentSize)
         controller.installLinkHandler(on: uiView, linkHandler)
     }
 }
@@ -194,9 +237,7 @@ private struct TextKit2Container: NSViewRepresentable {
             view = controller.makeTextKit1View(configuration: configuration)
         }
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
-        if let onContentSize {
-            controller.installContentSizeObserver(on: view, onContentSize)
-        }
+        controller.installContentSizeObserver(on: view, onContentSize)
         controller.installLinkHandler(on: view, linkHandler)
         controller.installHoverHandler(on: view, hoverHandler)
         return view
@@ -205,9 +246,7 @@ private struct TextKit2Container: NSViewRepresentable {
     func updateNSView(_ nsView: NSTextView, context: Context) {
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
-        if let onContentSize {
-            controller.installContentSizeObserver(on: nsView, onContentSize)
-        }
+        controller.installContentSizeObserver(on: nsView, onContentSize)
         controller.installLinkHandler(on: nsView, linkHandler)
         controller.installHoverHandler(on: nsView, hoverHandler)
     }

@@ -67,4 +67,52 @@ final class PicoTagURLTests: XCTestCase {
         let tag = PicoTagURL.makeTag(from: url, displayText: "")!
         XCTAssertEqual(tag.displayText, "#swift")
     }
+
+    // MARK: - resolver(for:) — authentic Tag resolution
+
+    /// The whole point of the registry fix: a tapped markdown-link tag must
+    /// resolve to the parser's *authentic* Tag, with rawText equal to the exact
+    /// source substring — not the lossy URL reconstruction.
+    func testResolverReturnsAuthenticRawTextForMarkdownLinkForm() {
+        let authentic = Tag(prefix: "@",
+                            identifier: "u-2345",
+                            displayText: "@John Doe",
+                            rawText: "@[John Doe](u-2345)")
+        let runs = [InlineRun(text: "@John Doe", style: [.tag, .link],
+                              linkURL: "pico-tag:///%40/u-2345", tag: authentic)]
+        let resolve = PicoTagURL.resolver(for: runs)
+
+        let resolved = resolve(encode(prefix: "@", identifier: "u-2345"), "@John Doe")
+        XCTAssertEqual(resolved, authentic)
+        // The reconstruction would have produced "@John Doe" here; assert we did
+        // NOT fall back to it.
+        XCTAssertEqual(resolved?.rawText, "@[John Doe](u-2345)")
+    }
+
+    func testResolverFallsBackToReconstructionWhenNoMatchingRun() {
+        let resolve = PicoTagURL.resolver(for: [])
+        let resolved = resolve(encode(prefix: "@", identifier: "behlool"), "@behlool")
+        // No authentic run present → best-effort reconstruction.
+        XCTAssertEqual(resolved?.prefix, "@")
+        XCTAssertEqual(resolved?.identifier, "behlool")
+        XCTAssertEqual(resolved?.displayText, "@behlool")
+    }
+
+    func testResolverReturnsNilForNonPicoTagURL() {
+        let resolve = PicoTagURL.resolver(for: [])
+        XCTAssertNil(resolve(URL(string: "https://example.com")!, "example"))
+    }
+
+    func testResolverDisambiguatesByPrefixAndIdentifier() {
+        let mention = Tag(prefix: "@", identifier: "ada", displayText: "@Ada", rawText: "@[Ada](ada)")
+        let hashtag = Tag(prefix: "#", identifier: "ada", displayText: "#ada", rawText: "#ada")
+        let runs = [
+            InlineRun(text: "@Ada", style: [.tag, .link], linkURL: "pico-tag:///%40/ada", tag: mention),
+            InlineRun(text: "#ada", style: [.tag, .link], linkURL: "pico-tag:///%23/ada", tag: hashtag),
+        ]
+        let resolve = PicoTagURL.resolver(for: runs)
+
+        XCTAssertEqual(resolve(encode(prefix: "@", identifier: "ada"), "@Ada"), mention)
+        XCTAssertEqual(resolve(encode(prefix: "#", identifier: "ada"), "#ada"), hashtag)
+    }
 }

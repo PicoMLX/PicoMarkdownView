@@ -213,7 +213,7 @@ final class TextKitStreamingController: ObservableObject {
         observer(mermaidContentWidth(for: textView))
     }
 
-    func installContentSizeObserver(on textView: UITextView, _ observer: @escaping (CGSize) -> Void) {
+    func installContentSizeObserver(on textView: UITextView, _ observer: ((CGSize) -> Void)?) {
         if let textView = textView as? StreamingTextKit1View {
             textView.onContentSizeChanged = observer
         } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
@@ -244,7 +244,7 @@ final class TextKitStreamingController: ObservableObject {
         observer(mermaidContentWidth(for: textView))
     }
 
-    func installContentSizeObserver(on textView: NSTextView, _ observer: @escaping (CGSize) -> Void) {
+    func installContentSizeObserver(on textView: NSTextView, _ observer: ((CGSize) -> Void)?) {
         if let textView = textView as? StreamingTextKit1View {
             textView.onContentSizeChanged = observer
         } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
