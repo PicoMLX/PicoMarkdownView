@@ -11,6 +11,8 @@ public struct PicoMarkdownView: View {
 
     private var onContentSize: ((CGSize) -> Void)?
     private var onTagTap: ((Tag) -> Void)?
+    private var onTagHover: ((Tag?, CGRect?) -> Void)?
+    private var onLinkHover: ((URL?, CGRect?) -> Void)?
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -43,6 +45,28 @@ public struct PicoMarkdownView: View {
     public func onTagTap(_ handler: @escaping (Tag) -> Void) -> PicoMarkdownView {
         var copy = self
         copy.onTagTap = handler
+        return copy
+    }
+
+    /// Reports hover enter/exit over inline tags (**macOS only** — no-op on
+    /// iOS, which has no hover). On enter the handler receives the decoded
+    /// ``Tag`` and its bounding rect in the view's coordinate space (anchor a
+    /// popover against it); on exit it receives `(nil, nil)`. Hovering a
+    /// non-tag link reports an exit for any previously-hovered tag.
+    public func onTagHover(_ handler: @escaping (Tag?, CGRect?) -> Void) -> PicoMarkdownView {
+        var copy = self
+        copy.onTagHover = handler
+        return copy
+    }
+
+    /// Reports hover enter/exit over ordinary `[text](url)` links (**macOS
+    /// only** — no-op on iOS). On enter the handler receives the link `URL` and
+    /// its bounding rect in the view's coordinate space; on exit it receives
+    /// `(nil, nil)`. Inline-tag links are not reported here — use
+    /// ``onTagHover(_:)`` for those.
+    public func onLinkHover(_ handler: @escaping (URL?, CGRect?) -> Void) -> PicoMarkdownView {
+        var copy = self
+        copy.onLinkHover = handler
         return copy
     }
 
@@ -97,10 +121,37 @@ public struct PicoMarkdownView: View {
                               }
                           },
                           onContentSize: onContentSize,
-                          linkHandler: makeLinkHandler())
+                          linkHandler: makeLinkHandler(),
+                          hoverHandler: makeHoverHandler())
             .task(id: input.id) {
                 await viewModel.consume(input)
             }
+    }
+
+    /// Builds the hover closure for the text views (macOS). It receives the
+    /// hovered link's URL (if any), its visible text, and bounding rect, then
+    /// dispatches to ``onTagHover`` for `pico-tag://` links and ``onLinkHover``
+    /// for everything else. Exit (`nil` URL) is forwarded to whichever handlers
+    /// are installed so hosts can dismiss popovers. Returns `nil` when neither
+    /// hover handler is set, so no tracking work happens.
+    private func makeHoverHandler() -> ((URL?, String, CGRect?) -> Void)? {
+        guard onTagHover != nil || onLinkHover != nil else { return nil }
+        let onTagHover = self.onTagHover
+        let onLinkHover = self.onLinkHover
+        return { url, displayText, rect in
+            guard let url else {
+                onTagHover?(nil, nil)
+                onLinkHover?(nil, nil)
+                return
+            }
+            if let tag = PicoTagURL.makeTag(from: url, displayText: displayText) {
+                onTagHover?(tag, rect)
+                onLinkHover?(nil, nil)
+            } else {
+                onLinkHover?(url, rect)
+                onTagHover?(nil, nil)
+            }
+        }
     }
 
     /// Builds the closure the text views invoke on link tap/click. Tag links
@@ -140,6 +191,9 @@ private struct TextKit2Container: UIViewRepresentable {
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
     var linkHandler: (URL, String) -> Void
+    // Accepted for a uniform call site across platforms; iOS has no hover so it
+    // is intentionally unused here.
+    var hoverHandler: ((URL?, String, CGRect?) -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
         let view: UITextView
@@ -177,6 +231,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
     var linkHandler: (URL, String) -> Void
+    var hoverHandler: ((URL?, String, CGRect?) -> Void)?
 
     func makeNSView(context: Context) -> NSTextView {
         let view: NSTextView
@@ -190,6 +245,7 @@ private struct TextKit2Container: NSViewRepresentable {
             controller.installContentSizeObserver(on: view, onContentSize)
         }
         controller.installLinkHandler(on: view, linkHandler)
+        controller.installHoverHandler(on: view, hoverHandler)
         return view
     }
 
@@ -200,6 +256,7 @@ private struct TextKit2Container: NSViewRepresentable {
             controller.installContentSizeObserver(on: nsView, onContentSize)
         }
         controller.installLinkHandler(on: nsView, linkHandler)
+        controller.installHoverHandler(on: nsView, hoverHandler)
     }
 }
 #endif
