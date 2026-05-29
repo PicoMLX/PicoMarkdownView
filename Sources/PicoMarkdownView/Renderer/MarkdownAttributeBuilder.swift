@@ -408,14 +408,15 @@ actor MarkdownAttributeBuilder {
         rendered.addAttributes([.paragraphStyle: listParagraph],
                                range: NSRange(location: 0, length: rendered.length))
 
-        let separator = makeParagraphStyle(
-            ParagraphSpacing(lineHeightMultiple: listSpacing.lineHeightMultiple,
-                             spacingBefore: 0,
-                             spacingAfter: 6)
-        )
+        // Apply the SAME paragraph style to the terminating "\n" as to the body,
+        // mirroring renderInlineBlock. A paragraph's trailing paragraphSpacing is
+        // resolved from its terminating character's style, so reusing listParagraph
+        // here makes the inter-item gap honor listSpacing.spacingAfter (4pt top-level,
+        // 2pt nested) instead of a hardcoded 6pt that overrode the margin system and
+        // defeated the depth-based reduction above.
         rendered.append(NSAttributedString(string: "\n",
                                            attributes: [.font: bodyFont,
-                                                        .paragraphStyle: separator]))
+                                                        .paragraphStyle: listParagraph]))
 
         let metadata = RenderedListItem(bullet: bulletText,
                                         content: AttributedString(body),
@@ -480,7 +481,7 @@ actor MarkdownAttributeBuilder {
         case .blockquote:
             return BlockMargins(topMargin: 8, bottomMargin: 8, lineHeightMultiple: 1.24)
         case .listItem:
-            return BlockMargins(topMargin: 0, bottomMargin: 4, lineHeightMultiple: 1.24)
+            return BlockMargins(topMargin: 0, bottomMargin: 2, lineHeightMultiple: 1.24)
         case .horizontalRule:
             return BlockMargins(topMargin: 20, bottomMargin: 20, lineHeightMultiple: 1.0)
         case .table:

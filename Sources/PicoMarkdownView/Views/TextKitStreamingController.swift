@@ -777,6 +777,7 @@ private final class StreamingTextKit2View: UITextView {
 private final class StreamingTextKit1View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastLaidOutWidth: CGFloat = -1
 
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
@@ -801,6 +802,7 @@ private final class StreamingTextKit1View: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
+            needsLayout = true
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
@@ -809,15 +811,45 @@ private final class StreamingTextKit1View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        relayoutIfUsableWidthChanged()
         invalidateIntrinsicContentSize()
+    }
+
+    /// Force a one-shot full text relayout when the usable width changes. On a cold
+    /// launch the first blocks (notably the H1 title) can be laid out at a transient
+    /// narrow width before the split view settles; the automatic width tracking does
+    /// not always reflow that early layout, leaving the heading wrapped/stale until a
+    /// later relayout (which is why re-selecting the example "fixes" it). Re-laying out
+    /// whenever the width actually changes makes the settled width win on first render.
+    private func relayoutIfUsableWidthChanged() {
+        guard let layoutManager, let textContainer else { return }
+        let width = bounds.width
+        guard width > 0, abs(width - lastLaidOutWidth) > 0.5 else { return }
+        lastLaidOutWidth = width
+        let length = layoutManager.textStorage?.length ?? 0
+        guard length > 0 else { return }
+        layoutManager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
+                                       actualCharacterRange: nil)
+        layoutManager.ensureLayout(for: textContainer)
+        needsDisplay = true
     }
 
     private func sizeThatFits() -> NSSize {
         guard let textContainer = textContainer, let layoutManager = layoutManager else {
             return super.intrinsicContentSize
         }
-        let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
-        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        // Defer measurement until SwiftUI has assigned a real width. The old fallback
+        // laid out at an infinite container width when bounds.width == 0, which happens
+        // on a cold launch: ContentView auto-selects the first example in .onAppear, so
+        // the text view starts receiving streamed edits before its frame is set. Measuring
+        // (and drawing) at infinite width mis-sizes the content and leaves stale glyph
+        // fragments stacked at the top. Reporting "no intrinsic metric" here is corrected
+        // automatically — layout()/viewDidMoveToWindow() invalidate the intrinsic size as
+        // soon as a real width arrives.
+        guard bounds.width > 0 else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
@@ -838,6 +870,7 @@ private final class StreamingTextKit1View: NSTextView {
 private final class StreamingTextKit2View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastLaidOutWidth: CGFloat = -1
 
     init(backend: TextKitStreamingBackend) {
         // Use TextKit 1 initialization: the backend storage connection works by
@@ -866,6 +899,7 @@ private final class StreamingTextKit2View: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
+            needsLayout = true
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
@@ -874,17 +908,47 @@ private final class StreamingTextKit2View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        relayoutIfUsableWidthChanged()
         if !isVerticallyResizable {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    /// Force a one-shot full text relayout when the usable width changes. On a cold
+    /// launch the first blocks (notably the H1 title) can be laid out at a transient
+    /// narrow width before the split view settles; the automatic width tracking does
+    /// not always reflow that early layout, leaving the heading wrapped/stale until a
+    /// later relayout (which is why re-selecting the example "fixes" it). Re-laying out
+    /// whenever the width actually changes makes the settled width win on first render.
+    private func relayoutIfUsableWidthChanged() {
+        guard let layoutManager, let textContainer else { return }
+        let width = bounds.width
+        guard width > 0, abs(width - lastLaidOutWidth) > 0.5 else { return }
+        lastLaidOutWidth = width
+        let length = layoutManager.textStorage?.length ?? 0
+        guard length > 0 else { return }
+        layoutManager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
+                                       actualCharacterRange: nil)
+        layoutManager.ensureLayout(for: textContainer)
+        needsDisplay = true
     }
 
     private func sizeThatFits() -> NSSize {
         guard let textContainer = textContainer, let layoutManager = layoutManager else {
             return super.intrinsicContentSize
         }
-        let width = bounds.width > 0 ? bounds.width : CGFloat.greatestFiniteMagnitude
-        textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        // Defer measurement until SwiftUI has assigned a real width. The old fallback
+        // laid out at an infinite container width when bounds.width == 0, which happens
+        // on a cold launch: ContentView auto-selects the first example in .onAppear, so
+        // the text view starts receiving streamed edits before its frame is set. Measuring
+        // (and drawing) at infinite width mis-sizes the content and leaves stale glyph
+        // fragments stacked at the top. Reporting "no intrinsic metric" here is corrected
+        // automatically — layout()/viewDidMoveToWindow() invalidate the intrinsic size as
+        // soon as a real width arrives.
+        guard bounds.width > 0 else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let used = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
