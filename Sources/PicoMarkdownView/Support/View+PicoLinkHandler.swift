@@ -61,20 +61,25 @@ public extension View {
 // `.padding()` or `.id(_:)`. `PicoMarkdownView` reads them back via
 // `@Environment` in its `body`.
 
+// `defaultValue` is a *computed* static property (not a stored `static let`):
+// under Swift 6 strict concurrency a stored static of a non-Sendable type (a
+// closure) is flagged as shared mutable global state. A computed property has
+// no storage, so there is nothing to share — and it is exactly the shape the
+// `EnvironmentKey` protocol requires (`static var defaultValue: Value { get }`).
 private struct PicoOnTagTapKey: EnvironmentKey {
-    static let defaultValue: ((Tag) -> Void)? = nil
+    static var defaultValue: ((Tag) -> Void)? { nil }
 }
 
 private struct PicoOnTagHoverKey: EnvironmentKey {
-    static let defaultValue: ((Tag?, CGRect?) -> Void)? = nil
+    static var defaultValue: ((Tag?, CGRect?) -> Void)? { nil }
 }
 
 private struct PicoOnLinkHoverKey: EnvironmentKey {
-    static let defaultValue: ((URL?, CGRect?) -> Void)? = nil
+    static var defaultValue: ((URL?, CGRect?) -> Void)? { nil }
 }
 
 private struct PicoOnContentSizeKey: EnvironmentKey {
-    static let defaultValue: ((CGSize) -> Void)? = nil
+    static var defaultValue: ((CGSize) -> Void)? { nil }
 }
 
 extension EnvironmentValues {
