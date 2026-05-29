@@ -55,17 +55,14 @@ struct MarkdownView: View {
                                                      onTagTap: { lastTappedTag = $0 },
                                                      onTagHover: { tagHoverReadout = $0 },
                                                      onLinkHover: { linkHoverReadout = $0 },
-                                                     onContentSize: { contentSize = $0 })
+                                                     onContentSize: { handleContentSizeChange($0) })
                         }
                         .scrollPosition($scrollPosition)
                         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
-                            let contentHeight = geometry.contentSize.height
                             let offsetY = geometry.contentOffset.y
                             let visibleBottom = offsetY + geometry.containerSize.height
-                            let isNearBottom = contentHeight - visibleBottom < AutoScrollConfig.nearBottomThreshold
-                            return ScrollMetrics(contentHeight: contentHeight,
-                                                 offsetY: offsetY,
-                                                 isNearBottom: isNearBottom)
+                            let isNearBottom = geometry.contentSize.height - visibleBottom < AutoScrollConfig.nearBottomThreshold
+                            return ScrollMetrics(offsetY: offsetY, isNearBottom: isNearBottom)
                         } action: { oldMetrics, newMetrics in
                             handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
                         }
@@ -132,8 +129,23 @@ struct MarkdownView: View {
         .background(.bar)
     }
 
+    /// Content-growth → scroll-to-bottom, driven by PicoMarkdownView's
+    /// `onContentSize` callback. This is the *only* place we react to the
+    /// document getting taller; scrolling never changes content size, so there
+    /// is no feedback loop here. (Also feeds the status-panel readout.)
+    private func handleContentSizeChange(_ size: CGSize) {
+        contentSize = size
+        guard isAutoScrolling else { return }
+        // Suppress the brief window after our own programmatic scroll so its
+        // animation frames aren't later misread by the scroll observer as a
+        // user scroll-up.
+        autoScrollSuppressionDeadline = autoScrollClock.now.advanced(by: AutoScrollConfig.suppressionWindow)
+        scrollToBottom(animated: !reduceMotion)
+    }
+
+    /// Scroll *position* → pause/resume only. Growth detection now lives in
+    /// `handleContentSizeChange`, so this no longer tracks content height.
     private func handleScrollMetricsChange(from old: ScrollMetrics, to new: ScrollMetrics) {
-        let didGrow = new.contentHeight > old.contentHeight + AutoScrollConfig.heightEpsilon
         let scrollDeltaY = new.offsetY - old.offsetY
 
         let now = autoScrollClock.now
@@ -143,21 +155,10 @@ struct MarkdownView: View {
             autoScrollSuppressionDeadline = nil
         }
 
-        var requestedProgrammaticScroll = false
-        if didGrow, isAutoScrolling {
-            requestedProgrammaticScroll = true
-            autoScrollSuppressionDeadline = now.advanced(by: AutoScrollConfig.suppressionWindow)
-            scrollToBottom(animated: !reduceMotion)
-        }
-
         if new.isNearBottom {
             if !isAutoScrolling {
                 isAutoScrolling = true
             }
-            return
-        }
-
-        if requestedProgrammaticScroll {
             return
         }
 
@@ -188,7 +189,6 @@ struct MarkdownView: View {
 }
 
 private struct ScrollMetrics: Equatable {
-    let contentHeight: CGFloat
     let offsetY: CGFloat
     let isNearBottom: Bool
 }
@@ -196,7 +196,6 @@ private struct ScrollMetrics: Equatable {
 private enum AutoScrollConfig {
     static let nearBottomThreshold: CGFloat = 80
     static let manualCancelDeltaThreshold: CGFloat = 3
-    static let heightEpsilon: CGFloat = 0.5
     static let animationDuration: Double = 0.10
     static let suppressionWindow: Duration = .milliseconds(140)
 }
