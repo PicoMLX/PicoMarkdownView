@@ -645,8 +645,9 @@ struct MarkdownRendererTests {
         // The body run and the terminating "\n" of a list item form one paragraph.
         // A paragraph's trailing paragraphSpacing is resolved from its terminator's
         // style, so both must agree and must equal the margin-system value:
-        // 4pt at depth 0, 2pt at depth 1. The previous code hardcoded 6pt on the
-        // terminator, overriding the depth-based reduction and loosening every gap.
+        // 2pt at depth 0, 0pt at depth 1 (bottomMargin 2, minus the depth penalty).
+        // The previous code hardcoded 6pt on the terminator, overriding the
+        // depth-based reduction and loosening every gap.
         func paragraphSpacings(in content: AttributedString) -> (first: CGFloat, last: CGFloat)? {
             let ns = NSAttributedString(content)
             guard ns.length > 0,
@@ -663,8 +664,8 @@ struct MarkdownRendererTests {
         }
 
         // Terminator governs the inter-item gap.
-        #expect(top.last == 4)
-        #expect(sub.last == 2)
+        #expect(top.last == 2)
+        #expect(sub.last == 0)
         // The whole item paragraph is uniform (body == terminator), as for paragraphs/headings.
         #expect(top.first == top.last)
         #expect(sub.first == sub.last)

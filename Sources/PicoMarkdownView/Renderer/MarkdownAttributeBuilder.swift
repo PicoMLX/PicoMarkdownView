@@ -481,7 +481,7 @@ actor MarkdownAttributeBuilder {
         case .blockquote:
             return BlockMargins(topMargin: 8, bottomMargin: 8, lineHeightMultiple: 1.24)
         case .listItem:
-            return BlockMargins(topMargin: 0, bottomMargin: 4, lineHeightMultiple: 1.24)
+            return BlockMargins(topMargin: 0, bottomMargin: 2, lineHeightMultiple: 1.24)
         case .horizontalRule:
             return BlockMargins(topMargin: 20, bottomMargin: 20, lineHeightMultiple: 1.0)
         case .table:
