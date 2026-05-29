@@ -212,6 +212,22 @@ final class TextKitStreamingController: ObservableObject {
         }
         observer(mermaidContentWidth(for: textView))
     }
+
+    func installContentSizeObserver(on textView: UITextView, _ observer: ((CGSize) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.onContentSizeChanged = observer
+        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.onContentSizeChanged = observer
+        }
+    }
+
+    func installLinkHandler(on textView: UITextView, _ handler: ((URL, String) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.linkActionHandler = handler
+        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.linkActionHandler = handler
+        }
+    }
 #elseif canImport(AppKit)
     func mermaidContentWidth(for textView: NSTextView) -> CGFloat? {
         let inset = textView.textContainerInset
@@ -226,6 +242,30 @@ final class TextKitStreamingController: ObservableObject {
             textView.onMermaidContentWidthChanged = observer
         }
         observer(mermaidContentWidth(for: textView))
+    }
+
+    func installContentSizeObserver(on textView: NSTextView, _ observer: ((CGSize) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.onContentSizeChanged = observer
+        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.onContentSizeChanged = observer
+        }
+    }
+
+    func installLinkHandler(on textView: NSTextView, _ handler: ((URL, String) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.linkActionHandler = handler
+        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.linkActionHandler = handler
+        }
+    }
+
+    func installHoverHandler(on textView: NSTextView, _ handler: ((URL?, String, CGRect?) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.hoverHandler = handler
+        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.hoverHandler = handler
+        }
     }
 #endif
 }
@@ -694,9 +734,12 @@ private extension NSRange {
 
 #if canImport(UIKit)
 @MainActor
-private final class StreamingTextKit1View: UITextView {
+private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
@@ -704,10 +747,17 @@ private final class StreamingTextKit1View: UITextView {
         layoutManager.addTextContainer(textContainer)
         backend.connect(to: layoutManager)
         super.init(frame: .zero, textContainer: textContainer)
+        delegate = self
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        guard let linkActionHandler else { return true }
+        linkActionHandler(URL, linkDisplayText(range: characterRange))
+        return false
     }
 
     override var intrinsicContentSize: CGSize {
@@ -728,6 +778,7 @@ private final class StreamingTextKit1View: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         if !isScrollEnabled {
             invalidateIntrinsicContentSize()
         }
@@ -742,13 +793,26 @@ private final class StreamingTextKit1View: UITextView {
         lastMermaidWidthBucket = bucket
         onMermaidContentWidthChanged?(normalized)
     }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0 else { return }
+        let fitted = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude))
+        let newSize = CGSize(width: bounds.width, height: fitted.height)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
+    }
 }
 
 @available(iOS 16.0, *)
 @MainActor
-private final class StreamingTextKit2View: UITextView {
+private final class StreamingTextKit2View: UITextView, UITextViewDelegate {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
         super.init(frame: .zero, textContainer: nil)
@@ -756,10 +820,17 @@ private final class StreamingTextKit2View: UITextView {
            let contentStorage = textContentStorage {
             backend.connect(to: contentStorage, layoutManager: layoutManager)
         }
+        delegate = self
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        guard let linkActionHandler else { return true }
+        linkActionHandler(URL, linkDisplayText(range: characterRange))
+        return false
     }
 
     override var intrinsicContentSize: CGSize {
@@ -780,6 +851,7 @@ private final class StreamingTextKit2View: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         if !isScrollEnabled {
             invalidateIntrinsicContentSize()
         }
@@ -794,14 +866,79 @@ private final class StreamingTextKit2View: UITextView {
         lastMermaidWidthBucket = bucket
         onMermaidContentWidthChanged?(normalized)
     }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0 else { return }
+        let fitted = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude))
+        let newSize = CGSize(width: bounds.width, height: fitted.height)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
+    }
+}
+
+private extension UITextView {
+    /// The visible text of the link at `range`, used to populate a tag's
+    /// `displayText` when routing taps. Clamped defensively against the
+    /// current storage length.
+    func linkDisplayText(range: NSRange) -> String {
+        let storage = textStorage
+        let clamped = range.clamped(maxLength: storage.length)
+        guard clamped.length > 0 else { return "" }
+        return storage.attributedSubstring(from: clamped).string
+    }
 }
 
 #elseif canImport(AppKit)
 @MainActor
 private final class StreamingTextKit1View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
+    var hoverHandler: ((URL?, String, CGRect?) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+    private var lastHoverLinkStart: Int?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        notifyHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        clearHover()
+    }
+
+    private func notifyHover(at point: NSPoint) {
+        guard let hoverHandler else { return }
+        if let info = hoverLink(at: point) {
+            guard info.linkStart != lastHoverLinkStart else { return }
+            lastHoverLinkStart = info.linkStart
+            hoverHandler(info.url, info.displayText, info.rect)
+        } else {
+            clearHover()
+        }
+    }
+
+    private func clearHover() {
+        guard lastHoverLinkStart != nil, let hoverHandler else { return }
+        lastHoverLinkStart = nil
+        hoverHandler(nil, "", nil)
+    }
 
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
@@ -816,6 +953,14 @@ private final class StreamingTextKit1View: NSTextView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
+            super.clicked(onLink: link, at: charIndex)
+            return
+        }
+        handler(url, linkDisplayText(at: charIndex))
     }
 
     override var intrinsicContentSize: NSSize {
@@ -835,8 +980,22 @@ private final class StreamingTextKit1View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         relayoutIfUsableWidthChanged()
         invalidateIntrinsicContentSize()
+    }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0,
+              let textContainer, let layoutManager else { return }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let newSize = CGSize(width: bounds.width, height: used.height + textContainerInset.height * 2)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
     }
 
     /// Force a one-shot full text relayout when the usable width changes. On a cold
@@ -893,8 +1052,51 @@ private final class StreamingTextKit1View: NSTextView {
 @MainActor
 private final class StreamingTextKit2View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
+    var hoverHandler: ((URL?, String, CGRect?) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+    private var lastHoverLinkStart: Int?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        notifyHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        clearHover()
+    }
+
+    private func notifyHover(at point: NSPoint) {
+        guard let hoverHandler else { return }
+        if let info = hoverLink(at: point) {
+            guard info.linkStart != lastHoverLinkStart else { return }
+            lastHoverLinkStart = info.linkStart
+            hoverHandler(info.url, info.displayText, info.rect)
+        } else {
+            clearHover()
+        }
+    }
+
+    private func clearHover() {
+        guard lastHoverLinkStart != nil, let hoverHandler else { return }
+        lastHoverLinkStart = nil
+        hoverHandler(nil, "", nil)
+    }
 
     init(backend: TextKitStreamingBackend) {
         // Use TextKit 1 initialization: the backend storage connection works by
@@ -915,6 +1117,14 @@ private final class StreamingTextKit2View: NSTextView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
+            super.clicked(onLink: link, at: charIndex)
+            return
+        }
+        handler(url, linkDisplayText(at: charIndex))
+    }
+
     override var intrinsicContentSize: NSSize {
         guard !isVerticallyResizable else { return super.intrinsicContentSize }
         return sizeThatFits()
@@ -932,10 +1142,24 @@ private final class StreamingTextKit2View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         relayoutIfUsableWidthChanged()
         if !isVerticallyResizable {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0,
+              let textContainer, let layoutManager else { return }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let newSize = CGSize(width: bounds.width, height: used.height + textContainerInset.height * 2)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
     }
 
     /// Force a one-shot full text relayout when the usable width changes. On a cold
@@ -985,6 +1209,67 @@ private final class StreamingTextKit2View: NSTextView {
         guard bucket != lastMermaidWidthBucket else { return }
         lastMermaidWidthBucket = bucket
         onMermaidContentWidthChanged?(normalized)
+    }
+}
+
+private extension NSTextView {
+    /// Normalizes the `link` value AppKit hands to `clicked(onLink:at:)` — it
+    /// may be an `URL` or a `String` depending on how the attribute was set —
+    /// into a `URL`. Our renderer stores `.link` as an `URL`, but accepting
+    /// both keeps this robust.
+    static func linkURL(from link: Any) -> URL? {
+        if let url = link as? URL { return url }
+        if let string = link as? String { return URL(string: string) }
+        return nil
+    }
+
+    /// The visible text of the link containing `charIndex`, used to populate a
+    /// tag's `displayText`. Walks the `.link` attribute's effective range so
+    /// the whole link substring is returned, not just the clicked glyph.
+    func linkDisplayText(at charIndex: Int) -> String {
+        guard let storage = textStorage, charIndex >= 0, charIndex < storage.length else { return "" }
+        var effectiveRange = NSRange(location: 0, length: 0)
+        _ = storage.attribute(.link, at: charIndex, longestEffectiveRange: &effectiveRange,
+                              in: NSRange(location: 0, length: storage.length))
+        let clamped = effectiveRange.clamped(maxLength: storage.length)
+        guard clamped.length > 0 else { return "" }
+        return storage.attributedSubstring(from: clamped).string
+    }
+
+    /// Hit-tests a point (in view coordinates) against the laid-out glyphs and,
+    /// if it lands on a `.link` run, returns the link URL, its visible text, the
+    /// link's start character index, and its bounding rect in view coordinates
+    /// (for a host to anchor a hover popover). Returns `nil` when the point is
+    /// past the text or not on a link.
+    ///
+    /// `linkStart` is the location of the link's `.link` effective range — the
+    /// same value for every character within one link — so callers can de-dup
+    /// hover events on it and fire only when entering or switching links, not on
+    /// every character the cursor crosses inside the same link (which would
+    /// re-report an identical url/displayText/rect).
+    func hoverLink(at point: NSPoint) -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
+        guard let layoutManager, let textContainer, let storage = textStorage, storage.length > 0 else { return nil }
+        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
+                                     y: point.y - textContainerInset.height)
+        // Reject points beyond the glyphs so trailing whitespace doesn't match.
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
+                                                  fractionOfDistanceThroughGlyph: &fraction)
+        let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1),
+                                                   in: textContainer)
+        guard glyphRect.contains(containerPoint) else { return nil }
+        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard charIndex < storage.length else { return nil }
+        var effectiveRange = NSRange(location: 0, length: 0)
+        guard let link = storage.attribute(.link, at: charIndex, longestEffectiveRange: &effectiveRange,
+                                           in: NSRange(location: 0, length: storage.length)) else { return nil }
+        let url = Self.linkURL(from: link)
+        let displayText = linkDisplayText(at: charIndex)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: effectiveRange, actualCharacterRange: nil)
+        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        rect.origin.x += textContainerInset.width
+        rect.origin.y += textContainerInset.height
+        return (url, displayText, effectiveRange.location, rect)
     }
 }
 #endif

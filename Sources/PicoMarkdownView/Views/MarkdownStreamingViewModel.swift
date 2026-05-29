@@ -11,6 +11,7 @@ final class MarkdownStreamingViewModel {
     private var processedInputs: Set<UUID> = []
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
+    private let tagPrefixes: Set<TagPrefix>
 
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
@@ -27,10 +28,13 @@ final class MarkdownStreamingViewModel {
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
     private var imagePrefetchGeneration: UInt64 = 0
 
-    init(theme: MarkdownRenderTheme = .default(), imageProvider: MarkdownImageProvider? = nil) {
+    init(theme: MarkdownRenderTheme = .default(),
+         imageProvider: MarkdownImageProvider? = nil,
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
         self.theme = theme
         self.imageProvider = imageProvider
-        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
+        self.tagPrefixes = tagPrefixes
+        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
     }
 
     func consume(_ input: MarkdownStreamingInput) async {
@@ -73,7 +77,7 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("replace(with:) called, value length=\(value.count)")
         #endif
         resetImagePrefetchState()
-        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider)
+        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
         var latestBlocks: [RenderedBlock] = []
 
         _ = await newPipeline.updateMermaidContentWidth(mermaidContentWidth)
