@@ -220,6 +220,14 @@ final class TextKitStreamingController: ObservableObject {
             textView.onContentSizeChanged = observer
         }
     }
+
+    func installLinkHandler(on textView: UITextView, _ handler: ((URL, String) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.linkActionHandler = handler
+        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.linkActionHandler = handler
+        }
+    }
 #elseif canImport(AppKit)
     func mermaidContentWidth(for textView: NSTextView) -> CGFloat? {
         let inset = textView.textContainerInset
@@ -241,6 +249,14 @@ final class TextKitStreamingController: ObservableObject {
             textView.onContentSizeChanged = observer
         } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
             textView.onContentSizeChanged = observer
+        }
+    }
+
+    func installLinkHandler(on textView: NSTextView, _ handler: ((URL, String) -> Void)?) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.linkActionHandler = handler
+        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.linkActionHandler = handler
         }
     }
 #endif
@@ -710,9 +726,10 @@ private extension NSRange {
 
 #if canImport(UIKit)
 @MainActor
-private final class StreamingTextKit1View: UITextView {
+private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
@@ -722,10 +739,17 @@ private final class StreamingTextKit1View: UITextView {
         layoutManager.addTextContainer(textContainer)
         backend.connect(to: layoutManager)
         super.init(frame: .zero, textContainer: textContainer)
+        delegate = self
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        guard let linkActionHandler else { return true }
+        linkActionHandler(URL, linkDisplayText(range: characterRange))
+        return false
     }
 
     override var intrinsicContentSize: CGSize {
@@ -775,9 +799,10 @@ private final class StreamingTextKit1View: UITextView {
 
 @available(iOS 16.0, *)
 @MainActor
-private final class StreamingTextKit2View: UITextView {
+private final class StreamingTextKit2View: UITextView, UITextViewDelegate {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
@@ -787,10 +812,17 @@ private final class StreamingTextKit2View: UITextView {
            let contentStorage = textContentStorage {
             backend.connect(to: contentStorage, layoutManager: layoutManager)
         }
+        delegate = self
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
+        guard let linkActionHandler else { return true }
+        linkActionHandler(URL, linkDisplayText(range: characterRange))
+        return false
     }
 
     override var intrinsicContentSize: CGSize {
@@ -838,11 +870,24 @@ private final class StreamingTextKit2View: UITextView {
     }
 }
 
+private extension UITextView {
+    /// The visible text of the link at `range`, used to populate a tag's
+    /// `displayText` when routing taps. Clamped defensively against the
+    /// current storage length.
+    func linkDisplayText(range: NSRange) -> String {
+        let storage = textStorage
+        let clamped = range.clamped(maxLength: storage.length)
+        guard clamped.length > 0 else { return "" }
+        return storage.attributedSubstring(from: clamped).string
+    }
+}
+
 #elseif canImport(AppKit)
 @MainActor
 private final class StreamingTextKit1View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
@@ -860,6 +905,14 @@ private final class StreamingTextKit1View: NSTextView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
+            super.clicked(onLink: link, at: charIndex)
+            return
+        }
+        handler(url, linkDisplayText(at: charIndex))
     }
 
     override var intrinsicContentSize: NSSize {
@@ -952,6 +1005,7 @@ private final class StreamingTextKit1View: NSTextView {
 private final class StreamingTextKit2View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
+    var linkActionHandler: ((URL, String) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
@@ -973,6 +1027,14 @@ private final class StreamingTextKit2View: NSTextView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func clicked(onLink link: Any, at charIndex: Int) {
+        guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
+            super.clicked(onLink: link, at: charIndex)
+            return
+        }
+        handler(url, linkDisplayText(at: charIndex))
     }
 
     override var intrinsicContentSize: NSSize {
@@ -1059,6 +1121,31 @@ private final class StreamingTextKit2View: NSTextView {
         guard bucket != lastMermaidWidthBucket else { return }
         lastMermaidWidthBucket = bucket
         onMermaidContentWidthChanged?(normalized)
+    }
+}
+
+private extension NSTextView {
+    /// Normalizes the `link` value AppKit hands to `clicked(onLink:at:)` — it
+    /// may be an `URL` or a `String` depending on how the attribute was set —
+    /// into a `URL`. Our renderer stores `.link` as an `URL`, but accepting
+    /// both keeps this robust.
+    static func linkURL(from link: Any) -> URL? {
+        if let url = link as? URL { return url }
+        if let string = link as? String { return URL(string: string) }
+        return nil
+    }
+
+    /// The visible text of the link containing `charIndex`, used to populate a
+    /// tag's `displayText`. Walks the `.link` attribute's effective range so
+    /// the whole link substring is returned, not just the clicked glyph.
+    func linkDisplayText(at charIndex: Int) -> String {
+        guard let storage = textStorage, charIndex >= 0, charIndex < storage.length else { return "" }
+        var effectiveRange = NSRange(location: 0, length: 0)
+        _ = storage.attribute(.link, at: charIndex, longestEffectiveRange: &effectiveRange,
+                              in: NSRange(location: 0, length: storage.length))
+        let clamped = effectiveRange.clamped(maxLength: storage.length)
+        guard clamped.length > 0 else { return "" }
+        return storage.attributedSubstring(from: clamped).string
     }
 }
 #endif

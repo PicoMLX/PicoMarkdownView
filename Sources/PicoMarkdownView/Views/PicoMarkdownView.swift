@@ -7,8 +7,10 @@ public struct PicoMarkdownView: View {
 
     @State private var viewModel: MarkdownStreamingViewModel
     @StateObject private var controller = TextKitStreamingController()
+    @Environment(\.openURL) private var openURL
 
     private var onContentSize: ((CGSize) -> Void)?
+    private var onTagTap: ((Tag) -> Void)?
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -28,6 +30,19 @@ public struct PicoMarkdownView: View {
     public func onContentSize(_ handler: @escaping (CGSize) -> Void) -> PicoMarkdownView {
         var copy = self
         copy.onContentSize = handler
+        return copy
+    }
+
+    /// Routes taps on inline tags (`@mentions`, `#hashtags`, `[[wiki-links]]`,
+    /// etc.) to a typed handler that receives the decoded ``Tag`` — prefix,
+    /// identifier, display text, and raw text. When set, tag taps go here
+    /// instead of the ``onOpenLink``/`openURL` path; ordinary `[text](url)`
+    /// links still route through `openURL`. When *not* set, tag taps fall back
+    /// to `openURL` carrying the `pico-tag://` URL, so existing `onOpenLink`
+    /// handlers keep working unchanged.
+    public func onTagTap(_ handler: @escaping (Tag) -> Void) -> PicoMarkdownView {
+        var copy = self
+        copy.onTagTap = handler
         return copy
     }
 
@@ -81,10 +96,27 @@ public struct PicoMarkdownView: View {
                                   await viewModel.updateMermaidContentWidth(width)
                               }
                           },
-                          onContentSize: onContentSize)
+                          onContentSize: onContentSize,
+                          linkHandler: makeLinkHandler())
             .task(id: input.id) {
                 await viewModel.consume(input)
             }
+    }
+
+    /// Builds the closure the text views invoke on link tap/click. Tag links
+    /// (`pico-tag://…`) are decoded into a ``Tag`` and sent to ``onTagTap`` when
+    /// present; everything else (and tags, when no `onTagTap` is set) goes to
+    /// the SwiftUI `openURL` action so `onOpenLink` continues to work.
+    private func makeLinkHandler() -> (URL, String) -> Void {
+        let onTagTap = self.onTagTap
+        let openURL = self.openURL
+        return { url, displayText in
+            if let onTagTap, let tag = PicoTagURL.makeTag(from: url, displayText: displayText) {
+                onTagTap(tag)
+            } else {
+                openURL(url)
+            }
+        }
     }
 
     private static func resolveImageProvider(_ provider: MarkdownImageProvider?,
@@ -107,6 +139,7 @@ private struct TextKit2Container: UIViewRepresentable {
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
+    var linkHandler: (URL, String) -> Void
 
     func makeUIView(context: Context) -> UITextView {
         let view: UITextView
@@ -119,6 +152,7 @@ private struct TextKit2Container: UIViewRepresentable {
         if let onContentSize {
             controller.installContentSizeObserver(on: view, onContentSize)
         }
+        controller.installLinkHandler(on: view, linkHandler)
         return view
     }
 
@@ -128,6 +162,7 @@ private struct TextKit2Container: UIViewRepresentable {
         if let onContentSize {
             controller.installContentSizeObserver(on: uiView, onContentSize)
         }
+        controller.installLinkHandler(on: uiView, linkHandler)
     }
 }
 #elseif canImport(AppKit)
@@ -141,6 +176,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
+    var linkHandler: (URL, String) -> Void
 
     func makeNSView(context: Context) -> NSTextView {
         let view: NSTextView
@@ -153,6 +189,7 @@ private struct TextKit2Container: NSViewRepresentable {
         if let onContentSize {
             controller.installContentSizeObserver(on: view, onContentSize)
         }
+        controller.installLinkHandler(on: view, linkHandler)
         return view
     }
 
@@ -162,6 +199,7 @@ private struct TextKit2Container: NSViewRepresentable {
         if let onContentSize {
             controller.installContentSizeObserver(on: nsView, onContentSize)
         }
+        controller.installLinkHandler(on: nsView, linkHandler)
     }
 }
 #endif
