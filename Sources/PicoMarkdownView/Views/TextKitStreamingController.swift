@@ -777,6 +777,7 @@ private final class StreamingTextKit2View: UITextView {
 private final class StreamingTextKit1View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastLaidOutWidth: CGFloat = -1
 
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
@@ -801,6 +802,7 @@ private final class StreamingTextKit1View: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
+            needsLayout = true
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
@@ -809,7 +811,27 @@ private final class StreamingTextKit1View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        relayoutIfUsableWidthChanged()
         invalidateIntrinsicContentSize()
+    }
+
+    /// Force a one-shot full text relayout when the usable width changes. On a cold
+    /// launch the first blocks (notably the H1 title) can be laid out at a transient
+    /// narrow width before the split view settles; the automatic width tracking does
+    /// not always reflow that early layout, leaving the heading wrapped/stale until a
+    /// later relayout (which is why re-selecting the example "fixes" it). Re-laying out
+    /// whenever the width actually changes makes the settled width win on first render.
+    private func relayoutIfUsableWidthChanged() {
+        guard let layoutManager, let textContainer else { return }
+        let width = bounds.width
+        guard width > 0, abs(width - lastLaidOutWidth) > 0.5 else { return }
+        lastLaidOutWidth = width
+        let length = layoutManager.textStorage?.length ?? 0
+        guard length > 0 else { return }
+        layoutManager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
+                                       actualCharacterRange: nil)
+        layoutManager.ensureLayout(for: textContainer)
+        needsDisplay = true
     }
 
     private func sizeThatFits() -> NSSize {
@@ -848,6 +870,7 @@ private final class StreamingTextKit1View: NSTextView {
 private final class StreamingTextKit2View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastLaidOutWidth: CGFloat = -1
 
     init(backend: TextKitStreamingBackend) {
         // Use TextKit 1 initialization: the backend storage connection works by
@@ -876,6 +899,7 @@ private final class StreamingTextKit2View: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window != nil {
+            needsLayout = true
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
@@ -884,9 +908,29 @@ private final class StreamingTextKit2View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        relayoutIfUsableWidthChanged()
         if !isVerticallyResizable {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    /// Force a one-shot full text relayout when the usable width changes. On a cold
+    /// launch the first blocks (notably the H1 title) can be laid out at a transient
+    /// narrow width before the split view settles; the automatic width tracking does
+    /// not always reflow that early layout, leaving the heading wrapped/stale until a
+    /// later relayout (which is why re-selecting the example "fixes" it). Re-laying out
+    /// whenever the width actually changes makes the settled width win on first render.
+    private func relayoutIfUsableWidthChanged() {
+        guard let layoutManager, let textContainer else { return }
+        let width = bounds.width
+        guard width > 0, abs(width - lastLaidOutWidth) > 0.5 else { return }
+        lastLaidOutWidth = width
+        let length = layoutManager.textStorage?.length ?? 0
+        guard length > 0 else { return }
+        layoutManager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
+                                       actualCharacterRange: nil)
+        layoutManager.ensureLayout(for: textContainer)
+        needsDisplay = true
     }
 
     private func sizeThatFits() -> NSSize {
