@@ -901,7 +901,7 @@ private final class StreamingTextKit1View: NSTextView {
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
-    private var lastHoverCharIndex: Int?
+    private var lastHoverLinkStart: Int?
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -926,8 +926,8 @@ private final class StreamingTextKit1View: NSTextView {
     private func notifyHover(at point: NSPoint) {
         guard let hoverHandler else { return }
         if let info = hoverLink(at: point) {
-            guard info.charIndex != lastHoverCharIndex else { return }
-            lastHoverCharIndex = info.charIndex
+            guard info.linkStart != lastHoverLinkStart else { return }
+            lastHoverLinkStart = info.linkStart
             hoverHandler(info.url, info.displayText, info.rect)
         } else {
             clearHover()
@@ -935,8 +935,8 @@ private final class StreamingTextKit1View: NSTextView {
     }
 
     private func clearHover() {
-        guard lastHoverCharIndex != nil, let hoverHandler else { return }
-        lastHoverCharIndex = nil
+        guard lastHoverLinkStart != nil, let hoverHandler else { return }
+        lastHoverLinkStart = nil
         hoverHandler(nil, "", nil)
     }
 
@@ -1059,7 +1059,7 @@ private final class StreamingTextKit2View: NSTextView {
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
-    private var lastHoverCharIndex: Int?
+    private var lastHoverLinkStart: Int?
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -1084,8 +1084,8 @@ private final class StreamingTextKit2View: NSTextView {
     private func notifyHover(at point: NSPoint) {
         guard let hoverHandler else { return }
         if let info = hoverLink(at: point) {
-            guard info.charIndex != lastHoverCharIndex else { return }
-            lastHoverCharIndex = info.charIndex
+            guard info.linkStart != lastHoverLinkStart else { return }
+            lastHoverLinkStart = info.linkStart
             hoverHandler(info.url, info.displayText, info.rect)
         } else {
             clearHover()
@@ -1093,8 +1093,8 @@ private final class StreamingTextKit2View: NSTextView {
     }
 
     private func clearHover() {
-        guard lastHoverCharIndex != nil, let hoverHandler else { return }
-        lastHoverCharIndex = nil
+        guard lastHoverLinkStart != nil, let hoverHandler else { return }
+        lastHoverLinkStart = nil
         hoverHandler(nil, "", nil)
     }
 
@@ -1238,10 +1238,16 @@ private extension NSTextView {
 
     /// Hit-tests a point (in view coordinates) against the laid-out glyphs and,
     /// if it lands on a `.link` run, returns the link URL, its visible text, the
-    /// character index, and the link's bounding rect in view coordinates (for a
-    /// host to anchor a hover popover). Returns `nil` when the point is past the
-    /// text or not on a link.
-    func hoverLink(at point: NSPoint) -> (url: URL?, displayText: String, charIndex: Int, rect: CGRect?)? {
+    /// link's start character index, and its bounding rect in view coordinates
+    /// (for a host to anchor a hover popover). Returns `nil` when the point is
+    /// past the text or not on a link.
+    ///
+    /// `linkStart` is the location of the link's `.link` effective range — the
+    /// same value for every character within one link — so callers can de-dup
+    /// hover events on it and fire only when entering or switching links, not on
+    /// every character the cursor crosses inside the same link (which would
+    /// re-report an identical url/displayText/rect).
+    func hoverLink(at point: NSPoint) -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
         guard let layoutManager, let textContainer, let storage = textStorage, storage.length > 0 else { return nil }
         let containerPoint = NSPoint(x: point.x - textContainerInset.width,
                                      y: point.y - textContainerInset.height)
@@ -1263,7 +1269,7 @@ private extension NSTextView {
         var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
         rect.origin.x += textContainerInset.width
         rect.origin.y += textContainerInset.height
-        return (url, displayText, charIndex, rect)
+        return (url, displayText, effectiveRange.location, rect)
     }
 }
 #endif
