@@ -212,6 +212,14 @@ final class TextKitStreamingController: ObservableObject {
         }
         observer(mermaidContentWidth(for: textView))
     }
+
+    func installContentSizeObserver(on textView: UITextView, _ observer: @escaping (CGSize) -> Void) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.onContentSizeChanged = observer
+        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.onContentSizeChanged = observer
+        }
+    }
 #elseif canImport(AppKit)
     func mermaidContentWidth(for textView: NSTextView) -> CGFloat? {
         let inset = textView.textContainerInset
@@ -226,6 +234,14 @@ final class TextKitStreamingController: ObservableObject {
             textView.onMermaidContentWidthChanged = observer
         }
         observer(mermaidContentWidth(for: textView))
+    }
+
+    func installContentSizeObserver(on textView: NSTextView, _ observer: @escaping (CGSize) -> Void) {
+        if let textView = textView as? StreamingTextKit1View {
+            textView.onContentSizeChanged = observer
+        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
+            textView.onContentSizeChanged = observer
+        }
     }
 #endif
 }
@@ -696,7 +712,9 @@ private extension NSRange {
 @MainActor
 private final class StreamingTextKit1View: UITextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
@@ -728,6 +746,7 @@ private final class StreamingTextKit1View: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         if !isScrollEnabled {
             invalidateIntrinsicContentSize()
         }
@@ -742,13 +761,25 @@ private final class StreamingTextKit1View: UITextView {
         lastMermaidWidthBucket = bucket
         onMermaidContentWidthChanged?(normalized)
     }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0 else { return }
+        let fitted = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude))
+        let newSize = CGSize(width: bounds.width, height: fitted.height)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
+    }
 }
 
 @available(iOS 16.0, *)
 @MainActor
 private final class StreamingTextKit2View: UITextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
     private var lastMermaidWidthBucket: Int?
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
         super.init(frame: .zero, textContainer: nil)
@@ -780,6 +811,7 @@ private final class StreamingTextKit2View: UITextView {
     override func layoutSubviews() {
         super.layoutSubviews()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         if !isScrollEnabled {
             invalidateIntrinsicContentSize()
         }
@@ -794,14 +826,26 @@ private final class StreamingTextKit2View: UITextView {
         lastMermaidWidthBucket = bucket
         onMermaidContentWidthChanged?(normalized)
     }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0 else { return }
+        let fitted = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude))
+        let newSize = CGSize(width: bounds.width, height: fitted.height)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
+    }
 }
 
 #elseif canImport(AppKit)
 @MainActor
 private final class StreamingTextKit1View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
         let layoutManager = NSLayoutManager()
@@ -835,8 +879,22 @@ private final class StreamingTextKit1View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         relayoutIfUsableWidthChanged()
         invalidateIntrinsicContentSize()
+    }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0,
+              let textContainer, let layoutManager else { return }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let newSize = CGSize(width: bounds.width, height: used.height + textContainerInset.height * 2)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
     }
 
     /// Force a one-shot full text relayout when the usable width changes. On a cold
@@ -893,8 +951,10 @@ private final class StreamingTextKit1View: NSTextView {
 @MainActor
 private final class StreamingTextKit2View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
+    var onContentSizeChanged: ((CGSize) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
+    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
         // Use TextKit 1 initialization: the backend storage connection works by
@@ -932,10 +992,24 @@ private final class StreamingTextKit2View: NSTextView {
     override func layout() {
         super.layout()
         notifyMermaidContentWidthIfNeeded()
+        notifyContentSizeIfNeeded()
         relayoutIfUsableWidthChanged()
         if !isVerticallyResizable {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func notifyContentSizeIfNeeded() {
+        guard let onContentSizeChanged, bounds.width > 0,
+              let textContainer, let layoutManager else { return }
+        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
+        layoutManager.ensureLayout(for: textContainer)
+        let used = layoutManager.usedRect(for: textContainer)
+        let newSize = CGSize(width: bounds.width, height: used.height + textContainerInset.height * 2)
+        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
+                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
+        lastReportedContentSize = newSize
+        onContentSizeChanged(newSize)
     }
 
     /// Force a one-shot full text relayout when the usable width changes. On a cold

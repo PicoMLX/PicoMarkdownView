@@ -8,6 +8,8 @@ public struct PicoMarkdownView: View {
     @State private var viewModel: MarkdownStreamingViewModel
     @StateObject private var controller = TextKitStreamingController()
 
+    private var onContentSize: ((CGSize) -> Void)?
+
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
                  imageProvider: MarkdownImageProvider?,
@@ -16,6 +18,17 @@ public struct PicoMarkdownView: View {
         self.input = input
         self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
+    }
+
+    /// Reports the rendered content size whenever it changes — e.g. when
+    /// streaming adds a newline and the content grows taller. Fires on the main
+    /// actor during layout, de-duplicated so it only calls when the size
+    /// actually changes (> 0.5pt). Width reflects the current view width;
+    /// height reflects the laid-out content height including vertical insets.
+    public func onContentSize(_ handler: @escaping (CGSize) -> Void) -> PicoMarkdownView {
+        var copy = self
+        copy.onContentSize = handler
+        return copy
     }
 
     public init(_ text: String,
@@ -67,7 +80,8 @@ public struct PicoMarkdownView: View {
                               Task {
                                   await viewModel.updateMermaidContentWidth(width)
                               }
-                          })
+                          },
+                          onContentSize: onContentSize)
             .task(id: input.id) {
                 await viewModel.consume(input)
             }
@@ -92,6 +106,7 @@ private struct TextKit2Container: UIViewRepresentable {
     var replaceToken: UInt64
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
+    var onContentSize: ((CGSize) -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
         let view: UITextView
@@ -101,12 +116,18 @@ private struct TextKit2Container: UIViewRepresentable {
             view = controller.makeTextKit1View(configuration: configuration)
         }
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
+        if let onContentSize {
+            controller.installContentSizeObserver(on: view, onContentSize)
+        }
         return view
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: uiView))
+        if let onContentSize {
+            controller.installContentSizeObserver(on: uiView, onContentSize)
+        }
     }
 }
 #elseif canImport(AppKit)
@@ -119,6 +140,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var replaceToken: UInt64
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
+    var onContentSize: ((CGSize) -> Void)?
 
     func makeNSView(context: Context) -> NSTextView {
         let view: NSTextView
@@ -128,12 +150,18 @@ private struct TextKit2Container: NSViewRepresentable {
             view = controller.makeTextKit1View(configuration: configuration)
         }
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
+        if let onContentSize {
+            controller.installContentSizeObserver(on: view, onContentSize)
+        }
         return view
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
+        if let onContentSize {
+            controller.installContentSizeObserver(on: nsView, onContentSize)
+        }
     }
 }
 #endif
