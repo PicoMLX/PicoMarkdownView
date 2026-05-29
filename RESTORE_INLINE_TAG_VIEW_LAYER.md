@@ -80,6 +80,27 @@ clean reads this session:
    pipeline init line ≈ 11). `TagPrefix` already exposes
    `.mention/.hashtag/.ticker/.paired(open:close:)/.defaults`.
 
+## Progress
+
+- [x] **Phase 1 — `tagPrefixes` config** — commit `a3b7292`. Threaded through
+      all three `PicoMarkdownView` inits → `MarkdownStreamingViewModel` →
+      `MarkdownStreamingPipeline` → `MarkdownTokenizer(tagPrefixes:)`.
+- [x] **Phase 2 — `onContentSize` callback** — commit `8d44cf9`. The
+      "callback when a newline is added". `.onContentSize { (CGSize) in }`
+      modifier, mirroring the mermaid width-observer on all four text-view
+      subclasses. *Compile-unverified (no toolchain here).*
+- [ ] **Phase 0 — link bridge** (prerequisite for taps; net-new, no existing
+      code to mirror).
+- [ ] **Phase 3 — `onTagTap`**.
+- [ ] **Phase 4 — `onTagHover` / `onLinkHover`** (macOS).
+- [ ] **Phase 5 — `onOpenLink` Anchor overload + docs**.
+
+> ⚠️ Phases 0/3/4 are the **highest-risk** part: the tap-routing
+> infrastructure does **not currently exist** (`setLinkHandler` has zero
+> callers, no `UITextViewDelegate`/`NSTextViewDelegate`, no `NSTrackingArea`),
+> so there is no existing pattern to mirror and nothing can be compiled in this
+> environment. Best authored in Xcode on macOS.
+
 ## Phased plan (do in order; commit per phase)
 
 **Phase 0 — confirm the link bridge (VERIFY in Xcode).**
