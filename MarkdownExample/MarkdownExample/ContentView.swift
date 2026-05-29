@@ -21,7 +21,7 @@ struct MarkdownExample: Identifiable, Hashable {
 
     init(localFilename: String,
          webURL: String,
-         tagPrefixes: Set<TagPrefix> = .defaults) {
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
         self.name = localFilename
         self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
         self.webURL = URL(string: webURL)!
