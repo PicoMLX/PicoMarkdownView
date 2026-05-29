@@ -54,65 +54,39 @@ final class PicoTagURLTests: XCTestCase {
         XCTAssertNil(PicoTagURL.decode(URL(string: "pico-tag:///")!))
     }
 
-    func testMakeTagUsesVisibleDisplayText() {
-        let url = encode(prefix: "@", identifier: "u-2345")
-        let tag = PicoTagURL.makeTag(from: url, displayText: "@John Doe")!
-        XCTAssertEqual(tag.prefix, "@")
-        XCTAssertEqual(tag.identifier, "u-2345")
-        XCTAssertEqual(tag.displayText, "@John Doe")
+    // MARK: - reference(from:)
+
+    /// A tap on the markdown-link form surfaces the record ID from the parens
+    /// (not the display text) plus the prefix — mirroring how a link surfaces
+    /// its URL, not its label.
+    func testReferenceUsesIdentifierFromParens() {
+        let reference = PicoTagURL.reference(from: encode(prefix: "@", identifier: "u-2345"))
+        XCTAssertEqual(reference, TagReference(prefix: "@", identifier: "u-2345"))
     }
 
-    func testMakeTagFallsBackWhenDisplayTextEmpty() {
-        let url = encode(prefix: "#", identifier: "swift")
-        let tag = PicoTagURL.makeTag(from: url, displayText: "")!
-        XCTAssertEqual(tag.displayText, "#swift")
+    func testReferenceForBareForm() {
+        let reference = PicoTagURL.reference(from: encode(prefix: "@", identifier: "behlool"))
+        XCTAssertEqual(reference, TagReference(prefix: "@", identifier: "behlool"))
     }
 
-    // MARK: - resolver(for:) — authentic Tag resolution
-
-    /// The whole point of the registry fix: a tapped markdown-link tag must
-    /// resolve to the parser's *authentic* Tag, with rawText equal to the exact
-    /// source substring — not the lossy URL reconstruction.
-    func testResolverReturnsAuthenticRawTextForMarkdownLinkForm() {
-        let authentic = Tag(prefix: "@",
-                            identifier: "u-2345",
-                            displayText: "@John Doe",
-                            rawText: "@[John Doe](u-2345)")
-        let runs = [InlineRun(text: "@John Doe", style: [.tag, .link],
-                              linkURL: "pico-tag:///%40/u-2345", tag: authentic)]
-        let resolve = PicoTagURL.resolver(for: runs)
-
-        let resolved = resolve(encode(prefix: "@", identifier: "u-2345"), "@John Doe")
-        XCTAssertEqual(resolved, authentic)
-        // The reconstruction would have produced "@John Doe" here; assert we did
-        // NOT fall back to it.
-        XCTAssertEqual(resolved?.rawText, "@[John Doe](u-2345)")
+    /// The prefix is part of the reference so a single handler can tell a
+    /// `@id` mention from a `#id` hashtag that share the same identifier.
+    func testReferenceDisambiguatesByPrefix() {
+        XCTAssertEqual(PicoTagURL.reference(from: encode(prefix: "@", identifier: "ada")),
+                       TagReference(prefix: "@", identifier: "ada"))
+        XCTAssertEqual(PicoTagURL.reference(from: encode(prefix: "#", identifier: "ada")),
+                       TagReference(prefix: "#", identifier: "ada"))
     }
 
-    func testResolverFallsBackToReconstructionWhenNoMatchingRun() {
-        let resolve = PicoTagURL.resolver(for: [])
-        let resolved = resolve(encode(prefix: "@", identifier: "behlool"), "@behlool")
-        // No authentic run present → best-effort reconstruction.
-        XCTAssertEqual(resolved?.prefix, "@")
-        XCTAssertEqual(resolved?.identifier, "behlool")
-        XCTAssertEqual(resolved?.displayText, "@behlool")
+    func testReferenceReturnsNilForNonPicoTagURL() {
+        XCTAssertNil(PicoTagURL.reference(from: URL(string: "https://example.com")!))
+        XCTAssertNil(PicoTagURL.reference(from: URL(string: "mailto:john@example.com")!))
     }
 
-    func testResolverReturnsNilForNonPicoTagURL() {
-        let resolve = PicoTagURL.resolver(for: [])
-        XCTAssertNil(resolve(URL(string: "https://example.com")!, "example"))
-    }
-
-    func testResolverDisambiguatesByPrefixAndIdentifier() {
-        let mention = Tag(prefix: "@", identifier: "ada", displayText: "@Ada", rawText: "@[Ada](ada)")
-        let hashtag = Tag(prefix: "#", identifier: "ada", displayText: "#ada", rawText: "#ada")
-        let runs = [
-            InlineRun(text: "@Ada", style: [.tag, .link], linkURL: "pico-tag:///%40/ada", tag: mention),
-            InlineRun(text: "#ada", style: [.tag, .link], linkURL: "pico-tag:///%23/ada", tag: hashtag),
-        ]
-        let resolve = PicoTagURL.resolver(for: runs)
-
-        XCTAssertEqual(resolve(encode(prefix: "@", identifier: "ada"), "@Ada"), mention)
-        XCTAssertEqual(resolve(encode(prefix: "#", identifier: "ada"), "#ada"), hashtag)
+    func testReferenceRoundTripsAwkwardIdentifiers() {
+        for identifier in ["a/b/c", "100%", "u@host", "frag#ment", "u-2345", "张伟"] {
+            let reference = PicoTagURL.reference(from: encode(prefix: "@", identifier: identifier))
+            XCTAssertEqual(reference?.identifier, identifier, "round-trip failed for \(identifier)")
+        }
     }
 }

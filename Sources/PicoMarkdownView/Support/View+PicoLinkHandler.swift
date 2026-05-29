@@ -21,19 +21,22 @@ public extension View {
     }
 
     /// Routes taps on inline tags (`@mentions`, `#hashtags`, `[[wiki-links]]`,
-    /// `$tickers`, …) to a typed handler that receives the decoded ``Tag``.
-    /// When set, tag taps go here instead of the ``onOpenLink(_:)``/`openURL`
-    /// path; ordinary links still route through `openURL`. When *not* set, tag
-    /// taps fall back to `openURL` carrying the `pico-tag://` URL.
-    func onTagTap(_ handler: @escaping (Tag) -> Void) -> some View {
+    /// `$tickers`, …) to a handler that receives the decoded ``TagReference`` —
+    /// the tag's `prefix` and `identifier` (record ID). This mirrors
+    /// ``onOpenLink(_:)`` for links: you get the routable key and own the
+    /// lookup/display side. When set, tag taps go here instead of the
+    /// ``onOpenLink(_:)``/`openURL` path; ordinary links still route through
+    /// `openURL`. When *not* set, tag taps fall back to `openURL` carrying the
+    /// `pico-tag://` URL.
+    func onTagTap(_ handler: @escaping (TagReference) -> Void) -> some View {
         environment(\.picoOnTagTap, handler)
     }
 
     /// Reports hover enter/exit over inline tags (**macOS only** — no-op on
-    /// iOS). On enter the handler receives the decoded ``Tag`` and its bounding
-    /// rect in the view's coordinate space (anchor a popover against it); on
-    /// exit it receives `(nil, nil)`.
-    func onTagHover(_ handler: @escaping (Tag?, CGRect?) -> Void) -> some View {
+    /// iOS). On enter the handler receives the decoded ``TagReference`` and its
+    /// bounding rect in the view's coordinate space (anchor a popover against
+    /// it); on exit it receives `(nil, nil)`.
+    func onTagHover(_ handler: @escaping (TagReference?, CGRect?) -> Void) -> some View {
         environment(\.picoOnTagHover, handler)
     }
 
@@ -67,11 +70,11 @@ public extension View {
 // no storage, so there is nothing to share — and it is exactly the shape the
 // `EnvironmentKey` protocol requires (`static var defaultValue: Value { get }`).
 private struct PicoOnTagTapKey: EnvironmentKey {
-    static var defaultValue: ((Tag) -> Void)? { nil }
+    static var defaultValue: ((TagReference) -> Void)? { nil }
 }
 
 private struct PicoOnTagHoverKey: EnvironmentKey {
-    static var defaultValue: ((Tag?, CGRect?) -> Void)? { nil }
+    static var defaultValue: ((TagReference?, CGRect?) -> Void)? { nil }
 }
 
 private struct PicoOnLinkHoverKey: EnvironmentKey {
@@ -83,12 +86,12 @@ private struct PicoOnContentSizeKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    var picoOnTagTap: ((Tag) -> Void)? {
+    var picoOnTagTap: ((TagReference) -> Void)? {
         get { self[PicoOnTagTapKey.self] }
         set { self[PicoOnTagTapKey.self] = newValue }
     }
 
-    var picoOnTagHover: ((Tag?, CGRect?) -> Void)? {
+    var picoOnTagHover: ((TagReference?, CGRect?) -> Void)? {
         get { self[PicoOnTagHoverKey.self] }
         set { self[PicoOnTagHoverKey.self] = newValue }
     }

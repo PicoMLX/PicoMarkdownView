@@ -169,14 +169,17 @@ var body: some View {
 
 PicoMarkdownView recognises lightweight inline tags so a host app can attach
 custom interactions — Slack-style user popovers, hashtag filters, wiki
-links — without forking the parser. Tags are rendered as tappable links and
-routed to your handler as a decoded `Tag` (prefix, identifier, display text,
-raw text), using the same hit-testing path as `[text](url)` links.
+links — without forking the parser. Tags are rendered as tappable links and,
+on tap, routed to your handler as a `TagReference` — the tag's `prefix` and
+`identifier` (record ID). This mirrors how `[display](url)` links work: you get
+the routable key, and own the lookup/display side. For `@[John Doe](u-2345)`
+the reference is `prefix: "@", identifier: "u-2345"`; for the bare `@behlool`
+it is `prefix: "@", identifier: "behlool"`.
 
 ```swift
 PicoMarkdownView(markdown, tagPrefixes: [.mention, .hashtag])
     .onTagTap { tag in
-        // tag.prefix == "@", tag.identifier == "behlool", …
+        // tag.prefix == "@", tag.identifier == "behlool"
         showProfilePopover(for: tag.identifier)
     }
     .onOpenLink { url in
@@ -211,9 +214,9 @@ Pass `tagPrefixes: []` to disable inline-tag recognition entirely.
 
 | Modifier | Fires when | Payload |
 |---|---|---|
-| `.onTagTap { Tag in }` | a tag is tapped/clicked | decoded `Tag` |
+| `.onTagTap { TagReference in }` | a tag is tapped/clicked | `TagReference` (`prefix` + `identifier`) |
 | `.onOpenLink { URL in }` | a regular link is tapped (and tags, if no `onTagTap` is set — they arrive as a `pico-tag://` URL) | `URL` |
-| `.onTagHover { (Tag?, CGRect?) in }` | **macOS only** — hover enters/exits a tag | `Tag` + bounding rect on enter, `(nil, nil)` on exit |
+| `.onTagHover { (TagReference?, CGRect?) in }` | **macOS only** — hover enters/exits a tag | `TagReference` + bounding rect on enter, `(nil, nil)` on exit |
 | `.onLinkHover { (URL?, CGRect?) in }` | **macOS only** — hover enters/exits a regular link | `URL` + bounding rect on enter, `(nil, nil)` on exit |
 | `.onContentSize { CGSize in }` | rendered content size changes (e.g. streaming adds a line) | content `CGSize` |
 

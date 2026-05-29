@@ -99,24 +99,23 @@ public struct PicoMarkdownView: View {
     }
 
     /// Builds the hover closure for the text views (macOS). It receives the
-    /// hovered link's URL (if any), its visible text, and bounding rect, then
-    /// dispatches to ``onTagHover`` for `pico-tag://` links and ``onLinkHover``
-    /// for everything else. Exit (`nil` URL) is forwarded to whichever handlers
-    /// are installed so hosts can dismiss popovers. Returns `nil` when neither
-    /// hover handler is set, so no tracking work happens.
+    /// hovered link's URL (if any) and bounding rect, then dispatches to
+    /// ``onTagHover`` for `pico-tag://` links (decoded to a ``TagReference``)
+    /// and ``onLinkHover`` for everything else. Exit (`nil` URL) is forwarded to
+    /// whichever handlers are installed so hosts can dismiss popovers. Returns
+    /// `nil` when neither hover handler is set, so no tracking work happens.
     private func makeHoverHandler() -> ((URL?, String, CGRect?) -> Void)? {
         guard onTagHover != nil || onLinkHover != nil else { return nil }
         let onTagHover = self.onTagHover
         let onLinkHover = self.onLinkHover
-        let tagLookup = makeTagLookup()
-        return { url, displayText, rect in
+        return { url, _, rect in
             guard let url else {
                 onTagHover?(nil, nil)
                 onLinkHover?(nil, nil)
                 return
             }
-            if let tag = tagLookup(url, displayText) {
-                onTagHover?(tag, rect)
+            if let reference = PicoTagURL.reference(from: url) {
+                onTagHover?(reference, rect)
                 onLinkHover?(nil, nil)
             } else {
                 onLinkHover?(url, rect)
@@ -126,30 +125,20 @@ public struct PicoMarkdownView: View {
     }
 
     /// Builds the closure the text views invoke on link tap/click. Tag links
-    /// (`pico-tag://…`) are resolved to their authentic ``Tag`` and sent to
-    /// ``onTagTap`` when present; everything else (and tags, when no `onTagTap`
-    /// is set) goes to the SwiftUI `openURL` action so `onOpenLink` continues
-    /// to work.
+    /// (`pico-tag://…`) are decoded to a ``TagReference`` and sent to
+    /// ``onTagTap`` when set; everything else (and tags, when no `onTagTap` is
+    /// set) goes to the SwiftUI `openURL` action so `onOpenLink` continues to
+    /// work.
     private func makeLinkHandler() -> (URL, String) -> Void {
         let onTagTap = self.onTagTap
         let openURL = self.openURL
-        let tagLookup = makeTagLookup()
-        return { url, displayText in
-            if let onTagTap, let tag = tagLookup(url, displayText) {
-                onTagTap(tag)
+        return { url, _ in
+            if let onTagTap, let reference = PicoTagURL.reference(from: url) {
+                onTagTap(reference)
             } else {
                 openURL(url)
             }
         }
-    }
-
-    /// Resolves a tapped/hovered `pico-tag://` URL back to the **authentic**
-    /// ``Tag`` the parser emitted — preserving `rawText` exactly (e.g.
-    /// `"@[John Doe](u-2345)"`), which a URL round-trip cannot recover. The
-    /// index is built from the runs the parser already attached to the current
-    /// blocks; see ``PicoTagURL/resolver(for:)`` for the resolution logic.
-    private func makeTagLookup() -> (URL, String) -> Tag? {
-        PicoTagURL.resolver(for: viewModel.blocks.flatMap { $0.snapshot.tagRuns })
     }
 
     private static func resolveImageProvider(_ provider: MarkdownImageProvider?,
@@ -158,24 +147,6 @@ public struct PicoMarkdownView: View {
             return provider
         }
         return remoteImagesEnabled ? URLSessionMarkdownImageProvider.shared : nil
-    }
-}
-
-private extension BlockSnapshot {
-    /// All inline runs in this block that may carry a ``Tag`` — both the
-    /// block's own `inlineRuns` and any table header/row cells, since a tag can
-    /// appear inside a table cell too.
-    var tagRuns: [InlineRun] {
-        var runs = inlineRuns ?? []
-        if let table {
-            if let headers = table.headerCells {
-                for cell in headers { runs.append(contentsOf: cell) }
-            }
-            for row in table.rows {
-                for cell in row { runs.append(contentsOf: cell) }
-            }
-        }
-        return runs
     }
 }
 

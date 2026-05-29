@@ -25,7 +25,7 @@ struct MarkdownView: View {
     // Tag and link hover are tracked separately: hovering a tag also reports a
     // nil link-hover (and vice versa), so a single combined string would get
     // clobbered by the "exit" of the other source.
-    @State private var lastTappedTag: Tag?
+    @State private var lastTappedTag: TagReference?
     @State private var tagHoverReadout: String?
     @State private var linkHoverReadout: String?
     @State private var contentSize: CGSize?
@@ -97,7 +97,7 @@ struct MarkdownView: View {
             if let tag = lastTappedTag {
                 Label {
                     Text("Tapped ")
-                        + Text(tag.displayText).bold()
+                        + Text("\(tag.prefix)\(tag.identifier)").bold()
                         + Text("  ·  prefix \(tag.prefix)  ·  id \(tag.identifier)")
                 } icon: {
                     Image(systemName: "hand.tap")
@@ -209,7 +209,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let tagPrefixes: Set<TagPrefix>
     let onOpenURL: (URL) -> Void
-    let onTagTap: (Tag) -> Void
+    let onTagTap: (TagReference) -> Void
     let onTagHover: (String?) -> Void
     let onLinkHover: (String?) -> Void
     let onContentSize: (CGSize) -> Void
@@ -233,7 +233,7 @@ private struct StreamingMarkdownContent: View, Equatable {
                 onTagTap(tag)
             }
             .onTagHover { [onTagHover] tag, _ in
-                onTagHover(tag.map { "Hovering \($0.displayText)  ·  id \($0.identifier)" })
+                onTagHover(tag.map { "Hovering \($0.prefix)\($0.identifier)  ·  id \($0.identifier)" })
             }
             .onLinkHover { [onLinkHover] url, _ in
                 onLinkHover(url.map { "Hovering link \($0.absoluteString)" })
