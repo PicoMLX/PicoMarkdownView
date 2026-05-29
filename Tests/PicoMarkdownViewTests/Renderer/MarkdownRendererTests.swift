@@ -617,6 +617,60 @@ struct MarkdownRendererTests {
         #expect(paragraph.paragraphSpacing >= 9.0)
     }
 
+    @Test("List items use margin-system spacing, not a hardcoded separator gap")
+    func listItemsUseMarginSystemSpacing() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // Nested bullet list: a top-level item with one indented sub-item, like a TOC.
+        let markdown = "* Top item\n    * Nested item\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let listItems = blocks.filter { $0.listItem != nil }
+        guard let topLevel = listItems.first(where: { $0.snapshot.depth == 0 }),
+              let nested = listItems.first(where: { $0.snapshot.depth == 1 }) else {
+            Issue.record("Expected a top-level and a nested list item, got depths \(listItems.map(\.snapshot.depth))")
+            return
+        }
+
+        // The body run and the terminating "\n" of a list item form one paragraph.
+        // A paragraph's trailing paragraphSpacing is resolved from its terminator's
+        // style, so both must agree and must equal the margin-system value:
+        // 2pt at depth 0, 0pt at depth 1 (bottomMargin 2, minus the depth penalty).
+        // The previous code hardcoded 6pt on the terminator, overriding the
+        // depth-based reduction and loosening every gap.
+        func paragraphSpacings(in content: AttributedString) -> (first: CGFloat, last: CGFloat)? {
+            let ns = NSAttributedString(content)
+            guard ns.length > 0,
+                  let first = ns.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle,
+                  let last = ns.attribute(.paragraphStyle, at: ns.length - 1, effectiveRange: nil) as? NSParagraphStyle
+            else { return nil }
+            return (first.paragraphSpacing, last.paragraphSpacing)
+        }
+
+        guard let top = paragraphSpacings(in: topLevel.content),
+              let sub = paragraphSpacings(in: nested.content) else {
+            Issue.record("Missing paragraph styles on list items")
+            return
+        }
+
+        // Terminator governs the inter-item gap.
+        #expect(top.last == 2)
+        #expect(sub.last == 0)
+        // The whole item paragraph is uniform (body == terminator), as for paragraphs/headings.
+        #expect(top.first == top.last)
+        #expect(sub.first == sub.last)
+    }
+
     @Test("Removing trailing blocks updates cache without crashing")
     func removingTrailingBlocksDoesNotCrash() async {
         let store = TestSnapshotStore()
