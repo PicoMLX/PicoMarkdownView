@@ -103,7 +103,7 @@ public enum BlockEvent: Sendable {
   case blockAppendFencedCode(id: BlockID, textChunk: String)  // verbatim, no inline parsing
 
   // Table-specific deltas (GFM)
-  case tableHeaderCandidate(id: BlockID, cells: [InlineRun])           // before separator
+  case tableHeaderCandidate(id: BlockID, cells: [[InlineRun]])         // inline-parsed header cells
   case tableHeaderConfirmed(id: BlockID, alignments: [TableAlignment]) // after separator
   case tableAppendRow(id: BlockID, cells: [[InlineRun]])
 
@@ -159,8 +159,8 @@ Parser architecture
     •    FSM + bounded look-behind (≈256–1024 code units) to resolve ambiguous constructs (* vs literal, closing ```).
     •    Streaming guarantees: emit events only when constructs are unambiguous within the window.
     •    Tables:
-    •    Header line → tableHeaderCandidate.
-    •    Separator confirms → tableHeaderConfirmed(alignments:).
+    •    Header line is buffered locally; nothing is emitted until the separator line resolves the candidate (events drain to the assembler at every chunk boundary, so announcing earlier would require retracting events when the candidate degrades).
+    •    Separator confirms → blockStart(.table) + tableHeaderCandidate(cells:) + tableHeaderConfirmed(alignments:) emitted together. Header cells are inline-parsed like row cells.
     •    Rows as tableAppendRow.
     •    Fallback: unsupported or malformed block → .unknown via blockStart(kind:.unknown) + blockAppendInline.
 

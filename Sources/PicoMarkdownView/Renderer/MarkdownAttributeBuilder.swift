@@ -81,19 +81,30 @@ actor MarkdownAttributeBuilder {
             let codeBlockSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
             let content: NSMutableAttributedString
             if let codeTheme = theme.codeBlockTheme {
-                let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
-                let highlighted = await highlighter.highlight(text, language: {
-                    if case let .fencedCode(value) = snapshot.kind {
-                        return value
-                    }
-                    return nil
-                }(), theme: codeTheme)
-                content = NSMutableAttributedString(highlighted)
-
                 let resolvedCodeFont = codeTheme.resolvedFont()
                 let resolvedFg = codeTheme.resolvedForegroundColor()
                 let resolvedBg = codeTheme.resolvedBackgroundColor()
                 let hasBackground = codeTheme.backgroundColor != .clear
+
+                if snapshot.isClosed {
+                    let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+                    let highlighted = await highlighter.highlight(text, language: {
+                        if case let .fencedCode(value) = snapshot.kind {
+                            return value
+                        }
+                        return nil
+                    }(), theme: codeTheme)
+                    content = NSMutableAttributedString(highlighted)
+                } else {
+                    // While the fence is open, every appended chunk re-renders
+                    // the whole block, so running the syntax highlighter here
+                    // would be O(block²) over the stream. Render with the
+                    // theme's base attributes and highlight once, on close.
+                    content = NSMutableAttributedString(string: text, attributes: [
+                        .font: resolvedCodeFont,
+                        .foregroundColor: resolvedFg
+                    ])
+                }
 
                 if content.length > 0 {
                     applyCodeBlockParagraphStyles(to: content, spacing: codeBlockSpacing)

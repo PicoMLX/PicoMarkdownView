@@ -285,7 +285,7 @@ public enum BlockEvent: Sendable, Equatable {
     case blockAppendInline(id: BlockID, runs: [InlineRun])
     case blockAppendFencedCode(id: BlockID, textChunk: String)
     case blockAppendMath(id: BlockID, textChunk: String)
-    case tableHeaderCandidate(id: BlockID, cells: [InlineRun])
+    case tableHeaderCandidate(id: BlockID, cells: [[InlineRun]])
     case tableHeaderConfirmed(id: BlockID, alignments: [TableAlignment])
     case tableAppendRow(id: BlockID, cells: [[InlineRun]])
     case blockEnd(id: BlockID)

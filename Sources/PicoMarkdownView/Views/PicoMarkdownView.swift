@@ -6,6 +6,15 @@ public struct PicoMarkdownView: View {
     private let configuration: PicoTextKitConfiguration
 
     @State private var viewModel: MarkdownStreamingViewModel
+    /// First input captured for this view identity. `.stream` inputs mint a
+    /// unique id per construction (closures have no comparable content), so
+    /// using the freshly constructed `input` directly would restart the
+    /// consuming task — and re-invoke the stream factory — on every parent
+    /// body re-evaluation. `@State` keeps the first instance, giving the task
+    /// a stable id for the lifetime of the view identity. `.text`/`.chunks`
+    /// ids are content-derived, so those use `input` directly and restart
+    /// only when the content actually changes.
+    @State private var capturedStreamInput: MarkdownStreamingInput
     @StateObject private var controller = TextKitStreamingController()
     @Environment(\.openURL) private var openURL
     @Environment(\.picoOnTagTap) private var onTagTap
@@ -21,6 +30,11 @@ public struct PicoMarkdownView: View {
         self.input = input
         self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
+        _capturedStreamInput = State(initialValue: input)
+    }
+
+    private var effectiveInput: MarkdownStreamingInput {
+        input.isStream ? capturedStreamInput : input
     }
 
     /// Creates a view that renders `text` as Markdown.
@@ -66,6 +80,15 @@ public struct PicoMarkdownView: View {
                   configuration: configuration)
     }
 
+    /// Creates a view that renders an async stream of Markdown chunks.
+    ///
+    /// - Important: The factory may be invoked more than once for the same
+    ///   view. The consuming task is cancelled when the view leaves the
+    ///   hierarchy (e.g. scrolls out of a lazy container) and, because a
+    ///   cancelled stream cannot be resumed, the factory is called again when
+    ///   the view reappears. Return the full stream from the beginning on
+    ///   every invocation (for a finished LLM response, replay the collected
+    ///   text) so reappearing views render complete content.
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
@@ -93,8 +116,8 @@ public struct PicoMarkdownView: View {
                           onContentSize: onContentSize,
                           linkHandler: makeLinkHandler(),
                           hoverHandler: makeHoverHandler())
-            .task(id: input.id) {
-                await viewModel.consume(input)
+            .task(id: effectiveInput.id) {
+                await viewModel.consume(effectiveInput)
             }
     }
 

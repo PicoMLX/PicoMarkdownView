@@ -145,7 +145,9 @@ private struct Metrics {
                 addBytes(textChunk.utf8.count, to: id)
             case .tableHeaderCandidate(let id, let cells):
                 let added = cells.reduce(into: 0) { total, cell in
-                    total += cell.text.utf8.count
+                    for run in cell {
+                        total += run.text.utf8.count
+                    }
                 }
                 addBytes(added, to: id)
             case .tableAppendRow(let id, let cells):

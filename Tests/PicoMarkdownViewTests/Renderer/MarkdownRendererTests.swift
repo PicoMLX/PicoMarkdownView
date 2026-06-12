@@ -433,7 +433,7 @@ struct MarkdownRendererTests {
 
         let diff = AssemblerDiff(documentVersion: 0, changes: [])
         let result = await renderer.apply(diff)
-        #expect(result == nil)
+        #expect(result == false)
     }
 
     @Test("Paragraph soft line breaks emit spaces")
