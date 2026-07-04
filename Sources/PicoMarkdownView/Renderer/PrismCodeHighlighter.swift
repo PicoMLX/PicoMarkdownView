@@ -31,7 +31,19 @@ struct PrismToken: Hashable, Sendable {
 
 #if canImport(JavaScriptCore)
 actor PrismTokenizer {
+    private struct CacheKey: Hashable {
+        let language: String
+        let code: String
+    }
+
     private let context: JSContext
+    /// Closed blocks re-render verbatim on width changes and out-of-band
+    /// refreshes (e.g. image prefetch); a small LRU avoids re-tokenizing
+    /// identical (language, code) pairs. Keys share storage with the
+    /// caller's strings (copy-on-write), so the footprint is the map itself.
+    private var cache: [CacheKey: [PrismToken]] = [:]
+    private var cacheOrder: [CacheKey] = []
+    private let cacheLimit = 16
     private static let logger = Logger(
         subsystem: "com.picomarkdown",
         category: "PrismTokenizer"
@@ -61,6 +73,15 @@ actor PrismTokenizer {
     }
 
     func tokenize(code: String, language: String) -> [PrismToken] {
+        let key = CacheKey(language: language, code: code)
+        if let cached = cache[key] {
+            if let index = cacheOrder.firstIndex(of: key) {
+                cacheOrder.remove(at: index)
+                cacheOrder.append(key)
+            }
+            return cached
+        }
+
         guard
             let tokenizeCode = context.objectForKeyedSubscript("tokenizeCode"),
             let result = tokenizeCode.call(withArguments: [code, language]),
@@ -70,7 +91,17 @@ actor PrismTokenizer {
             return [PrismToken(content: code, type: .plain)]
         }
 
-        return array.compactMap { token in
+        let tokens = parseTokens(array)
+        cache[key] = tokens
+        cacheOrder.append(key)
+        if cacheOrder.count > cacheLimit {
+            cache.removeValue(forKey: cacheOrder.removeFirst())
+        }
+        return tokens
+    }
+
+    private func parseTokens(_ array: [[String: String]]) -> [PrismToken] {
+        array.compactMap { token in
             guard
                 let content = token["content"],
                 let type = token["type"]
@@ -103,7 +134,9 @@ actor PrismTokenizer {
 /// `PrismLanguageNormalizer`); unknown languages render as plain text.
 ///
 /// Thread-safe: tokenization runs on the `PrismTokenizer` actor, off the
-/// main actor. Tokenization re-runs as a streaming block grows.
+/// main actor. Tokenization re-runs as a streaming block grows;
+/// `MarkdownAttributeBuilder` defers oversized blocks to a single pass when
+/// the fence closes (see `CodeHighlightingPolicy`).
 public struct PrismCodeHighlighter: CodeSyntaxHighlighter {
     public init() {}
 

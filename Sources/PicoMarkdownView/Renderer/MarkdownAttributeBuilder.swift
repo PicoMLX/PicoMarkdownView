@@ -81,7 +81,16 @@ actor MarkdownAttributeBuilder {
             let codeBlockSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
             let content: NSMutableAttributedString
             if let codeTheme = theme.codeBlockTheme {
-                let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+                let highlighter: AnyCodeSyntaxHighlighter
+                if CodeHighlightingPolicy.shouldBypassHighlighting(byteCount: text.utf8.count,
+                                                                   isClosed: snapshot.isClosed) {
+                    // Oversized while streaming: render plain now; the
+                    // fence-close diff refreshes the block for one full
+                    // highlight pass.
+                    highlighter = AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+                } else {
+                    highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+                }
                 let highlighted = await highlighter.highlight(text, language: {
                     if case let .fencedCode(value) = snapshot.kind {
                         return value
