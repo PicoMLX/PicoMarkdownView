@@ -16,7 +16,7 @@ enum PrismLanguageNormalizer {
     static func normalize(_ infoString: String?) -> String? {
         guard let infoString else { return nil }
         guard let firstWord = infoString
-            .split(whereSeparator: \.isWhitespace)
+            .split(maxSplits: 1, omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
             .first
             .map(String.init)
         else {
