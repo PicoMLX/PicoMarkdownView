@@ -15,8 +15,9 @@ public struct MarkdownStreamingInput: Sendable {
     /// content**: `.text`/`.chunks` derive it from the payload, which makes a
     /// re-render with unchanged content a no-op instead of a full reparse (or,
     /// worse, a duplicate feed). A `.stream` factory closure has no comparable
-    /// content, so it gets a unique id and `PicoMarkdownView` captures the
-    /// first input per view identity to keep the id stable across re-renders.
+    /// content, so it gets a unique id; `PicoMarkdownView` substitutes a
+    /// per-view-identity token as the task id for stream inputs so re-renders
+    /// don't restart consumption.
     ///
     /// The hash is `Hasher`-based and therefore only stable within a process —
     /// that is all the id is used for.

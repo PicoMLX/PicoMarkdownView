@@ -841,11 +841,22 @@ actor MarkdownAttributeBuilder {
             }
 
             let cellContent = inline.length > 0 ? NSMutableAttributedString(attributedString: inline) : NSMutableAttributedString(string: " ")
-            cellContent.addAttributes([
-                .paragraphStyle: paragraph,
-                .font: displayFont,
-                .foregroundColor: PlatformColor.rendererLabel
-            ], range: NSRange(location: 0, length: cellContent.length))
+            let cellRange = NSRange(location: 0, length: cellContent.length)
+            // The table block/alignment must cover the whole cell, but the
+            // run-level fonts and colors produced by inline styling (bold,
+            // italic, code, links) must survive — only fill the base font and
+            // label color where a run didn't set one.
+            cellContent.addAttribute(.paragraphStyle, value: paragraph, range: cellRange)
+            cellContent.enumerateAttribute(.font, in: cellRange, options: []) { value, range, _ in
+                if value == nil {
+                    cellContent.addAttribute(.font, value: displayFont, range: range)
+                }
+            }
+            cellContent.enumerateAttribute(.foregroundColor, in: cellRange, options: []) { value, range, _ in
+                if value == nil {
+                    cellContent.addAttribute(.foregroundColor, value: PlatformColor.rendererLabel, range: range)
+                }
+            }
 
             renderedCells.append(AttributedString(cellContent))
             rowAttributed.append(cellContent)

@@ -110,6 +110,44 @@ struct MarkdownRendererTests {
         #expect(!normalized.contains("|"))
     }
 
+    @Test("Table cell inline bold survives cell base styling")
+    func tableCellInlineBoldSurvivesCellStyling() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let chunk = await tokenizer.feed("| H1 | H2 |\n| --- | --- |\n| **bold** | plain |\n\n")
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+
+        let blocks = await renderer.renderedBlocks()
+        let table = blocks.compactMap(\.table).first
+        #expect(table != nil)
+
+        // Body cells use the regular base font, so a bold trait here can only
+        // come from the run-level inline styling — which the cell's base
+        // attribute pass must not overwrite.
+        var foundBold = false
+        if let cell = table?.rows.first?.first {
+            let rendered = NSAttributedString(cell)
+            rendered.enumerateAttribute(.font, in: NSRange(location: 0, length: rendered.length)) { value, _, _ in
+                guard let font = value as? MarkdownFont else { return }
+                #if canImport(UIKit)
+                if font.fontDescriptor.symbolicTraits.contains(.traitBold) {
+                    foundBold = true
+                }
+                #else
+                if font.fontDescriptor.symbolicTraits.contains(.bold) {
+                    foundBold = true
+                }
+                #endif
+            }
+        }
+        #expect(foundBold, "Inline bold inside a table cell should keep its bold font")
+    }
+
     @Test("Table rendering with inline math does not leak TeX commands")
     func tableRenderingInlineMathDoesNotLeakTeXCommands() async {
         let tokenizer = MarkdownTokenizer()

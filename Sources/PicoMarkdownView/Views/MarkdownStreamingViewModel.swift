@@ -9,7 +9,7 @@ final class MarkdownStreamingViewModel {
 
     private var pipeline: MarkdownStreamingPipeline
     private var pipelineGeneration: UInt64 = 0
-    private var processedInputs: Set<String> = []
+    private var lastConsumedInputID: String?
     private var lastReplacementValue: String?
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
@@ -45,16 +45,14 @@ final class MarkdownStreamingViewModel {
             // Input ids are content-derived for `.text`/`.chunks`, so a
             // re-fired `.task` (parent re-render, scroll-back in a lazy
             // container) with unchanged content is dropped here without
-            // touching the pipeline.
-            guard !processedInputs.contains(input.id) else { return }
-            // Only the latest replacement id matters; clearing older ids keeps
-            // the set bounded and lets A -> B -> A re-apply A.
-            processedInputs.removeAll(keepingCapacity: true)
-            processedInputs.insert(input.id)
+            // touching the pipeline. Only the *latest* consumed id is
+            // remembered so A -> B -> A re-applies A.
+            guard input.id != lastConsumedInputID else { return }
+            lastConsumedInputID = input.id
             await replace(with: value)
         case .chunks(let values):
-            guard !processedInputs.contains(input.id) else { return }
-            processedInputs.insert(input.id)
+            guard input.id != lastConsumedInputID else { return }
+            lastConsumedInputID = input.id
             await consume(chunks: values)
         case .stream:
             // Streams are intentionally NOT deduplicated by id: `.task` is
@@ -64,6 +62,10 @@ final class MarkdownStreamingViewModel {
             // content again (the factory should return the full stream on
             // each invocation).
             guard let factory = input.streamFactory else { return }
+            // Streams still update the last-consumed id: a `.chunks`/`.text`
+            // input that re-arrives after a stream replaced the document must
+            // not be mistaken for a redundant re-delivery.
+            lastConsumedInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
             enqueueUpdate(blocks: [], diff: nil)
@@ -245,7 +247,7 @@ final class MarkdownStreamingViewModel {
         // This runs once per enqueued update (i.e. per chunk). The common case
         // is a document with no images at all — skip the dictionary rebuild
         // entirely rather than reallocating an empty map every chunk.
-        if imageBlockDependencies.isEmpty && !blocks.contains(where: { !$0.images.isEmpty }) {
+        if imageBlockDependencies.isEmpty && blocks.allSatisfy({ $0.images.isEmpty }) {
             return
         }
 

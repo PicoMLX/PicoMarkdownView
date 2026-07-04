@@ -6,15 +6,16 @@ public struct PicoMarkdownView: View {
     private let configuration: PicoTextKitConfiguration
 
     @State private var viewModel: MarkdownStreamingViewModel
-    /// First input captured for this view identity. `.stream` inputs mint a
-    /// unique id per construction (closures have no comparable content), so
-    /// using the freshly constructed `input` directly would restart the
-    /// consuming task — and re-invoke the stream factory — on every parent
-    /// body re-evaluation. `@State` keeps the first instance, giving the task
-    /// a stable id for the lifetime of the view identity. `.text`/`.chunks`
-    /// ids are content-derived, so those use `input` directly and restart
-    /// only when the content actually changes.
-    @State private var capturedStreamInput: MarkdownStreamingInput
+    /// Stable per-view-identity token used as the `.task` id for `.stream`
+    /// inputs. A stream input mints a unique id on every construction
+    /// (closures have no comparable content), so keying the task off
+    /// `input.id` would cancel consumption and re-invoke the factory on every
+    /// parent body re-evaluation. Keying it off this token keeps the task
+    /// alive across re-renders, restarts it when the view identity changes,
+    /// and — because non-stream inputs keep their content-derived id — also
+    /// restarts it when the input switches between stream and non-stream
+    /// modes, always consuming the *current* input.
+    @State private var streamTaskIdentity = UUID()
     @StateObject private var controller = TextKitStreamingController()
     @Environment(\.openURL) private var openURL
     @Environment(\.picoOnTagTap) private var onTagTap
@@ -30,11 +31,10 @@ public struct PicoMarkdownView: View {
         self.input = input
         self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
-        _capturedStreamInput = State(initialValue: input)
     }
 
-    private var effectiveInput: MarkdownStreamingInput {
-        input.isStream ? capturedStreamInput : input
+    private var consumeTaskID: String {
+        input.isStream ? "stream-identity-\(streamTaskIdentity.uuidString)" : input.id
     }
 
     /// Creates a view that renders `text` as Markdown.
@@ -116,8 +116,8 @@ public struct PicoMarkdownView: View {
                           onContentSize: onContentSize,
                           linkHandler: makeLinkHandler(),
                           hoverHandler: makeHoverHandler())
-            .task(id: effectiveInput.id) {
-                await viewModel.consume(effectiveInput)
+            .task(id: consumeTaskID) {
+                await viewModel.consume(input)
             }
     }
 

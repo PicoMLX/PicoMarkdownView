@@ -94,29 +94,81 @@ public actor URLSessionMarkdownImageProvider: MarkdownImagePrefetchingProvider {
         lru.append(url)
     }
 
-    /// Streams the response body, rejecting it as soon as either the declared
-    /// `Content-Length` or the accumulated byte count exceeds the cap.
+    /// Downloads the response body, rejecting it as soon as either the
+    /// declared `Content-Length` or the accumulated byte count exceeds the
+    /// cap. Uses a `URLSessionDataDelegate` so the body arrives in
+    /// transport-sized `Data` chunks — enforcing the cap incrementally
+    /// without the per-byte async overhead of `URLSession.AsyncBytes`.
     private static func download(url: URL, session: URLSession) async throws -> Data? {
-        let (bytes, response) = try await session.bytes(from: url)
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            return nil
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
+            let delegate = CappedDownloadDelegate(byteLimit: maxDownloadByteCount) { result in
+                continuation.resume(with: result)
+            }
+            let task = session.dataTask(with: url)
+            task.delegate = delegate
+            task.resume()
         }
-        let expected = response.expectedContentLength
-        if expected != NSURLSessionTransferSizeUnknown, expected > Int64(maxDownloadByteCount) {
-            return nil
+    }
+
+    /// Accumulates a capped response body. URLSession serializes all delegate
+    /// callbacks on its delegate queue, so the mutable state needs no locking
+    /// (`@unchecked Sendable` relies on that serialization).
+    private final class CappedDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        private let byteLimit: Int
+        private var buffer = Data()
+        private var completion: ((Result<Data?, Error>) -> Void)?
+
+        init(byteLimit: Int, completion: @escaping (Result<Data?, Error>) -> Void) {
+            self.byteLimit = byteLimit
+            self.completion = completion
         }
 
-        var data = Data()
-        if expected > 0, expected <= Int64(maxDownloadByteCount) {
-            data.reserveCapacity(Int(expected))
+        func urlSession(_ session: URLSession,
+                        dataTask: URLSessionDataTask,
+                        didReceive response: URLResponse,
+                        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                finish(.success(nil))
+                completionHandler(.cancel)
+                return
+            }
+            let expected = response.expectedContentLength
+            if expected != NSURLSessionTransferSizeUnknown, expected > Int64(byteLimit) {
+                finish(.success(nil))
+                completionHandler(.cancel)
+                return
+            }
+            if expected > 0 {
+                buffer.reserveCapacity(Int(min(expected, Int64(byteLimit))))
+            }
+            completionHandler(.allow)
         }
-        for try await byte in bytes {
-            data.append(byte)
-            if data.count > maxDownloadByteCount {
-                return nil
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            guard completion != nil else { return }
+            buffer.append(data)
+            if buffer.count > byteLimit {
+                finish(.success(nil))
+                dataTask.cancel()
             }
         }
-        return data
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let error {
+                finish(.failure(error))
+            } else {
+                finish(.success(buffer))
+            }
+        }
+
+        /// Resumes the continuation exactly once. Cancelling a task after an
+        /// early rejection still triggers `didCompleteWithError`, which must
+        /// not resume again.
+        private func finish(_ result: Result<Data?, Error>) {
+            guard let completion else { return }
+            self.completion = nil
+            completion(result)
+        }
     }
 
     private static func isSupportedRemoteURL(_ url: URL) -> Bool {
