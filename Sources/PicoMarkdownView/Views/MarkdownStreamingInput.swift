@@ -24,11 +24,21 @@ public struct MarkdownStreamingInput: Sendable {
     let id: String
     let payload: Payload
     let streamFactory: (@Sendable () async -> AsyncStream<String>)?
+    /// Whether a `.stream` input's id was derived from a caller-provided
+    /// identity (stable across re-renders) rather than minted per
+    /// construction. `PicoMarkdownView` keys its consume task off `id`
+    /// directly when this is true, so changing the caller's stream identity
+    /// restarts consumption with the new factory.
+    let hasStableStreamID: Bool
 
-    private init(id: String, payload: Payload, streamFactory: (@Sendable () async -> AsyncStream<String>)? = nil) {
+    private init(id: String,
+                 payload: Payload,
+                 streamFactory: (@Sendable () async -> AsyncStream<String>)? = nil,
+                 hasStableStreamID: Bool = false) {
         self.id = id
         self.payload = payload
         self.streamFactory = streamFactory
+        self.hasStableStreamID = hasStableStreamID
     }
 
     public static func text(_ value: String) -> MarkdownStreamingInput {
@@ -48,8 +58,23 @@ public struct MarkdownStreamingInput: Sendable {
                                       payload: .chunks(values))
     }
 
-    public static func stream(_ factory: @escaping @Sendable () async -> AsyncStream<String>) -> MarkdownStreamingInput {
-        MarkdownStreamingInput(id: "stream-\(UUID().uuidString)", payload: .stream, streamFactory: factory)
+    /// - Parameter id: Optional caller-provided identity for the stream.
+    ///   Provide one when the same view identity may receive different
+    ///   streams over time (e.g. regenerating a response in place): changing
+    ///   the identity restarts consumption with the new factory, while equal
+    ///   identities survive re-renders without a restart. When omitted, the
+    ///   stream is consumed once per view identity.
+    public static func stream(_ factory: @escaping @Sendable () async -> AsyncStream<String>,
+                              id: AnyHashable? = nil) -> MarkdownStreamingInput {
+        if let id {
+            var hasher = Hasher()
+            hasher.combine(id)
+            return MarkdownStreamingInput(id: "stream-client-\(hasher.finalize())",
+                                          payload: .stream,
+                                          streamFactory: factory,
+                                          hasStableStreamID: true)
+        }
+        return MarkdownStreamingInput(id: "stream-\(UUID().uuidString)", payload: .stream, streamFactory: factory)
     }
 
     var isStream: Bool {

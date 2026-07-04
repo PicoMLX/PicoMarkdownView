@@ -46,14 +46,14 @@ final class MarkdownStreamingViewModel {
             // re-fired `.task` (parent re-render, scroll-back in a lazy
             // container) with unchanged content is dropped here without
             // touching the pipeline. Only the *latest* consumed id is
-            // remembered so A -> B -> A re-applies A.
+            // remembered so A -> B -> A re-applies A, and it is recorded
+            // when the work publishes (not up front) so an input whose
+            // processing never completed is retried on re-delivery.
             guard input.id != lastConsumedInputID else { return }
-            lastConsumedInputID = input.id
-            await replace(with: value)
+            await replace(with: value, inputID: input.id)
         case .chunks(let values):
             guard input.id != lastConsumedInputID else { return }
-            lastConsumedInputID = input.id
-            await consume(chunks: values)
+            await consume(chunks: values, inputID: input.id)
         case .stream:
             // Streams are intentionally NOT deduplicated by id: `.task` is
             // cancelled when the view scrolls out and re-fires with the same
@@ -86,25 +86,37 @@ final class MarkdownStreamingViewModel {
         return (newPipeline, pipelineGeneration)
     }
 
-    private func consume(chunks: [String]) async {
+    private func consume(chunks: [String], inputID: String) async {
         // A `.chunks` input describes a complete document, and `finish()` has
         // already sealed any previously consumed input. Feeding into the
-        // existing pipeline would duplicate content, so rebuild from scratch
-        // exactly like `replace(with:)` does.
+        // existing pipeline would duplicate content, so rebuild from scratch —
+        // but still publish after every chunk so long replays render (and
+        // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
 
-        var latestBlocks: [RenderedBlock] = []
+        // The first publish must be a full replace (diff: nil): the view may
+        // still show the previous document, and the fresh pipeline's diffs
+        // are relative to an empty one.
+        var publishedAny = false
         for chunk in chunks where !chunk.isEmpty {
             if let update = await freshPipeline.feed(chunk) {
-                latestBlocks = update.blocks
+                guard generation == pipelineGeneration else { return }
+                enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
+                publishedAny = true
             }
         }
         if let update = await freshPipeline.finish() {
-            latestBlocks = update.blocks
+            guard generation == pipelineGeneration else { return }
+            enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
+            publishedAny = true
         }
         guard generation == pipelineGeneration else { return }
-        enqueueUpdate(blocks: latestBlocks, diff: nil)
+        if !publishedAny {
+            // Empty input still replaces whatever was on screen.
+            enqueueUpdate(blocks: [], diff: nil)
+        }
+        lastConsumedInputID = inputID
     }
 
     private func consume(stream: AsyncStream<String>,
@@ -125,7 +137,7 @@ final class MarkdownStreamingViewModel {
         }
     }
 
-    private func replace(with value: String) async {
+    private func replace(with value: String, inputID: String? = nil) async {
         // Belt-and-braces alongside the content-derived input id: a redundant
         // replace with identical text must not re-tokenize the document.
         guard value != lastReplacementValue else { return }
@@ -163,6 +175,9 @@ final class MarkdownStreamingViewModel {
 
         guard generation == pipelineGeneration else { return }
         lastReplacementValue = value
+        if let inputID {
+            lastConsumedInputID = inputID
+        }
         #if DEBUG
         Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
         #endif

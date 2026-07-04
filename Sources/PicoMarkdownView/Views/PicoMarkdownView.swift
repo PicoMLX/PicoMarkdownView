@@ -34,7 +34,12 @@ public struct PicoMarkdownView: View {
     }
 
     private var consumeTaskID: String {
-        input.isStream ? "stream-identity-\(streamTaskIdentity.uuidString)" : input.id
+        guard input.isStream else { return input.id }
+        // A caller-provided stream identity is stable across re-renders and
+        // changes exactly when the caller wants a restart (e.g. regenerating
+        // a response in place), so it can key the task directly. Without one,
+        // fall back to the per-view-identity token.
+        return input.hasStableStreamID ? input.id : "stream-identity-\(streamTaskIdentity.uuidString)"
     }
 
     /// Creates a view that renders `text` as Markdown.
@@ -89,13 +94,25 @@ public struct PicoMarkdownView: View {
     ///   the view reappears. Return the full stream from the beginning on
     ///   every invocation (for a finished LLM response, replay the collected
     ///   text) so reappearing views render complete content.
+    ///
+    /// - Parameter streamID: Optional identity for the stream. Without it,
+    ///   the stream is consumed once per view identity, so swapping in a
+    ///   *different* factory during a re-render is ignored (closures cannot
+    ///   be compared). Pass a value that changes when the stream's content
+    ///   changes — e.g. a regeneration counter — to restart consumption with
+    ///   the new factory while equal values continue to survive re-renders:
+    ///
+    ///   ```swift
+    ///   PicoMarkdownView(stream: makeStream, streamID: message.generationID)
+    ///   ```
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
+                streamID: AnyHashable? = nil,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
                 tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .stream(stream),
+        self.init(input: .stream(stream, id: streamID),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
                   tagPrefixes: tagPrefixes,
