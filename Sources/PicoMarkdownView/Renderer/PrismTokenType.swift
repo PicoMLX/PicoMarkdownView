@@ -53,6 +53,13 @@ extension PrismTokenType {
     // CSS
     public static let atrule: Self = "atrule"
     public static let selector: Self = "selector"
+    public static let rule: Self = "rule"
+
+    // Config (INI section headers, etc.)
+    public static let section: Self = "section"
+
+    // Function parameters (bash, PHP, …)
+    public static let parameter: Self = "parameter"
 
     // Diff
     public static let inserted: Self = "inserted"
@@ -79,4 +86,21 @@ extension PrismTokenType {
     public static let shortArgument: Self = "short-argument"
     public static let interpolation: Self = "interpolation"
     public static let interpolationPunctuation: Self = "interpolation-punctuation"
+}
+
+extension PrismTokenType {
+    /// Every predefined constant above, so tests can assert that theme
+    /// palettes cover them. Keep in sync when adding constants.
+    static let allPredefined: [PrismTokenType] = [
+        .plain, .keyword, .builtin, .className, .function, .boolean, .number,
+        .string, .char, .symbol, .regex, .url, .operator, .variable, .constant,
+        .property, .punctuation, .important, .comment,
+        .tag, .attributeName, .attributeValue, .namespace, .prolog, .doctype,
+        .cdata, .entity,
+        .atrule, .selector, .rule, .section, .parameter,
+        .inserted, .deleted,
+        .blockComment, .docComment, .mark, .functionName, .preprocessor,
+        .directive, .literal, .attribute, .functionDefinition, .label, .nil,
+        .shortArgument, .interpolation, .interpolationPunctuation
+    ]
 }

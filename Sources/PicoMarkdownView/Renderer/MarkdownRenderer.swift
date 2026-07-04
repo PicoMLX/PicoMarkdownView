@@ -67,7 +67,7 @@ public struct MarkdownRenderTheme: Sendable {
                 6: FontSpec(size: bodySize),
             ],
             imageMaxWidth: nil,
-            codeBlockTheme: .prismDefault(),
+            codeBlockTheme: .gitHub(),
             codeHighlighter: AnyCodeSyntaxHighlighter(PrismCodeHighlighter()),
             mermaidRenderingMode: .onFenceClose
         )

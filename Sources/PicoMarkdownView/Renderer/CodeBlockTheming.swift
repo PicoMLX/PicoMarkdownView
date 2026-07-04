@@ -90,6 +90,114 @@ public struct CodeBlockTheme: Sendable, Hashable {
         )
     }
 
+    /// GitHub-flavored theme using Primer syntax colors, adapting to
+    /// light/dark mode. Matches how github.com renders code blocks.
+    public static func gitHub() -> CodeBlockTheme {
+        let bodySize: CGFloat
+        #if canImport(UIKit)
+        bodySize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        #else
+        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
+        #endif
+
+        return CodeBlockTheme(
+            font: FontSpec(size: bodySize, design: .monospaced),
+            foregroundColor: hex(0x1F2328, 0xF0F6FC),
+            backgroundColor: hex(0xF6F8FA, 0x151B23),
+            tokenColors: gitHubTokenColors
+        )
+    }
+
+    // MARK: - GitHub (Primer) Token Colors
+
+    private static var gitHubTokenColors: [PrismTokenType: TokenStyle] {
+        // Primer scale: keyword red, string dark blue, constant blue,
+        // function purple, type orange, tag green. Punctuation and operators'
+        // neighbors inherit the plain foreground where GitHub leaves them
+        // uncolored.
+        let keyword = hex(0xCF222E, 0xFF7B72)
+        let string = hex(0x0A3069, 0xA5D6FF)
+        let comment = hex(0x59636E, 0x9198A1)
+        let function = hex(0x8250DF, 0xD2A8FF)
+        let constant = hex(0x0550AE, 0x79C0FF)
+        let type = hex(0x953800, 0xFFA657)
+        let tag = hex(0x116329, 0x7EE787)
+        let inserted = hex(0x1A7F37, 0x3FB950)
+        let deleted = hex(0x82071E, 0xF85149)
+
+        return [
+            // Keywords and keyword-like
+            .keyword: TokenStyle(color: keyword),
+            .literal: TokenStyle(color: keyword),
+            .boolean: TokenStyle(color: keyword),
+            .nil: TokenStyle(color: keyword),
+            .operator: TokenStyle(color: keyword),
+            .important: TokenStyle(color: keyword),
+            .atrule: TokenStyle(color: keyword),
+            .rule: TokenStyle(color: keyword),
+            .preprocessor: TokenStyle(color: keyword),
+            .directive: TokenStyle(color: keyword),
+            .attribute: TokenStyle(color: keyword),
+            .label: TokenStyle(color: keyword),
+            .entity: TokenStyle(color: keyword),
+
+            // Strings
+            .string: TokenStyle(color: string),
+            .char: TokenStyle(color: string),
+            .regex: TokenStyle(color: string),
+            .url: TokenStyle(color: string),
+            .attributeValue: TokenStyle(color: string),
+
+            // Comments
+            .comment: TokenStyle(color: comment),
+            .blockComment: TokenStyle(color: comment),
+            .docComment: TokenStyle(color: comment),
+            .prolog: TokenStyle(color: comment),
+            .doctype: TokenStyle(color: comment),
+            .cdata: TokenStyle(color: comment),
+
+            // Functions
+            .function: TokenStyle(color: function),
+            .functionName: TokenStyle(color: function),
+            .functionDefinition: TokenStyle(color: function),
+
+            // Constants, variables, numbers
+            .variable: TokenStyle(color: constant),
+            .constant: TokenStyle(color: constant),
+            .number: TokenStyle(color: constant),
+            .property: TokenStyle(color: constant),
+            .symbol: TokenStyle(color: constant),
+            .builtin: TokenStyle(color: constant),
+            .attributeName: TokenStyle(color: constant),
+            .parameter: TokenStyle(color: constant),
+
+            // Types
+            .className: TokenStyle(color: type),
+            .namespace: TokenStyle(color: type),
+
+            // Markup
+            .tag: TokenStyle(color: tag),
+            .selector: TokenStyle(color: tag),
+            .section: TokenStyle(color: tag),
+
+            // Diff
+            .inserted: TokenStyle(color: inserted),
+            .deleted: TokenStyle(color: deleted),
+        ]
+    }
+
+    /// Build a light/dark ThemeColor pair from 0xRRGGBB values.
+    private static func hex(_ light: UInt32, _ dark: UInt32) -> ThemeColor {
+        func rgba(_ value: UInt32) -> ThemeColor.RGBA {
+            ThemeColor.RGBA(
+                red: CGFloat((value >> 16) & 0xFF) / 255.0,
+                green: CGFloat((value >> 8) & 0xFF) / 255.0,
+                blue: CGFloat(value & 0xFF) / 255.0
+            )
+        }
+        return ThemeColor(light: rgba(light), dark: rgba(dark))
+    }
+
     // MARK: - Default Token Colors
 
     private static var defaultTokenColors: [PrismTokenType: TokenStyle] {
