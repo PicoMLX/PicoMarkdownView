@@ -99,14 +99,24 @@ public actor URLSessionMarkdownImageProvider: MarkdownImagePrefetchingProvider {
     /// cap. Uses a `URLSessionDataDelegate` so the body arrives in
     /// transport-sized `Data` chunks — enforcing the cap incrementally
     /// without the per-byte async overhead of `URLSession.AsyncBytes`.
+    ///
+    /// Cancelling the surrounding Swift task (view reset, scroll-out) cancels
+    /// the underlying data task too, so abandoned prefetches stop downloading
+    /// instead of running to timeout or the byte cap.
     private static func download(url: URL, session: URLSession) async throws -> Data? {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
-            let delegate = CappedDownloadDelegate(byteLimit: maxDownloadByteCount) { result in
-                continuation.resume(with: result)
+        let task = session.dataTask(with: url)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data?, Error>) in
+                let delegate = CappedDownloadDelegate(byteLimit: maxDownloadByteCount) { result in
+                    continuation.resume(with: result)
+                }
+                task.delegate = delegate
+                task.resume()
             }
-            let task = session.dataTask(with: url)
-            task.delegate = delegate
-            task.resume()
+        } onCancel: {
+            // Triggers didCompleteWithError(NSURLErrorCancelled) on the
+            // delegate, which resumes the continuation exactly once.
+            task.cancel()
         }
     }
 
