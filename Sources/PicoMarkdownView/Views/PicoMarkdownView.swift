@@ -72,6 +72,15 @@ public struct PicoMarkdownView: View {
                   configuration: configuration)
     }
 
+    /// Creates a view that renders a complete document delivered as an array
+    /// of chunks.
+    ///
+    /// - Important: This is a **one-shot** convenience — for example,
+    ///   replaying the collected chunks of a finished LLM response. Each
+    ///   delivery is parsed as a complete document, so passing a *growing*
+    ///   array re-parses the whole document on every append. For live
+    ///   streaming, use the `stream:` initializer, which feeds the pipeline
+    ///   incrementally with O(chunk) work per chunk.
     public init(chunks: [String],
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,

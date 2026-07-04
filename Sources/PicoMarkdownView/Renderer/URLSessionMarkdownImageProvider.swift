@@ -27,9 +27,21 @@ public actor URLSessionMarkdownImageProvider: MarkdownImagePrefetchingProvider {
     public static let maxCachedImages = 96
 
     private let session: URLSession
+    /// A shared download with a claim count. Concurrent prefetches of the
+    /// same URL await one task; a cancelled awaiter releases its claim and
+    /// the download is cancelled only when no claims remain, so one view
+    /// scrolling away cannot kill a download another view is waiting on.
+    /// `id` guards cleanup against racing a *newer* entry for the same URL.
+    private struct InFlightDownload {
+        let id: UInt64
+        let task: Task<MarkdownImageResult?, Never>
+        var waiters: Int
+    }
+
     private var cache: [URL: MarkdownImageResult] = [:]
     private var lru: [URL] = []
-    private var inFlight: [URL: Task<MarkdownImageResult?, Never>] = [:]
+    private var inFlight: [URL: InFlightDownload] = [:]
+    private var nextDownloadID: UInt64 = 0
 
     public init(session: URLSession? = nil) {
         if let session {
@@ -56,26 +68,58 @@ public actor URLSessionMarkdownImageProvider: MarkdownImagePrefetchingProvider {
             touch(url)
             return cached
         }
-        if let existing = inFlight[url] {
-            return await existing.value
-        }
 
-        let task = Task<MarkdownImageResult?, Never> { [session] in
-            do {
-                let data = try await Self.download(url: url, session: session)
-                return data.flatMap(Self.decodeImage(data:))
-            } catch {
-                return nil
+        let entryID: UInt64
+        let downloadTask: Task<MarkdownImageResult?, Never>
+        if var existing = inFlight[url] {
+            existing.waiters += 1
+            inFlight[url] = existing
+            entryID = existing.id
+            downloadTask = existing.task
+        } else {
+            nextDownloadID &+= 1
+            let id = nextDownloadID
+            let task = Task<MarkdownImageResult?, Never> { [session] in
+                do {
+                    let data = try await Self.download(url: url, session: session)
+                    return data.flatMap(Self.decodeImage(data:))
+                } catch {
+                    return nil
+                }
             }
+            inFlight[url] = InFlightDownload(id: id, task: task, waiters: 1)
+            entryID = id
+            downloadTask = task
         }
-        inFlight[url] = task
 
-        let result = await task.value
-        inFlight[url] = nil
+        // Awaiting an unstructured Task's value does not forward the caller's
+        // cancellation into it; release this caller's claim explicitly so an
+        // abandoned prefetch stops the network transfer once no other view is
+        // waiting on the same URL.
+        let result = await withTaskCancellationHandler {
+            await downloadTask.value
+        } onCancel: {
+            Task { await self.releaseWaiter(url: url, entryID: entryID) }
+        }
+
+        if let entry = inFlight[url], entry.id == entryID {
+            inFlight[url] = nil
+        }
         if let result {
             insert(result, for: url)
         }
         return result
+    }
+
+    private func releaseWaiter(url: URL, entryID: UInt64) {
+        guard var entry = inFlight[url], entry.id == entryID else { return }
+        entry.waiters -= 1
+        if entry.waiters <= 0 {
+            entry.task.cancel()
+            inFlight[url] = nil
+        } else {
+            inFlight[url] = entry
+        }
     }
 
     private func insert(_ result: MarkdownImageResult, for url: URL) {
