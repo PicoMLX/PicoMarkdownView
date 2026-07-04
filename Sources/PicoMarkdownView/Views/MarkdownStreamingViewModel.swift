@@ -9,7 +9,15 @@ final class MarkdownStreamingViewModel {
 
     private var pipeline: MarkdownStreamingPipeline
     private var pipelineGeneration: UInt64 = 0
-    private var lastConsumedInputID: String?
+    /// Id of the input whose consumption most recently *started* — intent,
+    /// not completion. Recording at start is safe because `replace(with:)`
+    /// and `consume(chunks:)` always run to completion once started (plain
+    /// awaits do not abort on task cancellation); the only thing that stops
+    /// them is a newer input, which overwrites this id and wins the pipeline
+    /// generation check. Comparing against intent also means an A -> B -> A
+    /// flip while B is still parsing restarts A instead of dropping it as a
+    /// duplicate of stale state.
+    private var activeInputID: String?
     private var lastReplacementValue: String?
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
@@ -45,15 +53,16 @@ final class MarkdownStreamingViewModel {
             // Input ids are content-derived for `.text`/`.chunks`, so a
             // re-fired `.task` (parent re-render, scroll-back in a lazy
             // container) with unchanged content is dropped here without
-            // touching the pipeline. Only the *latest* consumed id is
-            // remembered so A -> B -> A re-applies A, and it is recorded
-            // when the work publishes (not up front) so an input whose
-            // processing never completed is retried on re-delivery.
-            guard input.id != lastConsumedInputID else { return }
-            await replace(with: value, inputID: input.id)
+            // touching the pipeline. Only the most recently *started* id is
+            // remembered (see `activeInputID`) so A -> B -> A re-applies A
+            // even while B is still mid-parse.
+            guard input.id != activeInputID else { return }
+            activeInputID = input.id
+            await replace(with: value)
         case .chunks(let values):
-            guard input.id != lastConsumedInputID else { return }
-            await consume(chunks: values, inputID: input.id)
+            guard input.id != activeInputID else { return }
+            activeInputID = input.id
+            await consume(chunks: values)
         case .stream:
             // Streams are intentionally NOT deduplicated by id: `.task` is
             // cancelled when the view scrolls out and re-fires with the same
@@ -62,10 +71,10 @@ final class MarkdownStreamingViewModel {
             // content again (the factory should return the full stream on
             // each invocation).
             guard let factory = input.streamFactory else { return }
-            // Streams still update the last-consumed id: a `.chunks`/`.text`
-            // input that re-arrives after a stream replaced the document must
-            // not be mistaken for a redundant re-delivery.
-            lastConsumedInputID = input.id
+            // Streams still update the active id: a `.chunks`/`.text` input
+            // that re-arrives after a stream replaced the document must not
+            // be mistaken for a redundant re-delivery.
+            activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
             enqueueUpdate(blocks: [], diff: nil)
@@ -86,7 +95,7 @@ final class MarkdownStreamingViewModel {
         return (newPipeline, pipelineGeneration)
     }
 
-    private func consume(chunks: [String], inputID: String) async {
+    private func consume(chunks: [String]) async {
         // A `.chunks` input describes a complete document, and `finish()` has
         // already sealed any previously consumed input. Feeding into the
         // existing pipeline would duplicate content, so rebuild from scratch —
@@ -116,7 +125,6 @@ final class MarkdownStreamingViewModel {
             // Empty input still replaces whatever was on screen.
             enqueueUpdate(blocks: [], diff: nil)
         }
-        lastConsumedInputID = inputID
     }
 
     private func consume(stream: AsyncStream<String>,
@@ -137,7 +145,7 @@ final class MarkdownStreamingViewModel {
         }
     }
 
-    private func replace(with value: String, inputID: String? = nil) async {
+    private func replace(with value: String) async {
         // Belt-and-braces alongside the content-derived input id: a redundant
         // replace with identical text must not re-tokenize the document.
         guard value != lastReplacementValue else { return }
@@ -175,9 +183,6 @@ final class MarkdownStreamingViewModel {
 
         guard generation == pipelineGeneration else { return }
         lastReplacementValue = value
-        if let inputID {
-            lastConsumedInputID = inputID
-        }
         #if DEBUG
         Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
         #endif

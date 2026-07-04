@@ -146,11 +146,15 @@ public actor URLSessionMarkdownImageProvider: MarkdownImagePrefetchingProvider {
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             guard completion != nil else { return }
-            buffer.append(data)
-            if buffer.count > byteLimit {
+            // Reject before appending so a server that omits or understates
+            // Content-Length cannot force even a transient allocation beyond
+            // the cap.
+            guard buffer.count + data.count <= byteLimit else {
                 finish(.success(nil))
                 dataTask.cancel()
+                return
             }
+            buffer.append(data)
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {

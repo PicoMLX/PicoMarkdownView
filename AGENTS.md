@@ -349,15 +349,16 @@ Input
     3.    feed("| a1 | b1 |\n| a2 | b2 |\n\n")
 
 Expected
-    1.    → BS(.table), THC(cells:[ "Col A", "Col B" ])
-    2.    → THE(align:[ .left, .center ])
-    3.    → TAR(cells:[[ "a1","b1" ]]),
-TAR(cells:[[ "a2","b2" ]]),
+    1.    → (no events; the header line is buffered locally as a candidate)
+    2.    → BS(.table), THC(cells:[[ "Col A" ],[ "Col B" ]]), THE(align:[ .left, .center ])
+    3.    → TAR(cells:[[ "a1" ],[ "b1" ]]),
+TAR(cells:[[ "a2" ],[ "b2" ]]),
 BE
 
 Notes
-    •    Before the separator line arrives, it’s a header candidate only.
-    •    After confirmation, rows append as cells of InlineRuns with plain styles.
+    •    Nothing is emitted for the candidate until the separator confirms it; events drain to the assembler at every chunk boundary, so an earlier announcement could not be retracted when the candidate degrades to .unknown.
+    •    Header cells are inline-parsed like row cells: THC carries [[InlineRun]] (one run array per cell), so | **bold** | headers render styled.
+    •    While unconfirmed, the candidate is also excluded from openBlocks.
 
 ⸻
 
