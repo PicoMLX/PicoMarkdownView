@@ -567,8 +567,9 @@ struct MarkdownRendererTests {
 
         let output = await renderer.currentAttributedString()
         let ns = NSAttributedString(output)
-        let searchRange = NSRange(location: 0, length: ns.length)
 
+#if canImport(AppKit)
+        let searchRange = NSRange(location: 0, length: ns.length)
         var foundTableBlock = false
         ns.enumerateAttribute(.paragraphStyle, in: searchRange, options: []) { value, _, stop in
             guard let paragraph = value as? NSParagraphStyle else { return }
@@ -579,6 +580,11 @@ struct MarkdownRendererTests {
         }
 
         #expect(foundTableBlock)
+#else
+        // iOS has no NSTextTable; tables render as text rows with a thin
+        // U+2502 separator between cells.
+        #expect(ns.string.contains("\u{2502}"))
+#endif
 
 #if canImport(UIKit)
         typealias TestFont = UIFont
