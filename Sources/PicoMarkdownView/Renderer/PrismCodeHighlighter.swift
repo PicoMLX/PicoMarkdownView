@@ -109,8 +109,8 @@ actor PrismTokenizer {
                 return nil
             }
             return PrismToken(content: content,
-                              type: .init(rawValue: type),
-                              alias: token["alias"].map { .init(rawValue: $0) })
+                              type: PrismTokenType(rawValue: type),
+                              alias: token["alias"].map { PrismTokenType(rawValue: $0) })
         }
     }
 }

@@ -130,7 +130,7 @@ public struct CodeBlockTheme: Sendable, Hashable {
             .keyword: TokenStyle(color: keyword),
             .literal: TokenStyle(color: keyword),
             .boolean: TokenStyle(color: keyword),
-            .nil: TokenStyle(color: keyword),
+            .`nil`: TokenStyle(color: keyword),
             .operator: TokenStyle(color: keyword),
             .important: TokenStyle(color: keyword),
             .atrule: TokenStyle(color: keyword),

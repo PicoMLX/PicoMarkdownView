@@ -100,7 +100,7 @@ extension PrismTokenType {
         .atrule, .selector, .rule, .section, .parameter,
         .inserted, .deleted,
         .blockComment, .docComment, .mark, .functionName, .preprocessor,
-        .directive, .literal, .attribute, .functionDefinition, .label, .nil,
+        .directive, .literal, .attribute, .functionDefinition, .label, .`nil`,
         .shortArgument, .interpolation, .interpolationPunctuation
     ]
 }

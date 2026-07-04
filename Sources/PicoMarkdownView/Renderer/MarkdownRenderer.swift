@@ -72,6 +72,23 @@ public struct MarkdownRenderTheme: Sendable {
             mermaidRenderingMode: .onFenceClose
         )
     }
+
+    /// Returns a copy with a different code block theme and highlighter,
+    /// keeping every other setting. Pass `codeHighlighter: nil` to fall back
+    /// to plain monospaced rendering, or wrap a custom
+    /// `CodeSyntaxHighlighter` to swap engines.
+    public func withCodeHighlighting(codeBlockTheme: CodeBlockTheme?,
+                                     codeHighlighter: AnyCodeSyntaxHighlighter?) -> MarkdownRenderTheme {
+        MarkdownRenderTheme(bodyFont: bodyFont,
+                            codeFont: codeFont,
+                            blockquoteColor: blockquoteColor,
+                            linkColor: linkColor,
+                            headingFonts: headingFonts,
+                            imageMaxWidth: imageMaxWidth,
+                            codeBlockTheme: codeBlockTheme,
+                            codeHighlighter: codeHighlighter,
+                            mermaidRenderingMode: mermaidRenderingMode)
+    }
 }
 
 actor MarkdownRenderer {
