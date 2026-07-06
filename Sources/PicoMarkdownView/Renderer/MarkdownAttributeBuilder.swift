@@ -721,6 +721,22 @@ actor MarkdownAttributeBuilder {
     private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        // Container-only parents (e.g. the implicit level-1 block that
+        // `>> nested` opens) render nothing: their children draw the bars for
+        // every enclosing level themselves, so emitting a newline here would
+        // show up as a stray blank quote line above the nested content.
+        let hasOwnContent = bodyRuns.contains {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if !hasOwnContent && !snapshot.childIDs.isEmpty {
+            return RenderedContentResult(attributed: AttributedString(),
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: nil,
+                                        images: [],
+                                        codeBlock: nil)
+        }
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(bodyRuns, font: bodyFont)
         // Nested quotes arrive as child blocks (depth 1, 2, …). The bars are

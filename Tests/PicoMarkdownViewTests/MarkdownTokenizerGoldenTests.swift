@@ -1633,6 +1633,25 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Marker-only quote line closes the quote for unquoted continuations")
+    func quoteMarkerOnlyLineClosesQuote() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // The `>` separator ends the quote immediately, so an unquoted line
+        // after it starts a normal paragraph instead of lazily continuing
+        // the old quote.
+        let result = await tokenizer.feed("> quoted\n>\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("quoted"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Marker-only quote line splits the quote into separate blocks")
     func quoteMarkerOnlyLineSplitsParagraphs() async {
         let tokenizer = MarkdownTokenizer()

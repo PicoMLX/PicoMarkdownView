@@ -816,14 +816,13 @@ struct MarkdownRendererTests {
             return (block.snapshot.depth, level, ns.string)
         }
 
-        // Document order: first level, empty level-1 connector (parent of the
-        // nested quote), the nested quote, then a fresh level-1 block.
-        #expect(shapes.count == 4, "expected 4 quote blocks, got \(shapes)")
-        guard shapes.count == 4 else { return }
+        // Document order: first level, the nested quote (its container-only
+        // level-1 parent renders nothing), then a fresh level-1 block.
+        #expect(shapes.count == 3, "expected 3 rendered quote blocks, got \(shapes)")
+        guard shapes.count == 3 else { return }
         #expect(shapes[0].depth == 0 && shapes[0].level == 1 && shapes[0].text.hasPrefix("First level."))
-        #expect(shapes[1].depth == 0 && shapes[1].level == 1 && shapes[1].text == "\n")
-        #expect(shapes[2].depth == 1 && shapes[2].level == 2 && shapes[2].text.hasPrefix("Nested."))
-        #expect(shapes[3].depth == 0 && shapes[3].level == 1 && shapes[3].text.hasPrefix("Back to first."))
+        #expect(shapes[1].depth == 1 && shapes[1].level == 2 && shapes[1].text.hasPrefix("Nested."))
+        #expect(shapes[2].depth == 0 && shapes[2].level == 1 && shapes[2].text.hasPrefix("Back to first."))
     }
 
     @Test("Blockquote bar attributes survive the AttributedString round-trip")

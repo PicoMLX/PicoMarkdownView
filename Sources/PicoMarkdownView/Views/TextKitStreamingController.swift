@@ -808,9 +808,11 @@ private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
 @available(iOS 16.0, *)
 @MainActor
 private final class StreamingTextKit2View: UITextView, UITextViewDelegate, NSTextLayoutManagerDelegate {
-    func textLayoutManager(_ textLayoutManager: NSTextLayoutManager,
-                           textLayoutFragmentFor location: NSTextLocation,
-                           in textElement: NSTextElement) -> NSTextLayoutFragment {
+    // Nonisolated: NSTextLayoutManagerDelegate is not main-actor bound (TextKit 2
+    // may lay out off the main thread), and this only inspects the element.
+    nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager,
+                                       textLayoutFragmentFor location: NSTextLocation,
+                                       in textElement: NSTextElement) -> NSTextLayoutFragment {
         if let paragraph = textElement as? NSTextParagraph,
            paragraph.attributedString.length > 0,
            paragraph.attributedString.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) != nil {
