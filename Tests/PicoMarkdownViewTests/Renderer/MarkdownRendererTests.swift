@@ -825,6 +825,75 @@ struct MarkdownRendererTests {
         #expect(shapes[2].depth == 0 && shapes[2].level == 1 && shapes[2].text.hasPrefix("Back to first."))
     }
 
+    @Test("Image-only quote parents are not suppressed as container-only")
+    func imageOnlyQuoteParentKeepsContent() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The parent quote's only content is an image with an empty alt text;
+        // it must still render (and surface its image), not be treated as a
+        // container-only parent of the nested quote.
+        let markdown = "> ![](https://example.com/a.png)\n>> nested\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        _ = await renderer.apply(await assembler.apply(chunk))
+        let finish = await tokenizer.finish()
+        _ = await renderer.apply(await assembler.apply(finish))
+
+        let blocks = await renderer.renderedBlocks()
+        let quotes = blocks.filter { $0.blockquote != nil }
+        #expect(quotes.count == 2, "expected image parent + nested quote, got \(quotes.count)")
+        let parent = quotes.first { $0.snapshot.depth == 0 }
+        #expect(parent?.images.isEmpty == false, "parent quote must surface its image")
+    }
+
+    @Test("Empty quote parents refresh when their child streams in later")
+    func emptyQuoteParentRefreshesOnChildInsertion() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // Split the nested marker across chunks: the outer quote opens (and
+        // renders as a blank quoted line) before its child exists. Inserting
+        // the child must refresh the parent so the blank line disappears
+        // while the quote is still streaming.
+        let first = await tokenizer.feed("> ")
+        _ = await renderer.apply(await assembler.apply(first))
+        let second = await tokenizer.feed("> nested\n")
+        _ = await renderer.apply(await assembler.apply(second))
+
+        let blocks = await renderer.renderedBlocks()
+        let parent = blocks.first { $0.kind == .blockquote && $0.snapshot.depth == 0 }
+        #expect(parent != nil)
+        #expect(NSAttributedString(parent?.content ?? AttributedString()).length == 0,
+                "container-only parent must render empty mid-stream")
+    }
+
+    @Test("Quote ending in a styled span does not gain a blank quoted line")
+    func quoteEndingInCodeSpanStaysTight() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let markdown = "> ends with `code`\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        _ = await renderer.apply(await assembler.apply(chunk))
+        let finish = await tokenizer.finish()
+        _ = await renderer.apply(await assembler.apply(finish))
+
+        let blocks = await renderer.renderedBlocks()
+        let quote = blocks.first { $0.blockquote != nil }
+        let text = NSAttributedString.picoConverted(from: quote?.content ?? AttributedString()).string
+        #expect(!text.contains("\n\n"), "quote rendered a blank quoted line: \(text.debugDescription)")
+        #expect(text.hasSuffix("\n") && !text.hasSuffix("\n\n"))
+    }
+
     @Test("Blockquote bar attributes survive the AttributedString round-trip")
     func blockquoteAttributesSurviveConversion() {
         let source = NSMutableAttributedString(string: "quoted text\n")

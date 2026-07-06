@@ -718,6 +718,15 @@ actor MarkdownAttributeBuilder {
         }
     }
 
+    private func trimTrailingWhitespace(in attributedString: NSMutableAttributedString) {
+        let trimmable: Set<unichar> = [0x20, 0x09, 0x0A] // space, tab, newline
+        while attributedString.length > 0 {
+            let lastIndex = attributedString.length - 1
+            guard trimmable.contains(attributedString.mutableString.character(at: lastIndex)) else { break }
+            attributedString.deleteCharacters(in: NSRange(location: lastIndex, length: 1))
+        }
+    }
+
     private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
@@ -725,8 +734,11 @@ actor MarkdownAttributeBuilder {
         // `>> nested` opens) render nothing: their children draw the bars for
         // every enclosing level themselves, so emitting a newline here would
         // show up as a stray blank quote line above the nested content.
-        let hasOwnContent = bodyRuns.contains {
-            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Atomic payloads (images, math) count as content even when their
+        // text — e.g. an empty alt — is blank.
+        let hasOwnContent = bodyRuns.contains { run in
+            run.image != nil || run.math != nil ||
+                !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         if !hasOwnContent && !snapshot.childIDs.isEmpty {
             return RenderedContentResult(attributed: AttributedString(),
@@ -739,6 +751,10 @@ actor MarkdownAttributeBuilder {
         }
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(bodyRuns, font: bodyFont)
+        // Whitespace emitted by marker-only separator lines (`>  `) and
+        // trailing newline runs that survive styled spans would otherwise
+        // render as blank quoted lines below the paragraph.
+        trimTrailingWhitespace(in: body)
         // Nested quotes arrive as child blocks (depth 1, 2, …). The bars are
         // NOT characters: the range is marked with the quote level + bar
         // color and indented past a leading gutter; the text views draw one
