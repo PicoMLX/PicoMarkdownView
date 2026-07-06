@@ -35,6 +35,10 @@ struct StreamingParser {
         var pendingSameLineClose: Bool = false
         var preventNextCoalesce: Bool = false
         var sawBlankInSubContext: Bool = false
+        /// 1-based nesting level for `.blockquote` contexts (`>` = 1,
+        /// `>>` = 2, …); 0 for every other kind. The blockquote analogue of
+        /// `listIndent`.
+        var blockquoteLevel: Int = 0
     }
 
     private struct TableState {
@@ -85,6 +89,8 @@ struct StreamingParser {
 
     private struct BlockquoteInfo {
         var prefixLength: Int
+        /// Number of `>` markers in the prefix — the requested quote depth.
+        var markerCount: Int
     }
 
     private var nextID: BlockID = 1
@@ -259,7 +265,7 @@ struct StreamingParser {
             }
 
             if let quote = detectBlockquote(lineBuffer) {
-                openInlineBlock(kind: .blockquote, prefixToStrip: quote.prefixLength)
+                openBlockquotes(from: 0, to: quote.markerCount, prefixLength: quote.prefixLength)
                 emittedCount = min(lineBuffer.count, quote.prefixLength)
                 lineAnalyzed = true
                 return
@@ -334,7 +340,7 @@ struct StreamingParser {
                 }
                 if let quote = detectBlockquote(lineBuffer) {
                     closeCurrentBlock()
-                    openInlineBlock(kind: .blockquote, prefixToStrip: quote.prefixLength)
+                    openBlockquotes(from: 0, to: quote.markerCount, prefixLength: quote.prefixLength)
                     emittedCount = min(lineBuffer.count, quote.prefixLength)
                     lineAnalyzed = true
                     return
@@ -469,7 +475,7 @@ struct StreamingParser {
                 }
             case .blockquote:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
-                    closeCurrentBlock()
+                    closeBlockquoteContexts()
                     let closeAfterLine = mathOpen.closesOnSameLine
                     openDisplayMathBlock(marker: mathOpen.marker,
                                          closing: mathOpen.closing,
@@ -481,8 +487,21 @@ struct StreamingParser {
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
-                    ctx.linePrefixToStrip = quote.prefixLength
-                    setCurrentBlock(ctx)
+                    if quote.markerCount > ctx.blockquoteLevel {
+                        // More `>` markers than open quote levels: open nested
+                        // child blockquotes (deepening is monotonic within a
+                        // line, so acting on a partial prefix is safe).
+                        openBlockquotes(from: ctx.blockquoteLevel,
+                                        to: quote.markerCount,
+                                        prefixLength: quote.prefixLength)
+                    } else {
+                        // Same or fewer markers: lazy continuation of the
+                        // deepest open quote (CommonMark: a shallower-marked
+                        // line continues the open paragraph; it does not
+                        // close inner quotes).
+                        ctx.linePrefixToStrip = quote.prefixLength
+                        setCurrentBlock(ctx)
+                    }
                     if emittedCount < quote.prefixLength {
                         emittedCount = min(lineBuffer.count, quote.prefixLength)
                     }
@@ -641,7 +660,7 @@ struct StreamingParser {
                     setCurrentBlock(ctx)
                 }
                 if isBlank || force {
-                    closeCurrentBlock()
+                    closeBlockquoteContexts()
                 } else {
                     appendToCurrent("\n")
                 }
@@ -1025,6 +1044,31 @@ struct StreamingParser {
         _ = popBlock()
     }
 
+    /// Opens nested blockquote contexts from `currentLevel` (exclusive)
+    /// through `targetLevel` (inclusive), so `>>` / `> > >` markers produce
+    /// child blocks — mirroring how deeper list items push nested contexts.
+    /// The assembler derives `parentID`/`depth` from the open-block stack.
+    private mutating func openBlockquotes(from currentLevel: Int, to targetLevel: Int, prefixLength: Int) {
+        var level = currentLevel
+        while level < targetLevel {
+            level += 1
+            openInlineBlock(kind: .blockquote, prefixToStrip: prefixLength)
+            if var opened = currentBlock {
+                opened.blockquoteLevel = level
+                setCurrentBlock(opened)
+            }
+        }
+    }
+
+    /// Closes the current context and any enclosing blockquote contexts.
+    /// Blank lines (and interrupting blocks) end the entire quote stack.
+    private mutating func closeBlockquoteContexts() {
+        closeCurrentBlock()
+        while let remaining = currentBlock, case .blockquote = remaining.kind {
+            closeCurrentBlock()
+        }
+    }
+
     private mutating func openInlineBlock(kind: BlockKind, prefixToStrip: Int = 0) {
         let context = BlockContext(
             id: nextID,
@@ -1369,6 +1413,7 @@ struct StreamingParser {
         var index = line.startIndex
         var sawMarker = false
         var consumedTrailingSpace = false
+        var markerCount = 0
 
         while index < line.endIndex {
             let character = line[index]
@@ -1388,6 +1433,7 @@ struct StreamingParser {
                 sawMarker = true
                 consumedTrailingSpace = false
                 prefixLength += 1
+                markerCount += 1
                 index = line.index(after: index)
             } else {
                 break
@@ -1395,7 +1441,7 @@ struct StreamingParser {
         }
 
         guard sawMarker else { return nil }
-        return BlockquoteInfo(prefixLength: prefixLength)
+        return BlockquoteInfo(prefixLength: prefixLength, markerCount: markerCount)
     }
 
     private func listContinuationPrefixLength(_ line: String, currentIndent: Int) -> Int {

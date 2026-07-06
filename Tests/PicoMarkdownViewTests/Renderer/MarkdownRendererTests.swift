@@ -715,6 +715,70 @@ struct MarkdownRendererTests {
         #expect(sub.first == sub.last)
     }
 
+    @Test("List item ending in a styled span does not gain a blank line")
+    func listItemEndingInCodeSpanStaysTight() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The first item ends in an inline-code span, so its trailing "\n"
+        // run cannot coalesce into the plain text. It used to survive into
+        // the render and, combined with the item's own "\n" terminator,
+        // produce an empty paragraph — a full blank line between bullets.
+        let markdown = "* Ends with `code`\n* Second item\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let listItems = blocks.filter { $0.listItem != nil }
+        #expect(listItems.count == 2)
+
+        for item in listItems {
+            let text = String(NSAttributedString(item.content).string)
+            #expect(!text.contains("\n\n"), "list item rendered an empty paragraph: \(text.debugDescription)")
+            #expect(text.hasSuffix("\n") && !text.hasSuffix("\n\n"))
+        }
+    }
+
+    @Test("Nested blockquotes render one bar per depth level")
+    func nestedBlockquotesRenderDepthBars() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let markdown = "> Level one\n>> Level two\n> > > Level three\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let quotes = blocks.filter { $0.blockquote != nil }
+        #expect(quotes.count == 3, "expected three nested blockquote blocks, got \(quotes.count)")
+
+        func quoteText(atDepth depth: Int) -> String? {
+            guard let block = quotes.first(where: { $0.snapshot.depth == depth }) else { return nil }
+            return String(NSAttributedString(block.content).string)
+        }
+
+        let one = quoteText(atDepth: 0)
+        let two = quoteText(atDepth: 1)
+        let three = quoteText(atDepth: 2)
+        #expect(one?.hasPrefix("│ Level one") == true, "depth 0: \(one.debugDescription)")
+        #expect(two?.hasPrefix("│ │ Level two") == true, "depth 1: \(two.debugDescription)")
+        #expect(three?.hasPrefix("│ │ │ Level three") == true, "depth 2: \(three.debugDescription)")
+    }
+
     @Test("Removing trailing blocks updates cache without crashing")
     func removingTrailingBlocksDoesNotCrash() async {
         let store = TestSnapshotStore()

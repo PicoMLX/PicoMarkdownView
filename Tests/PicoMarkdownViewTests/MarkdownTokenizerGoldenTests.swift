@@ -1566,6 +1566,73 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Nested blockquotes open child blocks per marker depth")
+    func nestedBlockquoteDepths() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> Level one\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Level one"), plain("\n")])
+            ],
+            openBlocks: [.blockquote]
+        ), state: &state)
+
+        // `>>` (no inner space) deepens by one level.
+        let second = await tokenizer.feed(">> Level two\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Level two"), plain("\n")])
+            ],
+            openBlocks: [.blockquote, .blockquote]
+        ), state: &state)
+
+        // `> > >` (spaced markers) deepens to level three; the trailing blank
+        // line closes the whole quote stack, deepest first.
+        let third = await tokenizer.feed("> > > Level three\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Level three"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Shallower blockquote markers lazily continue the deepest open quote")
+    func nestedBlockquoteLazyContinuation() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> > deep\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("deep"), plain("\n")])
+            ],
+            openBlocks: [.blockquote, .blockquote]
+        ), state: &state)
+
+        // CommonMark lazy continuation: a line with fewer markers continues
+        // the open paragraph of the innermost quote — it does not close it.
+        let second = await tokenizer.feed("> still deep\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.blockquote, runs: [plain("still deep"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("List item with continuation line")
     func listItemWithContinuation() async {
         let tokenizer = MarkdownTokenizer()

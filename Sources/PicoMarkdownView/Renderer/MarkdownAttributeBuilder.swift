@@ -72,7 +72,7 @@ actor MarkdownAttributeBuilder {
         case .listItem(let ordered, let index, let task):
             return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task, previousBlockKind: previousBlockKind)
         case .blockquote:
-            return await renderBlockquote(snapshot: snapshot)
+            return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind)
         case .fencedCode:
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
@@ -399,6 +399,13 @@ actor MarkdownAttributeBuilder {
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(runs, font: bodyFont)
         trimLeadingWhitespace(in: body)
+        // A finalized list line stores a trailing "\n" run. It normally
+        // coalesces into the plain text and is sanitized to a space, but when
+        // the item ends in a styled span (inline code, bold, link) the runs
+        // can't merge and the bare "\n" survives — combined with the "\n"
+        // terminator appended below it rendered as an empty paragraph
+        // (a full blank line between bullets). Trim it here.
+        trimTrailingNewlines(in: body)
 
         let bulletPrefix = bulletText + " "
         let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: bodyFont])
@@ -702,12 +709,31 @@ actor MarkdownAttributeBuilder {
         }
     }
 
-    private func renderBlockquote(snapshot: BlockSnapshot) async -> RenderedContentResult {
+    private func trimTrailingNewlines(in attributedString: NSMutableAttributedString) {
+        while attributedString.length > 0 {
+            let range = NSRange(location: attributedString.length - 1, length: 1)
+            let lastCharacter = attributedString.attributedSubstring(from: range).string
+            guard lastCharacter == "\n" else { break }
+            attributedString.deleteCharacters(in: range)
+        }
+    }
+
+    private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(bodyRuns, font: bodyFont)
-        let paragraphStyle = makeBlockquoteParagraphStyle()
+        // Nested quotes arrive as child blocks (depth 1, 2, …); draw one bar
+        // per level. Suppress the inter-paragraph gap between adjacent quote
+        // blocks so a nested quote reads as part of the same quote body.
+        let barPrefix = String(repeating: "│ ", count: snapshot.depth + 1)
+        let followsBlockquote: Bool
+        if case .blockquote? = previousBlockKind {
+            followsBlockquote = true
+        } else {
+            followsBlockquote = false
+        }
+        let paragraphStyle = makeBlockquoteParagraphStyle(spacingBefore: followsBlockquote ? 0 : 4)
         let lineColor = blockquoteColor.withAlphaComponent(0.6)
         let textColor = PlatformColor.rendererLabel
 
@@ -723,7 +749,7 @@ actor MarkdownAttributeBuilder {
             .paragraphStyle: paragraphStyle
         ]
 
-        let result = NSMutableAttributedString(string: "│ ", attributes: prefixAttributes)
+        let result = NSMutableAttributedString(string: barPrefix, attributes: prefixAttributes)
         let styledBody = NSMutableAttributedString(attributedString: body)
         if styledBody.length > 0 {
             styledBody.addAttributes(bodyAttributes, range: NSRange(location: 0, length: styledBody.length))
@@ -731,13 +757,13 @@ actor MarkdownAttributeBuilder {
         result.append(styledBody)
 
         let mutableString = result.mutableString
-        let prefixLength = ("│ " as NSString).length
+        let prefixLength = (barPrefix as NSString).length
         var searchLocation = prefixLength
         while searchLocation < mutableString.length {
             let range = mutableString.range(of: "\n", options: [], range: NSRange(location: searchLocation, length: mutableString.length - searchLocation))
             if range.location == NSNotFound { break }
             let insertLocation = range.location + range.length
-            result.insert(NSAttributedString(string: "│ ", attributes: prefixAttributes), at: insertLocation)
+            result.insert(NSAttributedString(string: barPrefix, attributes: prefixAttributes), at: insertLocation)
             searchLocation = insertLocation + prefixLength
         }
 
@@ -753,13 +779,13 @@ actor MarkdownAttributeBuilder {
                                     codeBlock: nil)
     }
 
-    private func makeBlockquoteParagraphStyle() -> NSMutableParagraphStyle {
+    private func makeBlockquoteParagraphStyle(spacingBefore: CGFloat = 4) -> NSMutableParagraphStyle {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byWordWrapping
         paragraphStyle.firstLineHeadIndent = 0
         paragraphStyle.headIndent = 0
         paragraphStyle.paragraphSpacing = 8
-        paragraphStyle.paragraphSpacingBefore = 4
+        paragraphStyle.paragraphSpacingBefore = spacingBefore
         return paragraphStyle
     }
 
