@@ -723,25 +723,24 @@ actor MarkdownAttributeBuilder {
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(bodyRuns, font: bodyFont)
-        // Nested quotes arrive as child blocks (depth 1, 2, …); draw one bar
-        // per level. Suppress the inter-paragraph gap between adjacent quote
-        // blocks so a nested quote reads as part of the same quote body.
-        let barPrefix = String(repeating: "│ ", count: snapshot.depth + 1)
+        // Nested quotes arrive as child blocks (depth 1, 2, …). The bars are
+        // NOT characters: the range is marked with the quote level + bar
+        // color and indented past a leading gutter; the text views draw one
+        // continuous vertical bar per level there (see
+        // BlockquoteBarDecoration.swift). Because the attribute also covers
+        // the trailing newline, adjacent quote blocks merge into one
+        // uninterrupted bar. Suppress the inter-paragraph gap between
+        // adjacent quote blocks so a nested quote reads as one quote body.
+        let level = snapshot.depth + 1
         let followsBlockquote: Bool
         if case .blockquote? = previousBlockKind {
             followsBlockquote = true
         } else {
             followsBlockquote = false
         }
-        let paragraphStyle = makeBlockquoteParagraphStyle(spacingBefore: followsBlockquote ? 0 : 4)
-        let lineColor = blockquoteColor.withAlphaComponent(0.6)
+        let paragraphStyle = makeBlockquoteParagraphStyle(level: level,
+                                                          spacingBefore: followsBlockquote ? 0 : 4)
         let textColor = PlatformColor.rendererLabel
-
-        let prefixAttributes: [NSAttributedString.Key: Any] = [
-            .font: bodyFont,
-            .foregroundColor: lineColor,
-            .paragraphStyle: paragraphStyle
-        ]
 
         let bodyAttributes: [NSAttributedString.Key: Any] = [
             .font: bodyFont,
@@ -749,26 +748,17 @@ actor MarkdownAttributeBuilder {
             .paragraphStyle: paragraphStyle
         ]
 
-        let result = NSMutableAttributedString(string: barPrefix, attributes: prefixAttributes)
         let styledBody = NSMutableAttributedString(attributedString: body)
         if styledBody.length > 0 {
             styledBody.addAttributes(bodyAttributes, range: NSRange(location: 0, length: styledBody.length))
         }
-        result.append(styledBody)
 
-        let mutableString = result.mutableString
-        let prefixLength = (barPrefix as NSString).length
-        var searchLocation = prefixLength
-        while searchLocation < mutableString.length {
-            let range = mutableString.range(of: "\n", options: [], range: NSRange(location: searchLocation, length: mutableString.length - searchLocation))
-            if range.location == NSNotFound { break }
-            let insertLocation = range.location + range.length
-            result.insert(NSAttributedString(string: barPrefix, attributes: prefixAttributes), at: insertLocation)
-            searchLocation = insertLocation + prefixLength
-        }
-
-        result.append(NSAttributedString(string: "\n", attributes: prefixAttributes))
-        result.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: result.length))
+        let result = NSMutableAttributedString(attributedString: styledBody)
+        result.append(NSAttributedString(string: "\n", attributes: bodyAttributes))
+        result.addAttributes([
+            .picoBlockquoteLevel: level,
+            .picoBlockquoteBarColor: blockquoteColor.withAlphaComponent(0.6)
+        ], range: NSRange(location: 0, length: result.length))
 
         return RenderedContentResult(attributed: AttributedString(result),
                                     table: nil,
@@ -779,11 +769,12 @@ actor MarkdownAttributeBuilder {
                                     codeBlock: nil)
     }
 
-    private func makeBlockquoteParagraphStyle(spacingBefore: CGFloat = 4) -> NSMutableParagraphStyle {
+    private func makeBlockquoteParagraphStyle(level: Int, spacingBefore: CGFloat = 4) -> NSMutableParagraphStyle {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byWordWrapping
-        paragraphStyle.firstLineHeadIndent = 0
-        paragraphStyle.headIndent = 0
+        let indent = BlockquoteBarMetrics.textIndent(level: level)
+        paragraphStyle.firstLineHeadIndent = indent
+        paragraphStyle.headIndent = indent
         paragraphStyle.paragraphSpacing = 8
         paragraphStyle.paragraphSpacingBefore = spacingBefore
         return paragraphStyle

@@ -742,7 +742,7 @@ private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
     private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
 
     init(backend: TextKitStreamingBackend) {
-        let layoutManager = NSLayoutManager()
+        let layoutManager = BlockquoteBarLayoutManager()
         let textContainer = NSTextContainer(size: .zero)
         layoutManager.addTextContainer(textContainer)
         backend.connect(to: layoutManager)
@@ -807,7 +807,18 @@ private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
 
 @available(iOS 16.0, *)
 @MainActor
-private final class StreamingTextKit2View: UITextView, UITextViewDelegate {
+private final class StreamingTextKit2View: UITextView, UITextViewDelegate, NSTextLayoutManagerDelegate {
+    func textLayoutManager(_ textLayoutManager: NSTextLayoutManager,
+                           textLayoutFragmentFor location: NSTextLocation,
+                           in textElement: NSTextElement) -> NSTextLayoutFragment {
+        if let paragraph = textElement as? NSTextParagraph,
+           paragraph.attributedString.length > 0,
+           paragraph.attributedString.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) != nil {
+            return BlockquoteBarTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        }
+        return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+    }
+
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
     var linkActionHandler: ((URL, String) -> Void)?
@@ -821,6 +832,9 @@ private final class StreamingTextKit2View: UITextView, UITextViewDelegate {
         if let layoutManager = textLayoutManager,
            let contentStorage = layoutManager.textContentManager as? NSTextContentStorage {
             backend.connect(to: contentStorage, layoutManager: layoutManager)
+            // Blockquote bars are drawn by custom layout fragments (see
+            // BlockquoteBarDecoration.swift).
+            layoutManager.delegate = self
         }
         delegate = self
     }
@@ -943,7 +957,7 @@ private final class StreamingTextKit1View: NSTextView {
     }
 
     init(backend: TextKitStreamingBackend) {
-        let layoutManager = NSLayoutManager()
+        let layoutManager = BlockquoteBarLayoutManager()
         let textContainer = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                          height: CGFloat.greatestFiniteMagnitude))
         layoutManager.addTextContainer(textContainer)
@@ -1105,7 +1119,7 @@ private final class StreamingTextKit2View: NSTextView {
         // adding a layout manager to the backend's own NSTextStorage. TextKit 2's
         // NSTextContentStorage observation chain does not properly relay
         // programmatic NSTextStorage edits on macOS, resulting in blank views.
-        let layoutManager = NSLayoutManager()
+        let layoutManager = BlockquoteBarLayoutManager()
         let textContainer = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                          height: CGFloat.greatestFiniteMagnitude))
         layoutManager.addTextContainer(textContainer)

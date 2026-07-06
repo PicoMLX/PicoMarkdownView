@@ -746,8 +746,8 @@ struct MarkdownRendererTests {
         }
     }
 
-    @Test("Nested blockquotes render one bar per depth level")
-    func nestedBlockquotesRenderDepthBars() async {
+    @Test("Nested blockquotes carry the drawn-bar level attribute, not glyphs")
+    func nestedBlockquotesCarryLevelAttribute() async {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
         let renderer = MarkdownRenderer { id in
@@ -766,17 +766,26 @@ struct MarkdownRendererTests {
         let quotes = blocks.filter { $0.blockquote != nil }
         #expect(quotes.count == 3, "expected three nested blockquote blocks, got \(quotes.count)")
 
-        func quoteText(atDepth depth: Int) -> String? {
-            guard let block = quotes.first(where: { $0.snapshot.depth == depth }) else { return nil }
-            return String(NSAttributedString(block.content).string)
+        for block in quotes {
+            let ns = NSAttributedString(block.content)
+            // Bars are drawn by the view layer, not baked into the text —
+            // selection/copy must not contain bar characters. The custom
+            // attribute must survive the AttributedString round-trip, cover
+            // the whole block (incl. the trailing newline, so adjacent quote
+            // bars merge), and match depth + 1.
+            #expect(!ns.string.contains("│"), "bar glyphs leaked into text: \(ns.string.debugDescription)")
+            guard ns.length > 0 else {
+                Issue.record("empty quote block")
+                continue
+            }
+            var effective = NSRange(location: 0, length: 0)
+            let level = ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: &effective) as? Int
+            #expect(level == block.snapshot.depth + 1)
+            #expect(effective == NSRange(location: 0, length: ns.length),
+                    "level attribute must span the whole block")
+            let style = ns.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            #expect(style?.headIndent == BlockquoteBarMetrics.textIndent(level: block.snapshot.depth + 1))
         }
-
-        let one = quoteText(atDepth: 0)
-        let two = quoteText(atDepth: 1)
-        let three = quoteText(atDepth: 2)
-        #expect(one?.hasPrefix("│ Level one") == true, "depth 0: \(one.debugDescription)")
-        #expect(two?.hasPrefix("│ │ Level two") == true, "depth 1: \(two.debugDescription)")
-        #expect(three?.hasPrefix("│ │ │ Level three") == true, "depth 2: \(three.debugDescription)")
     }
 
     @Test("Marker-only separators split quotes and return to the outer level")
@@ -799,18 +808,40 @@ struct MarkdownRendererTests {
 
         let blocks = await renderer.renderedBlocks()
         let quotes = blocks.filter { $0.blockquote != nil }
-        let shapes = quotes.map { block in
-            (depth: block.snapshot.depth, text: NSAttributedString(block.content).string)
+        let shapes = quotes.map { block -> (depth: Int, level: Int?, text: String) in
+            let ns = NSAttributedString(block.content)
+            let level = ns.length > 0
+                ? ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
+                : nil
+            return (block.snapshot.depth, level, ns.string)
         }
 
         // Document order: first level, empty level-1 connector (parent of the
         // nested quote), the nested quote, then a fresh level-1 block.
         #expect(shapes.count == 4, "expected 4 quote blocks, got \(shapes)")
         guard shapes.count == 4 else { return }
-        #expect(shapes[0].depth == 0 && shapes[0].text.hasPrefix("│ First level."))
-        #expect(shapes[1].depth == 0 && shapes[1].text == "│ \n")
-        #expect(shapes[2].depth == 1 && shapes[2].text.hasPrefix("│ │ Nested."))
-        #expect(shapes[3].depth == 0 && shapes[3].text.hasPrefix("│ Back to first."))
+        #expect(shapes[0].depth == 0 && shapes[0].level == 1 && shapes[0].text.hasPrefix("First level."))
+        #expect(shapes[1].depth == 0 && shapes[1].level == 1 && shapes[1].text == "\n")
+        #expect(shapes[2].depth == 1 && shapes[2].level == 2 && shapes[2].text.hasPrefix("Nested."))
+        #expect(shapes[3].depth == 0 && shapes[3].level == 1 && shapes[3].text.hasPrefix("Back to first."))
+    }
+
+    @Test("Blockquote bar attributes survive the AttributedString round-trip")
+    func blockquoteAttributesSurviveConversion() {
+        let source = NSMutableAttributedString(string: "quoted text\n")
+        source.addAttributes([
+            .picoBlockquoteLevel: 2,
+            .picoBlockquoteBarColor: MarkdownColor.red
+        ], range: NSRange(location: 0, length: source.length))
+
+        // The pipeline's interchange type is AttributedString; the view layer
+        // reads these keys back out of NSTextStorage. If this fails, drawn
+        // blockquote bars are silently lost.
+        let roundTripped = NSAttributedString(AttributedString(source))
+        let level = roundTripped.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
+        let color = roundTripped.attribute(.picoBlockquoteBarColor, at: 0, effectiveRange: nil) as? MarkdownColor
+        #expect(level == 2)
+        #expect(color != nil)
     }
 
     @Test("Removing trailing blocks updates cache without crashing")
