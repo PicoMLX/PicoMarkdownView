@@ -779,6 +779,40 @@ struct MarkdownRendererTests {
         #expect(three?.hasPrefix("│ │ │ Level three") == true, "depth 2: \(three.debugDescription)")
     }
 
+    @Test("Marker-only separators split quotes and return to the outer level")
+    func quoteSeparatorReturnsToOuterLevel() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The classic Markdown.pl nested-quote sample. GitHub renders:
+        // level 1, a nested level 2, then back to level 1.
+        let markdown = "> First level.\n>\n> > Nested.\n>\n> Back to first.\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let quotes = blocks.filter { $0.blockquote != nil }
+        let shapes = quotes.map { block in
+            (depth: block.snapshot.depth, text: NSAttributedString(block.content).string)
+        }
+
+        // Document order: first level, empty level-1 connector (parent of the
+        // nested quote), the nested quote, then a fresh level-1 block.
+        #expect(shapes.count == 4, "expected 4 quote blocks, got \(shapes)")
+        guard shapes.count == 4 else { return }
+        #expect(shapes[0].depth == 0 && shapes[0].text.hasPrefix("│ First level."))
+        #expect(shapes[1].depth == 0 && shapes[1].text == "│ \n")
+        #expect(shapes[2].depth == 1 && shapes[2].text.hasPrefix("│ │ Nested."))
+        #expect(shapes[3].depth == 0 && shapes[3].text.hasPrefix("│ Back to first."))
+    }
+
     @Test("Removing trailing blocks updates cache without crashing")
     func removingTrailingBlocksDoesNotCrash() async {
         let store = TestSnapshotStore()

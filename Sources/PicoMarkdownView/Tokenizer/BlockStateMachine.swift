@@ -39,6 +39,11 @@ struct StreamingParser {
         /// `>>` = 2, …); 0 for every other kind. The blockquote analogue of
         /// `listIndent`.
         var blockquoteLevel: Int = 0
+        /// Set when a marker-only line (`>` with no content) ends the open
+        /// paragraph of this blockquote. The next quote line then starts a
+        /// fresh block at its own marker depth instead of lazily continuing
+        /// this one. The blockquote analogue of `sawBlankInSubContext`.
+        var quoteParagraphBroken: Bool = false
     }
 
     private struct TableState {
@@ -487,7 +492,17 @@ struct StreamingParser {
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
-                    if quote.markerCount > ctx.blockquoteLevel {
+                    if ctx.quoteParagraphBroken {
+                        // A marker-only `>` line ended the previous paragraph.
+                        // Quote lines after it start fresh blocks at their own
+                        // marker depth (this is how `> back to level one` exits
+                        // a nested quote, and how `>` separators split a quote
+                        // into paragraphs).
+                        closeBlockquoteContexts()
+                        openBlockquotes(from: 0,
+                                        to: quote.markerCount,
+                                        prefixLength: quote.prefixLength)
+                    } else if quote.markerCount > ctx.blockquoteLevel {
                         // More `>` markers than open quote levels: open nested
                         // child blockquotes (deepening is monotonic within a
                         // line, so acting on a partial prefix is safe).
@@ -661,6 +676,14 @@ struct StreamingParser {
                 }
                 if isBlank || force {
                     closeBlockquoteContexts()
+                } else if isQuoteMarkerOnlyLine(trimmed) {
+                    // A `>` line with no content is a blank line inside the
+                    // quote: it ends the open paragraph. Mark the context so
+                    // the next quote line starts a fresh block.
+                    if var current = currentBlock {
+                        current.quoteParagraphBroken = true
+                        setCurrentBlock(current)
+                    }
                 } else {
                     appendToCurrent("\n")
                 }
@@ -1067,6 +1090,13 @@ struct StreamingParser {
         while let remaining = currentBlock, case .blockquote = remaining.kind {
             closeCurrentBlock()
         }
+    }
+
+    /// True for lines that consist only of `>` markers and whitespace —
+    /// a blank line *inside* a blockquote (paragraph separator).
+    private func isQuoteMarkerOnlyLine(_ trimmed: String) -> Bool {
+        guard trimmed.contains(">") else { return false }
+        return trimmed.allSatisfy { $0 == ">" || $0 == " " || $0 == "\t" }
     }
 
     private mutating func openInlineBlock(kind: BlockKind, prefixToStrip: Int = 0) {
