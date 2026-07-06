@@ -718,14 +718,6 @@ actor MarkdownAttributeBuilder {
         }
     }
 
-    private func trimTrailingWhitespace(in attributedString: NSMutableAttributedString) {
-        let trimmable: Set<unichar> = [0x20, 0x09, 0x0A] // space, tab, newline
-        while attributedString.length > 0 {
-            let lastIndex = attributedString.length - 1
-            guard trimmable.contains(attributedString.mutableString.character(at: lastIndex)) else { break }
-            attributedString.deleteCharacters(in: NSRange(location: lastIndex, length: 1))
-        }
-    }
 
     private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
         var imageIndex = 0
@@ -751,10 +743,11 @@ actor MarkdownAttributeBuilder {
         }
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(bodyRuns, font: bodyFont)
-        // Whitespace emitted by marker-only separator lines (`>  `) and
-        // trailing newline runs that survive styled spans would otherwise
-        // render as blank quoted lines below the paragraph.
-        trimTrailingWhitespace(in: body)
+        // Trailing newline runs that survive styled spans would otherwise
+        // combine with the terminator below into a blank quoted line. Only
+        // newlines: trailing spaces can be real content (e.g. a code span
+        // ending in a space).
+        trimTrailingNewlines(in: body)
         // Nested quotes arrive as child blocks (depth 1, 2, …). The bars are
         // NOT characters: the range is marked with the quote level + bar
         // color and indented past a leading gutter; the text views draw one

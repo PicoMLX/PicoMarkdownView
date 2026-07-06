@@ -894,6 +894,28 @@ struct MarkdownRendererTests {
         #expect(text.hasSuffix("\n") && !text.hasSuffix("\n\n"))
     }
 
+    @Test("Trailing space inside a quoted code span is preserved")
+    func quotedCodeSpanTrailingSpaceSurvives() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The code span's final character is a meaningful space; trimming
+        // must only remove the synthetic trailing newline, not content.
+        let markdown = "> run `git push `\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        _ = await renderer.apply(await assembler.apply(chunk))
+        let finish = await tokenizer.finish()
+        _ = await renderer.apply(await assembler.apply(finish))
+
+        let blocks = await renderer.renderedBlocks()
+        let quote = blocks.first { $0.blockquote != nil }
+        let text = NSAttributedString.picoConverted(from: quote?.content ?? AttributedString()).string
+        #expect(text.contains("git push "), "code span trailing space was trimmed: \(text.debugDescription)")
+    }
+
     @Test("Blockquote bar attributes survive the AttributedString round-trip")
     func blockquoteAttributesSurviveConversion() {
         let source = NSMutableAttributedString(string: "quoted text\n")

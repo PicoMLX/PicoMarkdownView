@@ -1633,6 +1633,46 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Padded nested markers still deepen (CommonMark ≤3-space indent)")
+    func paddedNestedBlockquoteDeepens() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed(">  > padded nested\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("padded nested"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Whitespace-padded separator lines emit no content runs")
+    func whitespacePaddedSeparatorEmitsNoRuns() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // `>  ` (marker + trailing spaces) is a paragraph separator like `>`;
+        // its leftover whitespace must not leak into the event stream (nor
+        // trigger a hard-break newline from the trailing double space).
+        let result = await tokenizer.feed("> First para\n>  \n> Second para\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("First para"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Second para"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("Marker-only quote line closes the quote for unquoted continuations")
     func quoteMarkerOnlyLineClosesQuote() async {
         let tokenizer = MarkdownTokenizer()

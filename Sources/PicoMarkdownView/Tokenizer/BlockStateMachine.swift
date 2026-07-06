@@ -550,6 +550,14 @@ struct StreamingParser {
         var context = ctx
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         guard emittedCount < sourceLine.count else { return }
+        // Marker-only quote lines (`>`, `>  `) are paragraph separators, not
+        // content: never emit their leftover whitespace (or a hard-break
+        // newline from trailing spaces). While the line may still grow this
+        // only defers — if text follows, the full delta is emitted then.
+        if case .blockquote = context.kind,
+           isQuoteMarkerOnlyLine(lineBuffer.trimmingCharacters(in: .whitespaces)) {
+            return
+        }
         // When the line buffer still looks like an incomplete block-level
         // construct (list marker, heading, fence, etc.), defer emission so
         // marker characters don't leak into the current block's content.
@@ -1424,37 +1432,36 @@ struct StreamingParser {
 
     private func detectBlockquote(_ line: String) -> BlockquoteInfo? {
         var prefixLength = 0
-        var index = line.startIndex
-        var sawMarker = false
-        var consumedTrailingSpace = false
         var markerCount = 0
+        var pendingWhitespace = 0
+        var index = line.startIndex
 
         while index < line.endIndex {
             let character = line[index]
-            if character == " " || character == "\t" {
-                if sawMarker {
-                    if consumedTrailingSpace {
-                        break
-                    }
-                    consumedTrailingSpace = true
-                    prefixLength += 1
-                    index = line.index(after: index)
-                } else {
+            if character == ">" {
+                // Between markers, CommonMark allows the previous marker's
+                // optional trailing space plus up to three more spaces of
+                // indentation before a nested `>` (`>  > nested` nests;
+                // five spaces make the inner marker literal content).
+                if markerCount > 0 && pendingWhitespace > 3 { break }
+                prefixLength += pendingWhitespace + 1
+                pendingWhitespace = 0
+                markerCount += 1
+                index = line.index(after: index)
+                // One optional space (or tab) belongs to the marker itself.
+                if index < line.endIndex, line[index] == " " || line[index] == "\t" {
                     prefixLength += 1
                     index = line.index(after: index)
                 }
-            } else if character == ">" {
-                sawMarker = true
-                consumedTrailingSpace = false
-                prefixLength += 1
-                markerCount += 1
+            } else if character == " " || character == "\t" {
+                pendingWhitespace += 1
                 index = line.index(after: index)
             } else {
                 break
             }
         }
 
-        guard sawMarker else { return nil }
+        guard markerCount > 0 else { return nil }
         return BlockquoteInfo(prefixLength: prefixLength, markerCount: markerCount)
     }
 
