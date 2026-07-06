@@ -132,7 +132,17 @@ struct ZoomableMarkdownView: View {
 
 ### Code Block Highlighting
 
-Code fences default to the theme’s monospaced font. To customize styling or plug in a syntax highlighter, set `codeBlockTheme` and `codeHighlighter` on `MarkdownRenderTheme`:
+Syntax highlighting is **on by default**. Fenced code blocks are tokenized by a bundled [Prism.js](https://prismjs.com) build running in JavaScriptCore (no WebView) and colored with a GitHub-flavored palette that adapts to light/dark mode. Roughly 65 languages are bundled — including Swift, Python, JavaScript/TypeScript, C/C++, C#, Java, Kotlin, Go, Rust, Ruby, PHP, SQL, YAML, Bash, and classics like BASIC and Pascal — and fence info strings are normalized before lookup, so `C++`, `objective-c`, `golang`, `vb.net`, and `swift title=example.swift` all resolve. Unknown languages render as plain monospaced text.
+
+While a block streams, it re-highlights live; blocks larger than 16 KB render plain until the closing fence arrives, then get a single full highlight pass.
+
+Built-in `CodeBlockTheme` presets:
+
+- `.gitHub()` — GitHub Primer colors, light + dark (default)
+- `.prismDefault()` — the previous Prism-flavored palette
+- `.monospaced()` — no token coloring
+
+To swap palettes, disable highlighting, or plug in a different engine entirely, use `withCodeHighlighting` on the theme. `CodeSyntaxHighlighter` is the extension point — any engine that can turn `(code, language)` into an `AttributedString` works (Splash, tree-sitter, a native highlighter, …):
 
 ```swift
 import PicoMarkdownView
@@ -145,23 +155,28 @@ struct SplashCodeHighlighter: CodeSyntaxHighlighter {
         self.splash = SyntaxHighlighter(format: TextOutputFormat(theme: theme))
     }
 
-    func highlight(_ code: String, language: String?, theme: CodeBlockTheme) -> AttributedString {
+    func highlight(_ code: String, language: String?, theme: CodeBlockTheme) async -> AttributedString {
         guard language != nil else {
-            return PlainCodeSyntaxHighlighter().highlight(code, language: language, theme: theme)
+            return await PlainCodeSyntaxHighlighter().highlight(code, language: language, theme: theme)
         }
 
         return AttributedString(splash.highlight(code))
     }
 }
 
-var themed = MarkdownRenderTheme.default()
-themed.codeBlockTheme = CodeBlockTheme.monospaced()
-themed.codeHighlighter = AnyCodeSyntaxHighlighter(SplashCodeHighlighter(theme: .midnight(withFont: Splash.Font(size: 14))))
+let themed = MarkdownRenderTheme.default().withCodeHighlighting(
+    codeBlockTheme: .monospaced(),
+    codeHighlighter: AnyCodeSyntaxHighlighter(SplashCodeHighlighter(theme: .midnight(withFont: Splash.Font(size: 14))))
+)
 
 var body: some View {
     PicoMarkdownView(markdown, theme: themed)
 }
 ```
+
+Conformances must be `Sendable`; `highlight` is called off the main actor while blocks render.
+
+The bundled grammar set is regenerated with `Scripts/bundle-prism.sh` (pins the Prism version, resolves component dependencies, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/prism-bundle.js` by hand — change the language list in `Scripts/bundle-prism.js` and rerun the script.
 
 ### Resetting Content
 

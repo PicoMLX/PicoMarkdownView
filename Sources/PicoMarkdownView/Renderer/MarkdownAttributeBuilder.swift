@@ -86,7 +86,19 @@ actor MarkdownAttributeBuilder {
                 let resolvedBg = codeTheme.resolvedBackgroundColor()
                 let hasBackground = codeTheme.backgroundColor != .clear
 
-                if snapshot.isClosed {
+                if CodeHighlightingPolicy.shouldBypassHighlighting(byteCount: text.utf8.count,
+                                                                   isClosed: snapshot.isClosed) {
+                    // Every appended chunk re-renders the whole block, so
+                    // highlighting an unbounded open block would be O(block²)
+                    // over the stream. Small blocks highlight live (bounded
+                    // per-chunk cost, LRU-cached); past the threshold, render
+                    // base attributes now — the fence-close diff refreshes the
+                    // block for one full highlight pass.
+                    content = NSMutableAttributedString(string: text, attributes: [
+                        .font: resolvedCodeFont,
+                        .foregroundColor: resolvedFg
+                    ])
+                } else {
                     let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
                     let highlighted = await highlighter.highlight(text, language: {
                         if case let .fencedCode(value) = snapshot.kind {
@@ -95,15 +107,6 @@ actor MarkdownAttributeBuilder {
                         return nil
                     }(), theme: codeTheme)
                     content = NSMutableAttributedString(highlighted)
-                } else {
-                    // While the fence is open, every appended chunk re-renders
-                    // the whole block, so running the syntax highlighter here
-                    // would be O(block²) over the stream. Render with the
-                    // theme's base attributes and highlight once, on close.
-                    content = NSMutableAttributedString(string: text, attributes: [
-                        .font: resolvedCodeFont,
-                        .foregroundColor: resolvedFg
-                    ])
                 }
 
                 if content.length > 0 {

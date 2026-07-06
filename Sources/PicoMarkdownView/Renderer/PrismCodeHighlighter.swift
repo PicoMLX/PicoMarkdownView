@@ -16,13 +16,34 @@ import AppKit
 struct PrismToken: Hashable, Sendable {
     let content: String
     let type: PrismTokenType
+    /// Prism's standardized alias for grammar-specific types (e.g. INI `key`
+    /// aliases `attr-name`), used as a theme-color fallback.
+    let alias: PrismTokenType?
+
+    init(content: String, type: PrismTokenType, alias: PrismTokenType? = nil) {
+        self.content = content
+        self.type = type
+        self.alias = alias
+    }
 }
 
 // MARK: - Tokenizer Actor
 
 #if canImport(JavaScriptCore)
 actor PrismTokenizer {
+    private struct CacheKey: Hashable {
+        let language: String
+        let code: String
+    }
+
     private let context: JSContext
+    /// Closed blocks re-render verbatim on width changes and out-of-band
+    /// refreshes (e.g. image prefetch); a small LRU avoids re-tokenizing
+    /// identical (language, code) pairs. Keys share storage with the
+    /// caller's strings (copy-on-write), so the footprint is the map itself.
+    private var cache: [CacheKey: [PrismToken]] = [:]
+    private var cacheOrder: [CacheKey] = []
+    private let cacheLimit = 16
     private static let logger = Logger(
         subsystem: "com.picomarkdown",
         category: "PrismTokenizer"
@@ -52,6 +73,15 @@ actor PrismTokenizer {
     }
 
     func tokenize(code: String, language: String) -> [PrismToken] {
+        let key = CacheKey(language: language, code: code)
+        if let cached = cache[key] {
+            if let index = cacheOrder.firstIndex(of: key) {
+                cacheOrder.remove(at: index)
+                cacheOrder.append(key)
+            }
+            return cached
+        }
+
         guard
             let tokenizeCode = context.objectForKeyedSubscript("tokenizeCode"),
             let result = tokenizeCode.call(withArguments: [code, language]),
@@ -61,14 +91,26 @@ actor PrismTokenizer {
             return [PrismToken(content: code, type: .plain)]
         }
 
-        return array.compactMap { token in
+        let tokens = parseTokens(array)
+        cache[key] = tokens
+        cacheOrder.append(key)
+        if cacheOrder.count > cacheLimit {
+            cache.removeValue(forKey: cacheOrder.removeFirst())
+        }
+        return tokens
+    }
+
+    private func parseTokens(_ array: [[String: String]]) -> [PrismToken] {
+        array.compactMap { token in
             guard
                 let content = token["content"],
                 let type = token["type"]
             else {
                 return nil
             }
-            return PrismToken(content: content, type: .init(rawValue: type))
+            return PrismToken(content: content,
+                              type: PrismTokenType(rawValue: type),
+                              alias: token["alias"].map { PrismTokenType(rawValue: $0) })
         }
     }
 }
@@ -87,13 +129,19 @@ actor PrismTokenizer {
 /// A syntax highlighter that uses Prism.js via JavaScriptCore to tokenize code
 /// and applies per-token-type colors from the `CodeBlockTheme`.
 ///
-/// Thread-safe: tokenization runs on the `PrismTokenizer` actor.
-/// Code blocks are highlighted when finalized (not during streaming).
+/// The fence info string is normalized before grammar lookup (first word,
+/// lowercased, common aliases such as `c++` → `cpp` — see
+/// `PrismLanguageNormalizer`); unknown languages render as plain text.
+///
+/// Thread-safe: tokenization runs on the `PrismTokenizer` actor, off the
+/// main actor. Tokenization re-runs as a streaming block grows;
+/// `MarkdownAttributeBuilder` defers oversized blocks to a single pass when
+/// the fence closes (see `CodeHighlightingPolicy`).
 public struct PrismCodeHighlighter: CodeSyntaxHighlighter {
     public init() {}
 
     public func highlight(_ code: String, language: String?, theme: CodeBlockTheme) async -> AttributedString {
-        guard let language, !language.isEmpty else {
+        guard let language = PrismLanguageNormalizer.normalize(language) else {
             return plainHighlight(code, theme: theme)
         }
 
@@ -133,7 +181,7 @@ public struct PrismCodeHighlighter: CodeSyntaxHighlighter {
                 .foregroundColor: resolvedFg
             ]
 
-            if let tokenStyle = tokenColors[token.type] {
+            if let tokenStyle = tokenColors[token.type] ?? token.alias.flatMap({ tokenColors[$0] }) {
                 if let color = tokenStyle.color {
                     attributes[.foregroundColor] = color.resolved()
                 }
