@@ -75,14 +75,14 @@ enum BlockquoteBarDrawer {
 final class BlockquoteBarLayoutManager: NSLayoutManager {
     override func drawBackground(forGlyphRange glyphsToShow: NSRange, at origin: CGPoint) {
         super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
-        guard let storage = textStorage, storage.length > 0,
-              let container = textContainers.first else { return }
+        guard let storage = textStorage, storage.length > 0 else { return }
 
         let charRange = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
         storage.enumerateAttribute(.picoBlockquoteLevel, in: charRange, options: []) { value, range, _ in
             guard let level = value as? Int, level > 0, range.length > 0 else { return }
             let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            guard glyphs.length > 0 else { return }
+            guard glyphs.length > 0,
+                  let container = textContainer(forGlyphAt: glyphs.location, effectiveRange: nil) else { return }
             let bounds = boundingRect(forGlyphRange: glyphs, in: container)
             let color = storage.attribute(.picoBlockquoteBarColor,
                                           at: range.location,
@@ -124,11 +124,13 @@ final class BlockquoteBarTextLayoutFragment: NSTextLayoutFragment {
     }
 
     override var renderingSurfaceBounds: CGRect {
+        let level = quoteLevel
+        guard level > 0 else { return super.renderingSurfaceBounds }
         // Extend the drawing area to cover the leading gutter where the bars
         // live (text is indented past it, so the default surface may exclude it).
         let gutter = CGRect(x: 0,
                             y: 0,
-                            width: BlockquoteBarMetrics.textIndent(level: max(quoteLevel, 1)),
+                            width: BlockquoteBarMetrics.textIndent(level: level),
                             height: layoutFragmentFrame.height)
         return super.renderingSurfaceBounds.union(gutter)
     }

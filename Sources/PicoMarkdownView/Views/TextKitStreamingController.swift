@@ -342,7 +342,7 @@ final class TextKitStreamingBackend {
             if index < records.count && records[index].id == block.id && records[index].content == block.content {
                 return (block: block, attributed: records[index].nsAttributed)
             } else {
-                return (block: block, attributed: NSAttributedString(block.content))
+                return (block: block, attributed: NSAttributedString.picoConverted(from: block.content))
             }
         }
 
@@ -459,7 +459,7 @@ final class TextKitStreamingBackend {
     private func insertRecord(_ block: RenderedBlock,
                               at index: Int,
                               selection: NSRange) -> NSRange {
-        let attributed = NSAttributedString(block.content)
+        let attributed = NSAttributedString.picoConverted(from: block.content)
         let record = BlockRecord(id: block.id,
                                  content: block.content,
                                  nsAttributed: attributed,
@@ -489,7 +489,7 @@ final class TextKitStreamingBackend {
         let record = records[index]
         guard record.content != block.content else { return selection }
 
-        let newAttributed = NSAttributedString(block.content)
+        let newAttributed = NSAttributedString.picoConverted(from: block.content)
         let range = rangeForRecord(at: index)
         storage.replaceCharacters(in: range, with: newAttributed)
         let updatedSelection = adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)

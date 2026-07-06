@@ -767,7 +767,7 @@ struct MarkdownRendererTests {
         #expect(quotes.count == 3, "expected three nested blockquote blocks, got \(quotes.count)")
 
         for block in quotes {
-            let ns = NSAttributedString(block.content)
+            let ns = NSAttributedString.picoConverted(from: block.content)
             // Bars are drawn by the view layer, not baked into the text —
             // selection/copy must not contain bar characters. The custom
             // attribute must survive the AttributedString round-trip, cover
@@ -809,7 +809,7 @@ struct MarkdownRendererTests {
         let blocks = await renderer.renderedBlocks()
         let quotes = blocks.filter { $0.blockquote != nil }
         let shapes = quotes.map { block -> (depth: Int, level: Int?, text: String) in
-            let ns = NSAttributedString(block.content)
+            let ns = NSAttributedString.picoConverted(from: block.content)
             let level = ns.length > 0
                 ? ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
                 : nil
@@ -835,9 +835,11 @@ struct MarkdownRendererTests {
         ], range: NSRange(location: 0, length: source.length))
 
         // The pipeline's interchange type is AttributedString; the view layer
-        // reads these keys back out of NSTextStorage. If this fails, drawn
-        // blockquote bars are silently lost.
-        let roundTripped = NSAttributedString(AttributedString(source))
+        // reads these keys back out of NSTextStorage. The PLAIN conversion
+        // initializers drop custom keys, which is why every conversion at the
+        // pipeline seams must go through the pico-scoped helpers. If this
+        // fails, drawn blockquote bars are silently lost.
+        let roundTripped = NSAttributedString.picoConverted(from: .picoConverted(from: source))
         let level = roundTripped.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
         let color = roundTripped.attribute(.picoBlockquoteBarColor, at: 0, effectiveRange: nil) as? MarkdownColor
         #expect(level == 2)

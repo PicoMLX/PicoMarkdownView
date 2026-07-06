@@ -710,11 +710,11 @@ actor MarkdownAttributeBuilder {
     }
 
     private func trimTrailingNewlines(in attributedString: NSMutableAttributedString) {
+        let newline: unichar = 0x0A
         while attributedString.length > 0 {
-            let range = NSRange(location: attributedString.length - 1, length: 1)
-            let lastCharacter = attributedString.attributedSubstring(from: range).string
-            guard lastCharacter == "\n" else { break }
-            attributedString.deleteCharacters(in: range)
+            let lastIndex = attributedString.length - 1
+            guard attributedString.mutableString.character(at: lastIndex) == newline else { break }
+            attributedString.deleteCharacters(in: NSRange(location: lastIndex, length: 1))
         }
     }
 
@@ -732,12 +732,7 @@ actor MarkdownAttributeBuilder {
         // uninterrupted bar. Suppress the inter-paragraph gap between
         // adjacent quote blocks so a nested quote reads as one quote body.
         let level = snapshot.depth + 1
-        let followsBlockquote: Bool
-        if case .blockquote? = previousBlockKind {
-            followsBlockquote = true
-        } else {
-            followsBlockquote = false
-        }
+        let followsBlockquote = previousBlockKind == .blockquote
         let paragraphStyle = makeBlockquoteParagraphStyle(level: level,
                                                           spacingBefore: followsBlockquote ? 0 : 4)
         let textColor = PlatformColor.rendererLabel
@@ -760,7 +755,9 @@ actor MarkdownAttributeBuilder {
             .picoBlockquoteBarColor: blockquoteColor.withAlphaComponent(0.6)
         ], range: NSRange(location: 0, length: result.length))
 
-        return RenderedContentResult(attributed: AttributedString(result),
+        // The plain AttributedString initializer drops the custom keys —
+        // convert through the pico scope so the bar attributes survive.
+        return RenderedContentResult(attributed: AttributedString.picoConverted(from: result),
                                     table: nil,
                                     listItem: nil,
                                     blockquote: RenderedBlockquote(content: AttributedString(styledBody)),
