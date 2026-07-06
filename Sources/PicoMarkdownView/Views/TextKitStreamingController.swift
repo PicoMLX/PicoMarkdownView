@@ -444,6 +444,13 @@ final class TextKitStreamingBackend {
                 let index = max(0, min(position, blocks.count))
                 guard index < blocks.count, blocks[index].id == id else { continue }
                 updatedSelection = insertRecord(blocks[index], at: index, selection: updatedSelection)
+                // A new child changes what its parent renders (container-only
+                // quote parents render nothing once a child exists) and the
+                // diff carries no change entry for the parent — sync its
+                // record too. No-op when the parent's content is unchanged.
+                if let parentID = blocks[index].snapshot.parentID {
+                    updatedSelection = updateRecord(id: parentID, blocks: blocks, selection: updatedSelection)
+                }
             case .runsAppended(let id, _),
                  .codeAppended(let id, _),
                  .tableHeaderConfirmed(let id),
