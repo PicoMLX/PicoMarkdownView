@@ -1638,14 +1638,14 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
-        let result = await tokenizer.feed("> First para.\n>\n> Second para.\n\n")
+        let result = await tokenizer.feed("> First para\n>\n> Second para\n\n")
         assertChunk(result, matches: .init(
             events: [
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("First para."), plain("\n")]),
+                .blockAppendInline(.blockquote, runs: [plain("First para"), plain("\n")]),
                 .blockEnd(.blockquote),
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("Second para."), plain("\n")]),
+                .blockAppendInline(.blockquote, runs: [plain("Second para"), plain("\n")]),
                 .blockEnd(.blockquote)
             ],
             openBlocks: []
@@ -1663,23 +1663,23 @@ struct MarkdownTokenizerGoldenTests {
         //   > > This is nested blockquote.
         //   >
         //   > Back to the first level.
-        let result = await tokenizer.feed("> First level.\n>\n> > Nested.\n>\n> Back to first.\n\n")
+        let result = await tokenizer.feed("> First level\n>\n> > Nested\n>\n> Back to first\n\n")
         assertChunk(result, matches: .init(
             events: [
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("First level."), plain("\n")]),
+                .blockAppendInline(.blockquote, runs: [plain("First level"), plain("\n")]),
                 .blockEnd(.blockquote),
                 // The nested line reopens the stack at depth 2 (an empty
                 // level-1 parent plus the level-2 quote holding the text).
                 .blockStart(.blockquote),
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("Nested."), plain("\n")]),
+                .blockAppendInline(.blockquote, runs: [plain("Nested"), plain("\n")]),
                 // "Back to first." exits the nested quote into a fresh
                 // level-1 block instead of lazily continuing depth 2.
                 .blockEnd(.blockquote),
                 .blockEnd(.blockquote),
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("Back to first."), plain("\n")]),
+                .blockAppendInline(.blockquote, runs: [plain("Back to first"), plain("\n")]),
                 .blockEnd(.blockquote)
             ],
             openBlocks: []
