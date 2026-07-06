@@ -1,5 +1,7 @@
 # PicoMarkdownView
 
+[![CI](https://github.com/PicoMLX/PicoMarkdownView/actions/workflows/ci.yml/badge.svg)](https://github.com/PicoMLX/PicoMarkdownView/actions/workflows/ci.yml)
+
 SwiftUI component for rendering streaming Markdown and KaTeX in chat-style apps on iOS 18+ and macOS 15+.
 
 ## Installation
@@ -24,11 +26,10 @@ var body: some View {
 }
 ```
 
-For streaming, pass chunks or an async stream:
+For live streaming, pass an async stream — chunks are fed to the parser
+incrementally as they arrive:
 
 ```swift
-PicoMarkdownView(chunks: ["Hello ", "world", "\n\n"])
-
 PicoMarkdownView(stream: {
     AsyncStream { continuation in
         continuation.yield("Hello ")
@@ -36,6 +37,15 @@ PicoMarkdownView(stream: {
         continuation.finish()
     }
 })
+```
+
+To replay an already collected sequence of chunks (e.g. a finished
+response) in one shot, pass the array directly. Note that each delivery is
+parsed as a complete document, so this is not intended for feeding a
+growing array during live streaming — use `stream:` for that:
+
+```swift
+PicoMarkdownView(chunks: ["Hello ", "world", "\n\n"])
 ```
 
 The view maintains continuous selection and reuses layout via a shared `NSTextStorage` / TextKit host under the hood.

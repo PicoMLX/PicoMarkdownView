@@ -99,8 +99,6 @@ actor MarkdownRenderer {
     private let snapshotProvider: SnapshotProvider
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
-    private var cachedAttributedString = AttributedString()
-    private var blockCharacterOffsets: [Int] = []
     private var mermaidContentWidthBucket: Int?
 
     init(theme: MarkdownRenderTheme = .default(),
@@ -115,9 +113,19 @@ actor MarkdownRenderer {
         self.snapshotProvider = snapshotProvider
     }
 
+    /// Applies a diff to the per-block render cache. Returns whether anything
+    /// visible changed.
+    ///
+    /// The renderer deliberately does **not** maintain a spliced full-document
+    /// `AttributedString` here: keeping one current costs O(document) per
+    /// chunk (character-offset walks plus a splice), while the streaming view
+    /// layer only ever consumes `renderedBlocks()` and applies its own
+    /// per-block edits to `NSTextStorage`. Callers that need the joined
+    /// document (debug store, tests) get it on demand from
+    /// `currentAttributedString()`.
     @discardableResult
-    func apply(_ diff: AssemblerDiff) async -> AttributedString? {
-        guard !diff.changes.isEmpty else { return nil }
+    func apply(_ diff: AssemblerDiff) async -> Bool {
+        guard !diff.changes.isEmpty else { return false }
 
         var mutated = false
 
@@ -138,11 +146,15 @@ actor MarkdownRenderer {
             }
         }
 
-        return mutated ? makeSnapshot() : nil
+        return mutated
     }
 
     func currentAttributedString() -> AttributedString {
-        makeSnapshot()
+        var joined = AttributedString()
+        for block in blocks {
+            joined.append(block.content)
+        }
+        return joined
     }
 
     func renderedBlocks() -> [RenderedBlock] {
@@ -188,23 +200,15 @@ actor MarkdownRenderer {
         return mutated ? blocks : nil
     }
 
-    private func makeSnapshot() -> AttributedString {
-        cachedAttributedString
-    }
-
     private func insertBlock(id: BlockID, at position: Int) async {
         guard indexByID[id] == nil else { return }
         let snapshot = await snapshotProvider(id)
         let previousKind = previousBlockKind(at: position)
         let block = await buildRenderedBlock(id: id, snapshot: snapshot, previousBlockKind: previousKind)
         let index = max(0, min(position, blocks.count))
-        
-        let insertionPoint = rangeStartForBlock(at: index)
-        cachedAttributedString.replaceSubrange(insertionPoint..<insertionPoint, with: block.content)
-        
+
         blocks.insert(block, at: index)
         rebuildIndex(startingAt: index)
-        rebuildCharacterOffsets(startingAt: index)
     }
 
     private func refreshBlock(id: BlockID) async -> Bool {
@@ -215,19 +219,9 @@ actor MarkdownRenderer {
         
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
-        
-        var didMutate = false
-        if oldContent != newContent {
-            let range = rangeForBlock(at: index)
-            cachedAttributedString.replaceSubrange(range, with: newContent)
-            
-            blocks[index].content = rendered.attributed
-            if oldContent.characters.count != newContent.characters.count {
-                rebuildCharacterOffsets(startingAt: index + 1)
-            }
-            didMutate = true
-        }
-        
+
+        let didMutate = oldContent != newContent
+
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
         blocks[index].content = rendered.attributed
@@ -247,22 +241,13 @@ actor MarkdownRenderer {
         let upper = min(range.upperBound, blocks.count)
         guard lower < upper else { return }
         let removalRange = lower..<upper
-        
-        if !removalRange.isEmpty {
-            let startIndex = rangeStartForBlock(at: lower)
-            let endIndex = rangeStartForBlock(at: upper)
-            if startIndex < endIndex {
-                cachedAttributedString.removeSubrange(startIndex..<endIndex)
-            }
-        }
-        
+
         let removed = blocks[removalRange]
         blocks.removeSubrange(removalRange)
         for block in removed {
             indexByID[block.id] = nil
         }
         rebuildIndex(startingAt: lower)
-        rebuildCharacterOffsets(startingAt: lower)
     }
 
     private func rebuildIndex(startingAt start: Int) {
@@ -335,60 +320,6 @@ actor MarkdownRenderer {
                              mermaidDiagram: rendered.mermaidDiagram)
     }
     
-    private func rebuildCharacterOffsets(startingAt start: Int = 0) {
-        let clampedStart = max(0, min(start, blocks.count))
-
-        if clampedStart == 0 {
-            blockCharacterOffsets.removeAll(keepingCapacity: true)
-            blockCharacterOffsets.reserveCapacity(blocks.count)
-        } else if clampedStart < blockCharacterOffsets.count {
-            let removeCount = blockCharacterOffsets.count - clampedStart
-            if removeCount > 0 {
-                blockCharacterOffsets.removeLast(removeCount)
-            }
-        }
-        
-        var cumulative: Int
-        if clampedStart > 0 {
-            if blockCharacterOffsets.count >= clampedStart {
-                let previousOffset = blockCharacterOffsets[clampedStart - 1]
-                cumulative = previousOffset + blocks[clampedStart - 1].content.characters.count
-            } else {
-                cumulative = blocks[..<clampedStart].reduce(into: 0) { $0 += $1.content.characters.count }
-            }
-        } else {
-            cumulative = 0
-        }
-        
-        for i in clampedStart..<blocks.count {
-            blockCharacterOffsets.append(cumulative)
-            cumulative += blocks[i].content.characters.count
-        }
-        assert(blockCharacterOffsets.count == blocks.count, "Offsets should mirror block count")
-    }
-    
-    private func rangeStartForBlock(at index: Int) -> AttributedString.Index {
-        guard !blocks.isEmpty else { return cachedAttributedString.startIndex }
-
-        if index <= 0 {
-            return cachedAttributedString.startIndex
-        }
-
-        if index >= blockCharacterOffsets.count {
-            return cachedAttributedString.endIndex
-        }
-
-        let offset = blockCharacterOffsets[index]
-        return cachedAttributedString.index(cachedAttributedString.startIndex, offsetByCharacters: offset)
-    }
-    
-    private func rangeForBlock(at index: Int) -> Range<AttributedString.Index> {
-        let start = rangeStartForBlock(at: index)
-        let content = blocks[index].content
-        let distance = content.characters.count
-        let end = cachedAttributedString.index(start, offsetByCharacters: distance)
-        return start..<end
-    }
 }
 
 struct RenderedBlock: Sendable, Identifiable, Equatable {

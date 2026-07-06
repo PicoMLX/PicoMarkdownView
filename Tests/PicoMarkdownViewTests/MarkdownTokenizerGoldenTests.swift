@@ -603,16 +603,15 @@ struct MarkdownTokenizerGoldenTests {
 
         let first = await tokenizer.feed("| Col A | Col B |\n")
         assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("Col A"), plain("Col B")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("| --- | :---: |\n")
         assertChunk(second, matches: .init(
             events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [[plain("Col A")], [plain("Col B")]]),
                 .tableHeaderConfirmed(.table, alignments: [.left, .center])
             ],
             openBlocks: [.table]
@@ -636,16 +635,15 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| Timeline |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("Timeline")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| --- |\n")
         assertChunk(separator, matches: .init(
             events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [[plain("Timeline")]]),
                 .tableHeaderConfirmed(.table, alignments: [.left])
             ],
             openBlocks: [.table]
@@ -668,11 +666,8 @@ struct MarkdownTokenizerGoldenTests {
 
         let first = await tokenizer.feed("| Col A | Col B |\n")
         assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("Col A"), plain("Col B")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("Paragraph continuation\n\n")
@@ -693,16 +688,15 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| Name | Value |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("Name"), plain("Value")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| --- | --- |\n")
         assertChunk(separator, matches: .init(
             events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [[plain("Name")], [plain("Value")]]),
                 .tableHeaderConfirmed(.table, alignments: [.left, .left])
             ],
             openBlocks: [.table]
@@ -725,11 +719,8 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| A | B |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| - | -- |\n\n")
@@ -750,11 +741,8 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| A | B |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| :-- | --: |\n\n")
@@ -776,11 +764,8 @@ struct MarkdownTokenizerGoldenTests {
 
             let header = await tokenizer.feed("| A | B |\n")
             assertChunk(header, matches: .init(
-                events: [
-                    .blockStart(.table),
-                    .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
-                ],
-                openBlocks: [.table]
+                events: [],
+                openBlocks: []
             ), state: &state)
 
             let separator = await tokenizer.feed("\(separatorLine)\n\n")
@@ -805,11 +790,8 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| A | B |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("A"), plain("B")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| : -- : | --- |\n\n")
@@ -831,16 +813,15 @@ struct MarkdownTokenizerGoldenTests {
 
             let header = await tokenizer.feed("| L | R |\n")
             assertChunk(header, matches: .init(
-                events: [
-                    .blockStart(.table),
-                    .tableHeaderCandidate(.table, cells: [plain("L"), plain("R")])
-                ],
-                openBlocks: [.table]
+                events: [],
+                openBlocks: []
             ), state: &state)
 
             let separator = await tokenizer.feed("| :--- | ---: |\n\n")
             assertChunk(separator, matches: .init(
                 events: [
+                    .blockStart(.table),
+                    .tableHeaderCandidate(.table, cells: [[plain("L")], [plain("R")]]),
                     .tableHeaderConfirmed(.table, alignments: [.left, .right]),
                     .blockEnd(.table)
                 ],
@@ -854,16 +835,15 @@ struct MarkdownTokenizerGoldenTests {
 
             let header = await tokenizer.feed("| C1 | C2 |\n")
             assertChunk(header, matches: .init(
-                events: [
-                    .blockStart(.table),
-                    .tableHeaderCandidate(.table, cells: [plain("C1"), plain("C2")])
-                ],
-                openBlocks: [.table]
+                events: [],
+                openBlocks: []
             ), state: &state)
 
             let separator = await tokenizer.feed("| :---: | :---: |\n\n")
             assertChunk(separator, matches: .init(
                 events: [
+                    .blockStart(.table),
+                    .tableHeaderCandidate(.table, cells: [[plain("C1")], [plain("C2")]]),
                     .tableHeaderConfirmed(.table, alignments: [.center, .center]),
                     .blockEnd(.table)
                 ],
@@ -879,16 +859,15 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| a \\| b | c |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("a | b"), plain("c")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| --- | --- |\n\n")
         assertChunk(separator, matches: .init(
             events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [[plain("a | b")], [plain("c")]]),
                 .tableHeaderConfirmed(.table, alignments: [.left, .left]),
                 .blockEnd(.table)
             ],
@@ -903,11 +882,8 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| H1 | H2 |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("H1"), plain("H2")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let row = await tokenizer.feed("| foo | bar |\n\n")
@@ -928,11 +904,8 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| X | Y |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("X"), plain("Y")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| -- | -- |\n\n")
@@ -953,16 +926,15 @@ struct MarkdownTokenizerGoldenTests {
 
         let header = await tokenizer.feed("| H1 | H2 | H3 | H4 |\n")
         assertChunk(header, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("H1"), plain("H2"), plain("H3"), plain("H4")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let separator = await tokenizer.feed("| :--- | ---: | :---: | --- |\n")
         assertChunk(separator, matches: .init(
             events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [[plain("H1")], [plain("H2")], [plain("H3")], [plain("H4")]]),
                 .tableHeaderConfirmed(.table, alignments: [.left, .right, .center, .left])
             ],
             openBlocks: [.table]
@@ -2409,16 +2381,15 @@ struct MarkdownTokenizerGoldenTests {
 
         let third = await tokenizer.feed(" | Temp |\n")
         assertChunk(third, matches: .init(
-            events: [
-                .blockStart(.table),
-                .tableHeaderCandidate(.table, cells: [plain("Month"), plain("Temp")])
-            ],
-            openBlocks: [.table]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let fourth = await tokenizer.feed("| --- | --- |\n")
         assertChunk(fourth, matches: .init(
             events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [[plain("Month")], [plain("Temp")]]),
                 .tableHeaderConfirmed(.table, alignments: [.left, .left])
             ],
             openBlocks: [.table]
@@ -2432,6 +2403,85 @@ struct MarkdownTokenizerGoldenTests {
             ],
             openBlocks: []
         ), state: &state)
+    }
+
+    @Test("Table header cells receive inline formatting")
+    func tableHeaderCellsReceiveInlineFormatting() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let header = await tokenizer.feed("| **Bold** | `code` |\n")
+        assertChunk(header, matches: .init(
+            events: [],
+            openBlocks: []
+        ), state: &state)
+
+        let separator = await tokenizer.feed("| --- | --- |\n")
+        assertChunk(separator, matches: .init(
+            events: [
+                .blockStart(.table),
+                .tableHeaderCandidate(.table, cells: [
+                    [InlineRunShape(text: "Bold", style: InlineStyle.bold)],
+                    [InlineRunShape(text: "code", style: InlineStyle.code)]
+                ]),
+                .tableHeaderConfirmed(.table, alignments: [.left, .left])
+            ],
+            openBlocks: [.table]
+        ), state: &state)
+
+        let row = await tokenizer.feed("| a | b |\n\n")
+        assertChunk(row, matches: .init(
+            events: [
+                .tableAppendRow(.table, cells: [[plain("a")], [plain("b")]]),
+                .blockEnd(.table)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Cross-chunk table degradation leaves earlier blocks intact")
+    func crossChunkTableDegradationLeavesEarlierBlocksIntact() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // Paragraph and table header candidate arrive in one chunk; the
+        // candidate must not be announced until its separator confirms.
+        let first = await tokenizer.feed("Intro\n\n| A | B |\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.paragraph),
+                .blockAppendInline(.paragraph, runs: [plain("Intro")]),
+                .blockEnd(.paragraph)
+            ],
+            openBlocks: []
+        ), state: &state)
+
+        // The follow-up line invalidates the candidate in a *later* chunk.
+        // Degradation must replay the buffered lines without retracting or
+        // duplicating any previously delivered events.
+        let second = await tokenizer.feed("not a separator\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.unknown),
+                .blockAppendInline(.unknown, runs: [plain("| A | B |\nnot a separator\n")]),
+                .blockEnd(.unknown)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Table document is split-invariant at every chunk boundary")
+    func tableChunkSplitEquivalence() async {
+        let markdown = "Intro\n\n| **Bold** | `code` |\n| --- | :---: |\n| a | b |\n| c | d |\n\nOutro\n\n"
+        let single = summarizeBlocks(from: await collectEvents(chunks: [markdown]))
+        for index in markdown.indices.dropFirst() {
+            let streamed = summarizeBlocks(from: await collectEvents(chunks: [
+                String(markdown[..<index]),
+                String(markdown[index...])
+            ]))
+            let offset = markdown.distance(from: markdown.startIndex, to: index)
+            #expect(streamed == single, "Streamed output diverged when split at offset \(offset)")
+        }
     }
 
 // MARK: - Inline tag parsing
@@ -3050,7 +3100,7 @@ private enum EventShape: Equatable {
     case blockAppendInline(BlockKind, runs: [InlineRunShape])
     case blockAppendFencedCode(BlockKind, textChunk: String)
     case blockAppendMath(BlockKind, textChunk: String)
-    case tableHeaderCandidate(BlockKind, cells: [InlineRunShape])
+    case tableHeaderCandidate(BlockKind, cells: [[InlineRunShape]])
     case tableHeaderConfirmed(BlockKind, alignments: [TableAlignment])
     case tableAppendRow(BlockKind, cells: [[InlineRunShape]])
     case blockEnd(BlockKind)
@@ -3181,7 +3231,7 @@ private func normalizeEvents(_ events: [BlockEvent], state: inout EventNormaliza
             shapes.append(.blockAppendMath(kind, textChunk: text))
         case .tableHeaderCandidate(let id, let cells):
             let kind = state.map[id] ?? .table
-            shapes.append(.tableHeaderCandidate(kind, cells: cells.map(InlineRunShape.init)))
+            shapes.append(.tableHeaderCandidate(kind, cells: cells.map { $0.map(InlineRunShape.init) }))
         case .tableHeaderConfirmed(let id, let alignments):
             let kind = state.map[id] ?? .table
             shapes.append(.tableHeaderConfirmed(kind, alignments: alignments))
@@ -3276,7 +3326,7 @@ private enum BlockSummary: Equatable {
     case inline(kind: String, runs: [InlineRunShape])
     case fencedCode(language: String?, text: String)
     case math(display: Bool, text: String)
-    case table(header: [InlineRunShape], alignments: [TableAlignment], rows: [[[InlineRunShape]]])
+    case table(header: [[InlineRunShape]], alignments: [TableAlignment], rows: [[[InlineRunShape]]])
 }
 
 private struct InFlightBlockSummary {
@@ -3284,7 +3334,7 @@ private struct InFlightBlockSummary {
     var kindDescription: String
     var inlineRuns: [InlineRunShape] = []
     var fencedText: String = ""
-    var tableHeader: [InlineRunShape] = []
+    var tableHeader: [[InlineRunShape]] = []
     var tableAlignments: [TableAlignment] = []
     var tableRows: [[[InlineRunShape]]] = []
 }

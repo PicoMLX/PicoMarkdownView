@@ -103,7 +103,7 @@ public enum BlockEvent: Sendable {
   case blockAppendFencedCode(id: BlockID, textChunk: String)  // verbatim, no inline parsing
 
   // Table-specific deltas (GFM)
-  case tableHeaderCandidate(id: BlockID, cells: [InlineRun])           // before separator
+  case tableHeaderCandidate(id: BlockID, cells: [[InlineRun]])         // inline-parsed header cells
   case tableHeaderConfirmed(id: BlockID, alignments: [TableAlignment]) // after separator
   case tableAppendRow(id: BlockID, cells: [[InlineRun]])
 
@@ -159,8 +159,8 @@ Parser architecture
     •    FSM + bounded look-behind (≈256–1024 code units) to resolve ambiguous constructs (* vs literal, closing ```).
     •    Streaming guarantees: emit events only when constructs are unambiguous within the window.
     •    Tables:
-    •    Header line → tableHeaderCandidate.
-    •    Separator confirms → tableHeaderConfirmed(alignments:).
+    •    Header line is buffered locally; nothing is emitted until the separator line resolves the candidate (events drain to the assembler at every chunk boundary, so announcing earlier would require retracting events when the candidate degrades).
+    •    Separator confirms → blockStart(.table) + tableHeaderCandidate(cells:) + tableHeaderConfirmed(alignments:) emitted together. Header cells are inline-parsed like row cells.
     •    Rows as tableAppendRow.
     •    Fallback: unsupported or malformed block → .unknown via blockStart(kind:.unknown) + blockAppendInline.
 
@@ -349,15 +349,16 @@ Input
     3.    feed("| a1 | b1 |\n| a2 | b2 |\n\n")
 
 Expected
-    1.    → BS(.table), THC(cells:[ "Col A", "Col B" ])
-    2.    → THE(align:[ .left, .center ])
-    3.    → TAR(cells:[[ "a1","b1" ]]),
-TAR(cells:[[ "a2","b2" ]]),
+    1.    → (no events; the header line is buffered locally as a candidate)
+    2.    → BS(.table), THC(cells:[[ "Col A" ],[ "Col B" ]]), THE(align:[ .left, .center ])
+    3.    → TAR(cells:[[ "a1" ],[ "b1" ]]),
+TAR(cells:[[ "a2" ],[ "b2" ]]),
 BE
 
 Notes
-    •    Before the separator line arrives, it’s a header candidate only.
-    •    After confirmation, rows append as cells of InlineRuns with plain styles.
+    •    Nothing is emitted for the candidate until the separator confirms it; events drain to the assembler at every chunk boundary, so an earlier announcement could not be retracted when the candidate degrades to .unknown.
+    •    Header cells are inline-parsed like row cells: THC carries [[InlineRun]] (one run array per cell), so | **bold** | headers render styled.
+    •    While unconfirmed, the candidate is also excluded from openBlocks.
 
 ⸻
 

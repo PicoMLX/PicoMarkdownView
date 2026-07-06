@@ -929,6 +929,14 @@ struct StreamingParser {
             table.bufferedLines.append(rawLine)
             if let alignments = parseAlignment(trimmed) {
                 table.alignments = alignments
+                // The candidate is now a confirmed table: announce the block
+                // and the header in one batch. Header cells get the same
+                // inline parsing as row cells so `| **bold** |` renders
+                // identically in headers and body rows.
+                let headerLine = table.bufferedLines.first ?? ""
+                let headerCells = splitCells(headerLine).map { InlineParser.parseAll($0, tagPrefixes: tagPrefixes) }
+                events.append(.blockStart(id: ctx.id, kind: .table))
+                events.append(.tableHeaderCandidate(id: ctx.id, cells: headerCells))
                 events.append(.tableHeaderConfirmed(id: ctx.id, alignments: alignments))
                 table.stage = .rows
                 table.bufferedLines.removeAll(keepingCapacity: true)
@@ -955,12 +963,13 @@ struct StreamingParser {
         }
     }
 
+    /// Replays a failed table candidate's buffered lines as an unknown block.
+    ///
+    /// Degradation only happens from the `.header`/`.separatorPending` stages,
+    /// and `openTable` emits nothing for those stages, so there are no
+    /// already-delivered table events to retract here — the block ID is fresh
+    /// from the assembler's point of view and can be reused for the fallback.
     private mutating func degradeTableCandidate(context ctx: inout BlockContext, table: TableState, terminated: Bool) {
-        let startIndex = min(ctx.eventStartIndex, events.count)
-        if startIndex < events.count {
-            events.removeSubrange(startIndex..<events.count)
-        }
-
         let text: String = {
             guard !table.bufferedLines.isEmpty else { return "" }
             var joined = table.bufferedLines.joined(separator: "\n")
@@ -1126,6 +1135,15 @@ struct StreamingParser {
         pushBlock(context)
     }
 
+    /// Opens a *candidate* table context without emitting any events.
+    ///
+    /// Events for the table (`blockStart`, `tableHeaderCandidate`,
+    /// `tableHeaderConfirmed`) are deferred until the separator line validates
+    /// the candidate in `handleTableLine`. Events are drained to the assembler
+    /// at every chunk boundary, so announcing the block here would make
+    /// degradation impossible without retracting already-delivered events —
+    /// violating the "no provisional events followed by corrections" invariant
+    /// whenever the header and separator arrive in different chunks.
     private mutating func openTable(_ line: String) {
         var context = BlockContext(
             id: nextID,
@@ -1141,9 +1159,6 @@ struct StreamingParser {
             listIndent: 0
         )
         nextID &+= 1
-        events.append(.blockStart(id: context.id, kind: .table))
-        let headerCells = splitCells(line).map { InlineRun(text: $0) }
-        events.append(.tableHeaderCandidate(id: context.id, cells: headerCells))
         context.tableState = TableState(stage: .header, alignments: [], bufferedLines: [])
         pushBlock(context)
     }
@@ -1704,6 +1719,14 @@ struct StreamingParser {
         var states: [OpenBlockState] = []
         states.reserveCapacity(contextStack.count)
         for (index, context) in contextStack.enumerated() {
+            // Unconfirmed table candidates have not been announced via
+            // `blockStart` (see `openTable`), so they must not appear in
+            // `openBlocks` either — the assembler would otherwise track an ID
+            // it has never seen. A candidate is always the top of the stack,
+            // so skipping it cannot orphan a child context.
+            if case .table = context.kind, context.tableState?.stage != TableState.Stage.rows {
+                continue
+            }
             let parentID = index > 0 ? contextStack[index - 1].id : nil
             states.append(OpenBlockState(id: context.id, kind: context.kind, parentID: parentID, depth: index))
         }

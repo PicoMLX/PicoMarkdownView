@@ -21,8 +21,8 @@ final class MarkdownRendererStore {
     }
 
     func apply(_ diff: AssemblerDiff) async {
-        if let updated = await renderer.apply(diff) {
-            self.attributedText = updated
+        if await renderer.apply(diff) {
+            self.attributedText = await renderer.currentAttributedString()
         }
     }
 

@@ -816,8 +816,10 @@ private final class StreamingTextKit2View: UITextView, UITextViewDelegate {
 
     init(backend: TextKitStreamingBackend) {
         super.init(frame: .zero, textContainer: nil)
+        // UITextView has no `textContentStorage` accessor (that is NSTextView
+        // API); reach the storage through the layout manager's content manager.
         if let layoutManager = textLayoutManager,
-           let contentStorage = textContentStorage {
+           let contentStorage = layoutManager.textContentManager as? NSTextContentStorage {
             backend.connect(to: contentStorage, layoutManager: layoutManager)
         }
         delegate = self
