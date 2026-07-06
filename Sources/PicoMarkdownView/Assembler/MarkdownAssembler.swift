@@ -326,10 +326,10 @@ private struct BlockEntry {
         return bytes
     }
 
-    mutating func setTableHeaderCandidate(_ cells: [InlineRun], allowCoalescing: Bool) -> Int {
+    mutating func setTableHeaderCandidate(_ cells: [[InlineRun]], allowCoalescing: Bool) -> Int {
         ensureTableState()
         let normalized = cells.map { cell -> [InlineRun] in
-            allowCoalescing ? BlockEntry.coalescedRuns([cell]) : [cell]
+            allowCoalescing ? BlockEntry.coalescedRuns(cell) : cell
         }
         let newBytes = BlockEntry.byteCount(forCells: normalized)
         let delta = newBytes - (table?.headerByteCount ?? 0)

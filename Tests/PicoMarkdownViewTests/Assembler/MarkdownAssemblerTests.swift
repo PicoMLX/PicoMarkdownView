@@ -339,7 +339,7 @@ struct MarkdownAssemblerTests {
         let first = ChunkResult(
             events: [
                 .blockStart(id: 21, kind: .table),
-                .tableHeaderCandidate(id: 21, cells: [InlineRun(text: "H1"), InlineRun(text: "H2")])
+                .tableHeaderCandidate(id: 21, cells: [[InlineRun(text: "H1")], [InlineRun(text: "H2")]])
             ],
             openBlocks: [OpenBlockState(id: 21, kind: .table)]
         )
@@ -492,7 +492,7 @@ struct MarkdownAssemblerTests {
                 events: [
                     .blockAppendFencedCode(id: 51, textChunk: "print(2)\n"),
                     .blockStart(id: 52, kind: .table),
-                    .tableHeaderCandidate(id: 52, cells: [InlineRun(text: "H")]),
+                    .tableHeaderCandidate(id: 52, cells: [[InlineRun(text: "H")]]),
                     .tableHeaderConfirmed(id: 52, alignments: [.center]),
                     .tableAppendRow(id: 52, cells: [[InlineRun(text: "V")]])
                 ],
@@ -699,7 +699,7 @@ struct MarkdownAssemblerTests {
         _ = await assembler.apply(.init(
             events: [
                 .blockStart(id: 500, kind: .table),
-                .tableHeaderCandidate(id: 500, cells: [InlineRun(text: "H1"), InlineRun(text: "H2")])
+                .tableHeaderCandidate(id: 500, cells: [[InlineRun(text: "H1")], [InlineRun(text: "H2")]])
             ],
             openBlocks: [OpenBlockState(id: 500, kind: .table)]
         ))

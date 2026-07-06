@@ -81,19 +81,30 @@ actor MarkdownAttributeBuilder {
             let codeBlockSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
             let content: NSMutableAttributedString
             if let codeTheme = theme.codeBlockTheme {
-                let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
-                let highlighted = await highlighter.highlight(text, language: {
-                    if case let .fencedCode(value) = snapshot.kind {
-                        return value
-                    }
-                    return nil
-                }(), theme: codeTheme)
-                content = NSMutableAttributedString(highlighted)
-
                 let resolvedCodeFont = codeTheme.resolvedFont()
                 let resolvedFg = codeTheme.resolvedForegroundColor()
                 let resolvedBg = codeTheme.resolvedBackgroundColor()
                 let hasBackground = codeTheme.backgroundColor != .clear
+
+                if snapshot.isClosed {
+                    let highlighter = theme.codeHighlighter ?? AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())
+                    let highlighted = await highlighter.highlight(text, language: {
+                        if case let .fencedCode(value) = snapshot.kind {
+                            return value
+                        }
+                        return nil
+                    }(), theme: codeTheme)
+                    content = NSMutableAttributedString(highlighted)
+                } else {
+                    // While the fence is open, every appended chunk re-renders
+                    // the whole block, so running the syntax highlighter here
+                    // would be O(block²) over the stream. Render with the
+                    // theme's base attributes and highlight once, on close.
+                    content = NSMutableAttributedString(string: text, attributes: [
+                        .font: resolvedCodeFont,
+                        .foregroundColor: resolvedFg
+                    ])
+                }
 
                 if content.length > 0 {
                     applyCodeBlockParagraphStyles(to: content, spacing: codeBlockSpacing)
@@ -249,6 +260,21 @@ actor MarkdownAttributeBuilder {
     private func renderHorizontalRule() -> NSAttributedString {
         _ = paragraphSpacing()
 
+        #if !canImport(AppKit)
+        // UIKit has no NSTextTable, so a border-drawn hairline is not
+        // available. Approximate the rule with connecting box-drawing glyphs
+        // in the secondary label color.
+        let ruleParagraph = NSMutableParagraphStyle()
+        ruleParagraph.alignment = .left
+        ruleParagraph.lineBreakMode = .byClipping
+        ruleParagraph.paragraphSpacing = 20
+        ruleParagraph.paragraphSpacingBefore = 20
+        return NSAttributedString(string: String(repeating: "\u{2500}", count: 32) + "\n", attributes: [
+            .paragraphStyle: ruleParagraph,
+            .font: bodyFont,
+            .foregroundColor: PlatformColor.rendererSecondaryLabel
+        ])
+        #else
         // Use a 1-column NSTextTable that spans 100% width with a top border to emulate an HR
         let table = NSTextTable()
         table.numberOfColumns = 1
@@ -293,6 +319,7 @@ actor MarkdownAttributeBuilder {
 //        ]))
         // No extra blank paragraph appended here
         return result
+        #endif
     }
 
     private func renderInlineBlock(_ snapshot: BlockSnapshot,
@@ -733,6 +760,112 @@ actor MarkdownAttributeBuilder {
         return paragraphStyle
     }
 
+#if !canImport(AppKit)
+    /// UIKit fallback: iOS TextKit has no `NSTextTable`, so tables render as
+    /// styled text rows — bold header, cells joined by a thin vertical
+    /// separator — until a native iOS table presentation exists.
+    /// `RenderedTable` is still populated with per-cell content so the view
+    /// layer (or a future overlay) has the structured data.
+    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
+        guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
+
+        let maxRowColumns = table.rows.reduce(0) { max($0, $1.count) }
+        let columnCount = max(table.headerCells?.count ?? 0, maxRowColumns)
+        guard columnCount > 0 else { return (NSAttributedString(), nil, []) }
+
+        var renderedTable = RenderedTable(headers: nil, rows: [], alignments: table.alignments)
+        var collectedImages: [RenderedImage] = []
+        var imageIndex = 0
+        let result = NSMutableAttributedString()
+
+        if let headers = table.headerCells, !headers.isEmpty {
+            let (headerAttributed, headerCells) = await renderTableRow(cells: headers,
+                                                                       numberOfColumns: columnCount,
+                                                                       font: font,
+                                                                       blockID: snapshot.id,
+                                                                       imageCounter: &imageIndex,
+                                                                       collectedImages: &collectedImages,
+                                                                       isHeader: true)
+            renderedTable.headers = headerCells
+            result.append(headerAttributed)
+        }
+
+        var renderedRows: [[AttributedString]] = []
+        for row in table.rows {
+            let (rowAttributed, renderedCells) = await renderTableRow(cells: row,
+                                                                      numberOfColumns: columnCount,
+                                                                      font: font,
+                                                                      blockID: snapshot.id,
+                                                                      imageCounter: &imageIndex,
+                                                                      collectedImages: &collectedImages,
+                                                                      isHeader: false)
+            renderedRows.append(renderedCells)
+            result.append(rowAttributed)
+        }
+
+        renderedTable.rows = renderedRows
+        result.append(NSAttributedString(string: "\n", attributes: [.font: font]))
+        return (result, renderedTable, collectedImages)
+    }
+
+    private func renderTableRow(cells: [[InlineRun]],
+                                numberOfColumns: Int,
+                                font: PlatformFont,
+                                blockID: BlockID,
+                                imageCounter: inout Int,
+                                collectedImages: inout [RenderedImage],
+                                isHeader: Bool) async -> (NSAttributedString, [AttributedString]) {
+        let rowAttributed = NSMutableAttributedString()
+        var renderedCells: [AttributedString] = []
+        let displayFont = isHeader ? boldFont(from: font) : font
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
+        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.paragraphSpacing = 2
+
+        let cellSeparator = NSAttributedString(string: "  \u{2502}  ", attributes: [
+            .font: font,
+            .foregroundColor: PlatformColor.rendererSecondaryLabel
+        ])
+
+        for column in 0..<numberOfColumns {
+            let inlineRuns = column < cells.count ? cells[column] : []
+            let inline = await renderInline(inlineRuns, font: displayFont)
+            let images = collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter)
+            if !images.isEmpty {
+                collectedImages.append(contentsOf: images)
+            }
+
+            let cellContent = inline.length > 0 ? NSMutableAttributedString(attributedString: inline) : NSMutableAttributedString(string: " ")
+            let cellRange = NSRange(location: 0, length: cellContent.length)
+            // Fill the base font and label color only where inline runs
+            // didn't set one, so run-level styling (bold, code, links)
+            // survives — mirroring the AppKit cell path.
+            cellContent.enumerateAttribute(.font, in: cellRange, options: []) { value, range, _ in
+                if value == nil {
+                    cellContent.addAttribute(.font, value: displayFont, range: range)
+                }
+            }
+            cellContent.enumerateAttribute(.foregroundColor, in: cellRange, options: []) { value, range, _ in
+                if value == nil {
+                    cellContent.addAttribute(.foregroundColor, value: PlatformColor.rendererLabel, range: range)
+                }
+            }
+
+            renderedCells.append(AttributedString(cellContent))
+            if column > 0 {
+                rowAttributed.append(cellSeparator)
+            }
+            rowAttributed.append(cellContent)
+        }
+
+        rowAttributed.append(NSAttributedString(string: "\n", attributes: [.font: displayFont]))
+        rowAttributed.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: rowAttributed.length))
+
+        return (rowAttributed, renderedCells)
+    }
+#else
     private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
         guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
 
@@ -830,11 +963,22 @@ actor MarkdownAttributeBuilder {
             }
 
             let cellContent = inline.length > 0 ? NSMutableAttributedString(attributedString: inline) : NSMutableAttributedString(string: " ")
-            cellContent.addAttributes([
-                .paragraphStyle: paragraph,
-                .font: displayFont,
-                .foregroundColor: PlatformColor.rendererLabel
-            ], range: NSRange(location: 0, length: cellContent.length))
+            let cellRange = NSRange(location: 0, length: cellContent.length)
+            // The table block/alignment must cover the whole cell, but the
+            // run-level fonts and colors produced by inline styling (bold,
+            // italic, code, links) must survive — only fill the base font and
+            // label color where a run didn't set one.
+            cellContent.addAttribute(.paragraphStyle, value: paragraph, range: cellRange)
+            cellContent.enumerateAttribute(.font, in: cellRange, options: []) { value, range, _ in
+                if value == nil {
+                    cellContent.addAttribute(.font, value: displayFont, range: range)
+                }
+            }
+            cellContent.enumerateAttribute(.foregroundColor, in: cellRange, options: []) { value, range, _ in
+                if value == nil {
+                    cellContent.addAttribute(.foregroundColor, value: PlatformColor.rendererLabel, range: range)
+                }
+            }
 
             renderedCells.append(AttributedString(cellContent))
             rowAttributed.append(cellContent)
@@ -846,6 +990,7 @@ actor MarkdownAttributeBuilder {
 
         return (rowAttributed, renderedCells)
     }
+#endif
 
     private func tableTextAlignment(for column: Int, alignments: [TableAlignment]?) -> NSTextAlignment {
         guard let alignments, column < alignments.count else { return .left }

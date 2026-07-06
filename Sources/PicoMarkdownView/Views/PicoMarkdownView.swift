@@ -6,6 +6,16 @@ public struct PicoMarkdownView: View {
     private let configuration: PicoTextKitConfiguration
 
     @State private var viewModel: MarkdownStreamingViewModel
+    /// Stable per-view-identity token used as the `.task` id for `.stream`
+    /// inputs. A stream input mints a unique id on every construction
+    /// (closures have no comparable content), so keying the task off
+    /// `input.id` would cancel consumption and re-invoke the factory on every
+    /// parent body re-evaluation. Keying it off this token keeps the task
+    /// alive across re-renders, restarts it when the view identity changes,
+    /// and — because non-stream inputs keep their content-derived id — also
+    /// restarts it when the input switches between stream and non-stream
+    /// modes, always consuming the *current* input.
+    @State private var streamTaskIdentity = UUID()
     @StateObject private var controller = TextKitStreamingController()
     @Environment(\.openURL) private var openURL
     @Environment(\.picoOnTagTap) private var onTagTap
@@ -21,6 +31,15 @@ public struct PicoMarkdownView: View {
         self.input = input
         self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
+    }
+
+    private var consumeTaskID: String {
+        guard input.isStream else { return input.id }
+        // A caller-provided stream identity is stable across re-renders and
+        // changes exactly when the caller wants a restart (e.g. regenerating
+        // a response in place), so it can key the task directly. Without one,
+        // fall back to the per-view-identity token.
+        return input.hasStableStreamID ? input.id : "stream-identity-\(streamTaskIdentity.uuidString)"
     }
 
     /// Creates a view that renders `text` as Markdown.
@@ -53,6 +72,15 @@ public struct PicoMarkdownView: View {
                   configuration: configuration)
     }
 
+    /// Creates a view that renders a complete document delivered as an array
+    /// of chunks.
+    ///
+    /// - Important: This is a **one-shot** convenience — for example,
+    ///   replaying the collected chunks of a finished LLM response. Each
+    ///   delivery is parsed as a complete document, so passing a *growing*
+    ///   array re-parses the whole document on every append. For live
+    ///   streaming, use the `stream:` initializer, which feeds the pipeline
+    ///   incrementally with O(chunk) work per chunk.
     public init(chunks: [String],
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
@@ -66,13 +94,34 @@ public struct PicoMarkdownView: View {
                   configuration: configuration)
     }
 
+    /// Creates a view that renders an async stream of Markdown chunks.
+    ///
+    /// - Important: The factory may be invoked more than once for the same
+    ///   view. The consuming task is cancelled when the view leaves the
+    ///   hierarchy (e.g. scrolls out of a lazy container) and, because a
+    ///   cancelled stream cannot be resumed, the factory is called again when
+    ///   the view reappears. Return the full stream from the beginning on
+    ///   every invocation (for a finished LLM response, replay the collected
+    ///   text) so reappearing views render complete content.
+    ///
+    /// - Parameter streamID: Optional identity for the stream. Without it,
+    ///   the stream is consumed once per view identity, so swapping in a
+    ///   *different* factory during a re-render is ignored (closures cannot
+    ///   be compared). Pass a value that changes when the stream's content
+    ///   changes — e.g. a regeneration counter — to restart consumption with
+    ///   the new factory while equal values continue to survive re-renders:
+    ///
+    ///   ```swift
+    ///   PicoMarkdownView(stream: makeStream, streamID: message.generationID)
+    ///   ```
     public init(stream: @escaping @Sendable () async -> AsyncStream<String>,
+                streamID: AnyHashable? = nil,
                 theme: MarkdownRenderTheme = .default(),
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
                 tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
                 configuration: PicoTextKitConfiguration = .default()) {
-        self.init(input: .stream(stream),
+        self.init(input: .stream(stream, id: streamID),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
                   tagPrefixes: tagPrefixes,
@@ -93,7 +142,7 @@ public struct PicoMarkdownView: View {
                           onContentSize: onContentSize,
                           linkHandler: makeLinkHandler(),
                           hoverHandler: makeHoverHandler())
-            .task(id: input.id) {
+            .task(id: consumeTaskID) {
                 await viewModel.consume(input)
             }
     }

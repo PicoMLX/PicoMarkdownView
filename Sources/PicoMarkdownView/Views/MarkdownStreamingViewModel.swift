@@ -8,7 +8,17 @@ final class MarkdownStreamingViewModel {
     private static let logger = Logger(subsystem: "com.picomarkdown", category: "ViewModel")
 
     private var pipeline: MarkdownStreamingPipeline
-    private var processedInputs: Set<UUID> = []
+    private var pipelineGeneration: UInt64 = 0
+    /// Id of the input whose consumption most recently *started* — intent,
+    /// not completion. Recording at start is safe because `replace(with:)`
+    /// and `consume(chunks:)` always run to completion once started (plain
+    /// awaits do not abort on task cancellation); the only thing that stops
+    /// them is a newer input, which overwrites this id and wins the pipeline
+    /// generation check. Comparing against intent also means an A -> B -> A
+    /// flip while B is still parsing restarts A instead of dropping it as a
+    /// duplicate of stale state.
+    private var activeInputID: String?
+    private var lastReplacementValue: String?
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
     private let tagPrefixes: Set<TagPrefix>
@@ -38,52 +48,117 @@ final class MarkdownStreamingViewModel {
     }
 
     func consume(_ input: MarkdownStreamingInput) async {
-        if case .replacement = input.payload {
-            processedInputs.removeAll(keepingCapacity: true)
-        }
-        guard processedInputs.insert(input.id).inserted else { return }
         switch input.payload {
         case .replacement(let value):
+            // Input ids are content-derived for `.text`/`.chunks`, so a
+            // re-fired `.task` (parent re-render, scroll-back in a lazy
+            // container) with unchanged content is dropped here without
+            // touching the pipeline. Only the most recently *started* id is
+            // remembered (see `activeInputID`) so A -> B -> A re-applies A
+            // even while B is still mid-parse.
+            guard input.id != activeInputID else { return }
+            activeInputID = input.id
             await replace(with: value)
         case .chunks(let values):
+            guard input.id != activeInputID else { return }
+            activeInputID = input.id
             await consume(chunks: values)
         case .stream:
+            // Streams are intentionally NOT deduplicated by id: `.task` is
+            // cancelled when the view scrolls out and re-fires with the same
+            // id when it reappears, and a cancelled stream cannot be resumed.
+            // Rebuild and re-invoke the factory so the view shows the full
+            // content again (the factory should return the full stream on
+            // each invocation).
             guard let factory = input.streamFactory else { return }
+            // Streams still update the active id: a `.chunks`/`.text` input
+            // that re-arrives after a stream replaced the document must not
+            // be mistaken for a redundant re-delivery.
+            activeInputID = input.id
+            let (freshPipeline, generation) = makeFreshPipeline()
+            _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
+            enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
-            await consume(stream: stream)
+            await consume(stream: stream, pipeline: freshPipeline, generation: generation)
         }
+    }
+
+    /// Replaces the active pipeline and bumps the consumption generation so a
+    /// cancelled-but-still-draining older consume loop can no longer publish
+    /// into the new document.
+    private func makeFreshPipeline() -> (MarkdownStreamingPipeline, UInt64) {
+        lastReplacementValue = nil
+        resetImagePrefetchState()
+        pipelineGeneration &+= 1
+        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
+        pipeline = newPipeline
+        return (newPipeline, pipelineGeneration)
     }
 
     private func consume(chunks: [String]) async {
-        for chunk in chunks {
-            await applyChunk(chunk)
+        // A `.chunks` input describes a complete document, and `finish()` has
+        // already sealed any previously consumed input. Feeding into the
+        // existing pipeline would duplicate content, so rebuild from scratch —
+        // but still publish after every chunk so long replays render (and
+        // start image prefetch) progressively rather than all at once.
+        let (freshPipeline, generation) = makeFreshPipeline()
+        _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
+
+        // The first publish must be a full replace (diff: nil): the view may
+        // still show the previous document, and the fresh pipeline's diffs
+        // are relative to an empty one.
+        var publishedAny = false
+        for chunk in chunks where !chunk.isEmpty {
+            if let update = await freshPipeline.feed(chunk) {
+                guard generation == pipelineGeneration else { return }
+                enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
+                publishedAny = true
+            }
         }
-        if let update = await pipeline.finish() {
-            enqueueUpdate(blocks: update.blocks, diff: update.diff)
+        if let update = await freshPipeline.finish() {
+            guard generation == pipelineGeneration else { return }
+            enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
+            publishedAny = true
+        }
+        guard generation == pipelineGeneration else { return }
+        if !publishedAny {
+            // Empty input still replaces whatever was on screen.
+            enqueueUpdate(blocks: [], diff: nil)
         }
     }
 
-    private func consume(stream: AsyncStream<String>) async {
+    private func consume(stream: AsyncStream<String>,
+                         pipeline: MarkdownStreamingPipeline,
+                         generation: UInt64) async {
         for await chunk in stream {
-            await applyChunk(chunk)
+            if Task.isCancelled { return }
+            guard !chunk.isEmpty else { continue }
+            if let update = await pipeline.feed(chunk) {
+                guard generation == pipelineGeneration else { return }
+                enqueueUpdate(blocks: update.blocks, diff: update.diff)
+            }
         }
+        guard !Task.isCancelled else { return }
         if let update = await pipeline.finish() {
+            guard generation == pipelineGeneration else { return }
             enqueueUpdate(blocks: update.blocks, diff: update.diff)
         }
     }
 
     private func replace(with value: String) async {
+        // Belt-and-braces alongside the content-derived input id: a redundant
+        // replace with identical text must not re-tokenize the document.
+        guard value != lastReplacementValue else { return }
         #if DEBUG
         Self.logger.debug("replace(with:) called, value length=\(value.count)")
         #endif
-        resetImagePrefetchState()
-        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
+        let (freshPipeline, generation) = makeFreshPipeline()
         var latestBlocks: [RenderedBlock] = []
 
-        _ = await newPipeline.updateMermaidContentWidth(mermaidContentWidth)
+        _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
 
         if !value.isEmpty {
-            if let update = await newPipeline.feed(value) {
+            if let update = await freshPipeline.feed(value) {
                 latestBlocks = update.blocks
                 #if DEBUG
                 Self.logger.debug("feed produced \(latestBlocks.count) blocks")
@@ -95,7 +170,7 @@ final class MarkdownStreamingViewModel {
             }
         }
 
-        if let update = await newPipeline.finish() {
+        if let update = await freshPipeline.finish() {
             latestBlocks = update.blocks
             #if DEBUG
             Self.logger.debug("finish produced \(latestBlocks.count) blocks")
@@ -106,18 +181,12 @@ final class MarkdownStreamingViewModel {
             #endif
         }
 
-        pipeline = newPipeline
+        guard generation == pipelineGeneration else { return }
+        lastReplacementValue = value
         #if DEBUG
         Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
         #endif
         enqueueUpdate(blocks: latestBlocks, diff: nil)
-    }
-
-    private func applyChunk(_ chunk: String) async {
-        guard !chunk.isEmpty else { return }
-        if let update = await pipeline.feed(chunk) {
-            enqueueUpdate(blocks: update.blocks, diff: update.diff)
-        }
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async {
@@ -195,6 +264,13 @@ final class MarkdownStreamingViewModel {
     }
 
     private func updateImageDependencies(using blocks: [RenderedBlock]) {
+        // This runs once per enqueued update (i.e. per chunk). The common case
+        // is a document with no images at all — skip the dictionary rebuild
+        // entirely rather than reallocating an empty map every chunk.
+        if imageBlockDependencies.isEmpty && blocks.allSatisfy({ $0.images.isEmpty }) {
+            return
+        }
+
         var dependencies: [URL: Set<BlockID>] = [:]
         for block in blocks {
             for image in block.images {
@@ -214,9 +290,15 @@ final class MarkdownStreamingViewModel {
 
     private func scheduleImagePrefetchIfNeeded(using blocks: [RenderedBlock]) {
         guard !blocks.isEmpty else { return }
+        guard !imageBlockDependencies.isEmpty else { return }
         guard let prefetcher = imageProvider as? any MarkdownImagePrefetchingProvider else { return }
 
-        for url in imageBlockDependencies.keys.sorted(by: { $0.absoluteString < $1.absoluteString }) {
+        // Sort only the not-yet-requested URLs (usually none) instead of
+        // re-sorting the full set on every chunk.
+        let pendingURLs = imageBlockDependencies.keys.filter { !requestedRemoteImageURLs.contains($0) }
+        guard !pendingURLs.isEmpty else { return }
+
+        for url in pendingURLs.sorted(by: { $0.absoluteString < $1.absoluteString }) {
             guard requestedRemoteImageURLs.insert(url).inserted else { continue }
             let generation = imagePrefetchGeneration
             imagePrefetchTasks[url] = Task { [weak self] in
