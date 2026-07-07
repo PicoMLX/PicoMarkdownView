@@ -715,6 +715,227 @@ struct MarkdownRendererTests {
         #expect(sub.first == sub.last)
     }
 
+    @Test("List item ending in a styled span does not gain a blank line")
+    func listItemEndingInCodeSpanStaysTight() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The first item ends in an inline-code span, so its trailing "\n"
+        // run cannot coalesce into the plain text. It used to survive into
+        // the render and, combined with the item's own "\n" terminator,
+        // produce an empty paragraph — a full blank line between bullets.
+        let markdown = "* Ends with `code`\n* Second item\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let listItems = blocks.filter { $0.listItem != nil }
+        #expect(listItems.count == 2)
+
+        for item in listItems {
+            let text = String(NSAttributedString(item.content).string)
+            #expect(!text.contains("\n\n"), "list item rendered an empty paragraph: \(text.debugDescription)")
+            #expect(text.hasSuffix("\n") && !text.hasSuffix("\n\n"))
+        }
+    }
+
+    @Test("Nested blockquotes carry the drawn-bar level attribute, not glyphs")
+    func nestedBlockquotesCarryLevelAttribute() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let markdown = "> Level one\n>> Level two\n> > > Level three\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let quotes = blocks.filter { $0.blockquote != nil }
+        #expect(quotes.count == 3, "expected three nested blockquote blocks, got \(quotes.count)")
+
+        for block in quotes {
+            let ns = NSAttributedString.picoConverted(from: block.content)
+            // Bars are drawn by the view layer, not baked into the text —
+            // selection/copy must not contain bar characters. The custom
+            // attribute must survive the AttributedString round-trip, cover
+            // the whole block (incl. the trailing newline, so adjacent quote
+            // bars merge), and match depth + 1.
+            #expect(!ns.string.contains("│"), "bar glyphs leaked into text: \(ns.string.debugDescription)")
+            guard ns.length > 0 else {
+                Issue.record("empty quote block")
+                continue
+            }
+            var effective = NSRange(location: 0, length: 0)
+            let level = ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: &effective) as? Int
+            #expect(level == block.snapshot.depth + 1)
+            #expect(effective == NSRange(location: 0, length: ns.length),
+                    "level attribute must span the whole block")
+            let style = ns.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            #expect(style?.headIndent == BlockquoteBarMetrics.textIndent(level: block.snapshot.depth + 1))
+        }
+    }
+
+    @Test("Marker-only separators split quotes and return to the outer level")
+    func quoteSeparatorReturnsToOuterLevel() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The classic Markdown.pl nested-quote sample. GitHub renders:
+        // level 1, a nested level 2, then back to level 1.
+        let markdown = "> First level.\n>\n> > Nested.\n>\n> Back to first.\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        let diff = await assembler.apply(chunk)
+        _ = await renderer.apply(diff)
+        let finish = await tokenizer.finish()
+        let finishDiff = await assembler.apply(finish)
+        _ = await renderer.apply(finishDiff)
+
+        let blocks = await renderer.renderedBlocks()
+        let quotes = blocks.filter { $0.blockquote != nil }
+        let shapes = quotes.map { block -> (depth: Int, level: Int?, text: String) in
+            let ns = NSAttributedString.picoConverted(from: block.content)
+            let level = ns.length > 0
+                ? ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
+                : nil
+            return (block.snapshot.depth, level, ns.string)
+        }
+
+        // Document order: first level, the nested quote (its container-only
+        // level-1 parent renders nothing), then a fresh level-1 block.
+        #expect(shapes.count == 3, "expected 3 rendered quote blocks, got \(shapes)")
+        guard shapes.count == 3 else { return }
+        #expect(shapes[0].depth == 0 && shapes[0].level == 1 && shapes[0].text.hasPrefix("First level."))
+        #expect(shapes[1].depth == 1 && shapes[1].level == 2 && shapes[1].text.hasPrefix("Nested."))
+        #expect(shapes[2].depth == 0 && shapes[2].level == 1 && shapes[2].text.hasPrefix("Back to first."))
+    }
+
+    @Test("Image-only quote parents are not suppressed as container-only")
+    func imageOnlyQuoteParentKeepsContent() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The parent quote's only content is an image with an empty alt text;
+        // it must still render (and surface its image), not be treated as a
+        // container-only parent of the nested quote.
+        let markdown = "> ![](https://example.com/a.png)\n>> nested\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        _ = await renderer.apply(await assembler.apply(chunk))
+        let finish = await tokenizer.finish()
+        _ = await renderer.apply(await assembler.apply(finish))
+
+        let blocks = await renderer.renderedBlocks()
+        let quotes = blocks.filter { $0.blockquote != nil }
+        #expect(quotes.count == 2, "expected image parent + nested quote, got \(quotes.count)")
+        let parent = quotes.first { $0.snapshot.depth == 0 }
+        #expect(parent?.images.isEmpty == false, "parent quote must surface its image")
+    }
+
+    @Test("Empty quote parents refresh when their child streams in later")
+    func emptyQuoteParentRefreshesOnChildInsertion() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // Split the nested marker across chunks: the outer quote opens (and
+        // renders as a blank quoted line) before its child exists. Inserting
+        // the child must refresh the parent so the blank line disappears
+        // while the quote is still streaming.
+        let first = await tokenizer.feed("> ")
+        _ = await renderer.apply(await assembler.apply(first))
+        let second = await tokenizer.feed("> nested\n")
+        _ = await renderer.apply(await assembler.apply(second))
+
+        let blocks = await renderer.renderedBlocks()
+        let parent = blocks.first { $0.kind == .blockquote && $0.snapshot.depth == 0 }
+        #expect(parent != nil)
+        #expect(NSAttributedString(parent?.content ?? AttributedString()).length == 0,
+                "container-only parent must render empty mid-stream")
+    }
+
+    @Test("Quote ending in a styled span does not gain a blank quoted line")
+    func quoteEndingInCodeSpanStaysTight() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        let markdown = "> ends with `code`\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        _ = await renderer.apply(await assembler.apply(chunk))
+        let finish = await tokenizer.finish()
+        _ = await renderer.apply(await assembler.apply(finish))
+
+        let blocks = await renderer.renderedBlocks()
+        let quote = blocks.first { $0.blockquote != nil }
+        let text = NSAttributedString.picoConverted(from: quote?.content ?? AttributedString()).string
+        #expect(!text.contains("\n\n"), "quote rendered a blank quoted line: \(text.debugDescription)")
+        #expect(text.hasSuffix("\n") && !text.hasSuffix("\n\n"))
+    }
+
+    @Test("Trailing space inside a quoted code span is preserved")
+    func quotedCodeSpanTrailingSpaceSurvives() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { id in
+            await assembler.block(id)
+        }
+
+        // The code span's final character is a meaningful space; trimming
+        // must only remove the synthetic trailing newline, not content.
+        let markdown = "> run `git push `\n\n"
+        let chunk = await tokenizer.feed(markdown)
+        _ = await renderer.apply(await assembler.apply(chunk))
+        let finish = await tokenizer.finish()
+        _ = await renderer.apply(await assembler.apply(finish))
+
+        let blocks = await renderer.renderedBlocks()
+        let quote = blocks.first { $0.blockquote != nil }
+        let text = NSAttributedString.picoConverted(from: quote?.content ?? AttributedString()).string
+        #expect(text.contains("git push "), "code span trailing space was trimmed: \(text.debugDescription)")
+    }
+
+    @Test("Blockquote bar attributes survive the AttributedString round-trip")
+    func blockquoteAttributesSurviveConversion() {
+        let source = NSMutableAttributedString(string: "quoted text\n")
+        source.addAttributes([
+            .picoBlockquoteLevel: 2,
+            .picoBlockquoteBarColor: MarkdownColor.red
+        ], range: NSRange(location: 0, length: source.length))
+
+        // The pipeline's interchange type is AttributedString; the view layer
+        // reads these keys back out of NSTextStorage. The PLAIN conversion
+        // initializers drop custom keys, which is why every conversion at the
+        // pipeline seams must go through the pico-scoped helpers. If this
+        // fails, drawn blockquote bars are silently lost.
+        let roundTripped = NSAttributedString.picoConverted(from: .picoConverted(from: source))
+        let level = roundTripped.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
+        let color = roundTripped.attribute(.picoBlockquoteBarColor, at: 0, effectiveRange: nil) as? MarkdownColor
+        #expect(level == 2)
+        #expect(color != nil)
+    }
+
     @Test("Removing trailing blocks updates cache without crashing")
     func removingTrailingBlocksDoesNotCrash() async {
         let store = TestSnapshotStore()

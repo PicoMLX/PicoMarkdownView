@@ -51,19 +51,49 @@ final class TextKitStreamingBackendTests: XCTestCase {
         XCTAssertTrue(cachedFirst === cachedSecond)
     }
 
-    private func makeBlock(id: BlockID, text: String) -> RenderedBlock {
+    func testChildInsertionSyncsRefreshedParentRecord() {
+        let backend = TextKitStreamingBackend()
+
+        // Streamed split-marker scenario: the parent quote is inserted as a
+        // blank quoted line before its child exists…
+        let blankParent = makeBlock(id: 1, text: "\n", kind: .blockquote)
+        let insertParent = AssemblerDiff(documentVersion: 1,
+                                         changes: [.blockStarted(id: 1, kind: .blockquote, position: 0)])
+        _ = backend.apply(blocks: [blankParent], diffs: [insertParent], selection: NSRange(location: 0, length: 0))
+        XCTAssertEqual(backend.snapshotAttributedString().string, "\n")
+
+        // …then the child arrives. The renderer re-renders the parent as
+        // empty (container-only), and the diff only mentions the child — the
+        // backend must sync the parent record too.
+        let emptyParent = makeBlock(id: 1, text: "", kind: .blockquote)
+        let child = makeBlock(id: 2, text: "nested\n", kind: .blockquote, parentID: 1, depth: 1)
+        let insertChild = AssemblerDiff(documentVersion: 2,
+                                        changes: [.blockStarted(id: 2, kind: .blockquote, position: 1)])
+        _ = backend.apply(blocks: [emptyParent, child],
+                          diffs: [insertChild],
+                          selection: NSRange(location: 0, length: 0))
+
+        XCTAssertEqual(backend.snapshotAttributedString().string, "nested\n",
+                       "stale blank parent line must be removed when its child streams in")
+    }
+
+    private func makeBlock(id: BlockID,
+                           text: String,
+                           kind: BlockKind = .paragraph,
+                           parentID: BlockID? = nil,
+                           depth: Int = 0) -> RenderedBlock {
         let snapshot = BlockSnapshot(id: id,
-                                     kind: .paragraph,
+                                     kind: kind,
                                      inlineRuns: nil,
                                      codeText: nil,
                                      mathText: nil,
                                      table: nil,
                                      isClosed: true,
-                                     parentID: nil,
-                                     depth: 0,
+                                     parentID: parentID,
+                                     depth: depth,
                                      childIDs: [])
         return RenderedBlock(id: id,
-                             kind: .paragraph,
+                             kind: kind,
                              content: AttributedString(text),
                              snapshot: snapshot,
                              table: nil,

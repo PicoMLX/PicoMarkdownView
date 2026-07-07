@@ -134,6 +134,13 @@ actor MarkdownRenderer {
             case .blockStarted(let id, _, let position):
                 await insertBlock(id: id, at: position)
                 mutated = true
+                // A new child changes its parent's snapshot (childIDs), and
+                // some renders depend on children — e.g. container-only quote
+                // parents render nothing. Refresh the parent so its cached
+                // render doesn't go stale mid-stream.
+                if let parentID = await snapshotProvider(id).parentID {
+                    _ = await refreshBlock(id: parentID)
+                }
             case .runsAppended(let id, _),
                  .codeAppended(let id, _),
                  .tableHeaderConfirmed(let id),

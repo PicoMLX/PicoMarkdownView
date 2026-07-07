@@ -72,7 +72,7 @@ actor MarkdownAttributeBuilder {
         case .listItem(let ordered, let index, let task):
             return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task, previousBlockKind: previousBlockKind)
         case .blockquote:
-            return await renderBlockquote(snapshot: snapshot)
+            return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind)
         case .fencedCode:
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
@@ -399,6 +399,13 @@ actor MarkdownAttributeBuilder {
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(runs, font: bodyFont)
         trimLeadingWhitespace(in: body)
+        // A finalized list line stores a trailing "\n" run. It normally
+        // coalesces into the plain text and is sanitized to a space, but when
+        // the item ends in a styled span (inline code, bold, link) the runs
+        // can't merge and the bare "\n" survives — combined with the "\n"
+        // terminator appended below it rendered as an empty paragraph
+        // (a full blank line between bullets). Trim it here.
+        trimTrailingNewlines(in: body)
 
         let bulletPrefix = bulletText + " "
         let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: bodyFont])
@@ -702,20 +709,58 @@ actor MarkdownAttributeBuilder {
         }
     }
 
-    private func renderBlockquote(snapshot: BlockSnapshot) async -> RenderedContentResult {
+    private func trimTrailingNewlines(in attributedString: NSMutableAttributedString) {
+        let newline: unichar = 0x0A
+        while attributedString.length > 0 {
+            let lastIndex = attributedString.length - 1
+            guard attributedString.mutableString.character(at: lastIndex) == newline else { break }
+            attributedString.deleteCharacters(in: NSRange(location: lastIndex, length: 1))
+        }
+    }
+
+
+    private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
+        // Container-only parents (e.g. the implicit level-1 block that
+        // `>> nested` opens) render nothing: their children draw the bars for
+        // every enclosing level themselves, so emitting a newline here would
+        // show up as a stray blank quote line above the nested content.
+        // Atomic payloads (images, math) count as content even when their
+        // text — e.g. an empty alt — is blank.
+        let hasOwnContent = bodyRuns.contains { run in
+            run.image != nil || run.math != nil ||
+                !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if !hasOwnContent && !snapshot.childIDs.isEmpty {
+            return RenderedContentResult(attributed: AttributedString(),
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: nil,
+                                        images: [],
+                                        codeBlock: nil)
+        }
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
         let body = await renderInline(bodyRuns, font: bodyFont)
-        let paragraphStyle = makeBlockquoteParagraphStyle()
-        let lineColor = blockquoteColor.withAlphaComponent(0.6)
+        // Trailing newline runs that survive styled spans would otherwise
+        // combine with the terminator below into a blank quoted line. Only
+        // newlines: trailing spaces can be real content (e.g. a code span
+        // ending in a space).
+        trimTrailingNewlines(in: body)
+        // Nested quotes arrive as child blocks (depth 1, 2, …). The bars are
+        // NOT characters: the range is marked with the quote level + bar
+        // color and indented past a leading gutter; the text views draw one
+        // continuous vertical bar per level there (see
+        // BlockquoteBarDecoration.swift). Because the attribute also covers
+        // the trailing newline, adjacent quote blocks merge into one
+        // uninterrupted bar. Suppress the inter-paragraph gap between
+        // adjacent quote blocks so a nested quote reads as one quote body.
+        let level = snapshot.depth + 1
+        let followsBlockquote = previousBlockKind == .blockquote
+        let paragraphStyle = makeBlockquoteParagraphStyle(level: level,
+                                                          spacingBefore: followsBlockquote ? 0 : 4)
         let textColor = PlatformColor.rendererLabel
-
-        let prefixAttributes: [NSAttributedString.Key: Any] = [
-            .font: bodyFont,
-            .foregroundColor: lineColor,
-            .paragraphStyle: paragraphStyle
-        ]
 
         let bodyAttributes: [NSAttributedString.Key: Any] = [
             .font: bodyFont,
@@ -723,28 +768,21 @@ actor MarkdownAttributeBuilder {
             .paragraphStyle: paragraphStyle
         ]
 
-        let result = NSMutableAttributedString(string: "│ ", attributes: prefixAttributes)
         let styledBody = NSMutableAttributedString(attributedString: body)
         if styledBody.length > 0 {
             styledBody.addAttributes(bodyAttributes, range: NSRange(location: 0, length: styledBody.length))
         }
-        result.append(styledBody)
 
-        let mutableString = result.mutableString
-        let prefixLength = ("│ " as NSString).length
-        var searchLocation = prefixLength
-        while searchLocation < mutableString.length {
-            let range = mutableString.range(of: "\n", options: [], range: NSRange(location: searchLocation, length: mutableString.length - searchLocation))
-            if range.location == NSNotFound { break }
-            let insertLocation = range.location + range.length
-            result.insert(NSAttributedString(string: "│ ", attributes: prefixAttributes), at: insertLocation)
-            searchLocation = insertLocation + prefixLength
-        }
+        let result = NSMutableAttributedString(attributedString: styledBody)
+        result.append(NSAttributedString(string: "\n", attributes: bodyAttributes))
+        result.addAttributes([
+            .picoBlockquoteLevel: level,
+            .picoBlockquoteBarColor: blockquoteColor.withAlphaComponent(0.6)
+        ], range: NSRange(location: 0, length: result.length))
 
-        result.append(NSAttributedString(string: "\n", attributes: prefixAttributes))
-        result.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: result.length))
-
-        return RenderedContentResult(attributed: AttributedString(result),
+        // The plain AttributedString initializer drops the custom keys —
+        // convert through the pico scope so the bar attributes survive.
+        return RenderedContentResult(attributed: AttributedString.picoConverted(from: result),
                                     table: nil,
                                     listItem: nil,
                                     blockquote: RenderedBlockquote(content: AttributedString(styledBody)),
@@ -753,13 +791,14 @@ actor MarkdownAttributeBuilder {
                                     codeBlock: nil)
     }
 
-    private func makeBlockquoteParagraphStyle() -> NSMutableParagraphStyle {
+    private func makeBlockquoteParagraphStyle(level: Int, spacingBefore: CGFloat = 4) -> NSMutableParagraphStyle {
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineBreakMode = .byWordWrapping
-        paragraphStyle.firstLineHeadIndent = 0
-        paragraphStyle.headIndent = 0
+        let indent = BlockquoteBarMetrics.textIndent(level: level)
+        paragraphStyle.firstLineHeadIndent = indent
+        paragraphStyle.headIndent = indent
         paragraphStyle.paragraphSpacing = 8
-        paragraphStyle.paragraphSpacingBefore = 4
+        paragraphStyle.paragraphSpacingBefore = spacingBefore
         return paragraphStyle
     }
 

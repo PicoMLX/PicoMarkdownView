@@ -1566,6 +1566,185 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Nested blockquotes open child blocks per marker depth")
+    func nestedBlockquoteDepths() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> Level one\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Level one"), plain("\n")])
+            ],
+            openBlocks: [.blockquote]
+        ), state: &state)
+
+        // `>>` (no inner space) deepens by one level.
+        let second = await tokenizer.feed(">> Level two\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Level two"), plain("\n")])
+            ],
+            openBlocks: [.blockquote, .blockquote]
+        ), state: &state)
+
+        // `> > >` (spaced markers) deepens to level three; the trailing blank
+        // line closes the whole quote stack, deepest first.
+        let third = await tokenizer.feed("> > > Level three\n\n")
+        assertChunk(third, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Level three"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Shallower blockquote markers lazily continue the deepest open quote")
+    func nestedBlockquoteLazyContinuation() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let first = await tokenizer.feed("> > deep\n")
+        assertChunk(first, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("deep"), plain("\n")])
+            ],
+            openBlocks: [.blockquote, .blockquote]
+        ), state: &state)
+
+        // CommonMark lazy continuation: a line with fewer markers continues
+        // the open paragraph of the innermost quote — it does not close it.
+        let second = await tokenizer.feed("> still deep\n\n")
+        assertChunk(second, matches: .init(
+            events: [
+                .blockAppendInline(.blockquote, runs: [plain("still deep"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Padded nested markers still deepen (CommonMark ≤3-space indent)")
+    func paddedNestedBlockquoteDeepens() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed(">  > padded nested\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("padded nested"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Whitespace-padded separator lines emit no content runs")
+    func whitespacePaddedSeparatorEmitsNoRuns() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // `>  ` (marker + trailing spaces) is a paragraph separator like `>`;
+        // its leftover whitespace must not leak into the event stream (nor
+        // trigger a hard-break newline from the trailing double space).
+        let result = await tokenizer.feed("> First para\n>  \n> Second para\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("First para"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Second para"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Marker-only quote line closes the quote for unquoted continuations")
+    func quoteMarkerOnlyLineClosesQuote() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // The `>` separator ends the quote immediately, so an unquoted line
+        // after it starts a normal paragraph instead of lazily continuing
+        // the old quote.
+        let result = await tokenizer.feed("> quoted\n>\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("quoted"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Marker-only quote line splits the quote into separate blocks")
+    func quoteMarkerOnlyLineSplitsParagraphs() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        let result = await tokenizer.feed("> First para\n>\n> Second para\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("First para"), plain("\n")]),
+                .blockEnd(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Second para"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
+    @Test("Quote returns to the outer level after a marker-only separator")
+    func nestedQuoteReturnsToOuterLevelAfterBreak() async {
+        let tokenizer = MarkdownTokenizer()
+        var state = EventNormalizationState()
+
+        // The classic Markdown.pl / GitHub sample:
+        //   > This is the first level of quoting.
+        //   >
+        //   > > This is nested blockquote.
+        //   >
+        //   > Back to the first level.
+        let result = await tokenizer.feed("> First level\n>\n> > Nested\n>\n> Back to first\n\n")
+        assertChunk(result, matches: .init(
+            events: [
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("First level"), plain("\n")]),
+                .blockEnd(.blockquote),
+                // The nested line reopens the stack at depth 2 (an empty
+                // level-1 parent plus the level-2 quote holding the text).
+                .blockStart(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Nested"), plain("\n")]),
+                // "Back to first." exits the nested quote into a fresh
+                // level-1 block instead of lazily continuing depth 2.
+                .blockEnd(.blockquote),
+                .blockEnd(.blockquote),
+                .blockStart(.blockquote),
+                .blockAppendInline(.blockquote, runs: [plain("Back to first"), plain("\n")]),
+                .blockEnd(.blockquote)
+            ],
+            openBlocks: []
+        ), state: &state)
+    }
+
     @Test("List item with continuation line")
     func listItemWithContinuation() async {
         let tokenizer = MarkdownTokenizer()

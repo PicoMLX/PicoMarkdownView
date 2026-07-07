@@ -35,6 +35,10 @@ struct StreamingParser {
         var pendingSameLineClose: Bool = false
         var preventNextCoalesce: Bool = false
         var sawBlankInSubContext: Bool = false
+        /// 1-based nesting level for `.blockquote` contexts (`>` = 1,
+        /// `>>` = 2, …); 0 for every other kind. The blockquote analogue of
+        /// `listIndent`.
+        var blockquoteLevel: Int = 0
     }
 
     private struct TableState {
@@ -85,6 +89,8 @@ struct StreamingParser {
 
     private struct BlockquoteInfo {
         var prefixLength: Int
+        /// Number of `>` markers in the prefix — the requested quote depth.
+        var markerCount: Int
     }
 
     private var nextID: BlockID = 1
@@ -259,7 +265,7 @@ struct StreamingParser {
             }
 
             if let quote = detectBlockquote(lineBuffer) {
-                openInlineBlock(kind: .blockquote, prefixToStrip: quote.prefixLength)
+                openBlockquotes(from: 0, to: quote.markerCount, prefixLength: quote.prefixLength)
                 emittedCount = min(lineBuffer.count, quote.prefixLength)
                 lineAnalyzed = true
                 return
@@ -334,7 +340,7 @@ struct StreamingParser {
                 }
                 if let quote = detectBlockquote(lineBuffer) {
                     closeCurrentBlock()
-                    openInlineBlock(kind: .blockquote, prefixToStrip: quote.prefixLength)
+                    openBlockquotes(from: 0, to: quote.markerCount, prefixLength: quote.prefixLength)
                     emittedCount = min(lineBuffer.count, quote.prefixLength)
                     lineAnalyzed = true
                     return
@@ -469,7 +475,7 @@ struct StreamingParser {
                 }
             case .blockquote:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
-                    closeCurrentBlock()
+                    closeBlockquoteContexts()
                     let closeAfterLine = mathOpen.closesOnSameLine
                     openDisplayMathBlock(marker: mathOpen.marker,
                                          closing: mathOpen.closing,
@@ -481,8 +487,21 @@ struct StreamingParser {
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
-                    ctx.linePrefixToStrip = quote.prefixLength
-                    setCurrentBlock(ctx)
+                    if quote.markerCount > ctx.blockquoteLevel {
+                        // More `>` markers than open quote levels: open nested
+                        // child blockquotes (deepening is monotonic within a
+                        // line, so acting on a partial prefix is safe).
+                        openBlockquotes(from: ctx.blockquoteLevel,
+                                        to: quote.markerCount,
+                                        prefixLength: quote.prefixLength)
+                    } else {
+                        // Same or fewer markers: lazy continuation of the
+                        // deepest open quote (CommonMark: a shallower-marked
+                        // line continues the open paragraph; it does not
+                        // close inner quotes).
+                        ctx.linePrefixToStrip = quote.prefixLength
+                        setCurrentBlock(ctx)
+                    }
                     if emittedCount < quote.prefixLength {
                         emittedCount = min(lineBuffer.count, quote.prefixLength)
                     }
@@ -531,6 +550,14 @@ struct StreamingParser {
         var context = ctx
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         guard emittedCount < sourceLine.count else { return }
+        // Marker-only quote lines (`>`, `>  `) are paragraph separators, not
+        // content: never emit their leftover whitespace (or a hard-break
+        // newline from trailing spaces). While the line may still grow this
+        // only defers — if text follows, the full delta is emitted then.
+        if case .blockquote = context.kind,
+           isQuoteMarkerOnlyLine(lineBuffer.trimmingCharacters(in: .whitespaces)) {
+            return
+        }
         // When the line buffer still looks like an incomplete block-level
         // construct (list marker, heading, fence, etc.), defer emission so
         // marker characters don't leak into the current block's content.
@@ -640,8 +667,15 @@ struct StreamingParser {
                     trimTrailingSpace(for: &ctx)
                     setCurrentBlock(ctx)
                 }
-                if isBlank || force {
-                    closeCurrentBlock()
+                if isBlank || force || isQuoteMarkerOnlyLine(trimmed) {
+                    // A `>` line with no content is a blank line inside the
+                    // quote: it ends the paragraph, so close the quote stack
+                    // now. The next quote line reopens at its own marker
+                    // depth (that is how `> back to level one` exits a nested
+                    // quote and how `>` separators split quote paragraphs);
+                    // an unquoted line starts a normal paragraph instead of
+                    // lazily continuing the old quote.
+                    closeBlockquoteContexts()
                 } else {
                     appendToCurrent("\n")
                 }
@@ -1025,6 +1059,38 @@ struct StreamingParser {
         _ = popBlock()
     }
 
+    /// Opens nested blockquote contexts from `currentLevel` (exclusive)
+    /// through `targetLevel` (inclusive), so `>>` / `> > >` markers produce
+    /// child blocks — mirroring how deeper list items push nested contexts.
+    /// The assembler derives `parentID`/`depth` from the open-block stack.
+    private mutating func openBlockquotes(from currentLevel: Int, to targetLevel: Int, prefixLength: Int) {
+        var level = currentLevel
+        while level < targetLevel {
+            level += 1
+            openInlineBlock(kind: .blockquote, prefixToStrip: prefixLength)
+            if var opened = currentBlock {
+                opened.blockquoteLevel = level
+                setCurrentBlock(opened)
+            }
+        }
+    }
+
+    /// Closes the current context and any enclosing blockquote contexts.
+    /// Blank lines (and interrupting blocks) end the entire quote stack.
+    private mutating func closeBlockquoteContexts() {
+        closeCurrentBlock()
+        while let remaining = currentBlock, case .blockquote = remaining.kind {
+            closeCurrentBlock()
+        }
+    }
+
+    /// True for lines that consist only of `>` markers and whitespace —
+    /// a blank line *inside* a blockquote (paragraph separator).
+    private func isQuoteMarkerOnlyLine(_ trimmed: String) -> Bool {
+        guard trimmed.contains(">") else { return false }
+        return trimmed.allSatisfy { $0 == ">" || $0 == " " || $0 == "\t" }
+    }
+
     private mutating func openInlineBlock(kind: BlockKind, prefixToStrip: Int = 0) {
         let context = BlockContext(
             id: nextID,
@@ -1366,36 +1432,37 @@ struct StreamingParser {
 
     private func detectBlockquote(_ line: String) -> BlockquoteInfo? {
         var prefixLength = 0
+        var markerCount = 0
+        var pendingWhitespace = 0
         var index = line.startIndex
-        var sawMarker = false
-        var consumedTrailingSpace = false
 
         while index < line.endIndex {
             let character = line[index]
-            if character == " " || character == "\t" {
-                if sawMarker {
-                    if consumedTrailingSpace {
-                        break
-                    }
-                    consumedTrailingSpace = true
-                    prefixLength += 1
-                    index = line.index(after: index)
-                } else {
+            if character == ">" {
+                // Between markers, CommonMark allows the previous marker's
+                // optional trailing space plus up to three more spaces of
+                // indentation before a nested `>` (`>  > nested` nests;
+                // five spaces make the inner marker literal content).
+                if markerCount > 0 && pendingWhitespace > 3 { break }
+                prefixLength += pendingWhitespace + 1
+                pendingWhitespace = 0
+                markerCount += 1
+                index = line.index(after: index)
+                // One optional space (or tab) belongs to the marker itself.
+                if index < line.endIndex, line[index] == " " || line[index] == "\t" {
                     prefixLength += 1
                     index = line.index(after: index)
                 }
-            } else if character == ">" {
-                sawMarker = true
-                consumedTrailingSpace = false
-                prefixLength += 1
+            } else if character == " " || character == "\t" {
+                pendingWhitespace += 1
                 index = line.index(after: index)
             } else {
                 break
             }
         }
 
-        guard sawMarker else { return nil }
-        return BlockquoteInfo(prefixLength: prefixLength)
+        guard markerCount > 0 else { return nil }
+        return BlockquoteInfo(prefixLength: prefixLength, markerCount: markerCount)
     }
 
     private func listContinuationPrefixLength(_ line: String, currentIndent: Int) -> Int {
