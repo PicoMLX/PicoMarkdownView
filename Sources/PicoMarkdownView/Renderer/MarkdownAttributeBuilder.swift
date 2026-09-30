@@ -1046,23 +1046,15 @@ actor MarkdownAttributeBuilder {
         }
     }
 
+#if canImport(AppKit)
     private var tableBorderWidth: CGFloat {
-#if canImport(UIKit)
-        return max(1.0 / UIScreen.main.scale, 0.5)
-#else
         return 1.0
-#endif
     }
 
     private var horizontalRuleBorderWidth: CGFloat {
-#if canImport(UIKit)
-        let baseBorder = max(1.0 / UIScreen.main.scale, 0.5)
-        let previousWidth = max(baseBorder / 2, 0.25)
-        return max(previousWidth / 2, 0.125)
-#else
         return 0.1
-#endif
     }
+#endif
 
     private func render(run: InlineRun, baseFont: PlatformFont) async -> NSAttributedString {
         if run.style.contains(.math), let payload = run.math {
