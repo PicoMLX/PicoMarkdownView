@@ -1,5 +1,5 @@
 {
-  "originHash" : "ef129d04e0d58fd0206f6431839c16994f60d79db49acebc2dec91d9075afc47",
+  "originHash" : "5a27e4c5fc6190af3033244bc82d412f31c3c625b738e385752c20673c3961e0",
   "pins" : [
     {
       "identity" : "beautiful-mermaid-swift",
@@ -20,12 +20,57 @@
       }
     },
     {
+      "identity" : "meshingkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/rryam/MeshingKit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "fb0f5b80f2e79235b557d33ff27023139de4e994"
+      }
+    },
+    {
+      "identity" : "swift-concurrency-extras",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-concurrency-extras",
+      "state" : {
+        "revision" : "5fa253428866f2360c3754e88537f700ed2656b5",
+        "version" : "1.4.1"
+      }
+    },
+    {
       "identity" : "swiftmath",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mgriebling/SwiftMath.git",
       "state" : {
         "revision" : "fa8244ed032f4a1ade4cb0571bf87d2f1a9fd2d7",
         "version" : "1.7.3"
+      }
+    },
+    {
+      "identity" : "swiftui-math",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/swiftui-math",
+      "state" : {
+        "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
+        "version" : "0.1.0"
+      }
+    },
+    {
+      "identity" : "textual",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/textual",
+      "state" : {
+        "revision" : "01b51875a5406eefc95f52a058cb059e7bc94dc4",
+        "version" : "0.5.0"
+      }
+    },
+    {
+      "identity" : "wizardkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/PicoMLX/WizardKit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "9ded9125228e2bfdd54d264f8dea06800618587d"
       }
     }
   ],

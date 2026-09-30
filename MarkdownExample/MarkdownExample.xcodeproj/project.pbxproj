@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F857D203301C25AD00B360AC /* WizardKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = F857D202301C25AD00B360AC /* WizardKit */; };
 		F8B1837E2E9FFC24007F778C /* PicoMarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = F8B1837D2E9FFC24007F778C /* PicoMarkdownView */; };
 /* End PBXBuildFile section */
 
@@ -27,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F857D203301C25AD00B360AC /* WizardKit in Frameworks */,
 				F8B1837E2E9FFC24007F778C /* PicoMarkdownView in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -71,6 +73,7 @@
 			name = MarkdownExample;
 			packageProductDependencies = (
 				F8B1837D2E9FFC24007F778C /* PicoMarkdownView */,
+				F857D202301C25AD00B360AC /* WizardKit */,
 			);
 			productName = MarkdownExample;
 			productReference = F8B1836E2E9FFC0F007F778C /* MarkdownExample.app */;
@@ -101,7 +104,8 @@
 			mainGroup = F8B183652E9FFC0F007F778C;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				F8B1837C2E9FFC24007F778C /* XCLocalSwiftPackageReference "../../PicoMarkdownView" */,
+				F8B1837C2E9FFC24007F778C /* XCLocalSwiftPackageReference ".." */,
+				F857D201301C25AD00B360AC /* XCRemoteSwiftPackageReference "WizardKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F8B1836F2E9FFC0F007F778C /* Products */;
@@ -386,13 +390,29 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		F8B1837C2E9FFC24007F778C /* XCLocalSwiftPackageReference "../../PicoMarkdownView" */ = {
+		F8B1837C2E9FFC24007F778C /* XCLocalSwiftPackageReference ".." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../PicoMarkdownView;
+			relativePath = ..;
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		F857D201301C25AD00B360AC /* XCRemoteSwiftPackageReference "WizardKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PicoMLX/WizardKit";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		F857D202301C25AD00B360AC /* WizardKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F857D201301C25AD00B360AC /* XCRemoteSwiftPackageReference "WizardKit" */;
+			productName = WizardKit;
+		};
 		F8B1837D2E9FFC24007F778C /* PicoMarkdownView */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PicoMarkdownView;
