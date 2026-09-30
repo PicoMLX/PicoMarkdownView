@@ -60,7 +60,8 @@ public struct CodeBlockTheme: Sendable, Hashable {
     public static func monospaced() -> CodeBlockTheme {
         let bodySize: CGFloat
         #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        bodySize = UIFont.preferredFont(forTextStyle: .body,
+                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
         #else
         bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
         #endif
@@ -77,7 +78,8 @@ public struct CodeBlockTheme: Sendable, Hashable {
     public static func prismDefault() -> CodeBlockTheme {
         let bodySize: CGFloat
         #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        bodySize = UIFont.preferredFont(forTextStyle: .body,
+                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
         #else
         bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
         #endif
@@ -95,7 +97,8 @@ public struct CodeBlockTheme: Sendable, Hashable {
     public static func gitHub() -> CodeBlockTheme {
         let bodySize: CGFloat
         #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body).pointSize
+        bodySize = UIFont.preferredFont(forTextStyle: .body,
+                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
         #else
         bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
         #endif

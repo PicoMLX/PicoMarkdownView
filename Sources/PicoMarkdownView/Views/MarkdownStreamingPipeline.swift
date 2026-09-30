@@ -10,6 +10,8 @@ actor MarkdownStreamingPipeline {
     private let assembler: MarkdownAssembler
     private let renderer: MarkdownRenderer
     private var emittedDiffVersion: UInt64 = 0
+    private var scaleUpdateTask: Task<[BlockID], Never>?
+    private var scaleUpdateVersion: UInt64 = 0
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
@@ -26,6 +28,7 @@ actor MarkdownStreamingPipeline {
 
     func feed(_ chunk: String) async -> StreamingUpdate? {
         guard !chunk.isEmpty else { return nil }
+        await waitForScaleUpdate()
         let result = await tokenizer.feed(chunk)
         let rawDiff = await assembler.apply(result)
         guard !rawDiff.changes.isEmpty else { return nil }
@@ -36,6 +39,7 @@ actor MarkdownStreamingPipeline {
     }
 
     func finish() async -> StreamingUpdate? {
+        await waitForScaleUpdate()
         let result = await tokenizer.finish()
         let rawDiff = await assembler.apply(result)
         guard !rawDiff.changes.isEmpty else { return nil }
@@ -47,6 +51,7 @@ actor MarkdownStreamingPipeline {
 
     func refreshBlocks(_ ids: Set<BlockID>) async -> StreamingUpdate? {
         guard !ids.isEmpty else { return nil }
+        await waitForScaleUpdate()
         let refreshed = await renderer.refreshBlocks(ids)
         guard !refreshed.isEmpty else { return nil }
 
@@ -57,7 +62,37 @@ actor MarkdownStreamingPipeline {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
-        await renderer.updateMermaidContentWidth(width)
+        await waitForScaleUpdate()
+        return await renderer.updateMermaidContentWidth(width)
+    }
+
+    func updateTextScale(_ scale: CGFloat) async -> StreamingUpdate? {
+        let previous = scaleUpdateTask
+        let renderer = self.renderer
+        scaleUpdateVersion &+= 1
+        let version = scaleUpdateVersion
+        let task = Task {
+            _ = await previous?.value
+            return await renderer.updateTextScale(scale)
+        }
+        scaleUpdateTask = task
+        let refreshed = await task.value
+        guard version == scaleUpdateVersion else { return nil }
+        scaleUpdateTask = nil
+        guard !refreshed.isEmpty else { return nil }
+        let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
+            changes: refreshed.map { .blockEnded(id: $0) }))
+        return StreamingUpdate(diff: diff, blocks: await renderer.renderedBlocks())
+    }
+
+    private func waitForScaleUpdate() async {
+        // Do not let later chunks overwrite a block while its fonts are being
+        // refreshed. Awaiting a task suspends; it does not block an executor.
+        while let task = scaleUpdateTask {
+            let version = scaleUpdateVersion
+            _ = await task.value
+            if version == scaleUpdateVersion { return }
+        }
     }
 
     func snapshot() async -> AttributedString {

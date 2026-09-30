@@ -33,6 +33,7 @@ final class MarkdownStreamingViewModel {
     private var updateScheduled = false
     private var mermaidContentWidth: CGFloat?
     private var mermaidContentWidthBucket: Int?
+    private var textScale: CGFloat = 1
     private var imageBlockDependencies: [URL: Set<BlockID>] = [:]
     private var requestedRemoteImageURLs: Set<URL> = []
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
@@ -76,6 +77,7 @@ final class MarkdownStreamingViewModel {
             // be mistaken for a redundant re-delivery.
             activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
+            _ = await freshPipeline.updateTextScale(textScale)
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
             enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
@@ -102,6 +104,7 @@ final class MarkdownStreamingViewModel {
         // but still publish after every chunk so long replays render (and
         // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
+        _ = await freshPipeline.updateTextScale(textScale)
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
 
         // The first publish must be a full replace (diff: nil): the view may
@@ -153,6 +156,7 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("replace(with:) called, value length=\(value.count)")
         #endif
         let (freshPipeline, generation) = makeFreshPipeline()
+        _ = await freshPipeline.updateTextScale(textScale)
         var latestBlocks: [RenderedBlock] = []
 
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
@@ -187,6 +191,16 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
         #endif
         enqueueUpdate(blocks: latestBlocks, diff: nil)
+    }
+
+    func updateTextScale(_ scale: CGFloat) async {
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        guard factor != textScale else { return }
+        textScale = factor
+        let generation = pipelineGeneration
+        if let update = await pipeline.updateTextScale(factor), generation == pipelineGeneration {
+            enqueueUpdate(blocks: update.blocks, diff: update.diff)
+        }
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async {

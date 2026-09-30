@@ -779,7 +779,8 @@ struct MarkdownRendererTests {
                 continue
             }
             var effective = NSRange(location: 0, length: 0)
-            let level = ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: &effective) as? Int
+            let level = ns.attribute(.picoBlockquoteLevel, at: 0, longestEffectiveRange: &effective,
+                                     in: NSRange(location: 0, length: ns.length)) as? Int
             #expect(level == block.snapshot.depth + 1)
             #expect(effective == NSRange(location: 0, length: ns.length),
                     "level attribute must span the whole block")

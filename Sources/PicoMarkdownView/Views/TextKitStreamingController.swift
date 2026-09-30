@@ -498,8 +498,9 @@ final class TextKitStreamingBackend {
 
         let newAttributed = NSAttributedString.picoConverted(from: block.content)
         let range = rangeForRecord(at: index)
+        let unchangedText = record.length == newAttributed.length && record.nsAttributed.string == newAttributed.string
         storage.replaceCharacters(in: range, with: newAttributed)
-        let updatedSelection = adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)
+        let updatedSelection = unchangedText ? selection : adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)
 
         let oldLength = record.length
         records[index].content = block.content

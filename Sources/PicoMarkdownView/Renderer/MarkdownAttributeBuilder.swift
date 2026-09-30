@@ -796,7 +796,8 @@ actor MarkdownAttributeBuilder {
 
         let styledBody = NSMutableAttributedString(attributedString: body)
         if styledBody.length > 0 {
-            styledBody.addAttributes(bodyAttributes, range: NSRange(location: 0, length: styledBody.length))
+            styledBody.addAttribute(.paragraphStyle, value: paragraphStyle,
+                                    range: NSRange(location: 0, length: styledBody.length))
         }
 
         let result = NSMutableAttributedString(attributedString: styledBody)

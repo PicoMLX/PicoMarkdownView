@@ -22,6 +22,8 @@ public struct PicoMarkdownView: View {
     @Environment(\.picoOnTagHover) private var onTagHover
     @Environment(\.picoOnLinkHover) private var onLinkHover
     @Environment(\.picoOnContentSize) private var onContentSize
+    @Environment(\.picoTextScale) private var hostTextScale
+    @ScaledMetric(relativeTo: .body) private var dynamicBodySize: CGFloat = 17
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -145,6 +147,14 @@ public struct PicoMarkdownView: View {
             .task(id: consumeTaskID) {
                 await viewModel.consume(input)
             }
+            .task(id: effectiveTextScale) {
+                await viewModel.updateTextScale(effectiveTextScale)
+            }
+    }
+
+    private var effectiveTextScale: CGFloat {
+        let hostScale = hostTextScale.isFinite && hostTextScale > 0 ? hostTextScale : 1
+        return dynamicBodySize / 17 * hostScale
     }
 
     /// Builds the hover closure for the text views (macOS). It receives the
