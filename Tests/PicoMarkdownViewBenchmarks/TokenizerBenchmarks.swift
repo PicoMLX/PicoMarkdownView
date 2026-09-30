@@ -28,6 +28,15 @@ struct MarkdownTokenizerBenchmarks {
         try await runBenchmark(onChunks: chunks, iterations: 50, label: "Tokenizer sample1 example-word-stream")
     }
 
+    @Test("Tokenizer long inline math benchmark", arguments: [128, 256])
+    func tokenizerLongInlineMathBenchmark(chunkCount: Int) async throws {
+        guard ProcessInfo.processInfo.environment["RUN_BENCHMARKS"] == "1" else { return }
+        let chunk = String(repeating: "x+", count: 32)
+        let chunks = ["Equation: $"] + Array(repeating: chunk, count: chunkCount) + ["$\n\n"]
+        try await runBenchmark(onChunks: chunks, iterations: 10,
+                               label: "Tokenizer inline-math chunkCount=\(chunkCount) bytes=\(chunk.utf8.count * chunkCount)")
+    }
+
     private func runBenchmark(on text: String, chunkSize: Int, iterations: Int) async throws {
         try await runBenchmark(onChunks: chunk(text, size: chunkSize),
                                iterations: iterations,

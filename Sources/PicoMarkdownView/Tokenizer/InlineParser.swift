@@ -102,6 +102,7 @@ struct InlineParser {
         var startOffset: Int
         var contentOffset: Int
         var openingMarker: String
+        var resumeUTF8Offset: Int = 0
     }
 
     mutating func append(_ text: String) -> [InlineRun] {
@@ -124,6 +125,11 @@ struct InlineParser {
         var plainStart = text.startIndex
         var consumedEnd = text.startIndex
         var consumedAll = true
+        if let state = mathState,
+           let utf8Index = text.utf8.index(text.utf8.startIndex, offsetBy: state.resumeUTF8Offset, limitedBy: text.utf8.endIndex),
+           let resume = String.Index(utf8Index, within: text) {
+            index = resume
+        }
 
         // Capture immutable parser configuration into locals so the nested
         // helpers below don't need to reach back through `self` (which is
@@ -905,6 +911,29 @@ struct InlineParser {
             }
 
             let ch = text[index]
+            // TeX is opaque while the local math state is open. Resume at the
+            // last unresolved delimiter, not at the start of buffered TeX.
+            if let state = mathState {
+                switch state.delimiter {
+                case .dollar:
+                    if ch != "$" {
+                        let next = text.index(after: index)
+                        if ch == "\\" {
+                            if next == text.endIndex && !includeUnterminated {
+                                consumedAll = false
+                                break parsing
+                            }
+                            index = next < text.endIndex ? text.index(after: next) : next
+                        } else { index = next }
+                        continue parsing
+                    }
+                case .command:
+                    if ch != "\\" {
+                        index = text.index(after: index)
+                        continue parsing
+                    }
+                }
+            }
             switch ch {
             case "\\":
                 let nextIndex = text.index(after: index)
@@ -978,7 +1007,7 @@ struct InlineParser {
                 index = after
                 plainStart = after
             case "$":
-                if let prev = character(before: index), prev == "\\" {
+                if mathState == nil, let prev = character(before: index), prev == "\\" {
                     index = text.index(after: index)
                     continue parsing
                 }
@@ -1001,6 +1030,10 @@ struct InlineParser {
                             mathState = nil
                             continue parsing
                         }
+                        if cursor == text.endIndex && !includeUnterminated {
+                            consumedAll = false
+                            break parsing
+                        }
                     default:
                         break
                     }
@@ -1010,6 +1043,11 @@ struct InlineParser {
                     while cursor < text.endIndex, text[cursor] == "$" && length < 2 {
                         length += 1
                         cursor = text.index(after: cursor)
+                    }
+                    if length == 1 && cursor == text.endIndex && !includeUnterminated {
+                        flushPlain(upTo: index)
+                        consumedAll = false
+                        break parsing
                     }
                     let display = length >= 2
                     let markerLength = display ? 2 : 1
@@ -1246,7 +1284,9 @@ struct InlineParser {
             }
         }
 
-        if mathState != nil {
+        if var state = mathState {
+            state.resumeUTF8Offset = text.utf8.distance(from: text.utf8.startIndex, to: index)
+            mathState = state
             consumedAll = false
         }
 
@@ -1277,6 +1317,7 @@ struct InlineParser {
             if var state = mathState {
                 state.startOffset = max(0, state.startOffset - consumedCount)
                 state.contentOffset = max(0, state.contentOffset - consumedCount)
+                state.resumeUTF8Offset = max(0, state.resumeUTF8Offset - text.utf8.distance(from: text.utf8.startIndex, to: consumedEnd))
                 mathState = state
             }
         }

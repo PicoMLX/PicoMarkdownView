@@ -45,6 +45,9 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "Blockquotes",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Blockquotes.md"),
         MarkdownExample(
+            localFilename: "TableMath",
+            webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/TableMath.md"),
+        MarkdownExample(
             localFilename: "markdown-it",
             webURL: "https://markdown-it.github.io"),
         MarkdownExample(
