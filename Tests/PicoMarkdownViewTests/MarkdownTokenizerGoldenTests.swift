@@ -1551,15 +1551,17 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("- item"), plain("\n")])
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("item"), plain("\n")])
             ],
-            openBlocks: [.blockquote]
+            openBlocks: [.blockquote, .listItem(ordered: false, index: nil, task: nil)]
         ), state: &state)
 
         let second = await tokenizer.feed(">   continuation\n> second line\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.blockquote, runs: [plain("  continuation"), plain("\n"), plain("second line"), plain("\n")]),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("continuation"), plain("\n"), plain("second line"), plain("\n")]),
+                .blockEnd(.listItem(ordered: false, index: nil, task: nil)),
                 .blockEnd(.blockquote)
             ],
             openBlocks: []

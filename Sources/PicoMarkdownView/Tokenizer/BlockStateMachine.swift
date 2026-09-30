@@ -39,6 +39,7 @@ struct StreamingParser {
         /// `>>` = 2, …); 0 for every other kind. The blockquote analogue of
         /// `listIndent`.
         var blockquoteLevel: Int = 0
+        var hasBlockChildren: Bool = false
     }
 
     private struct TableState {
@@ -104,6 +105,9 @@ struct StreamingParser {
     }
 
     private mutating func pushBlock(_ context: BlockContext) {
+        if let parent = contextStack.indices.last, contextStack[parent].kind == .blockquote {
+            contextStack[parent].hasBlockChildren = true
+        }
         contextStack.append(context)
     }
 
@@ -128,6 +132,9 @@ struct StreamingParser {
     private var lineBuffer: String = ""
     private var emittedCount: Int = 0
     private var lineAnalyzed: Bool = false
+    private var quotePrefixResolved = false
+    private var lineWasQuoted = false
+    private var pendingQuotePrefix = false
     private var events: [BlockEvent] = []
 
     mutating func feed(_ chunk: String) -> ChunkResult {
@@ -169,7 +176,11 @@ struct StreamingParser {
             analyzeLineIfNeeded(isLineComplete: true)
             appendDeltaIfNeeded()
             finalizeLine(terminated: true, force: true)
-            closeCurrentBlock()
+            if contextStack.contains(where: { $0.kind == .blockquote }) {
+                closeBlockquoteContexts()
+            } else {
+                closeCurrentBlock()
+            }
         }
     }
 
@@ -194,6 +205,11 @@ struct StreamingParser {
     private mutating func analyzeLineIfNeeded(isLineComplete: Bool) {
         if lineAnalyzed { return }
 
+        guard prepareQuotedLine(isLineComplete: isLineComplete) else {
+            lineAnalyzed = true
+            return
+        }
+
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
         lineIsLinkDefinition = false
@@ -217,7 +233,13 @@ struct StreamingParser {
             return
         }
 
-        if contextStack.isEmpty {
+        let opensQuotedChild = currentBlock?.kind == .blockquote &&
+            (currentBlock?.hasBlockChildren == true ||
+             detectHeading(lineBuffer) != nil ||
+             detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
+             detectDisplayMathOpening(lineBuffer) != nil ||
+             (isLineComplete && detectFenceOpening(lineBuffer) != nil))
+        if contextStack.isEmpty || opensQuotedChild {
             if let footnote = detectFootnoteDefinition(lineBuffer) {
                 let index = footnoteRegistry.index(for: footnote.id)
                 openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
@@ -474,41 +496,8 @@ struct StreamingParser {
                     setCurrentBlock(current)
                 }
             case .blockquote:
-                if let mathOpen = detectDisplayMathOpening(lineBuffer) {
-                    closeBlockquoteContexts()
-                    let closeAfterLine = mathOpen.closesOnSameLine
-                    openDisplayMathBlock(marker: mathOpen.marker,
-                                         closing: mathOpen.closing,
-                                         initialContent: mathOpen.content,
-                                         indent: mathOpen.leadingIndent,
-                                         closeAfterCurrentLine: closeAfterLine)
-                    emittedCount = lineBuffer.count
-                    lineAnalyzed = true
-                    return
-                }
-                if let quote = detectBlockquote(lineBuffer) {
-                    if quote.markerCount > ctx.blockquoteLevel {
-                        // More `>` markers than open quote levels: open nested
-                        // child blockquotes (deepening is monotonic within a
-                        // line, so acting on a partial prefix is safe).
-                        openBlockquotes(from: ctx.blockquoteLevel,
-                                        to: quote.markerCount,
-                                        prefixLength: quote.prefixLength)
-                    } else {
-                        // Same or fewer markers: lazy continuation of the
-                        // deepest open quote (CommonMark: a shallower-marked
-                        // line continues the open paragraph; it does not
-                        // close inner quotes).
-                        ctx.linePrefixToStrip = quote.prefixLength
-                        setCurrentBlock(ctx)
-                    }
-                    if emittedCount < quote.prefixLength {
-                        emittedCount = min(lineBuffer.count, quote.prefixLength)
-                    }
-                } else {
-                    ctx.linePrefixToStrip = 0
-                    setCurrentBlock(ctx)
-                }
+                ctx.linePrefixToStrip = 0
+                setCurrentBlock(ctx)
             case .math:
                 break
             case .fencedCode:
@@ -542,6 +531,7 @@ struct StreamingParser {
     }
 
     private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false) {
+        guard !pendingQuotePrefix else { return }
         guard let ctx = currentBlock else { return }
         if ctx.kind == .table {
             emittedCount = lineBuffer.count
@@ -555,7 +545,8 @@ struct StreamingParser {
         // newline from trailing spaces). While the line may still grow this
         // only defers — if text follows, the full delta is emitted then.
         if case .blockquote = context.kind,
-           isQuoteMarkerOnlyLine(lineBuffer.trimmingCharacters(in: .whitespaces)) {
+           isQuoteMarkerOnlyLine(lineBuffer.trimmingCharacters(in: .whitespaces)) ||
+               (lineWasQuoted && lineBuffer.trimmingCharacters(in: .whitespaces).isEmpty) {
             return
         }
         // When the line buffer still looks like an incomplete block-level
@@ -574,6 +565,13 @@ struct StreamingParser {
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
+        if !includeTerminatingNewline, case .fencedCode = context.kind,
+           !context.fenceJustOpened, emittedCount == 0,
+           let fence = context.fenceInfo, !fence.isIndented,
+           let marker = fence.marker.first,
+           trimmedLine.allSatisfy({ $0 == marker || $0.isWhitespace }) {
+            return
+        }
         if case .math = context.kind, context.pendingSameLineClose {
             emittedCount = lineBuffer.count
             setCurrentBlock(context)
@@ -668,6 +666,9 @@ struct StreamingParser {
                     setCurrentBlock(ctx)
                 }
                 if isBlank || force || isQuoteMarkerOnlyLine(trimmed) {
+                    if isBlank && lineWasQuoted && ctx.hasBlockChildren && !force {
+                        break
+                    }
                     // A `>` line with no content is a blank line inside the
                     // quote: it ends the paragraph, so close the quote stack
                     // now. The next quote line reopens at its own marker
@@ -712,6 +713,9 @@ struct StreamingParser {
         lineBuffer.removeAll(keepingCapacity: true)
         emittedCount = 0
         lineAnalyzed = false
+        quotePrefixResolved = false
+        lineWasQuoted = false
+        pendingQuotePrefix = false
     }
 
     private mutating func closePendingSameLineBlocks() {
@@ -1078,10 +1082,89 @@ struct StreamingParser {
     /// Closes the current context and any enclosing blockquote contexts.
     /// Blank lines (and interrupting blocks) end the entire quote stack.
     private mutating func closeBlockquoteContexts() {
-        closeCurrentBlock()
-        while let remaining = currentBlock, case .blockquote = remaining.kind {
+        guard let firstQuote = contextStack.firstIndex(where: { $0.kind == .blockquote }) else { return }
+        while contextStack.count > firstQuote {
             closeCurrentBlock()
         }
+    }
+
+    /// Strip only the current, unresolved line's quote prefix. Once resolved,
+    /// child blocks use the ordinary FSM and the local buffer is never revisited.
+    /// A prefix split after `>` stays pending until content or a newline arrives.
+    private mutating func prepareQuotedLine(isLineComplete: Bool) -> Bool {
+        if quotePrefixResolved { return true }
+        let quoteIndex = contextStack.lastIndex(where: { $0.kind == .blockquote })
+        if quoteIndex == nil, let current = currentBlock,
+           current.kind.isVerbatim || current.kind == .table || current.kind == .unknown || current.kind.isHeading {
+            return true
+        }
+        let activeLevel = quoteIndex.map { contextStack[$0].blockquoteLevel } ?? 0
+        let inQuotedFence = quoteIndex != nil && currentBlock?.kind.isVerbatim == true
+        guard let quote = detectBlockquote(lineBuffer, maxMarkers: inQuotedFence ? activeLevel : nil) else {
+            pendingQuotePrefix = false
+            guard quoteIndex != nil else { return true }
+            if lineBuffer.isEmpty && !isLineComplete { return true }
+            let lazyContinuation = currentBlock.map { context in
+                switch context.kind {
+                case .paragraph, .listItem: return true
+                case .blockquote: return !context.hasBlockChildren
+                default: return false
+                }
+            } ?? false
+            if !isLineComplete && shouldDeferParagraphFallback(for: lineBuffer) {
+                pendingQuotePrefix = true
+                return false
+            }
+            if !lazyContinuation || lineBuffer.trimmingCharacters(in: .whitespaces).isEmpty ||
+                detectHeading(lineBuffer) != nil || detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
+                (isLineComplete && detectFenceOpening(lineBuffer) != nil) {
+                closeBlockquoteContexts()
+            }
+            quotePrefixResolved = true
+            return true
+        }
+        let content = String(lineBuffer.dropFirst(quote.prefixLength))
+        if !isLineComplete, quote.markerCount < activeLevel, !inQuotedFence,
+           shouldDeferParagraphFallback(for: content) {
+            pendingQuotePrefix = true
+            return false
+        }
+        if !isLineComplete && content.trimmingCharacters(in: .whitespaces).isEmpty {
+            if quoteIndex == nil {
+                while currentBlock != nil { closeCurrentBlock() }
+                openBlockquotes(from: 0, to: quote.markerCount, prefixLength: 0)
+            } else if quote.markerCount > activeLevel {
+                while let current = currentBlock, current.kind != .blockquote { closeCurrentBlock() }
+                openBlockquotes(from: activeLevel, to: quote.markerCount, prefixLength: 0)
+            }
+            pendingQuotePrefix = true
+            return false
+        }
+        pendingQuotePrefix = false
+        if quoteIndex == nil {
+            while currentBlock != nil { closeCurrentBlock() }
+            openBlockquotes(from: 0, to: quote.markerCount, prefixLength: 0)
+        } else if quote.markerCount > activeLevel {
+            while let current = currentBlock, current.kind != .blockquote { closeCurrentBlock() }
+            openBlockquotes(from: activeLevel, to: quote.markerCount, prefixLength: 0)
+        } else if quote.markerCount < activeLevel && currentBlock?.kind.isVerbatim != true &&
+                    (currentBlock?.kind.isHeading == true || currentBlock?.hasBlockChildren == true ||
+                     detectHeading(content) != nil || detectList(content, isLineComplete: isLineComplete) != nil ||
+                     (isLineComplete && detectFenceOpening(content) != nil)) {
+            while let current = currentBlock,
+                  current.kind != .blockquote || current.blockquoteLevel > quote.markerCount {
+                closeCurrentBlock()
+            }
+        }
+        lineBuffer = content
+        emittedCount = 0
+        if var current = currentBlock {
+            current.linePrefixToStrip = 0
+            setCurrentBlock(current)
+        }
+        quotePrefixResolved = true
+        lineWasQuoted = true
+        return true
     }
 
     /// True for lines that consist only of `>` markers and whitespace —
@@ -1430,7 +1513,7 @@ struct StreamingParser {
         )
     }
 
-    private func detectBlockquote(_ line: String) -> BlockquoteInfo? {
+    private func detectBlockquote(_ line: String, maxMarkers: Int? = nil) -> BlockquoteInfo? {
         var prefixLength = 0
         var markerCount = 0
         var pendingWhitespace = 0
@@ -1443,7 +1526,7 @@ struct StreamingParser {
                 // optional trailing space plus up to three more spaces of
                 // indentation before a nested `>` (`>  > nested` nests;
                 // five spaces make the inner marker literal content).
-                if markerCount > 0 && pendingWhitespace > 3 { break }
+                if pendingWhitespace > 3 { break }
                 prefixLength += pendingWhitespace + 1
                 pendingWhitespace = 0
                 markerCount += 1
@@ -1453,6 +1536,7 @@ struct StreamingParser {
                     prefixLength += 1
                     index = line.index(after: index)
                 }
+                if markerCount == maxMarkers { break }
             } else if character == " " || character == "\t" {
                 pendingWhitespace += 1
                 index = line.index(after: index)
@@ -1802,5 +1886,19 @@ struct StreamingParser {
 
     private func normalizeLineEndings(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+    }
+}
+
+private extension BlockKind {
+    var isVerbatim: Bool {
+        switch self {
+        case .fencedCode, .math: return true
+        default: return false
+        }
+    }
+
+    var isHeading: Bool {
+        if case .heading = self { return true }
+        return false
     }
 }

@@ -58,7 +58,30 @@ actor MarkdownAttributeBuilder {
         }
     }
 
-    func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
+    func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
+                blockquoteLevel: Int = 0) async -> RenderedContentResult {
+        var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                         blockquoteLevel: blockquoteLevel)
+        guard blockquoteLevel > 0, snapshot.kind != .blockquote else { return result }
+        let content = NSMutableAttributedString(attributedString: .picoConverted(from: result.attributed))
+        let range = NSRange(location: 0, length: content.length)
+        let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel)
+        content.enumerateAttribute(.paragraphStyle, in: range) { value, paragraphRange, _ in
+            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            paragraph.firstLineHeadIndent += gutter
+            paragraph.headIndent += gutter
+            content.addAttribute(.paragraphStyle, value: paragraph, range: paragraphRange)
+        }
+        content.addAttributes([
+            .picoBlockquoteLevel: blockquoteLevel,
+            .picoBlockquoteBarColor: blockquoteColor.withAlphaComponent(0.6)
+        ], range: range)
+        result.attributed = .picoConverted(from: content)
+        return result
+    }
+
+    private func renderContent(snapshot: BlockSnapshot, previousBlockKind: BlockKind?,
+                               blockquoteLevel: Int) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
             let (fallback, table, images) = await renderTable(snapshot, font: bodyFont)
@@ -70,9 +93,10 @@ actor MarkdownAttributeBuilder {
                                         images: images,
                                         codeBlock: nil)
         case .listItem(let ordered, let index, let task):
-            return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task, previousBlockKind: previousBlockKind)
+            return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task,
+                                         previousBlockKind: previousBlockKind, blockquoteLevel: blockquoteLevel)
         case .blockquote:
-            return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind)
+            return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: blockquoteLevel)
         case .fencedCode:
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
@@ -383,7 +407,8 @@ actor MarkdownAttributeBuilder {
                                 ordered: Bool,
                                 index: Int?,
                                 task: TaskListState?,
-                                previousBlockKind: BlockKind?) async -> RenderedContentResult {
+                                previousBlockKind: BlockKind?, blockquoteLevel: Int) async -> RenderedContentResult {
+        let listDepth = max(0, snapshot.depth - blockquoteLevel)
         let bulletText: String
         if let task {
             bulletText = task.checked ? "☑︎" : "☐"
@@ -413,7 +438,7 @@ actor MarkdownAttributeBuilder {
 
         // Spacing via margin collapsing
         var listSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
-        if snapshot.depth > 0 {
+        if listDepth > 0 {
             listSpacing.spacingAfter = max(0, listSpacing.spacingAfter - 2)
         }
         let listParagraph = makeParagraphStyle(listSpacing)
@@ -435,7 +460,7 @@ actor MarkdownAttributeBuilder {
         }
 
         let bulletTextGap: CGFloat = 12
-        let nestingIndent: CGFloat = CGFloat(snapshot.depth) * 20
+        let nestingIndent: CGFloat = CGFloat(listDepth) * 20
 
         // Final column where ALL wrapped lines start
         let headIndent = nestingIndent + max(bulletWidth, minReservedWidth) + bulletTextGap
@@ -719,7 +744,8 @@ actor MarkdownAttributeBuilder {
     }
 
 
-    private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedContentResult {
+    private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
+                                  blockquoteLevel: Int) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         // Container-only parents (e.g. the implicit level-1 block that
@@ -756,7 +782,7 @@ actor MarkdownAttributeBuilder {
         // the trailing newline, adjacent quote blocks merge into one
         // uninterrupted bar. Suppress the inter-paragraph gap between
         // adjacent quote blocks so a nested quote reads as one quote body.
-        let level = snapshot.depth + 1
+        let level = max(1, blockquoteLevel)
         let followsBlockquote = previousBlockKind == .blockquote
         let paragraphStyle = makeBlockquoteParagraphStyle(level: level,
                                                           spacingBefore: followsBlockquote ? 0 : 4)
