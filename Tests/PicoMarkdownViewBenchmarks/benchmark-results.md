@@ -650,3 +650,32 @@ The longer quoted cases are 13-18% slower than that checkpoint, although
 within 3% of the preceding lower-branch run. A final combined-stack repeat
 will check persistence; this run alone is not evidence of no regression.
 No build commands ran concurrently.
+
+## Empty-Marker And Pause/Resume Stack Checkpoint 2867602 (2026-09-30)
+
+The final combined stack passes 37 XCTest + 263 Swift Testing definitions on
+macOS and 301 definitions on iOS Simulator (679 invocations including dynamic
+parameters), with zero failures, skips, or runtime warnings. Both examples
+build without compiler warnings. All 284 quoted fixtures and the six native
+paused-replacement version regressions pass. Both serial skip-build benchmark
+runs followed all completed tests/builds, with no concurrent build commands.
+
+Initial sample1 128/512/1024-byte means were `0.016634 / 0.016373 / 0.016122 s`,
+word streaming `0.022816 s` (50 iterations). Quoted 1024/2048 means were
+`0.032703 / 0.043339 s` for spaces, `0.034544 / 0.043985 s` for alternating
+padding, and `0.024393 / 0.037816 s` for tables (10 iterations). The longest
+table case was 12% above `3c00a0a`; the unchanged-code repeat below checks it.
+
+Repeat sample1 means were `0.016721 / 0.016437 / 0.016261 s`, with word
+streaming `0.022983 s`. Long math at 8192/16384 bytes measured
+`0.003199 / 0.006147 s` (10 iterations, 1.92x); the isolated combining-mark
+scanner at 512/1024 chunks measured `0.000513 / 0.000910 s`
+(20 iterations, 1.77x). Quoted means were `0.032364 / 0.042818 s` for spaces,
+`0.035180 / 0.045313 s` for alternating padding, and
+`0.024727 / 0.035103 s` for tables (10 iterations, 1.29-1.42x).
+
+Repeat sample1, word-stream, and quoted-case means are within 3% of `3c00a0a`
+except the longest table case, which is 4% higher (5% above `10f47e8`). The
+larger lower-branch elevations are not persistent in the combined repeat;
+all measurements remain recorded rather than attributing variation without
+evidence. The required final combined comparison is complete.

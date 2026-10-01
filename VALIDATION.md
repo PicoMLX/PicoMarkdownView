@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 259 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 263 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  297 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  301 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -45,7 +45,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 160 container/math fixtures pass every chunk split and character-at-a-time
+  All 284 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -105,7 +105,7 @@ The earlier local-package/WizardKit build configuration fix is already on
   At the look-behind cap, reference/table fallbacks preserve eligible list
   parents and exact raw payloads while discarding only container indentation.
   Six capped variants pass every split, character streams, deterministic
-  events, and bounded-buffer checks in addition to the 160 quote fixtures.
+  events, and bounded-buffer checks in addition to the 284 quote fixtures.
 - [x] GFM block boundaries: four-space/tab-indented thematic markers remain
   code, while three-space controls remain rules. Confirmed tables close before
   successor block openers without rejecting ordinary non-pipe body rows.
@@ -119,6 +119,13 @@ The earlier local-package/WizardKit build configuration fix is already on
   includes the list gutter only for owned children. Tab-indented list-child
   display-math openers stay pending until their physical line resolves. All
   cases pass every split, character streams, and deterministic-event checks.
+- [x] Empty first-item markers stay within existing quoted paragraphs, while
+  initial empty items and checkbox-only tasks remain valid. Marker-only ATX
+  headings resolve only at newline or EOF. Structured quoted children require
+  the complete ordered marker/content column, including successor paragraphs;
+  under-indented children become quote-level siblings. Tab-expanded fence
+  prefixes remain indented code at four columns. The 124 added fixtures cover
+  every split, character streams, repeated events, and single-shot equivalence.
 - [x] Ordinary images reserve quote/list gutters before sizing attachments;
   list bullet columns and table cell padding/separators are also reserved.
   Native AppKit/UIKit glyph bounds at 160, 320, and 800 points stay inside the
@@ -172,6 +179,10 @@ The earlier local-package/WizardKit build configuration fix is already on
   and native wrappers, including coalesced replacement/delta flushes. Tests on
   both TextKit entry points verify the next consecutive one-block update stays
   narrow while genuine gaps still repair cached presentations.
+- [x] Resuming a paused replacement records the synchronized snapshot version
+  in both native controller paths, including unchanged-content replacements.
+  Six TextKit 1/2 scenarios reproduced the false all-block gap before the fix
+  and now retain narrow consecutive diffs after pause/resume and paused feeds.
 - [x] Queued width refreshes register request revisions before the operation
   gate. Deterministic paused-image tests queue 20 obsolete width buckets, a
   latest width or nil reset, and a feed: only the latest queued width renders,
@@ -187,8 +198,8 @@ The earlier local-package/WizardKit build configuration fix is already on
   staging still creates a scaled default Mermaid provider. A real-backend test
   verifies identical cached image objects for two diagrams across widths
   48/80/128/nil, commit/rollback, and scaled-width refreshes; scaling produces
-  distinct images and retains the scaled suffix font. Tokenizer and benchmark
-  code are unchanged from the final serial successor checkpoint above.
+  distinct images and retains the scaled suffix font. This renderer-only fix
+  does not change tokenizer behavior or benchmark inputs.
 - [x] Successfully rendered paragraph/quote/table images survive shared-cache
   eviction across repeated scales and narrow/wide content-width updates.
   The renderer retains original image results only while their blocks survive;
@@ -230,8 +241,8 @@ The earlier local-package/WizardKit build configuration fix is already on
 The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
 footnote/continuation, verbatim-code, unmarked definition/math interruption,
-fence-boundary, initial-code, source-order, and structured list-child/Mermaid
-additions. Those additions
+fence-boundary, initial-code, source-order, structured list-child/Mermaid,
+empty-heading/marker, and wide-marker/tab-indentation additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
