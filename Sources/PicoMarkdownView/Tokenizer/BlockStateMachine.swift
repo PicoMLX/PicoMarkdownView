@@ -54,12 +54,14 @@ struct StreamingParser {
         var language: String?
         var closingMarker: String?
         var isIndented: Bool
+        var leadingIndent: Int
 
-        init(marker: String, language: String?, closingMarker: String? = nil, isIndented: Bool = false) {
+        init(marker: String, language: String?, closingMarker: String? = nil, isIndented: Bool = false, leadingIndent: Int = 0) {
             self.marker = marker
             self.language = language
             self.closingMarker = closingMarker
             self.isIndented = isIndented
+            self.leadingIndent = leadingIndent
         }
     }
 
@@ -135,6 +137,7 @@ struct StreamingParser {
     private var quotePrefixResolved = false
     private var lineWasQuoted = false
     private var pendingQuotePrefix = false
+    private var lineAlreadyConsumed = false
     private var events: [BlockEvent] = []
 
     mutating func feed(_ chunk: String) -> ChunkResult {
@@ -161,9 +164,9 @@ struct StreamingParser {
                 lineAnalyzed = false   // force re-analysis now that line is complete
                 analyzeLineIfNeeded(isLineComplete: true)
                 let includeNewline = shouldIncludeTerminatingNewline()
-                appendDeltaIfNeeded(includeTerminatingNewline: includeNewline)
+                appendDeltaIfNeeded(includeTerminatingNewline: includeNewline, isLineComplete: true)
                 finalizeLine(terminated: true, force: false)
-            } else {
+            } else if !lineAlreadyConsumed {
                 lineBuffer.append(character)
                 lineAnalyzed = false
             }
@@ -173,8 +176,9 @@ struct StreamingParser {
         appendDeltaIfNeeded()
 
         if isFinal {
+            lineAnalyzed = false
             analyzeLineIfNeeded(isLineComplete: true)
-            appendDeltaIfNeeded()
+            appendDeltaIfNeeded(isLineComplete: true)
             finalizeLine(terminated: true, force: true)
             if contextStack.contains(where: { $0.kind == .blockquote }) {
                 closeBlockquoteContexts()
@@ -204,8 +208,16 @@ struct StreamingParser {
 
     private mutating func analyzeLineIfNeeded(isLineComplete: Bool) {
         if lineAnalyzed { return }
+        if lineAlreadyConsumed { lineAnalyzed = true; return }
 
         guard prepareQuotedLine(isLineComplete: isLineComplete) else {
+            lineAnalyzed = true
+            return
+        }
+        pendingQuotePrefix = false
+        if lineWasQuoted, !isLineComplete, currentBlock?.kind.isVerbatim != true,
+           quotedBlockOpenerIsPending(lineBuffer) {
+            pendingQuotePrefix = true
             lineAnalyzed = true
             return
         }
@@ -238,6 +250,7 @@ struct StreamingParser {
              detectHeading(lineBuffer) != nil ||
              detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
              detectDisplayMathOpening(lineBuffer) != nil ||
+             (isLineComplete && detectTableCandidate(lineBuffer)) ||
              (isLineComplete && detectFenceOpening(lineBuffer) != nil))
         if contextStack.isEmpty || opensQuotedChild {
             if let footnote = detectFootnoteDefinition(lineBuffer) {
@@ -325,6 +338,10 @@ struct StreamingParser {
         }
 
         if var ctx = currentBlock {
+            if ctx.kind.isVerbatim, let fence = ctx.fenceInfo, !fence.isIndented {
+                let strip = lineBuffer.prefix(fence.leadingIndent).prefix { $0 == " " }.count
+                emittedCount = max(emittedCount, strip)
+            }
             switch ctx.kind {
         case .paragraph, .footnoteDefinition:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
@@ -530,8 +547,8 @@ struct StreamingParser {
         lineAnalyzed = true
     }
 
-    private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false) {
-        guard !pendingQuotePrefix else { return }
+    private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false, isLineComplete: Bool = false) {
+        guard !pendingQuotePrefix, !lineAlreadyConsumed else { return }
         guard let ctx = currentBlock else { return }
         if ctx.kind == .table {
             emittedCount = lineBuffer.count
@@ -554,7 +571,7 @@ struct StreamingParser {
         // marker characters don't leak into the current block's content.
         // Once enough characters arrive to resolve the ambiguity, the full
         // content is emitted (or a block transition consumes the prefix).
-        if !includeTerminatingNewline {
+        if !isLineComplete {
             switch context.kind {
             case .paragraph, .listItem, .blockquote, .footnoteDefinition, .heading:
                 if shouldDeferParagraphFallback(for: lineBuffer) { return }
@@ -565,11 +582,17 @@ struct StreamingParser {
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
-        if !includeTerminatingNewline, case .fencedCode = context.kind,
-           !context.fenceJustOpened, emittedCount == 0,
+        let fenceIndent = lineBuffer.prefix(context.fenceInfo?.leadingIndent ?? 0).prefix { $0 == " " }.count
+        if !isLineComplete, case .fencedCode = context.kind,
+           !context.fenceJustOpened, emittedCount == fenceIndent,
            let fence = context.fenceInfo, !fence.isIndented,
            let marker = fence.marker.first,
            trimmedLine.allSatisfy({ $0 == marker || $0.isWhitespace }) {
+            return
+        }
+        if !isLineComplete, case .math = context.kind,
+           !context.fenceJustOpened, emittedCount == fenceIndent,
+           let closing = context.fenceInfo?.closingMarker, closing.hasPrefix(trimmedLine) {
             return
         }
         if case .math = context.kind, context.pendingSameLineClose {
@@ -616,6 +639,7 @@ struct StreamingParser {
 
     private mutating func finalizeLine(terminated: Bool, force: Bool) {
         if !terminated && !force { return }
+        if lineAlreadyConsumed { resetLineState(); return }
         if lineIsLinkDefinition {
             resetLineState()
             return
@@ -716,10 +740,14 @@ struct StreamingParser {
         quotePrefixResolved = false
         lineWasQuoted = false
         pendingQuotePrefix = false
+        lineAlreadyConsumed = false
     }
 
     private mutating func closePendingSameLineBlocks() {
         while let ctx = currentBlock, ctx.pendingSameLineClose {
+            // A math closer consumed before newline must not be recognized
+            // again as an opener after the child closes at the next feed.
+            if !lineBuffer.isEmpty { lineAlreadyConsumed = true }
             closeCurrentBlock()
         }
     }
@@ -1039,6 +1067,11 @@ struct StreamingParser {
 
     private mutating func closeCurrentBlock() {
         guard let ctx = currentBlock else { return }
+        if let table = ctx.tableState, table.stage != .rows {
+            var candidate = ctx
+            degradeTableCandidate(context: &candidate, table: table, terminated: true)
+            return
+        }
         if var parser = ctx.inlineParser {
             var runs = parser.finish()
             coalesceInlineRuns(&runs)
@@ -1104,6 +1137,10 @@ struct StreamingParser {
             pendingQuotePrefix = false
             guard quoteIndex != nil else { return true }
             if lineBuffer.isEmpty && !isLineComplete { return true }
+            if !isLineComplete, lineBuffer.count <= 3, lineBuffer.allSatisfy({ $0 == " " }) {
+                pendingQuotePrefix = true
+                return false
+            }
             let lazyContinuation = currentBlock.map { context in
                 switch context.kind {
                 case .paragraph, .listItem: return true
@@ -1125,7 +1162,7 @@ struct StreamingParser {
         }
         let content = String(lineBuffer.dropFirst(quote.prefixLength))
         if !isLineComplete, quote.markerCount < activeLevel, !inQuotedFence,
-           shouldDeferParagraphFallback(for: content) {
+           shouldDeferParagraphFallback(for: content) || quotedBlockOpenerIsPending(content) {
             pendingQuotePrefix = true
             return false
         }
@@ -1156,6 +1193,10 @@ struct StreamingParser {
                 closeCurrentBlock()
             }
         }
+        if !isLineComplete, !inQuotedFence, quotedBlockOpenerIsPending(content) {
+            pendingQuotePrefix = true
+            return false
+        }
         lineBuffer = content
         emittedCount = 0
         if var current = currentBlock {
@@ -1165,6 +1206,18 @@ struct StreamingParser {
         quotePrefixResolved = true
         lineWasQuoted = true
         return true
+    }
+
+    private func quotedBlockOpenerIsPending(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespaces)
+        if trimmed == "$" || trimmed == "\\" { return true }
+        guard let list = detectList(content) else { return false }
+        let suffix = content.dropFirst(list.indentText.count + list.markerLength)
+        // The optional checkbox must be resolved before publishing immutable
+        // list metadata. Only its three-character local prefix is ambiguous.
+        return ["[ ] ", "[x] ", "[X] "].contains { marker in
+            marker.hasPrefix(suffix) && marker != suffix
+        }
     }
 
     /// True for lines that consist only of `>` markers and whitespace —
@@ -1313,6 +1366,8 @@ struct StreamingParser {
     }
 
     private func detectFenceOpening(_ line: String) -> FenceInfo? {
+        let indent = line.prefix { $0 == " " }.count
+        guard indent <= 3 else { return nil }
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard let first = trimmed.first, first == "`" || first == "~" else { return nil }
         var index = trimmed.startIndex
@@ -1323,7 +1378,7 @@ struct StreamingParser {
         }
         guard marker.count >= 3 else { return nil }
         let info = trimmed[index...].trimmingCharacters(in: .whitespaces)
-        return FenceInfo(marker: marker, language: info.isEmpty ? nil : info, closingMarker: marker)
+        return FenceInfo(marker: marker, language: info.isEmpty ? nil : info, closingMarker: marker, leadingIndent: indent)
     }
 
     /// Detect a display-math opener at the start of the (optionally indented) line.
