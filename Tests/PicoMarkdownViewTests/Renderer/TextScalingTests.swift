@@ -301,6 +301,85 @@ struct TextScalingTests {
         #expect(try font(in: final).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 3)
     }
 
+    @Test("Superseded in-flight scales stop rendering and never publish", arguments: [false, true])
+    func supersededInFlightScale(cancel: Bool) async throws {
+        let provider = PausingImageProvider()
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        let source = (0..<8).map { "Item \($0) ![image](https://example.com/\($0).png)\n\n" }.joined()
+        _ = await pipeline.feed(source)
+        _ = await pipeline.finish()
+        let original = await pipeline.blocksSnapshot()
+        let countBefore = await provider.requestCount
+        await provider.pauseNextRequest()
+        let obsolete = Task { await pipeline.updateTextScale(2) }
+        await provider.waitUntilPaused()
+        let version = await pipeline.scaleRequestVersion
+        let latestScale: CGFloat = cancel ? 2 : 3
+        let latest = Task { await pipeline.updateTextScale(latestScale) }
+        while await pipeline.scaleRequestVersion == version { await Task.yield() }
+        if cancel { obsolete.cancel() }
+        await provider.resume()
+        #expect(await obsolete.value == nil)
+        let update = try #require(await latest.value)
+        let final = update.blocks
+        #expect(final.map(\.snapshot) == original.map(\.snapshot))
+        #expect(final.map(\.id) == original.map(\.id))
+        let backend = TextKitStreamingBackend()
+        _ = backend.apply(blocks: original, selection: NSRange(location: 0, length: 0))
+        let selection = NSRange(location: 0, length: backend.length)
+        #expect(backend.apply(blocks: final, diffs: [update.diff], selection: selection) == selection)
+        #expect(await provider.requestCount == countBefore + 1 + original.count)
+        for block in final {
+            #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * latestScale)
+        }
+        #expect(await pipeline.blocksSnapshot() == final)
+    }
+
+    @Test("Canceling an active scale retains the complete previous presentation")
+    func canceledInFlightScaleRetainsPresentation() async throws {
+        let provider = PausingImageProvider()
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        _ = await pipeline.feed("One ![image](https://example.com/1.png)\n\nTwo ![image](https://example.com/2.png)\n\n")
+        _ = await pipeline.finish()
+        let original = await pipeline.blocksSnapshot()
+        let countBefore = await provider.requestCount
+        await provider.pauseNextRequest()
+        let canceled = Task { await pipeline.updateTextScale(2) }
+        await provider.waitUntilPaused()
+        canceled.cancel()
+        await provider.resume()
+        #expect(await canceled.value == nil)
+        #expect(await pipeline.blocksSnapshot() == original)
+        #expect(await provider.requestCount == countBefore + 1)
+        let retry = try #require(await pipeline.updateTextScale(2)).blocks
+        for block in retry {
+            #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+    }
+
+    @Test("Rolling back a committed scale restores fonts and allows a same-size retry")
+    func committedScaleRollback() async throws {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { await assembler.block($0) }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("One\n\nTwo\n\n")))
+        let original = await renderer.renderedBlocks()
+        let prepared = try #require(await renderer.prepareTextScale(2, shouldContinue: { true }))
+        #expect(await renderer.renderedBlocks() == original)
+        #expect(await renderer.commitTextScale(prepared) == original.map(\.id))
+        for block in await renderer.renderedBlocks() {
+            #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+        await renderer.rollbackTextScale(prepared)
+        #expect(await renderer.renderedBlocks() == original)
+        #expect(await renderer.updateTextScale(2) == original.map(\.id))
+        for block in await renderer.renderedBlocks() {
+            #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+        await renderer.rollbackTextScale(prepared)
+        #expect(await renderer.renderedBlocks() == prepared.blocks)
+    }
+
     @Test("Canceled finite-input initialization still completes at the requested scale")
     func canceledInitializationRetainsScale() async throws {
         let model = MarkdownStreamingViewModel()

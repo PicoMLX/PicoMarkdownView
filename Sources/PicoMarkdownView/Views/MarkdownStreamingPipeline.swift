@@ -13,7 +13,7 @@ actor MarkdownStreamingPipeline {
     private var operationInProgress = false
     private var operationWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextOperationWaiter = 0
-    private var scaleRequestVersion: UInt64 = 0
+    private(set) var scaleRequestVersion: UInt64 = 0
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
@@ -82,11 +82,26 @@ actor MarkdownStreamingPipeline {
         await acquireOperation()
         defer { releaseOperation() }
         guard (!skipIfCancelled || !Task.isCancelled), requestVersion == scaleRequestVersion else { return nil }
-        let refreshed = await renderer.updateTextScale(scale)
+        guard let prepared = await renderer.prepareTextScale(scale, shouldContinue: { [weak self] in
+            guard !skipIfCancelled || !Task.isCancelled, let self else { return false }
+            return await self.isCurrentScaleRequest(requestVersion)
+        }) else { return nil }
+        guard (!skipIfCancelled || !Task.isCancelled), requestVersion == scaleRequestVersion else { return nil }
+        let refreshed = await renderer.commitTextScale(prepared)
+        guard (!skipIfCancelled || !Task.isCancelled), requestVersion == scaleRequestVersion else {
+            // Cancellation can arrive during the actor handoff to commit.
+            // Restore the last published scale before releasing the gate.
+            await renderer.rollbackTextScale(prepared)
+            return nil
+        }
         guard !refreshed.isEmpty else { return nil }
         let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
             changes: refreshed.map { .blockEnded(id: $0) }))
-        return StreamingUpdate(diff: diff, blocks: await renderer.renderedBlocks())
+        return StreamingUpdate(diff: diff, blocks: prepared.blocks)
+    }
+
+    private func isCurrentScaleRequest(_ version: UInt64) -> Bool {
+        version == scaleRequestVersion
     }
 
     private func acquireOperation() async {
