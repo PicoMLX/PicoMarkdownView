@@ -272,6 +272,11 @@ actor MarkdownRenderer {
     }
 
     private func shouldRefreshForContentWidthChange(_ block: RenderedBlock) -> Bool {
+        if block.math != nil || block.snapshot.inlineRuns?.contains(where: { $0.math != nil }) == true ||
+           block.snapshot.table?.headerCells?.contains(where: { $0.contains(where: { $0.math != nil }) }) == true ||
+           block.snapshot.table?.rows.contains(where: { $0.contains(where: { $0.contains(where: { $0.math != nil }) }) }) == true {
+            return true
+        }
         if !block.images.isEmpty {
             return true
         }

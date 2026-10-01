@@ -14,12 +14,12 @@ typealias InlineMathPlatformFont = NSFont
 #endif
 
 enum InlineMathAttachment {
-    static func mathString(tex: String, display: Bool, baseFont: InlineMathPlatformFont) -> NSAttributedString {
-        if let rendered = renderedAttachmentString(tex: tex, display: display, baseFont: baseFont) {
+    static func mathString(tex: String, display: Bool, baseFont: InlineMathPlatformFont, maxWidth: CGFloat? = nil) -> NSAttributedString {
+        if let rendered = renderedAttachmentString(tex: tex, display: display, baseFont: baseFont, maxWidth: maxWidth) {
             return rendered
         }
         if let sanitized = sanitizedFallbackTeX(from: tex), sanitized != tex,
-           let rendered = renderedAttachmentString(tex: sanitized, display: display, baseFont: baseFont) {
+           let rendered = renderedAttachmentString(tex: sanitized, display: display, baseFont: baseFont, maxWidth: maxWidth) {
             return rendered
         }
         return NSAttributedString(string: tex)
@@ -38,7 +38,8 @@ enum InlineMathAttachment {
 
     private static func renderedAttachmentString(tex: String,
                                                  display: Bool,
-                                                 baseFont: InlineMathPlatformFont) -> NSAttributedString? {
+                                                 baseFont: InlineMathPlatformFont,
+                                                 maxWidth: CGFloat?) -> NSAttributedString? {
         let fontSize = baseFont.pointSize
         let mode: MTMathUILabelMode = display ? .display : .text
 #if canImport(UIKit)
@@ -60,7 +61,11 @@ enum InlineMathAttachment {
         guard let image = imageAny else { return nil }
 
         let attachment = NSTextAttachment()
-        let size = image.size
+        var size = image.size
+        if let maxWidth, maxWidth.isFinite, maxWidth > 0, size.width > maxWidth {
+            let scale = maxWidth / size.width
+            size = CGSize(width: maxWidth, height: size.height * scale)
+        }
         let baselineOffset = (size.height - fontSize) / 2
         let yOffset: CGFloat
         if display {
