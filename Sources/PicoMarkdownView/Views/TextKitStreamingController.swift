@@ -13,7 +13,7 @@ import AppKit
 final class TextKitStreamingController: ObservableObject {
     private static let logger = Logger(subsystem: "com.picomarkdown", category: "Controller")
     private let backend = TextKitStreamingBackend()
-    private var lastAppliedVersion: UInt64 = 0
+    private(set) var lastAppliedVersion: UInt64 = 0
     private var lastAppliedReplaceToken: UInt64 = 0
 
 #if canImport(UIKit)
@@ -34,18 +34,19 @@ final class TextKitStreamingController: ObservableObject {
                 blocks: [RenderedBlock],
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
+                documentVersion: UInt64 = 0,
                 configuration: PicoTextKitConfiguration) {
         configure(textView, with: configuration)
         backend.setPaused(configuration.isPaused)
         if replaceToken != lastAppliedReplaceToken {
             lastAppliedReplaceToken = replaceToken
-            lastAppliedVersion = 0
+            lastAppliedVersion = configuration.isPaused ? 0 : documentVersion
             _ = backend.apply(blocks: blocks, selection: textView.selectedRange)
             textView.setNeedsDisplay()
             textView.invalidateIntrinsicContentSize()
             return
         }
-        let eligible = eligibleDiffs(from: diffs)
+        let eligible = eligibleDiffs(from: diffs, blocks: blocks)
         if eligible.diffs.isEmpty {
             // Safety net: if the blocks have changed but all diffs were already
             // consumed (e.g. coalesced flush delivered stale diff versions),
@@ -55,6 +56,9 @@ final class TextKitStreamingController: ObservableObject {
                 textView.setNeedsDisplay()
             } else if configuration.isSelectable {
                 textView.selectedRange = textView.selectedRange.clamped(maxLength: backend.length)
+            }
+            if !configuration.isPaused {
+                lastAppliedVersion = max(lastAppliedVersion, documentVersion)
             }
             textView.invalidateIntrinsicContentSize()
             return
@@ -123,6 +127,7 @@ final class TextKitStreamingController: ObservableObject {
                 blocks: [RenderedBlock],
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
+                documentVersion: UInt64 = 0,
                 configuration: PicoTextKitConfiguration) {
         Self.logger.debug("update: \(blocks.count) blocks, replaceToken=\(replaceToken), lastApplied=\(self.lastAppliedReplaceToken), storageLen=\(self.backend.length)")
         configure(textView, with: configuration)
@@ -130,14 +135,14 @@ final class TextKitStreamingController: ObservableObject {
         backend.setPaused(configuration.isPaused)
         if replaceToken != lastAppliedReplaceToken {
             lastAppliedReplaceToken = replaceToken
-            lastAppliedVersion = 0
+            lastAppliedVersion = configuration.isPaused ? 0 : documentVersion
             _ = backend.apply(blocks: blocks, selection: currentSelection)
             Self.logger.debug("applied full replace: storageLen=\(self.backend.length)")
             textView.needsDisplay = true
             textView.invalidateIntrinsicContentSize()
             return
         }
-        let eligible = eligibleDiffs(from: diffs)
+        let eligible = eligibleDiffs(from: diffs, blocks: blocks)
         if eligible.diffs.isEmpty {
             // Safety net: if the blocks have changed but all diffs were already
             // consumed (e.g. coalesced flush delivered stale diff versions),
@@ -147,6 +152,9 @@ final class TextKitStreamingController: ObservableObject {
                 textView.needsDisplay = true
             } else if configuration.isSelectable {
                 textView.setSelectedRange(currentSelection.clamped(maxLength: backend.length))
+            }
+            if !configuration.isPaused {
+                lastAppliedVersion = max(lastAppliedVersion, documentVersion)
             }
             textView.invalidateIntrinsicContentSize()
             return
@@ -185,14 +193,22 @@ final class TextKitStreamingController: ObservableObject {
     }
 #endif
 
-    private func eligibleDiffs(from diffs: [AssemblerDiff]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
+    func eligibleDiffs(from diffs: [AssemblerDiff], blocks: [RenderedBlock]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
         guard !diffs.isEmpty else { return ([], lastAppliedVersion) }
         var eligible: [AssemblerDiff] = []
         eligible.reserveCapacity(diffs.count)
         var latest = lastAppliedVersion
+        var hasGap = false
         for diff in diffs where diff.documentVersion > latest {
+            hasGap = hasGap || diff.documentVersion - latest > 1
             eligible.append(diff)
             latest = diff.documentVersion
+        }
+        if hasGap {
+            // A rejected or coalesced publication may have changed closed
+            // blocks. Patch cached presentations too; structural gaps use
+            // the backend's existing full-synchronization fallback.
+            eligible[eligible.count - 1].changes.append(contentsOf: blocks.map { .blockEnded(id: $0.id) })
         }
         return (eligible, latest)
     }
@@ -498,8 +514,9 @@ final class TextKitStreamingBackend {
 
         let newAttributed = NSAttributedString.picoConverted(from: block.content)
         let range = rangeForRecord(at: index)
+        let unchangedText = record.length == newAttributed.length && record.nsAttributed.string == newAttributed.string
         storage.replaceCharacters(in: range, with: newAttributed)
-        let updatedSelection = adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)
+        let updatedSelection = unchangedText ? selection : adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)
 
         let oldLength = record.length
         records[index].content = block.content

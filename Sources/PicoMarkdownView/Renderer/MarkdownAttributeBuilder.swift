@@ -58,6 +58,14 @@ actor MarkdownAttributeBuilder {
         }
     }
 
+    // Width staging needs independent configuration, not new provider caches.
+    func copyForContentWidth(_ width: CGFloat?) async -> MarkdownAttributeBuilder {
+        let builder = MarkdownAttributeBuilder(theme: theme, imageProvider: imageProvider,
+                                               mermaidProvider: mermaidProvider)
+        await builder.setRuntimeMermaidMaxWidth(width)
+        return builder
+    }
+
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
                 blockquoteLevel: Int = 0) async -> RenderedContentResult {
         let ownsQuoteStyle = snapshot.kind == .blockquote
@@ -809,7 +817,8 @@ actor MarkdownAttributeBuilder {
 
         let styledBody = NSMutableAttributedString(attributedString: body)
         if styledBody.length > 0 {
-            styledBody.addAttributes(bodyAttributes, range: NSRange(location: 0, length: styledBody.length))
+            styledBody.addAttribute(.paragraphStyle, value: paragraphStyle,
+                                    range: NSRange(location: 0, length: styledBody.length))
         }
 
         let result = NSMutableAttributedString(attributedString: styledBody)

@@ -22,6 +22,8 @@ public struct PicoMarkdownView: View {
     @Environment(\.picoOnTagHover) private var onTagHover
     @Environment(\.picoOnLinkHover) private var onLinkHover
     @Environment(\.picoOnContentSize) private var onContentSize
+    @Environment(\.picoTextScale) private var hostTextScale
+    @ScaledMetric(relativeTo: .body) private var dynamicBodySize: CGFloat = 17
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -133,6 +135,7 @@ public struct PicoMarkdownView: View {
                           blocks: viewModel.blocks,
                           diffs: viewModel.diffQueue,
                           replaceToken: viewModel.replaceToken,
+                          documentVersion: viewModel.documentVersion,
                           configuration: configuration,
                           onMeasuredContentWidth: { width in
                               Task {
@@ -143,8 +146,16 @@ public struct PicoMarkdownView: View {
                           linkHandler: makeLinkHandler(),
                           hoverHandler: makeHoverHandler())
             .task(id: consumeTaskID) {
-                await viewModel.consume(input)
+                await viewModel.consume(input, initialTextScale: effectiveTextScale)
             }
+            .task(id: effectiveTextScale) {
+                await viewModel.updateTextScale(effectiveTextScale)
+            }
+    }
+
+    private var effectiveTextScale: CGFloat {
+        let hostScale = hostTextScale.isFinite && hostTextScale > 0 ? hostTextScale : 1
+        return dynamicBodySize / 17 * hostScale
     }
 
     /// Builds the hover closure for the text views (macOS). It receives the
@@ -207,6 +218,7 @@ private struct TextKit2Container: UIViewRepresentable {
     var blocks: [RenderedBlock]
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
+    var documentVersion: UInt64
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
@@ -229,7 +241,8 @@ private struct TextKit2Container: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
-        controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken,
+                          documentVersion: documentVersion, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: uiView))
         controller.installContentSizeObserver(on: uiView, onContentSize)
         controller.installLinkHandler(on: uiView, linkHandler)
@@ -243,6 +256,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var blocks: [RenderedBlock]
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
+    var documentVersion: UInt64
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
@@ -264,7 +278,8 @@ private struct TextKit2Container: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
-        controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken,
+                          documentVersion: documentVersion, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
         controller.installContentSizeObserver(on: nsView, onContentSize)
         controller.installLinkHandler(on: nsView, linkHandler)

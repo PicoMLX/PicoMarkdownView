@@ -11,6 +11,16 @@ import AppKit
 /// Stores only `Sendable` values (CGFloat, enum cases). Call `resolved()` to
 /// get the corresponding `MarkdownFont` (UIFont/NSFont).
 public struct FontSpec: Sendable, Hashable {
+    static var defaultBodyPointSize: CGFloat {
+        #if canImport(UIKit)
+        UIFont.preferredFont(forTextStyle: .body,
+                             compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
+        #else
+        // Unscaled macOS baseline; SwiftUI applies the accessibility ratio once.
+        13
+        #endif
+    }
+
     public let pointSize: CGFloat
     public let weight: Weight
     public let design: Design

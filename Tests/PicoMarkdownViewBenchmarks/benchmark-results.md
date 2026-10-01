@@ -412,3 +412,17 @@ Testing optional-property macro warning. It accepts the parser's ordinary
 plain newline run while rejecting non-whitespace/formatting in empty items.
 Both complete suites were rerun successfully after that test-only correction;
 parser code and the serial measurements above are unchanged.
+
+## Sparse Width-Refresh Diff Checkpoint (2026-10-01)
+
+Width staging records only block IDs with changed attributed presentations,
+and the pipeline publishes those IDs rather than all retained blocks. Three
+image/Mermaid/math cases reproduce nine all-block diffs before the fix; after
+the fix each narrow/wide/reset update changes only its one attachment among
+130 blocks. Snapshots, ordinary text, consecutive streaming, repeated-width
+no-ops, and the six native TextKit selection scenarios still pass.
+
+Full lower-branch suites pass 37 XCTest + 269 Swift Testing definitions on
+macOS and 307 definitions / 776 invocations on iOS, with no failures, skips,
+or runtime warnings. The fix is renderer/pipeline-only; tokenizer code and
+inputs match the preceding serial PR9 benchmark checkpoint.

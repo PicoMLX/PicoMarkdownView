@@ -26,13 +26,18 @@ final class MarkdownStreamingViewModel {
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
     var replaceToken: UInt64 = 0
+    var documentVersion: UInt64 = 0
 
     private var pendingBlocks: [RenderedBlock]?
     private var pendingDiffs: [AssemblerDiff] = []
     private var pendingReplaceToken: UInt64?
+    private var pendingDocumentVersion: UInt64 = 0
     private var updateScheduled = false
     private var mermaidContentWidth: CGFloat?
     private var mermaidContentWidthBucket: Int?
+    private var textScale: CGFloat = 1
+    private var latestEnqueuedVersion: UInt64 = 0
+    private var documentNeedsReplacement = true
     private var imageBlockDependencies: [URL: Set<BlockID>] = [:]
     private var requestedRemoteImageURLs: Set<URL> = []
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
@@ -47,7 +52,11 @@ final class MarkdownStreamingViewModel {
         self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
     }
 
-    func consume(_ input: MarkdownStreamingInput) async {
+    func consume(_ input: MarkdownStreamingInput, initialTextScale: CGFloat? = nil) async {
+        // Install presentation state synchronously before any pipeline awaits.
+        if let initialTextScale {
+            textScale = initialTextScale.isFinite && initialTextScale > 0 ? initialTextScale : 1
+        }
         switch input.payload {
         case .replacement(let value):
             // Input ids are content-derived for `.text`/`.chunks`, so a
@@ -76,7 +85,9 @@ final class MarkdownStreamingViewModel {
             // be mistaken for a redundant re-delivery.
             activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
+            _ = await freshPipeline.updateTextScale(textScale, skipIfCancelled: false)
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
+            guard generation == pipelineGeneration else { return }
             enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
             await consume(stream: stream, pipeline: freshPipeline, generation: generation)
@@ -90,6 +101,8 @@ final class MarkdownStreamingViewModel {
         lastReplacementValue = nil
         resetImagePrefetchState()
         pipelineGeneration &+= 1
+        latestEnqueuedVersion = 0
+        documentNeedsReplacement = true
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
         pipeline = newPipeline
         return (newPipeline, pipelineGeneration)
@@ -102,6 +115,7 @@ final class MarkdownStreamingViewModel {
         // but still publish after every chunk so long replays render (and
         // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
+        _ = await freshPipeline.updateTextScale(textScale, skipIfCancelled: false)
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
 
         // The first publish must be a full replace (diff: nil): the view may
@@ -111,13 +125,13 @@ final class MarkdownStreamingViewModel {
         for chunk in chunks where !chunk.isEmpty {
             if let update = await freshPipeline.feed(chunk) {
                 guard generation == pipelineGeneration else { return }
-                enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
+                enqueueUpdate(update, replacing: !publishedAny)
                 publishedAny = true
             }
         }
         if let update = await freshPipeline.finish() {
             guard generation == pipelineGeneration else { return }
-            enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
+            enqueueUpdate(update, replacing: !publishedAny)
             publishedAny = true
         }
         guard generation == pipelineGeneration else { return }
@@ -135,13 +149,13 @@ final class MarkdownStreamingViewModel {
             guard !chunk.isEmpty else { continue }
             if let update = await pipeline.feed(chunk) {
                 guard generation == pipelineGeneration else { return }
-                enqueueUpdate(blocks: update.blocks, diff: update.diff)
+                enqueueUpdate(update)
             }
         }
         guard !Task.isCancelled else { return }
         if let update = await pipeline.finish() {
             guard generation == pipelineGeneration else { return }
-            enqueueUpdate(blocks: update.blocks, diff: update.diff)
+            enqueueUpdate(update)
         }
     }
 
@@ -153,15 +167,16 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("replace(with:) called, value length=\(value.count)")
         #endif
         let (freshPipeline, generation) = makeFreshPipeline()
-        var latestBlocks: [RenderedBlock] = []
+        _ = await freshPipeline.updateTextScale(textScale, skipIfCancelled: false)
+        var latestUpdate: StreamingUpdate?
 
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
 
         if !value.isEmpty {
             if let update = await freshPipeline.feed(value) {
-                latestBlocks = update.blocks
+                latestUpdate = update
                 #if DEBUG
-                Self.logger.debug("feed produced \(latestBlocks.count) blocks")
+                Self.logger.debug("feed produced \(update.blocks.count) blocks")
                 #endif
             } else {
                 #if DEBUG
@@ -171,22 +186,36 @@ final class MarkdownStreamingViewModel {
         }
 
         if let update = await freshPipeline.finish() {
-            latestBlocks = update.blocks
+            latestUpdate = update
             #if DEBUG
-            Self.logger.debug("finish produced \(latestBlocks.count) blocks")
+            Self.logger.debug("finish produced \(update.blocks.count) blocks")
             #endif
         } else {
             #if DEBUG
-            Self.logger.debug("finish returned nil (blocks from feed: \(latestBlocks.count))")
+            Self.logger.debug("finish returned nil (blocks from feed: \(latestUpdate?.blocks.count ?? 0))")
             #endif
         }
 
         guard generation == pipelineGeneration else { return }
         lastReplacementValue = value
         #if DEBUG
-        Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
+        Self.logger.debug("enqueueUpdate with \(latestUpdate?.blocks.count ?? 0) blocks")
         #endif
-        enqueueUpdate(blocks: latestBlocks, diff: nil)
+        if let latestUpdate {
+            enqueueUpdate(latestUpdate, replacing: true)
+        } else {
+            enqueueUpdate(blocks: [], diff: nil)
+        }
+    }
+
+    func updateTextScale(_ scale: CGFloat) async {
+        guard !Task.isCancelled else { return }
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        textScale = factor
+        let generation = pipelineGeneration
+        if let update = await pipeline.updateTextScale(factor), generation == pipelineGeneration {
+            enqueueUpdate(update)
+        }
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async {
@@ -200,15 +229,29 @@ final class MarkdownStreamingViewModel {
         mermaidContentWidth = normalizedWidth
         mermaidContentWidthBucket = nextBucket
 
-        if let updatedBlocks = await pipeline.updateMermaidContentWidth(normalizedWidth) {
-            enqueueUpdate(blocks: updatedBlocks, diff: nil)
+        let generation = pipelineGeneration
+        if let update = await pipeline.updateMermaidContentWidth(normalizedWidth), generation == pipelineGeneration {
+            enqueueUpdate(update)
         }
     }
 
-    private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?) {
+    func enqueueUpdate(_ update: StreamingUpdate, replacing: Bool = false) {
+        // Gate ownership orders mutations, not resumption of their MainActor
+        // callers. Reject late results before touching pending content or deps.
+        // The native controller repairs change coverage across skipped versions.
+        guard update.diff.documentVersion > latestEnqueuedVersion else { return }
+        latestEnqueuedVersion = update.diff.documentVersion
+        let replace = replacing || documentNeedsReplacement
+        documentNeedsReplacement = false
+        enqueueUpdate(blocks: update.blocks, diff: replace ? nil : update.diff,
+                      version: update.diff.documentVersion)
+    }
+
+    private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?, version: UInt64 = 0) {
         updateImageDependencies(using: blocks)
         scheduleImagePrefetchIfNeeded(using: blocks)
         pendingBlocks = blocks
+        pendingDocumentVersion = version
         if let diff {
             pendingDiffs.append(diff)
         } else {
@@ -238,6 +281,7 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("flushPendingUpdates: \(blocks.count) blocks, replaceToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
         #endif
         self.blocks = blocks
+        documentVersion = pendingDocumentVersion
         self.diffQueue = pendingDiffs
         if let token = pendingReplaceToken {
             replaceToken = token
@@ -341,7 +385,7 @@ final class MarkdownStreamingViewModel {
             guard let update = await self.pipeline.refreshBlocks(affectedBlocks) else { return }
             await MainActor.run {
                 guard generation == self.imagePrefetchGeneration else { return }
-                self.enqueueUpdate(blocks: update.blocks, diff: update.diff)
+                self.enqueueUpdate(update)
             }
         }
     }

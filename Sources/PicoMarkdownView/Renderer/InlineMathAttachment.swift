@@ -22,7 +22,7 @@ enum InlineMathAttachment {
            let rendered = renderedAttachmentString(tex: sanitized, display: display, baseFont: baseFont, maxWidth: maxWidth) {
             return rendered
         }
-        return NSAttributedString(string: tex)
+        return NSAttributedString(string: tex, attributes: [.font: baseFont])
     }
 
     static func sanitizedFallbackTeX(from tex: String) -> String? {

@@ -43,12 +43,7 @@ public struct MarkdownRenderTheme: Sendable {
     }
 
     public static func `default`() -> MarkdownRenderTheme {
-        let bodySize: CGFloat
-        #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body).pointSize + 2
-        #else
-        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize + 2
-        #endif
+        let bodySize = FontSpec.defaultBodyPointSize + 2
 
         let body = FontSpec(size: bodySize)
         let code = FontSpec(size: bodySize, design: .monospaced)
@@ -89,13 +84,35 @@ public struct MarkdownRenderTheme: Sendable {
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode)
     }
+
+    /// Scales the theme's fonts, preserving colors, providers, and layout limits.
+    public func scaled(by scale: CGFloat) -> MarkdownRenderTheme {
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        let scaledCodeTheme = codeBlockTheme.map { code in
+            CodeBlockTheme(font: code.font.withSize(code.font.pointSize * factor),
+                           foregroundColor: code.foregroundColor, backgroundColor: code.backgroundColor,
+                           tokenColors: code.tokenColors)
+        }
+        return MarkdownRenderTheme(
+            bodyFont: bodyFont.withSize(bodyFont.pointSize * factor),
+            codeFont: codeFont.withSize(codeFont.pointSize * factor),
+            blockquoteColor: blockquoteColor, linkColor: linkColor,
+            headingFonts: headingFonts.mapValues { $0.withSize($0.pointSize * factor) },
+            imageMaxWidth: imageMaxWidth, codeBlockTheme: scaledCodeTheme,
+            codeHighlighter: codeHighlighter, mermaidRenderingMode: mermaidRenderingMode)
+    }
 }
 
 actor MarkdownRenderer {
     typealias SnapshotProvider = @Sendable (BlockID) async -> BlockSnapshot
 
     private let theme: MarkdownRenderTheme
-    private let attributeBuilder: MarkdownAttributeBuilder
+    private var attributeBuilder: MarkdownAttributeBuilder
+    private let imageProvider: RetainedMarkdownImageProvider?
+    private let mermaidProvider: (any MermaidDiagramProvider)?
+    private var textScale: CGFloat = 1
+    private var renderGeneration: UInt64 = 0
+    private var runtimeMermaidContentWidth: CGFloat?
     private let snapshotProvider: SnapshotProvider
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
@@ -106,9 +123,12 @@ actor MarkdownRenderer {
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
+        let retainedImageProvider = imageProvider.map { RetainedMarkdownImageProvider(provider: $0) }
+        self.imageProvider = retainedImageProvider
+        self.mermaidProvider = mermaidProvider
         let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
         self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
-                                                         imageProvider: imageProvider,
+                                                         imageProvider: retainedImageProvider,
                                                          mermaidProvider: resolvedMermaidProvider)
         self.snapshotProvider = snapshotProvider
     }
@@ -148,7 +168,7 @@ actor MarkdownRenderer {
                  .blockEnded(let id):
                 mutated = await refreshBlock(id: id) || mutated
             case .blocksDiscarded(let range):
-                removeBlocks(in: range)
+                await removeBlocks(in: range)
                 mutated = true
             }
         }
@@ -191,20 +211,145 @@ actor MarkdownRenderer {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
-        let effectiveWidth = effectiveMermaidContentWidth(for: width)
-        let bucket = mermaidWidthBucket(for: effectiveWidth)
-        guard bucket != mermaidContentWidthBucket else { return nil }
-        mermaidContentWidthBucket = bucket
+        guard let prepared = await prepareContentWidth(width, shouldContinue: { true }),
+              commitContentWidth(prepared), prepared.didMutate else { return nil }
+        return prepared.blocks
+    }
 
-        await attributeBuilder.setRuntimeMermaidMaxWidth(width)
+    struct PreparedContentWidthUpdate: Sendable {
+        let width: CGFloat?
+        let bucket: Int?
+        let generation: UInt64
+        let builder: MarkdownAttributeBuilder
+        let blocks: [RenderedBlock]
+        let changedBlockIDs: [BlockID]
+        var didMutate: Bool { !changedBlockIDs.isEmpty }
+        let previousWidth: CGFloat?
+        let previousBucket: Int?
+        let previousBuilder: MarkdownAttributeBuilder
+        let previousBlocks: [RenderedBlock]
+    }
 
-        var mutated = false
-        let candidateIDs = blocks.filter(shouldRefreshForContentWidthChange).map(\.id)
-        for id in candidateIDs {
-            mutated = await refreshBlock(id: id) || mutated
+    func prepareContentWidth(_ width: CGFloat?,
+                             shouldContinue: @Sendable () async -> Bool) async -> PreparedContentWidthUpdate? {
+        let bucket = mermaidWidthBucket(for: effectiveMermaidContentWidth(for: width))
+        guard bucket != mermaidContentWidthBucket, await shouldContinue() else { return nil }
+        let generation = renderGeneration
+        let previousWidth = runtimeMermaidContentWidth
+        let previousBucket = mermaidContentWidthBucket
+        let previousBuilder = attributeBuilder
+        let previousBlocks = blocks
+        let builder = await previousBuilder.copyForContentWidth(width)
+        var staged = previousBlocks
+        var changedBlockIDs: [BlockID] = []
+        for index in staged.indices where shouldRefreshForContentWidthChange(previousBlocks[index]) {
+            guard await shouldContinue(), generation == renderGeneration else { return nil }
+            let block = previousBlocks[index]
+            let result = await builder.render(snapshot: block.snapshot,
+                previousBlockKind: index > 0 ? previousBlocks[index - 1].kind : nil,
+                blockquoteLevel: block.blockquoteLevel)
+            guard await shouldContinue(), generation == renderGeneration else { return nil }
+            if block.content != result.attributed { changedBlockIDs.append(block.id) }
+            staged[index].updatePresentation(from: result)
         }
+        guard await shouldContinue(), generation == renderGeneration else { return nil }
+        return PreparedContentWidthUpdate(width: width, bucket: bucket, generation: generation,
+            builder: builder, blocks: staged, changedBlockIDs: changedBlockIDs, previousWidth: previousWidth,
+            previousBucket: previousBucket, previousBuilder: previousBuilder, previousBlocks: previousBlocks)
+    }
 
-        return mutated ? blocks : nil
+    func commitContentWidth(_ prepared: PreparedContentWidthUpdate) -> Bool {
+        guard prepared.generation == renderGeneration else { return false }
+        runtimeMermaidContentWidth = prepared.width
+        mermaidContentWidthBucket = prepared.bucket
+        attributeBuilder = prepared.builder
+        blocks = prepared.blocks
+        renderGeneration &+= 1
+        return true
+    }
+
+    func rollbackContentWidth(_ prepared: PreparedContentWidthUpdate) {
+        guard renderGeneration == prepared.generation &+ 1 else { return }
+        runtimeMermaidContentWidth = prepared.previousWidth
+        mermaidContentWidthBucket = prepared.previousBucket
+        attributeBuilder = prepared.previousBuilder
+        blocks = prepared.previousBlocks
+        renderGeneration &+= 1
+    }
+
+    /// Font changes require fresh presentation for each block, not a new parse.
+    func updateTextScale(_ scale: CGFloat) async -> [BlockID] {
+        guard let prepared = await prepareTextScale(scale, shouldContinue: { true }) else { return [] }
+        return commitTextScale(prepared)
+    }
+
+    struct PreparedTextScaleUpdate: Sendable {
+        let scale: CGFloat
+        let generation: UInt64
+        let builder: MarkdownAttributeBuilder
+        let blocks: [RenderedBlock]
+        let previousScale: CGFloat
+        let previousBuilder: MarkdownAttributeBuilder
+        let previousBlocks: [RenderedBlock]
+    }
+
+    // The pipeline holds its operation gate until this transaction is either
+    // published or abandoned; streaming edits cannot interleave with staging.
+    func prepareTextScale(_ scale: CGFloat,
+                          shouldContinue: @Sendable () async -> Bool) async -> PreparedTextScaleUpdate? {
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        guard factor != textScale, await shouldContinue() else { return nil }
+        let generation = renderGeneration
+        let previousScale = textScale
+        let previousBuilder = attributeBuilder
+        let previousBlocks = blocks
+        let scaledTheme = theme.scaled(by: factor)
+        let builder = MarkdownAttributeBuilder(
+            theme: scaledTheme, imageProvider: imageProvider,
+            mermaidProvider: mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme))
+        await builder.setRuntimeMermaidMaxWidth(runtimeMermaidContentWidth)
+        var staged = previousBlocks
+        for index in staged.indices {
+            guard await shouldContinue(), generation == renderGeneration else { return nil }
+            let block = previousBlocks[index]
+            let result = await builder.render(snapshot: block.snapshot,
+                previousBlockKind: index > 0 ? previousBlocks[index - 1].kind : nil,
+                blockquoteLevel: block.blockquoteLevel)
+            guard await shouldContinue(), generation == renderGeneration else { return nil }
+            staged[index].updatePresentation(from: result)
+        }
+        guard await shouldContinue(), generation == renderGeneration else { return nil }
+        return PreparedTextScaleUpdate(scale: factor, generation: generation, builder: builder, blocks: staged,
+            previousScale: previousScale, previousBuilder: previousBuilder, previousBlocks: previousBlocks)
+    }
+
+    func commitTextScale(_ prepared: PreparedTextScaleUpdate) -> [BlockID] {
+        guard prepared.generation == renderGeneration else { return [] }
+        textScale = prepared.scale
+        attributeBuilder = prepared.builder
+        blocks = prepared.blocks
+        renderGeneration &+= 1
+        return blocks.map(\.id)
+    }
+
+    func rollbackTextScale(_ prepared: PreparedTextScaleUpdate) {
+        guard renderGeneration == prepared.generation &+ 1 else { return }
+        textScale = prepared.previousScale
+        attributeBuilder = prepared.previousBuilder
+        blocks = prepared.previousBlocks
+        renderGeneration &+= 1
+    }
+
+    private func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind?,
+                        blockquoteLevel: Int) async -> RenderedContentResult {
+        // An image/math await may overlap a scale change. Do not commit an
+        // obsolete builder's fonts after the new presentation has been applied.
+        while true {
+            let generation = renderGeneration
+            let result = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                                       blockquoteLevel: blockquoteLevel)
+            if generation == renderGeneration { return result }
+        }
     }
 
     private func insertBlock(id: BlockID, at position: Int) async {
@@ -216,6 +361,7 @@ actor MarkdownRenderer {
 
         blocks.insert(block, at: index)
         rebuildIndex(startingAt: index)
+        await updateImageReferences(for: block)
     }
 
     private func refreshBlock(id: BlockID) async -> Bool {
@@ -223,7 +369,7 @@ actor MarkdownRenderer {
         let snapshot = await snapshotProvider(id)
         let previousKind = previousBlockKind(at: index)
         let quoteLevel = blockquoteLevel(for: snapshot)
-        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel)
+        let rendered = await render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel)
         
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
@@ -233,18 +379,17 @@ actor MarkdownRenderer {
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
         blocks[index].blockquoteLevel = quoteLevel
-        blocks[index].content = rendered.attributed
-        blocks[index].table = rendered.table
-        blocks[index].listItem = rendered.listItem
-        blocks[index].blockquote = rendered.blockquote
-        blocks[index].math = rendered.math
-        blocks[index].images = rendered.images
-        blocks[index].codeBlock = rendered.codeBlock
-        blocks[index].mermaidDiagram = rendered.mermaidDiagram
+        blocks[index].updatePresentation(from: rendered)
+        await updateImageReferences(for: blocks[index])
         return didMutate
     }
 
-    private func removeBlocks(in range: Range<Int>) {
+    private func updateImageReferences(for block: RenderedBlock) async {
+        guard let imageProvider else { return }
+        await imageProvider.setReferences(Set(block.images.compactMap(\.url)), for: block.id)
+    }
+
+    private func removeBlocks(in range: Range<Int>) async {
         guard !blocks.isEmpty else { return }
         let lower = max(range.lowerBound, 0)
         let upper = min(range.upperBound, blocks.count)
@@ -257,6 +402,9 @@ actor MarkdownRenderer {
             indexByID[block.id] = nil
         }
         rebuildIndex(startingAt: lower)
+        if let imageProvider {
+            await imageProvider.removeReferences(for: removed.map(\.id))
+        }
     }
 
     private func rebuildIndex(startingAt start: Int) {
@@ -321,7 +469,7 @@ actor MarkdownRenderer {
 
     private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {
         let quoteLevel = blockquoteLevel(for: snapshot)
-        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel)
+        let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
@@ -348,6 +496,54 @@ actor MarkdownRenderer {
     
 }
 
+// Keep successful results while their blocks survive. The shared provider's
+// bounded cache may evict them between presentation-only refreshes.
+private actor RetainedMarkdownImageProvider: MarkdownImageProvider {
+    private let provider: any MarkdownImageProvider
+    private var images: [URL: MarkdownImageResult] = [:]
+    private var urlsByBlock: [BlockID: Set<URL>] = [:]
+    private var referenceCounts: [URL: Int] = [:]
+
+    init(provider: any MarkdownImageProvider) { self.provider = provider }
+
+    func image(for url: URL) async -> MarkdownImageResult? {
+        if let result = await provider.image(for: url) {
+            images[url] = result
+            return result
+        }
+        return images[url]
+    }
+
+    func setReferences(_ urls: Set<URL>, for id: BlockID) {
+        let previous = urlsByBlock[id] ?? []
+        guard previous != urls else { return }
+        for url in previous where !urls.contains(url) { releaseReference(to: url) }
+        for url in urls where !previous.contains(url) { referenceCounts[url, default: 0] += 1 }
+        if urls.isEmpty {
+            urlsByBlock[id] = nil
+        } else {
+            urlsByBlock[id] = urls
+        }
+    }
+
+    func removeReferences(for ids: [BlockID]) {
+        for id in ids {
+            guard let urls = urlsByBlock.removeValue(forKey: id) else { continue }
+            for url in urls { releaseReference(to: url) }
+        }
+    }
+
+    private func releaseReference(to url: URL) {
+        guard let count = referenceCounts[url] else { return }
+        if count > 1 {
+            referenceCounts[url] = count - 1
+        } else {
+            referenceCounts[url] = nil
+            images[url] = nil
+        }
+    }
+}
+
 struct RenderedBlock: Sendable, Identifiable, Equatable {
     var id: BlockID
     var kind: BlockKind
@@ -364,6 +560,17 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
 }
 
 extension RenderedBlock {
+    mutating func updatePresentation(from rendered: RenderedContentResult) {
+        content = rendered.attributed
+        table = rendered.table
+        listItem = rendered.listItem
+        blockquote = rendered.blockquote
+        math = rendered.math
+        images = rendered.images
+        codeBlock = rendered.codeBlock
+        mermaidDiagram = rendered.mermaidDiagram
+    }
+
     static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
         lhs.id == rhs.id &&
         lhs.kind == rhs.kind &&
