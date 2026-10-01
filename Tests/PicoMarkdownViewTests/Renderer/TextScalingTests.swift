@@ -388,8 +388,8 @@ struct TextScalingTests {
         }
     }
 
-    @Test("Width publication preserves selection across image and Mermaid attachments", arguments: [false, true], [false, true])
-    func widthPublicationPreservesSelection(mermaid: Bool, textKit2: Bool) async throws {
+    @Test("Width publication preserves selection across image, Mermaid, and math attachments", arguments: ["image", "mermaid", "math"], [false, true])
+    func widthPublicationPreservesSelection(kind: String, textKit2: Bool) async throws {
         let size = CGSize(width: 200, height: 100)
         #if canImport(UIKit)
         let image = UIGraphicsImageRenderer(size: size).image { _ in }
@@ -398,13 +398,19 @@ struct TextScalingTests {
         #endif
         let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
         let model = MarkdownStreamingViewModel(imageProvider: provider)
-        let attachment = mermaid ? "```mermaid\ngraph LR\nA-->B\n```" : "![image](https://example.com/image.png)"
+        let attachment: String
+        switch kind {
+        case "mermaid": attachment = "```mermaid\ngraph LR\nA-->B\n```"
+        case "math": attachment = "$$" + String(repeating: "x+", count: 30) + "x$$"
+        default: attachment = "![image](https://example.com/image.png)"
+        }
         await model.consume(.text("Before\n\n\(attachment)\n\nAfter\n\n"))
         await drainPublication()
         let original = model.blocks
         #expect(original.count == 3)
         let attachmentBlock = try #require(original.dropFirst().first)
-        if mermaid { #expect(attachmentBlock.mermaidDiagram != nil) }
+        if kind == "mermaid" { #expect(attachmentBlock.mermaidDiagram != nil) }
+        if kind == "math" { #expect(attachmentBlock.math != nil) }
         let initialBounds = try attachmentBounds(in: attachmentBlock)
         let originalText = original.map { String($0.content.characters) }.joined()
         let attachmentOffset = String(try #require(original.first).content.characters).utf16.count

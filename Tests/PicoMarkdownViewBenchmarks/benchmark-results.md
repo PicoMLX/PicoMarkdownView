@@ -747,3 +747,37 @@ changes only view-model publication and its renderer regression test; parser
 and benchmark code are unchanged from 5270cd4, so the serial measurements
 above remain the applicable parser checkpoint rather than rerunning them for
 a presentation-only change.
+
+## Quote Boundaries, Physical Tab Columns, And Math Width (2026-10-01)
+
+Six additional findings are fixed: active tables unwind on reduced quote
+depth, unknown blocks retain extra markers, footnote successors preserve
+eligible list ownership, wide-marker references resolve after local deindent,
+quote indentation uses physical tab columns, and math attachments reserve
+quote/list/table gutters and refresh on width changes. Literal code/unknown
+tabs remain unchanged; only structural indentation is normalized. The table
+row/list-opener finding is intentionally not changed: GFM section 4.10 and
+GitHub's Markdown API both produce a separate list for `- item | value`.
+Regression controls cover that report and an ordinary pipe row.
+
+Full suites pass 34 XCTest + 238 Swift Testing definitions on macOS and 273
+definitions / 688 invocations on iOS, with no failures, skips, or runtime
+warnings. All 354 quoted fixtures pass every split, character streams, and
+deterministic repeats. Native math glyph bounds and line heights pass at
+160/320/800 points and a width where intrinsic math fits the full container
+but would overflow after the quote gutter. Actual example inspection remains
+blocked by the locked desktop.
+
+An initial Character-based indentation normalization materially regressed
+unresolved padding: spaces measured `0.111963 / 0.183902 s` and alternating
+padding `0.178394 / 0.138520 s`. ASCII-byte prefix scanning and deferred tab
+mapping removed that regression before committing. The final serial means
+are sample1 `0.019084 / 0.016788 / 0.016640 s`, word streaming `0.023725 s`
+(50 iterations), quoted spaces `0.027917 / 0.042493 s`, alternating padding
+`0.027780 / 0.044525 s`, and deferred tables `0.025639 / 0.040096 s`
+(10 iterations). Quoted padding is faster than the preceding lower-branch
+checkpoint and table means are within 2%; the 128-byte sample is 13% higher,
+while an earlier byte-scanning repeat measured `0.016923 s`. This variation
+is recorded without attributing a cause. A final combined-stack repeat is
+required after the remaining inline-parser fix. No local builds/tests ran
+concurrently with these measurements.
