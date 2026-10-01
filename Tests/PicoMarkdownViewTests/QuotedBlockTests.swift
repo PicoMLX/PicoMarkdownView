@@ -151,27 +151,46 @@ struct QuotedBlockTests {
       + markerPaddingDocuments.map(\.source) + mixedIndentDocuments.map(\.source)
       + markerPaddingControls + ["> -     item.\n>   # heading\n\n"]
 
-    private static let markerPaddingControls: [String] = (1...4).flatMap { padding in
-        ["> -\(String(repeating: " ", count: padding))[x] item\n> \(String(repeating: " ", count: padding + 1))# heading\n\n",
-         "> 1.\(String(repeating: " ", count: padding))\n>    # heading\n\n"]
-    }
+    private static let markerPaddingControls: [String] = {
+        var fixtures: [String] = []
+        for padding in 1...4 {
+            let spaces = String(repeating: " ", count: padding)
+            let childSpaces = spaces + " "
+            fixtures.append("> -\(spaces)[x] item\n> \(childSpaces)# heading\n\n")
+            fixtures.append("> 1.\(spaces)\n>    # heading\n\n")
+        }
+        return fixtures
+    }()
 
-    private static let markerPaddingDocuments: [(source: String, owned: Bool)] = ["-", "1.", "10."].flatMap { marker in
-        (1...4).flatMap { padding in
-            [marker.count, marker.count + padding].map { indent in
-                ("> \(marker)\(String(repeating: " ", count: padding))item\n> \(String(repeating: " ", count: indent))# heading\n\n", indent == marker.count + padding)
+    private static let markerPaddingDocuments: [(source: String, owned: Bool)] = {
+        var fixtures: [(source: String, owned: Bool)] = []
+        for marker in ["-", "1.", "10."] {
+            for padding in 1...4 {
+                let contentIndent = marker.count + padding
+                let spaces = String(repeating: " ", count: padding)
+                for indent in [marker.count, contentIndent] {
+                    let childSpaces = String(repeating: " ", count: indent)
+                    let source = "> \(marker)\(spaces)item\n> \(childSpaces)# heading\n\n"
+                    fixtures.append((source: source, owned: indent == contentIndent))
+                }
             }
         }
-    }
+        return fixtures
+    }()
 
-    private static let mixedIndentDocuments: [(source: String, code: String)] = ["\t", "  ", "    "].flatMap { opening in
-        ["  ", "\t", "    ", "      "].map { continuation in
+    private static let mixedIndentDocuments: [(source: String, code: String)] = {
+        var fixtures: [(source: String, code: String)] = []
+        for opening in ["\t", "  ", "    "] {
             let openingColumns = opening == "\t" ? 4 : opening.count
-            let continuationColumns = continuation == "\t" ? 4 : continuation.count
-            return ("> - item\n> \(opening)```\n> \(continuation)code\n>   ```\n\n",
-                String(repeating: " ", count: max(0, continuationColumns - openingColumns)) + "code\n")
+            for continuation in ["  ", "\t", "    ", "      "] {
+                let continuationColumns = continuation == "\t" ? 4 : continuation.count
+                let source = "> - item\n> \(opening)```\n> \(continuation)code\n>   ```\n\n"
+                let code = String(repeating: " ", count: max(0, continuationColumns - openingColumns)) + "code\n"
+                fixtures.append((source: source, code: code))
+            }
         }
-    }
+        return fixtures
+    }()
 
     private static let emptyMarkerDocuments: [String] = ["> paragraph\n> ", "> # heading\n> paragraph\n> ", "> > paragraph\n> "].flatMap { prefix in
         ["- ", "* ", "+ ", "1.", "1. ", "2. ", "1.  \t"].map { prefix + $0 + "\n\n" }
