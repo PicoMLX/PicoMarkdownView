@@ -175,3 +175,22 @@ for spaces, `0.035121 / 0.049186 s` for alternating padding, and
 `0.024107 / 0.038600 s` for deferred tables (10 iterations; doubling takes
 1.40-1.60x). Benchmarks ran after all builds/tests, with skip-build and no
 concurrent build work.
+
+### Unmarked Quote Interrupts And Fence Indentation
+
+After deferring unmarked definitions, terminating quotes before confirmed
+display math, requiring list-content indentation for verbatim children, and
+rejecting four-space/tab-indented fence closers, 88 quoted fixtures pass every
+split and deterministic character streams. Unmarked definition candidates
+also use the bounded raw fallback. Full suites pass: 34 XCTest + 219 Swift
+Testing tests on macOS, and 254 test definitions on iOS Simulator.
+
+The final serial sample1 means are `0.016990 / 0.016461 / 0.016272 s` at
+128/512/1024-byte chunks, and `0.022946 s` for the example word stream
+(50 iterations). This is within 3% of the preceding PR9 checkpoint.
+The 1024/2048 one-character means are `0.033459 / 0.047753 s` for spaces,
+`0.034801 / 0.049459 s` for alternating padding, and
+`0.024461 / 0.039190 s` for deferred tables (10 iterations; doubling takes
+1.42-1.61x). One initial alternating 2048 measurement was `0.059818 s`;
+the repeat returned to the previous checkpoint's range. No material
+regression was observed. Both runs used skip-build with no concurrent builds.

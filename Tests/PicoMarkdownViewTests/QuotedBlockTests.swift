@@ -82,7 +82,23 @@ struct QuotedBlockTests {
         "> text\n---\nafter\n\n",
         "> text\n___\nafter\n\n",
         "> text\n* * *\nafter\n\n",
-        "> ````\n> code\n> ```\n> ````tail\n> ~~~~~\n> `````\n> after\n\n"
+        "> ````\n> code\n> ```\n> ````tail\n> ~~~~~\n> `````\n> after\n\n",
+        "> # h\n[^b]: x\n\n",
+        "> text\n[^b]: x\n\n",
+        "> # h\n[ref]: /url\n[ref] text\n\n",
+        "> text\n$$\nx\n$$\nafter\n\n",
+        "> text\n\\[\nx\n\\]\nafter\n\n",
+        "> text\n$$x$$\nafter\n\n",
+        "> text\n$$x$$y\n\n",
+        "> - item\n>   ```\n> outside\n>   ```\n\n",
+        "> - item\n>   ```\n>  outside\n>   ```\n\n",
+        "> ```\n> code\n>     ```\n> after\n> ```\n\n",
+        "> ~~~\n> code\n>     ~~~\n> after\n> ~~~\n\n",
+        "> ```\n> code\n> \t```\n> after\n> ```\n\n",
+        "> ```\n> code\n>    ```\n> after\n\n",
+        "> - item\n>   ```\n>       ```\n>   after\n>   ```\n\n",
+        "> 1. item\n>    ```\n>   outside\n>    ```\n\n",
+        "> - item\n>   ```\n> \tcode\n> \t```\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -178,7 +194,7 @@ struct QuotedBlockTests {
 
     @Test("Deferred quoted candidates use bounded raw fallback")
     func quotedTableCandidateIsBounded() {
-        for prefix in ["> |", "> [ref", "> :::", "> ```swift "] {
+        for prefix in ["> |", "> [ref", "> :::", "> ```swift ", "> # h\n[ref", "> # h\n[^"] {
             var parser = StreamingParser(maxLookBehind: 32)
             _ = parser.feed(prefix)
             var unknownStarts = 0
@@ -418,6 +434,54 @@ struct QuotedBlockTests {
         let invalidClosers = await parse(chunks: [Self.documents[71]])
         #expect(invalidClosers.blocks[1].codeText == "code\n```\n````tail\n~~~~~\n")
         #expect(invalidClosers.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+    }
+
+    @Test("Unmarked definitions and display math terminate quotes consistently")
+    func unmarkedQuoteInterrupts() async throws {
+        for document in Self.documents[72...73] {
+            let result = await parse(chunks: document.map(String.init))
+            let definition = try #require(result.blocks.last)
+            #expect(definition.kind == .footnoteDefinition(id: "b", index: 1))
+            #expect(definition.parentID == nil)
+            #expect(definition.inlineRuns?.map(\.text).joined() == "x")
+        }
+        let reference = await parse(chunks: Self.documents[74].map(String.init))
+        #expect(reference.blocks.last?.inlineRuns?.contains { $0.linkURL == "/url" } == true)
+        for document in Self.documents[75...77] {
+            let result = await parse(chunks: document.map(String.init))
+            #expect(result.blocks.map(\.kind) == [.blockquote, .math(display: true), .paragraph])
+            #expect(result.blocks.dropFirst().allSatisfy { $0.parentID == nil })
+            #expect(result.blocks[1].mathText?.trimmingCharacters(in: .whitespacesAndNewlines) == "x")
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+        }
+        let suffix = await parse(chunks: Self.documents[78].map(String.init))
+        #expect(!suffix.blocks.contains { $0.kind == .math(display: true) })
+        #expect(suffix.blocks.flatMap { $0.inlineRuns ?? [] }.map(\.text).joined().contains("y"))
+    }
+
+    @Test("Quoted fence indentation cannot consume outside list content or over-indented closers")
+    func quotedFenceIndentationBoundaries() async throws {
+        for document in Self.documents[79...80] {
+            let result = await parse(chunks: document.map(String.init))
+            #expect(result.blocks.contains { $0.kind == .paragraph && $0.inlineRuns?.map(\.text).joined().trimmingCharacters(in: .whitespaces) == "outside" })
+            #expect(!result.blocks.contains { $0.codeText?.contains("outside") == true })
+        }
+        for document in Self.documents[81...83] {
+            let result = await parse(chunks: document.map(String.init))
+            let code = try #require(result.blocks.first { $0.codeText != nil }).codeText ?? ""
+            #expect(code.contains("after\n"))
+            #expect(code.contains(document == Self.documents[82] ? "~~~" : "```"))
+            #expect(!result.blocks.contains { $0.kind == .paragraph })
+        }
+        let validCloser = await parse(chunks: Self.documents[84].map(String.init))
+        #expect(validCloser.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil), .paragraph])
+        #expect(validCloser.blocks[1].codeText == "code\n")
+        let list = await parse(chunks: Self.documents[85].map(String.init))
+        #expect(list.blocks.first { $0.codeText != nil }?.codeText == "    ```\nafter\n")
+        let ordered = await parse(chunks: Self.documents[86].map(String.init))
+        #expect(!ordered.blocks.contains { $0.codeText?.contains("outside") == true })
+        let tab = await parse(chunks: Self.documents[87].map(String.init))
+        #expect(tab.blocks.first { $0.codeText != nil }?.codeText == "code\n")
     }
 
     @Test("List-owned nested quotes include the list indentation")

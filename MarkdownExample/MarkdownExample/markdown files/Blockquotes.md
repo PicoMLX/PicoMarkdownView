@@ -100,3 +100,24 @@ $$x$$y
 > Quote before an unmarked rule.
 ***
 Paragraph outside the quote.
+
+> # Quote before an unmarked definition
+[^outside-quote]: Footnote outside the quote.
+
+Outside footnote reference[^outside-quote].
+
+> Quote before unmarked display math.
+$$
+x^2 + y^2 = z^2
+$$
+Paragraph after the equation.
+
+> - Fence owner
+>   ```text
+> Outside the list-owned fence.
+>
+> ```text
+> Code before an over-indented marker.
+>     ```
+> Still code.
+> ```
