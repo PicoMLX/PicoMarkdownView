@@ -145,7 +145,37 @@ struct QuotedBlockTests {
         "> # heading\n> paragraph\n> 2. continuation\n\n",
         "> 2. item\n\n",
         "> > paragraph\n> 2. continuation\n\n"
-    ] + successorDocuments.map(\.source)
+    ] + successorDocuments.map(\.source) + emptyMarkerDocuments + emptyHeadingDocuments.map(\.source)
+      + contentIndentDocuments.map(\.source) + tabFenceDocuments
+      + ["> - \n\n", "> 1.\n\n", "> paragraph\n> - [ ] \n\n"]
+
+    private static let emptyMarkerDocuments: [String] = ["> paragraph\n> ", "> # heading\n> paragraph\n> ", "> > paragraph\n> "].flatMap { prefix in
+        ["- ", "* ", "+ ", "1.", "1. ", "2. ", "1.  \t"].map { prefix + $0 + "\n\n" }
+    }
+
+    private static let emptyHeadingDocuments: [(source: String, level: Int)] = (1...6).flatMap { level in
+        ["> ", "> paragraph\n> "].flatMap { prefix in
+            ["", "   "].flatMap { indent in
+                ["\n\n", ""].map { (prefix + indent + String(repeating: "#", count: level) + $0, level) }
+            }
+        }
+    }
+
+    private static let contentIndentDocuments: [(source: String, kind: BlockKind, owned: Bool)] = ["1.", "10.", "123."].flatMap { marker in
+        [2, marker.count + 1].flatMap { indent in
+            let padding = String(repeating: " ", count: indent)
+            let children: [(String, BlockKind)] = [("# heading", .heading(level: 1)), ("[^x]: def", .footnoteDefinition(id: "x", index: 1)), ("```\ncode\n```", .fencedCode(language: nil)), ("| a |\n| --- |", .table)]
+            return children.flatMap { child, kind in
+                let initial = "> \(marker) item\n"
+                let fullPadding = String(repeating: " ", count: marker.count + 1)
+                let successor = initial + "> \(fullPadding)```\n> \(fullPadding)first\n> \(fullPadding)```\n> \(fullPadding)after\n"
+                let tail = child.components(separatedBy: "\n").map { "> \(padding)\($0)\n" }.joined() + "\n"
+                return [initial, successor].map { ($0 + tail, kind, indent == marker.count + 1) }
+            }
+        }
+    }
+
+    private static let tabFenceDocuments = ["\t", " \t", "\t\t"].map { "> " + $0 + "```swift\n> \tcode\n> after\n\n" } + ["\t```swift\n\tcode\nafter\n\n"]
 
     private static let successorDocuments: [(source: String, kind: BlockKind, owned: Bool)] = {
         var cases: [(source: String, kind: BlockKind, owned: Bool)] = []
@@ -713,6 +743,47 @@ struct QuotedBlockTests {
             #expect(successor.depth == (fixture.owned ? list.depth + 1 : 1))
             #expect(result.blocks.contains { $0.kind == .paragraph && $0.inlineRuns?.map(\.text).joined() == "after" && $0.parentID == list.id })
             #expect(successor.inlineRuns?.map(\.text).joined() == (fixture.kind == .blockquote ? "nested\n" : "def"))
+        }
+    }
+
+    @Test("Empty list markers stay paragraph text while marker-only headings resolve at newline or EOF")
+    func emptyMarkerBoundaries() async throws {
+        for source in Self.emptyMarkerDocuments {
+            let result = await parse(chunks: source.map(String.init))
+            #expect(!result.blocks.contains { if case .listItem = $0.kind { return true }; return false })
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined().contains("paragraph") == true)
+        }
+        for fixture in Self.emptyHeadingDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            let heading = try #require(result.blocks.last)
+            #expect(heading.kind == .heading(level: fixture.level))
+            #expect((heading.inlineRuns ?? []).isEmpty)
+        }
+        for source in ["> - \n\n", "> 1.\n\n"] {
+            #expect(await parse(chunks: source.map(String.init)).blocks.contains { if case .listItem = $0.kind { return true }; return false })
+        }
+        #expect(await parse(chunks: "> paragraph\n> - [ ] \n\n".map(String.init)).blocks.last?.kind == .listItem(ordered: false, index: nil, task: .init(checked: false)))
+    }
+
+    @Test("Quoted structured children require their ordered marker's full content indent")
+    func completeOrderedContentIndent() async throws {
+        for fixture in Self.contentIndentDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let child = try #require(result.blocks.last)
+            #expect(child.kind == fixture.kind)
+            #expect(child.parentID == (fixture.owned ? item.id : result.blocks.first?.id))
+        }
+    }
+
+    @Test("Tab-indented fence markers stay indented code without swallowing the following paragraph")
+    func tabIndentedFenceOpeners() async throws {
+        for source in Self.tabFenceDocuments {
+            let result = await parse(chunks: source.map(String.init))
+            let code = try #require(result.blocks.first { $0.codeText != nil })
+            #expect(code.kind == .fencedCode(language: nil))
+            #expect(code.codeText?.contains("```swift") == true)
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
         }
     }
 
