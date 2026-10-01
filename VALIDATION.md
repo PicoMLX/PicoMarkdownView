@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 230 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 233 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  268 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  271 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 48 container/math fixtures pass every chunk split and character-at-a-time
+  All 61 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -58,6 +58,16 @@ The earlier local-package/WizardKit build configuration fix is already on
   Reference/extension/fence candidates share the capped literal fallback.
   Refreshes preserve retained children's established quote levels and
   indentation after the closed quote parent is evicted.
+- [x] Verbatim quoted code retains reference-definition text without registering
+  links. Partial space/tab indentation stays pending until resolved. Structured
+  children (fences, tables, headings, math, footnotes, rules, and unknown blocks)
+  retain their list-item parent, depth, and rendered list indentation. The local
+  continuation helper distinguishes indentation columns from string offsets.
+- [x] The reported attachment-only quote-gutter failure is not reproducible:
+  the existing attribute enumeration covers nil-valued ranges and adds a style
+  there. A successful math-attachment regression verifies the first-character
+  paragraph style and native glyph position outside the quote bar on both
+  AppKit and UIKit. No production change was needed for that finding.
 - [x] Math cursors resume at UTF-8 byte boundaries even when combining marks,
   variation selectors, or ZWJ continuations extend a prior grapheme. Scalar
   chunk tests preserve TeX, match single-shot output, and repeat identical
@@ -110,7 +120,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
-footnote/continuation and list-owned nested-quote additions. Those additions
+footnote/continuation, verbatim-code, and structured list-child additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.

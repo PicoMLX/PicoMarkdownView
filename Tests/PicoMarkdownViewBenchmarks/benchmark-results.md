@@ -315,3 +315,18 @@ The 1024/2048 one-character means are `0.032973 / 0.047931 s` for spaces,
 `0.024794 / 0.039296 s` for deferred table candidates. Doubling input takes
 1.42-1.58x. All measurements use the existing 50 sample / 10 padding iteration
 counts, skip-build, and no concurrent build work.
+
+## Combined Verbatim/List-Child Checkpoint 4a3aad1 (2026-09-30)
+
+Serial tokenizer benchmarks after propagating PR9 `1fe467d` into the stack;
+all local tests and example builds completed first. Sample1 means at
+128/512/1024-byte chunks are `0.016742 / 0.016083 / 0.016247 s`, and the
+example word stream is `0.022725 s` (50 iterations each). No material
+regression against the scalar-safe-opener checkpoint was observed.
+
+Ten-iteration long-math means are `0.003106 / 0.005899 s` for 8192/16384
+bytes (1.90x). The 20-iteration isolated Unicode scanner means are
+`0.000509 / 0.000876 s` for 512/1024 combining-mark chunks (1.72x).
+Ten-iteration quote means at 1024/2048 chunks are `0.032418 / 0.041926 s`
+for spaces, `0.034400 / 0.044157 s` for alternating padding, and
+`0.023275 / 0.033359 s` for deferred table candidates (1.28-1.43x).
