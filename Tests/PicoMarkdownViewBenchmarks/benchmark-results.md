@@ -532,3 +532,22 @@ Quoted 1024/2048 means are `0.032233 / 0.047057 s` for spaces,
 `0.025049 / 0.040193 s` for tables (10 iterations, 1.43-1.60x). No build
 commands ran concurrently. A final combined run will include these latest
 state-local boundary fixes as well.
+
+## Final Boundary Stack Checkpoint 61f1a6e (2026-09-30)
+
+Full suites pass 37 XCTest + 254 Swift Testing definitions on macOS and 292
+definitions on iOS Simulator. Both example builds are compiler-warning-free.
+The serial skip-build benchmark ran after every test/build command completed.
+
+Sample1 means at 128/512/1024 bytes are `0.017044 / 0.016463 / 0.016550 s`,
+word streaming `0.023203 s` (50 iterations). These are within 3% of the stable
+`3c00a0a` checkpoint, including word streaming; the earlier elevated lower
+and combined timings are not persistent in this final run. No material
+throughput regression is observed in the final stack.
+
+Long math at 8192/16384 bytes measures `0.003090 / 0.006122 s`
+(10 iterations, 1.98x). The isolated combining-mark scanner at 512/1024 chunks
+measures `0.000538 / 0.000899 s` (20 iterations, 1.67x). Quoted 1024/2048
+means are `0.032933 / 0.042642 s` for spaces, `0.035081 / 0.044632 s` for
+alternating padding, and `0.024399 / 0.034175 s` for tables
+(10 iterations, 1.27-1.40x), also within 3% of `3c00a0a`.

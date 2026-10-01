@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 252 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 254 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  290 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  292 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 109 container/math fixtures pass every chunk split and character-at-a-time
+  All 116 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -95,6 +95,13 @@ The earlier local-package/WizardKit build configuration fix is already on
   text opens a later paragraph. Tables close with their list owner when a
   nonblank line lacks its content indentation, rather than absorbing a sibling
   marker as a cell. All added cases pass split/character/determinism checks.
+- [x] Reduced quote markers unwind before footnote/table/math/rule/unknown
+  blocks, but retain inner levels for lazy paragraphs. Rules following list
+  child paragraphs retain their owner only with resolved content indentation.
+  At the look-behind cap, reference/table fallbacks preserve eligible list
+  parents and exact raw payloads while discarding only container indentation.
+  Six capped variants pass every split, character streams, deterministic
+  events, and bounded-buffer checks in addition to the 116 quote fixtures.
 - [x] Ordinary images reserve quote/list gutters before sizing attachments;
   list bullet columns and table cell padding/separators are also reserved.
   Native AppKit/UIKit glyph bounds at 160, 320, and 800 points stay inside the
