@@ -100,6 +100,74 @@ struct TextScalingTests {
         #expect(try font(in: blocks[0]).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize)
     }
 
+    @Test("Scale and feed operations never overlap a suspended image render")
+    func serializesSuspendedRenders() async throws {
+        let provider = YieldingImageProvider()
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        _ = await pipeline.feed("![image](https://example.com/image.png) ")
+        let id = try #require(await pipeline.blocksSnapshot().first).id
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for _ in 0..<20 { _ = await pipeline.feed("word ") }
+            }
+            group.addTask {
+                for scale in [CGFloat(2), 1.5, 1] { _ = await pipeline.updateTextScale(scale) }
+            }
+            group.addTask {
+                for _ in 0..<3 { _ = await pipeline.refreshBlocks([id]) }
+            }
+        }
+        _ = await pipeline.finish()
+        #expect(await provider.maximumActiveRequests == 1)
+        let block = try #require(await pipeline.blocksSnapshot().first)
+        #expect(String(block.content.characters) == "image " + String(repeating: "word ", count: 20) + "\n")
+        #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize)
+    }
+
+    @Test("Unsupported inline and display math fallback uses the scaled font")
+    func unsupportedMathScales() async throws {
+        let tex = "\\unsupported{foo}"
+        let theme = MarkdownRenderTheme.default()
+        for display in [false, true] {
+            let fallback = InlineMathAttachment.mathString(tex: tex, display: display, baseFont: theme.scaled(by: 2).bodyFont.resolved())
+            #expect(fallback.string == tex)
+            let font = try #require(fallback.attribute(.font, at: 0, effectiveRange: nil) as? MarkdownFont)
+            #expect(font.pointSize == theme.bodyFont.pointSize * 2)
+        }
+        let pipeline = MarkdownStreamingPipeline()
+        _ = await pipeline.feed("$$\n\(tex)\n$$\n\n")
+        _ = await pipeline.finish()
+        let before = try #require(await pipeline.blocksSnapshot().first)
+        let after = try #require(await pipeline.updateTextScale(2)?.blocks.first)
+        #expect(after.snapshot == before.snapshot)
+        #expect(String(after.content.characters) == String(before.content.characters))
+        #expect(try font(in: after).pointSize == theme.bodyFont.pointSize * 2)
+    }
+
+    @Test("Scaling cannot retain snapshots of blocks evicted by an overlapping feed")
+    func scalingAtRetentionLimit() async throws {
+        let provider = PausingImageProvider()
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        _ = await pipeline.feed("![image](https://example.com/image.png)\n\n" + String(repeating: "row\n\n", count: 999))
+        await provider.pauseNextRequest()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { _ = await pipeline.updateTextScale(2) }
+            await provider.waitUntilPaused()
+            group.addTask { _ = await pipeline.feed("next\n\nnext\n\nnext\n\n") }
+            for _ in 0..<20 { await Task.yield() }
+            await provider.resume()
+        }
+        _ = await pipeline.finish()
+        let blocks = await pipeline.blocksSnapshot()
+        #expect(blocks.count == 1_000)
+        #expect(Set(blocks.map(\.id)).count == 1_000)
+        #expect(blocks.allSatisfy { $0.snapshot.isClosed })
+        #expect(blocks.suffix(3).allSatisfy { String($0.content.characters) == "next\n" })
+        for block in blocks {
+            #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+    }
+
     private func font(in block: RenderedBlock) throws -> MarkdownFont {
         try #require(NSAttributedString.picoConverted(from: block.content).attribute(.font, at: 0, effectiveRange: nil) as? MarkdownFont)
     }
@@ -114,5 +182,48 @@ struct TextScalingTests {
             }
         }
         return try #require(bounds)
+    }
+}
+
+private actor YieldingImageProvider: MarkdownImageProvider {
+    private var activeRequests = 0
+    private(set) var maximumActiveRequests = 0
+
+    func image(for url: URL) async -> MarkdownImageResult? {
+        activeRequests += 1
+        maximumActiveRequests = max(maximumActiveRequests, activeRequests)
+        for _ in 0..<20 { await Task.yield() }
+        activeRequests -= 1
+        return nil
+    }
+}
+
+private actor PausingImageProvider: MarkdownImageProvider {
+    private var shouldPause = false
+    private var paused: CheckedContinuation<Void, Never>?
+    private var observer: CheckedContinuation<Void, Never>?
+
+    func pauseNextRequest() { shouldPause = true }
+
+    func waitUntilPaused() async {
+        if paused != nil { return }
+        await withCheckedContinuation { observer = $0 }
+    }
+
+    func resume() {
+        paused?.resume()
+        paused = nil
+    }
+
+    func image(for url: URL) async -> MarkdownImageResult? {
+        if shouldPause {
+            shouldPause = false
+            await withCheckedContinuation { continuation in
+                paused = continuation
+                observer?.resume()
+                observer = nil
+            }
+        }
+        return nil
     }
 }

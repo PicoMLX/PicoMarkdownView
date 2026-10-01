@@ -10,8 +10,9 @@ actor MarkdownStreamingPipeline {
     private let assembler: MarkdownAssembler
     private let renderer: MarkdownRenderer
     private var emittedDiffVersion: UInt64 = 0
-    private var scaleUpdateTask: Task<[BlockID], Never>?
-    private var scaleUpdateVersion: UInt64 = 0
+    private var operationInProgress = false
+    private var operationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var nextOperationWaiter = 0
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
@@ -28,7 +29,8 @@ actor MarkdownStreamingPipeline {
 
     func feed(_ chunk: String) async -> StreamingUpdate? {
         guard !chunk.isEmpty else { return nil }
-        await waitForScaleUpdate()
+        await acquireOperation()
+        defer { releaseOperation() }
         let result = await tokenizer.feed(chunk)
         let rawDiff = await assembler.apply(result)
         guard !rawDiff.changes.isEmpty else { return nil }
@@ -39,7 +41,8 @@ actor MarkdownStreamingPipeline {
     }
 
     func finish() async -> StreamingUpdate? {
-        await waitForScaleUpdate()
+        await acquireOperation()
+        defer { releaseOperation() }
         let result = await tokenizer.finish()
         let rawDiff = await assembler.apply(result)
         guard !rawDiff.changes.isEmpty else { return nil }
@@ -51,7 +54,8 @@ actor MarkdownStreamingPipeline {
 
     func refreshBlocks(_ ids: Set<BlockID>) async -> StreamingUpdate? {
         guard !ids.isEmpty else { return nil }
-        await waitForScaleUpdate()
+        await acquireOperation()
+        defer { releaseOperation() }
         let refreshed = await renderer.refreshBlocks(ids)
         guard !refreshed.isEmpty else { return nil }
 
@@ -62,45 +66,56 @@ actor MarkdownStreamingPipeline {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
-        await waitForScaleUpdate()
+        await acquireOperation()
+        defer { releaseOperation() }
         return await renderer.updateMermaidContentWidth(width)
     }
 
     func updateTextScale(_ scale: CGFloat) async -> StreamingUpdate? {
-        let previous = scaleUpdateTask
-        let renderer = self.renderer
-        scaleUpdateVersion &+= 1
-        let version = scaleUpdateVersion
-        let task = Task {
-            _ = await previous?.value
-            return await renderer.updateTextScale(scale)
-        }
-        scaleUpdateTask = task
-        let refreshed = await task.value
-        guard version == scaleUpdateVersion else { return nil }
-        scaleUpdateTask = nil
+        await acquireOperation()
+        defer { releaseOperation() }
+        let refreshed = await renderer.updateTextScale(scale)
         guard !refreshed.isEmpty else { return nil }
         let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
             changes: refreshed.map { .blockEnded(id: $0) }))
         return StreamingUpdate(diff: diff, blocks: await renderer.renderedBlocks())
     }
 
-    private func waitForScaleUpdate() async {
-        // Do not let later chunks overwrite a block while its fonts are being
-        // refreshed. Awaiting a task suspends; it does not block an executor.
-        while let task = scaleUpdateTask {
-            let version = scaleUpdateVersion
-            _ = await task.value
-            if version == scaleUpdateVersion { return }
+    private func acquireOperation() async {
+        // Actor reentrancy must not interleave tokenizer/assembler mutations
+        // with a renderer holding their snapshots across an image/math await.
+        if !operationInProgress {
+            operationInProgress = true
+            return
         }
+        await withCheckedContinuation { operationWaiters.append($0) }
+    }
+
+    private func releaseOperation() {
+        guard nextOperationWaiter < operationWaiters.count else {
+            operationInProgress = false
+            return
+        }
+        let next = operationWaiters[nextOperationWaiter]
+        nextOperationWaiter += 1
+        if nextOperationWaiter == operationWaiters.count {
+            operationWaiters.removeAll(keepingCapacity: true)
+            nextOperationWaiter = 0
+        }
+        // Keep ownership reserved for this waiter until it resumes and exits.
+        next.resume()
     }
 
     func snapshot() async -> AttributedString {
-        await renderer.currentAttributedString()
+        await acquireOperation()
+        defer { releaseOperation() }
+        return await renderer.currentAttributedString()
     }
 
     func blocksSnapshot() async -> [RenderedBlock] {
-        await renderer.renderedBlocks()
+        await acquireOperation()
+        defer { releaseOperation() }
+        return await renderer.renderedBlocks()
     }
 
     private func nextEmittedDiff(from diff: AssemblerDiff) -> AssemblerDiff {
