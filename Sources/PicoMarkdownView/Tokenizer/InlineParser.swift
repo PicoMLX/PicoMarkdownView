@@ -1094,7 +1094,6 @@ struct InlineParser {
                 }
                 guard let closingRange = findClosingDelimiter(delimiter: delimiter, length: markerLength, from: searchStart) else {
                     if includeUnterminated {
-                        plainStart = index
                         index = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
                         continue parsing
                     } else {
@@ -1164,7 +1163,6 @@ struct InlineParser {
                 let contentStart = cursor
                 guard let closingRange = findCodeClosing(delimiterLength: delimiterLength, from: contentStart) else {
                     if includeUnterminated {
-                        plainStart = index
                         index = cursor
                         continue parsing
                     } else {

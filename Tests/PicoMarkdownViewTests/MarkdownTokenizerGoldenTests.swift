@@ -1915,6 +1915,27 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Closed inline math retains plain suffixes before unfinished delimiters",
+          arguments: ["$[$", "\\([\\)"], ["a*", "a_", "a`", "\u{e9}*", "e\u{301}*"])
+    func inlineMathBufferedSuffix(mathSpan: String, suffix: String) async {
+        let source = mathSpan + suffix
+        let expected = [mathInline("["), plain(suffix)]
+        #expect(coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init)) == expected)
+        let scalars = Array(source.unicodeScalars).map(String.init)
+        for split in 0...scalars.count {
+            let chunks = [scalars[..<split].joined(), scalars[split...].joined()]
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
+            let documentChunks = chunks + ["\n\n"]
+            let events = await collectEvents(chunks: documentChunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: expected)])
+            #expect(events == (await collectEvents(chunks: documentChunks)))
+        }
+        #expect(summarizeBlocks(from: await collectEvents(chunks: scalars + ["\n\n"])) == [.inline(kind: "paragraph", runs: expected)])
+    }
+
     @Test("Inline math via command delimiters preserves TeX commands")
     func inlineMathCommandDelimitersPreserveTeXCommands() async {
         let tokenizer = MarkdownTokenizer()
