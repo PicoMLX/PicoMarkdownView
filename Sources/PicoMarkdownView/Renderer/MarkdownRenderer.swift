@@ -378,6 +378,11 @@ actor MarkdownRenderer {
     }
 
     private func blockquoteLevel(for snapshot: BlockSnapshot) -> Int {
+        if let parent = snapshot.parentID, indexByID[parent] == nil,
+           let retained = indexByID[snapshot.id] {
+            // Closed parents can be evicted before their retained children.
+            return blocks[retained].blockquoteLevel
+        }
         let inherited = snapshot.parentID.flatMap { indexByID[$0] }.map { blocks[$0].blockquoteLevel } ?? 0
         return inherited + (snapshot.kind == .blockquote ? 1 : 0)
     }

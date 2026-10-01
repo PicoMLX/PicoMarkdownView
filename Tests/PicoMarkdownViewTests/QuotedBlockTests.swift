@@ -53,7 +53,12 @@ struct QuotedBlockTests {
         "> [^a]: one\n>     continued\n> after\n\n",
         "> - item\n>   > nested\n\n",
         "> - item\n>   > nested\n>   continued\n> - sibling\n\n",
-        "> 1. item\n>    > nested\n\n"
+        "> 1. item\n>    > nested\n\n",
+        "> [ref]: /url\n> [ref]\n\n",
+        "> # Heading\n> [ref]: /url \"title\"\n> [ref]\n\n",
+        "> # heading\n> :::note\n\n",
+        "> :::note\n> body\n> :::\n\n",
+        "> [^a]: one\n> [ref]: /url\n> [ref]\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -147,22 +152,24 @@ struct QuotedBlockTests {
         _ = parser.finish()
     }
 
-    @Test("Deferred quoted table candidates use bounded raw fallback")
+    @Test("Deferred quoted candidates use bounded raw fallback")
     func quotedTableCandidateIsBounded() {
-        var parser = StreamingParser(maxLookBehind: 32)
-        _ = parser.feed("> |")
-        var unknownStarts = 0
-        var peakBytes = 0
-        for _ in 0..<4096 {
-            let result = parser.feed("x")
-            peakBytes = max(peakBytes, parser.bufferedLineByteCount)
-            unknownStarts += result.events.filter { if case .blockStart(_, .unknown) = $0 { return true }; return false }.count
+        for prefix in ["> |", "> [ref", "> :::", "> ```swift "] {
+            var parser = StreamingParser(maxLookBehind: 32)
+            _ = parser.feed(prefix)
+            var unknownStarts = 0
+            var peakBytes = 0
+            for _ in 0..<4096 {
+                let result = parser.feed("x")
+                peakBytes = max(peakBytes, parser.bufferedLineByteCount)
+                unknownStarts += result.events.filter { if case .blockStart(_, .unknown) = $0 { return true }; return false }.count
+            }
+            #expect(peakBytes <= 64)
+            #expect(unknownStarts == 1)
+            let next = parser.feed("y")
+            #expect(next.events.contains { if case .blockAppendInline(_, let runs) = $0 { return runs.map(\.text).joined() == "y" }; return false })
+            _ = parser.finish()
         }
-        #expect(peakBytes <= 64)
-        #expect(unknownStarts == 1)
-        let next = parser.feed("y")
-        #expect(next.events.contains { if case .blockAppendInline(_, let runs) = $0 { return runs.map(\.text).joined() == "y" }; return false })
-        _ = parser.finish()
     }
 
     @Test("Unquoted math suffixes, footnote boundaries, and list-owned quotes retain structure")
@@ -281,6 +288,38 @@ struct QuotedBlockTests {
         #expect(blocks.first(where: { $0.codeBlock != nil })?.codeBlock?.code == "let x = 1\n\n> literal\n")
         let outside = try #require(blocks.last)
         #expect(NSAttributedString(outside.content).attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) == nil)
+    }
+
+    @Test("Quoted reference definitions and extension fallbacks never leak provisional text")
+    func referenceAndUnknownPrefixes() async {
+        let reference = await parse(chunks: ["> [ref]", ": /url", "\n> [ref]\n\n"])
+        let runs = reference.blocks.flatMap { $0.inlineRuns ?? [] }
+        #expect(runs.map(\.text).joined() == "ref\n")
+        #expect(runs.first?.linkURL == "/url")
+        let unknown = await parse(chunks: Self.documents[45].map(String.init))
+        #expect(unknown.blocks.map(\.kind) == [.blockquote, .heading(level: 1), .unknown])
+        #expect(unknown.blocks.last?.inlineRuns?.map(\.text).joined() == ":::note\n")
+    }
+
+    @Test("Refreshing retained children preserves styling after their quote parent is evicted")
+    func retainedQuoteChildrenKeepLevel() async throws {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler(config: .init(maxClosedBlocks: 3))
+        let renderer = MarkdownRenderer { await assembler.block($0) }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("> # H\n> retained\n\n")))
+        let original = await renderer.renderedBlocks()
+        let parent = try #require(original.first)
+        let children = original.dropFirst().map(\.id)
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("outside\n\n")))
+        #expect(!(await renderer.renderedBlocks()).contains { $0.id == parent.id })
+        _ = await renderer.refreshBlocks(Set(children))
+        for child in await renderer.renderedBlocks() where children.contains(child.id) {
+            #expect(child.blockquoteLevel == 1)
+            let content = NSAttributedString.picoConverted(from: child.content)
+            #expect(content.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int == 1)
+            let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+            #expect(paragraph.firstLineHeadIndent >= BlockquoteBarMetrics.textIndent(level: 1))
+        }
     }
 
     private func parse(chunks: [String]) async -> (blocks: [BlockSnapshot], events: [BlockEvent]) {

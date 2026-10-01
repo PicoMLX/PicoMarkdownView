@@ -273,8 +273,12 @@ struct StreamingParser {
         if isLineComplete, let linkDefinition = detectLinkDefinition(lineBuffer) {
             linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
             lineIsLinkDefinition = true
-            if let ctx = currentBlock, case .paragraph = ctx.kind {
-                closeCurrentBlock()
+            if let ctx = currentBlock {
+                switch ctx.kind {
+                case .paragraph: closeCurrentBlock()
+                case .footnoteDefinition where lineWasQuoted: closeCurrentBlock()
+                default: break
+                }
             }
             emittedCount = lineBuffer.count
             lineAnalyzed = true
@@ -321,6 +325,7 @@ struct StreamingParser {
              detectFootnoteDefinition(lineBuffer) != nil ||
              detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
              detectDisplayMathOpening(lineBuffer) != nil ||
+             (isLineComplete && lineBuffer.hasPrefix(":::")) ||
              (isLineComplete && detectTableCandidate(lineBuffer)) ||
              (isLineComplete && detectFenceOpening(lineBuffer) != nil))
         if contextStack.isEmpty || opensQuotedChild {
@@ -1334,12 +1339,19 @@ struct StreamingParser {
                trimmed.allSatisfy({ $0 == marker || $0 == " " || $0 == "\t" }) { return true }
         }
         if trimmed == "$" || trimmed == "\\" { return true }
+        if trimmed == ":" || trimmed == "::" { return true }
         if trimmed == "[" { return true }
         if trimmed.hasPrefix("[^") {
             guard let close = content.firstIndex(of: "]") else { return true }
             let after = content.index(after: close)
             if after == content.endIndex { return true }
             if content[after] == ":", content.index(after: after) == content.endIndex { return true }
+        } else if trimmed.hasPrefix("[") {
+            // A reference definition's destination/title is line-scoped.
+            // Hold its label and possible colon until newline or the cap.
+            guard let close = content.firstIndex(of: "]") else { return true }
+            let after = content.index(after: close)
+            return after == content.endIndex || content[after] == ":"
         }
         guard let list = detectList(content) else { return false }
         let suffix = content.dropFirst(list.indentText.count + list.markerLength)
