@@ -145,7 +145,7 @@ public struct PicoMarkdownView: View {
                           linkHandler: makeLinkHandler(),
                           hoverHandler: makeHoverHandler())
             .task(id: consumeTaskID) {
-                await viewModel.consume(input)
+                await viewModel.consume(input, initialTextScale: effectiveTextScale)
             }
             .task(id: effectiveTextScale) {
                 await viewModel.updateTextScale(effectiveTextScale)

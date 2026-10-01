@@ -58,13 +58,7 @@ public struct CodeBlockTheme: Sendable, Hashable {
 
     /// Plain monospaced theme with no syntax coloring.
     public static func monospaced() -> CodeBlockTheme {
-        let bodySize: CGFloat
-        #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body,
-                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
-        #else
-        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
-        #endif
+        let bodySize = FontSpec.defaultBodyPointSize
 
         return CodeBlockTheme(
             font: FontSpec(size: bodySize, design: .monospaced),
@@ -76,13 +70,7 @@ public struct CodeBlockTheme: Sendable, Hashable {
     /// Default theme with Prism.js-style syntax coloring.
     /// Colors adapt to light/dark mode.
     public static func prismDefault() -> CodeBlockTheme {
-        let bodySize: CGFloat
-        #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body,
-                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
-        #else
-        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
-        #endif
+        let bodySize = FontSpec.defaultBodyPointSize
 
         return CodeBlockTheme(
             font: FontSpec(size: bodySize, design: .monospaced),
@@ -95,13 +83,7 @@ public struct CodeBlockTheme: Sendable, Hashable {
     /// GitHub-flavored theme using Primer syntax colors, adapting to
     /// light/dark mode. Matches how github.com renders code blocks.
     public static func gitHub() -> CodeBlockTheme {
-        let bodySize: CGFloat
-        #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body,
-                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
-        #else
-        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize
-        #endif
+        let bodySize = FontSpec.defaultBodyPointSize
 
         return CodeBlockTheme(
             font: FontSpec(size: bodySize, design: .monospaced),

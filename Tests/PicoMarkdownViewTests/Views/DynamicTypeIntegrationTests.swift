@@ -6,6 +6,36 @@ import XCTest
 
 @MainActor
 final class DynamicTypeIntegrationTests: XCTestCase {
+    func testInitialZoomIsAppliedToEveryNonemptyPublication() async throws {
+        let ready = expectation(description: "Initially scaled content measured")
+        ready.assertForOverFulfill = false
+        var observedSizes: [CGFloat] = []
+        var host: UIHostingController<AnyView>?
+        let content = AnyView(ScrollView {
+            PicoMarkdownView("First paragraph\n\nSecond paragraph", remoteImagesEnabled: false)
+                .markdownTextScale(2)
+                .onContentSize { measured in
+                    guard measured.height > 0, let root = host?.view,
+                          let text = self.textView(in: root), text.attributedText.length > 0,
+                          let font = text.attributedText.attribute(.font, at: 0, effectiveRange: nil) as? UIFont else { return }
+                    observedSizes.append(font.pointSize)
+                    ready.fulfill()
+                }
+        }.environment(\.dynamicTypeSize, .large))
+        let controller = UIHostingController(rootView: content)
+        host = controller
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.beginAppearanceTransition(true, animated: false)
+        controller.endAppearanceTransition()
+        defer { window.isHidden = true }
+        controller.view.layoutIfNeeded()
+        await fulfillment(of: [ready], timeout: 10)
+        XCTAssertFalse(observedSizes.isEmpty)
+        XCTAssertTrue(observedSizes.allSatisfy { $0 == MarkdownRenderTheme.default().bodyFont.pointSize * 2 })
+    }
+
     func testTextKit2UsesConnectedStorage() {
         let controller = TextKitStreamingController()
         let view = controller.makeTextKit2View(configuration: .default())

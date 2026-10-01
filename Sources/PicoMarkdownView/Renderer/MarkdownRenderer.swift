@@ -43,13 +43,7 @@ public struct MarkdownRenderTheme: Sendable {
     }
 
     public static func `default`() -> MarkdownRenderTheme {
-        let bodySize: CGFloat
-        #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body,
-                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize + 2
-        #else
-        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize + 2
-        #endif
+        let bodySize = FontSpec.defaultBodyPointSize + 2
 
         let body = FontSpec(size: bodySize)
         let code = FontSpec(size: bodySize, design: .monospaced)
@@ -384,6 +378,11 @@ actor MarkdownRenderer {
     }
 
     private func blockquoteLevel(for snapshot: BlockSnapshot) -> Int {
+        if let parent = snapshot.parentID, indexByID[parent] == nil,
+           let retained = indexByID[snapshot.id] {
+            // Closed parents can be evicted before their retained children.
+            return blocks[retained].blockquoteLevel
+        }
         let inherited = snapshot.parentID.flatMap { indexByID[$0] }.map { blocks[$0].blockquoteLevel } ?? 0
         return inherited + (snapshot.kind == .blockquote ? 1 : 0)
     }

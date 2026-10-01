@@ -10,6 +10,43 @@ import AppKit
 
 @Suite @MainActor
 struct TextScalingTests {
+    @Test("Built-in themes use an unscaled body baseline")
+    func builtInFontBaseline() {
+        #if canImport(UIKit)
+        let baseline = UIFont.preferredFont(forTextStyle: .body,
+            compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize
+        #else
+        let baseline: CGFloat = 13
+        #endif
+        let theme = MarkdownRenderTheme.default()
+        #expect(theme.bodyFont.pointSize == baseline + 2)
+        #expect(theme.scaled(by: 2).bodyFont.pointSize == (baseline + 2) * 2)
+        for code in [CodeBlockTheme.monospaced(), .prismDefault(), .gitHub()] {
+            #expect(code.font.pointSize == baseline)
+        }
+    }
+
+    @Test("Initial text scale is installed before text, chunk, and stream rendering")
+    func initialScalePrecedesConsumption() async throws {
+        let source = "![image](https://example.com/image.png)\n\n"
+        let referenceProvider = YieldingImageProvider()
+        let reference = MarkdownStreamingPipeline(imageProvider: referenceProvider)
+        _ = await reference.feed(source)
+        _ = await reference.finish()
+        let referenceRenders = await referenceProvider.requestCount
+        let inputs: [MarkdownStreamingInput] = [
+            .text(source), .chunks([source]), .stream({ AsyncStream { $0.yield(source); $0.finish() } })
+        ]
+        for input in inputs {
+            let provider = YieldingImageProvider()
+            let model = MarkdownStreamingViewModel(imageProvider: provider)
+            await model.consume(input, initialTextScale: 2)
+            await drainPublication()
+            #expect(try font(in: #require(model.blocks.first)).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+            #expect(await provider.requestCount == referenceRenders)
+        }
+    }
+
     @Test("Live scaling preserves parser state, block IDs, and selection")
     func liveScalingPreservesStream() async throws {
         let pipeline = MarkdownStreamingPipeline()
@@ -247,8 +284,10 @@ struct TextScalingTests {
 private actor YieldingImageProvider: MarkdownImageProvider {
     private var activeRequests = 0
     private(set) var maximumActiveRequests = 0
+    private(set) var requestCount = 0
 
     func image(for url: URL) async -> MarkdownImageResult? {
+        requestCount += 1
         activeRequests += 1
         maximumActiveRequests = max(maximumActiveRequests, activeRequests)
         for _ in 0..<20 { await Task.yield() }

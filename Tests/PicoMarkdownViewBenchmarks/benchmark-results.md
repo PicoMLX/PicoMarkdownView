@@ -245,3 +245,20 @@ Sample1 remains within 3-6% of the fresh-review baseline, including the extra
 local opener/container checks. Long math takes 1.98x when input doubles;
 the isolated Unicode scanner takes 1.71x, and quoted deferred cases take
 1.30-1.39x. No material throughput regression was observed.
+
+### Reference Definitions, Extension Prefixes, and Retention
+
+After adding line-local reference-definition and partial `:::` buffering,
+the same serial benchmark command produced these 50-iteration sample means:
+128-byte chunks `0.016292 s`, 512-byte chunks `0.015889 s`, 1024-byte chunks
+`0.016134 s`, and example word stream `0.022520 s`. No material regression
+relative to the preceding checkpoint.
+
+Ten-iteration means for 1024/2048 one-character chunks were `0.031940 /
+0.046339 s` for spaces, `0.033908 / 0.048748 s` for alternating spaces/tabs,
+and `0.023558 / 0.037978 s` for deferred table candidates. Doubling input
+takes 1.44-1.61x. Capped-state regression coverage now also includes unfinished
+reference labels, extension markers, and fence candidates, each with 4096
+one-character feeds. Forty-eight fixtures pass every chunk split and repeat
+determinism. A renderer regression evicts the quote parent and verifies that
+later refreshes retain the children's quote level, attributes, and indentation.

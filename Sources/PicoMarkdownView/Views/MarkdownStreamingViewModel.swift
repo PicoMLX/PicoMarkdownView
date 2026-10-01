@@ -50,7 +50,11 @@ final class MarkdownStreamingViewModel {
         self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
     }
 
-    func consume(_ input: MarkdownStreamingInput) async {
+    func consume(_ input: MarkdownStreamingInput, initialTextScale: CGFloat? = nil) async {
+        // Install presentation state synchronously before any pipeline awaits.
+        if let initialTextScale {
+            textScale = initialTextScale.isFinite && initialTextScale > 0 ? initialTextScale : 1
+        }
         switch input.payload {
         case .replacement(let value):
             // Input ids are content-derived for `.text`/`.chunks`, so a
