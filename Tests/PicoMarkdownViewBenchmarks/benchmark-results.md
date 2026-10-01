@@ -729,3 +729,21 @@ All sample1, word-stream, and quoted-case means are within 3% of `3c00a0a`.
 The required combined comparison is complete; no material throughput
 regression is observed in this final measurement. Earlier elevations and
 failed compilation evidence remain recorded rather than being discarded.
+
+## Width Selection Stack Checkpoint 54f13e5 (2026-10-01)
+
+The fifth new review finding was reproduced through the view model and native
+controllers: full replacement publication during width refreshes truncated
+selection across images and Mermaid attachments. Width refreshes now retain
+the incremental diff, preserving unchanged text and selection without
+replacing the document. Both TextKit entry points pass three overlapping
+selection ranges across narrowing, widening, and nil reset on AppKit/UIKit.
+
+Full lower-branch suites pass 297 macOS / 298 iOS test definitions. The
+combined stack passes 37 XCTest + 268 Swift Testing definitions on macOS and
+306 definitions / 741 invocations on iOS, without failures, skips, or runtime
+warnings. Both example builds pass without compiler warnings. This follow-up
+changes only view-model publication and its renderer regression test; parser
+and benchmark code are unchanged from 5270cd4, so the serial measurements
+above remain the applicable parser checkpoint rather than rerunning them for
+a presentation-only change.

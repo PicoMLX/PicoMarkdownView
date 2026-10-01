@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 267 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 268 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  305 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  306 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -199,6 +199,12 @@ The earlier local-package/WizardKit build configuration fix is already on
   in both native controller paths, including unchanged-content replacements.
   Six TextKit 1/2 scenarios reproduced the false all-block gap before the fix
   and now retain narrow consecutive diffs after pause/resume and paused feeds.
+- [x] Width refreshes publish incremental diffs instead of full replacements.
+  A view-model/native-controller regression reproduced truncated selection
+  before the fix and now preserves whole-document and two attachment-overlap
+  selections across narrowing, widening, and nil reset. Image and real Mermaid
+  cases pass both TextKit entry points on AppKit/UIKit, with unchanged text,
+  snapshots, replacement tokens, and correctly resized attachments.
 - [x] Queued width refreshes register request revisions before the operation
   gate. Deterministic paused-image tests queue 20 obsolete width buckets, a
   latest width or nil reset, and a feed: only the latest queued width renders,
