@@ -323,12 +323,15 @@ invariants:
 - Verbatim content: no further inline parsing happens *inside* a tag, so
   `@**unclosed` does not destabilise emphasis state later in the document.
 
-### Quoted Line Look-Behind
+### Deferred Line Look-Behind
 
-Quoted block openers are buffered until their metadata is unambiguous. If an
-unresolved quoted line reaches the tokenizer's configured look-behind limit
-(1024 UTF-8 bytes by default), it becomes a raw `.unknown` child for the rest
-of that physical line. Quote markers are stripped, but literal content,
+Quoted block openers are buffered until their metadata is unambiguous. Display
+math opening lines also wait for a newline or EOF, because trailing same-line
+text can make them paragraph content. If an unresolved quoted construct
+(including a table or fence candidate), or an unquoted math opening line,
+reaches the tokenizer's configured look-behind limit
+(1024 UTF-8 bytes by default), it becomes a raw `.unknown` block for the rest
+of that physical line. Quote markers, if present, are stripped, but literal content,
 including spaces and tabs, is preserved. Subsequent chunks append only their
 new text. This bounded fallback cannot later become a task, footnote, rule,
 or math block; no emitted events are retracted or reparsed.
