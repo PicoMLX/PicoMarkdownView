@@ -43,3 +43,19 @@ Text after the quote, still part of the same selectable document.
 
    > # Indented quote
    > Final quoted paragraph.
+
+> ---
+
+> $$x$$y
+
+> > ```swift
+> code outside the inner fence
+> > ```
+
+> # Line-boundary regressions
+> $$x$$
+> Paragraph after same-line math.
+> * * *
+> Paragraph after the rule.
+>
+> [^quoted]: Quoted footnote definition.

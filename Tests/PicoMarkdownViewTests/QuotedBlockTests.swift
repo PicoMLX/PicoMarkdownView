@@ -27,7 +27,24 @@ struct QuotedBlockTests {
         "> \\[\n> x\n> \\]\n\n",
         ">   ```swift\n>   let x = 1\n>  one\n> zero\n>    three\n>   ```\n\n",
         "> | a | b |",
-        "> | a | b |\n\nOutside\n"
+        "> | a | b |\n\nOutside\n",
+        "> $$x$$y\n\n",
+        "> \\[x\\]y\n\n",
+        "> > ```\n> code\n> > ```\n\n",
+        "> ---\n\n",
+        "> ***\n\n",
+        "> ___\n\n",
+        "> > ```swift\n> > code\n> > ```\n\n",
+        ">> ```swift\n>> code\n>> ```\n\n",
+        "> - - -\n\n",
+        "> * * *\n\n",
+        "> _ _ _\n\n",
+        "> ---\n> after\n\n",
+        "> # heading\n> before\n> * * *\n> after\n\n",
+        "> $$x$$\n> y\n\n",
+        "> \\[x\\]\n> y\n\n",
+        "> [^a]: definition\n\n",
+        "> [^a]:**definition**\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -56,6 +73,69 @@ struct QuotedBlockTests {
 
         let fence = await parse(chunks: [Self.documents[14]])
         #expect(fence.blocks.first(where: { $0.codeText != nil })?.codeText == "let x = 1\none\nzero\n three\n")
+    }
+
+    @Test("Fresh review regressions retain math suffixes, close nested fences, and recognize rules")
+    func freshReviewRegressions() async {
+        let math = await parse(chunks: ["> $$x$$", "y\n\n"])
+        #expect(math.blocks == (await parse(chunks: [Self.documents[17]])).blocks)
+        #expect(math.blocks.flatMap { $0.inlineRuns ?? [] }.map(\.text).joined().contains("y"))
+        let fence = await parse(chunks: [Self.documents[19]])
+        let firstFence = fence.blocks.first { if case .fencedCode = $0.kind { return true }; return false }
+        #expect(firstFence != nil)
+        #expect((firstFence?.codeText ?? "") == "")
+        #expect(fence.blocks.contains { $0.inlineRuns?.map(\.text).joined().contains("code") == true })
+        for document in Array(Self.documents[20...22]) + Self.documents[25...27] {
+            #expect(await parse(chunks: [document]).blocks.map(\.kind) == [.blockquote, .horizontalRule])
+        }
+        let afterRule = await parse(chunks: [Self.documents[28]])
+        #expect(afterRule.blocks.map(\.kind) == [.blockquote, .horizontalRule, .paragraph])
+        #expect(afterRule.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+    }
+
+    @Test("Long unresolved quote spaces remain local and preserve later text")
+    func longQuotedPadding() async {
+        for padding in [" ", "\t "] {
+            for tail in ["\n\n", "text\n\n", "> literal\n\n", "text\n> after\n\n"] {
+                let source = "> " + String(repeating: padding, count: 2048) + tail
+                #expect(await parse(chunks: source.map(String.init)).blocks == (await parse(chunks: [source])).blocks)
+            }
+        }
+    }
+
+    @Test("Quoted same-line math closes before the next line and footnotes retain block metadata")
+    func latestReviewRegressions() async {
+        for document in Self.documents[30...31] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .math(display: true), .paragraph])
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "y")
+        }
+        for document in Self.documents[32...33] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .footnoteDefinition(id: "a", index: 1)])
+            let parentRuns = result.blocks.first?.inlineRuns ?? []
+            #expect(parentRuns.isEmpty)
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "definition")
+        }
+    }
+
+    @Test("Alternating quoted padding is bounded and later feeds emit only their own deltas")
+    func quotedPaddingUsesBoundedFallback() {
+        var parser = StreamingParser(maxLookBehind: 32)
+        _ = parser.feed("> ")
+        var unknownStarts = 0
+        for index in 0..<4096 {
+            let result = parser.feed(index.isMultiple(of: 2) ? " " : "\t")
+            #expect(parser.bufferedLineByteCount <= 64)
+            unknownStarts += result.events.filter { if case .blockStart(_, .unknown) = $0 { return true }; return false }.count
+        }
+        #expect(unknownStarts == 1)
+        let next = parser.feed("x")
+        let text = next.events.flatMap { event -> [InlineRun] in
+            if case .blockAppendInline(_, let runs) = event { return runs }; return []
+        }.map(\.text).joined()
+        #expect(text == "x")
+        _ = parser.finish()
     }
 
     @Test("Quoted blocks are structured children with no leaked markers")
