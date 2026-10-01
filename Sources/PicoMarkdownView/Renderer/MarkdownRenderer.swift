@@ -312,6 +312,7 @@ actor MarkdownRenderer {
 
         blocks.insert(block, at: index)
         rebuildIndex(startingAt: index)
+        await updateImageReferences(for: block)
     }
 
     private func refreshBlock(id: BlockID) async -> Bool {
@@ -330,7 +331,13 @@ actor MarkdownRenderer {
         blocks[index].snapshot = snapshot
         blocks[index].blockquoteLevel = quoteLevel
         blocks[index].updatePresentation(from: rendered)
+        await updateImageReferences(for: blocks[index])
         return didMutate
+    }
+
+    private func updateImageReferences(for block: RenderedBlock) async {
+        guard let imageProvider else { return }
+        await imageProvider.setReferences(Set(block.images.compactMap(\.url)), for: block.id)
     }
 
     private func removeBlocks(in range: Range<Int>) async {
@@ -346,8 +353,9 @@ actor MarkdownRenderer {
             indexByID[block.id] = nil
         }
         rebuildIndex(startingAt: lower)
-        let retainedURLs = Set(blocks.flatMap { $0.images.compactMap(\.url) })
-        await imageProvider?.retainImages(for: retainedURLs)
+        if let imageProvider {
+            await imageProvider.removeReferences(for: removed.map(\.id))
+        }
     }
 
     private func rebuildIndex(startingAt start: Int) {
@@ -439,6 +447,8 @@ actor MarkdownRenderer {
 private actor RetainedMarkdownImageProvider: MarkdownImageProvider {
     private let provider: any MarkdownImageProvider
     private var images: [URL: MarkdownImageResult] = [:]
+    private var urlsByBlock: [BlockID: Set<URL>] = [:]
+    private var referenceCounts: [URL: Int] = [:]
 
     init(provider: any MarkdownImageProvider) { self.provider = provider }
 
@@ -450,8 +460,33 @@ private actor RetainedMarkdownImageProvider: MarkdownImageProvider {
         return images[url]
     }
 
-    func retainImages(for urls: Set<URL>) {
-        images = images.filter { urls.contains($0.key) }
+    func setReferences(_ urls: Set<URL>, for id: BlockID) {
+        let previous = urlsByBlock[id] ?? []
+        guard previous != urls else { return }
+        for url in previous where !urls.contains(url) { releaseReference(to: url) }
+        for url in urls where !previous.contains(url) { referenceCounts[url, default: 0] += 1 }
+        if urls.isEmpty {
+            urlsByBlock[id] = nil
+        } else {
+            urlsByBlock[id] = urls
+        }
+    }
+
+    func removeReferences(for ids: [BlockID]) {
+        for id in ids {
+            guard let urls = urlsByBlock.removeValue(forKey: id) else { continue }
+            for url in urls { releaseReference(to: url) }
+        }
+    }
+
+    private func releaseReference(to url: URL) {
+        guard let count = referenceCounts[url] else { return }
+        if count > 1 {
+            referenceCounts[url] = count - 1
+        } else {
+            referenceCounts[url] = nil
+            images[url] = nil
+        }
     }
 }
 

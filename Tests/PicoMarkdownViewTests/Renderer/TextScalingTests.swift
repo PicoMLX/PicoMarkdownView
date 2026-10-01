@@ -102,6 +102,55 @@ struct TextScalingTests {
         #expect(content.attribute(.attachment, at: 0, effectiveRange: nil) == nil)
     }
 
+    @Test("Shared retained images survive until their last referencing block is discarded")
+    func sharedImageReferences() async throws {
+        let size = CGSize(width: 20, height: 10)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler(config: .init(maxClosedBlocks: 2))
+        let renderer = MarkdownRenderer(imageProvider: provider) { await assembler.block($0) }
+        let markdown = "![image](https://example.com/image.png)\n\n"
+        for _ in 0..<2 { _ = await renderer.apply(await assembler.apply(await tokenizer.feed(markdown))) }
+        await provider.evict()
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("plain\n\n")))
+        _ = await renderer.updateTextScale(2)
+        let retained = try #require((await renderer.renderedBlocks()).first)
+        #expect(try attachmentBounds(in: retained).size == size)
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("plain\n\n")))
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed(markdown)))
+        let last = try #require((await renderer.renderedBlocks()).last)
+        #expect(NSAttributedString.picoConverted(from: last.content).string == "image\n")
+    }
+
+    @Test("Refreshing a block removes its obsolete image references")
+    func refreshedImageReferences() async throws {
+        let size = CGSize(width: 20, height: 10)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let store = ScalingSnapshotStore()
+        let renderer = MarkdownRenderer(imageProvider: provider) { await store.snapshot($0) }
+        let runs = [InlineRun(text: "image", style: [.image], image: InlineImage(source: "https://example.com/image.png"))]
+        await store.set(BlockSnapshot(id: 1, kind: .paragraph, inlineRuns: runs, isClosed: true))
+        _ = await renderer.apply(AssemblerDiff(documentVersion: 1, changes: [.blockStarted(id: 1, kind: .paragraph, position: 0)]))
+        #expect(try attachmentBounds(in: #require((await renderer.renderedBlocks()).first)).size == size)
+        await provider.evict()
+        await store.set(BlockSnapshot(id: 1, kind: .paragraph, inlineRuns: [InlineRun(text: "plain", style: [])], isClosed: true))
+        _ = await renderer.refreshBlocks([1])
+        await store.set(BlockSnapshot(id: 2, kind: .paragraph, inlineRuns: runs, isClosed: true))
+        _ = await renderer.apply(AssemblerDiff(documentVersion: 2, changes: [.blockStarted(id: 2, kind: .paragraph, position: 1)]))
+        let last = try #require((await renderer.renderedBlocks()).last)
+        #expect(NSAttributedString.picoConverted(from: last.content).string == "image\n")
+    }
+
     @Test("Live scaling preserves parser state, block IDs, and selection")
     func liveScalingPreservesStream() async throws {
         let pipeline = MarkdownStreamingPipeline()
@@ -412,6 +461,15 @@ struct TextScalingTests {
             }
         }
         return try #require(bounds)
+    }
+}
+
+private actor ScalingSnapshotStore {
+    private var snapshots: [BlockID: BlockSnapshot] = [:]
+
+    func set(_ snapshot: BlockSnapshot) { snapshots[snapshot.id] = snapshot }
+    func snapshot(_ id: BlockID) -> BlockSnapshot {
+        snapshots[id] ?? BlockSnapshot(id: id, kind: .unknown, isClosed: true)
     }
 }
 
