@@ -88,7 +88,7 @@ actor MarkdownStreamingPipeline {
         guard committed, prepared.didMutate else { return nil }
         let blocks = prepared.blocks
         let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
-            changes: blocks.map { .blockEnded(id: $0.id) }))
+            changes: prepared.changedBlockIDs.map { .blockEnded(id: $0) }))
         return StreamingUpdate(diff: diff, blocks: blocks)
     }
 

@@ -151,7 +151,32 @@ struct QuotedBlockTests {
       + markerPaddingDocuments.map(\.source) + mixedIndentDocuments.map(\.source)
       + markerPaddingControls + ["> -     item.\n>   # heading\n\n"]
       + containerBoundaryDocuments + footnoteSuccessorDocuments.map(\.source)
-      + listReferenceDocuments + quoteTabDocuments
+      + listReferenceDocuments + quoteTabDocuments + markerOnlyDocuments + directListQuoteDocuments.map(\.source)
+
+    private static let markerOnlyDocuments: [String] = {
+        var fixtures: [String] = []
+        for marker in ["-", "*", "+"] {
+            for prefix in ["> ", "> - first\n> ", "> paragraph\n> "] {
+                for ending in ["\n\n", ""] { fixtures.append(prefix + marker + ending) }
+            }
+        }
+        return fixtures
+    }()
+
+    private static let directListQuoteDocuments: [(source: String, owned: Bool)] = {
+        var fixtures: [(source: String, owned: Bool)] = []
+        for marker in ["1.", "10.", "123."] {
+            for owned in [true, false] {
+                let padding = String(repeating: " ", count: owned ? marker.count + 1 : min(3, marker.count))
+                for innerMarker in owned ? ["> ", ""] : ["> "] {
+                    fixtures.append(("> \(marker) item\n> \(padding)> nested\n> \(padding)\(innerMarker)more\n\n", owned))
+                }
+            }
+            let tabs = "\t" + String(repeating: " ", count: marker.count - 1)
+            fixtures.append(("> \(marker) item\n> \(tabs)> nested\n> \(tabs)> more\n\n", true))
+        }
+        return fixtures
+    }()
 
     private static let containerBoundaryDocuments = [
         "> > | a | b |\n> > | --- | --- |\n> plain row\n\n",
@@ -840,6 +865,31 @@ struct QuotedBlockTests {
             #expect(await parse(chunks: source.map(String.init)).blocks.contains { if case .listItem = $0.kind { return true }; return false })
         }
         #expect(await parse(chunks: "> paragraph\n> - [ ] \n\n".map(String.init)).blocks.last?.kind == .listItem(ordered: false, index: nil, task: .init(checked: false)))
+    }
+
+    @Test("Marker-only quoted items resolve at newline or EOF without interrupting paragraphs")
+    func markerOnlyQuotedItems() async {
+        for source in Self.markerOnlyDocuments {
+            let result = await parse(chunks: source.map(String.init))
+            let items = result.blocks.filter { if case .listItem = $0.kind { return true }; return false }
+            let expectedCount = source.contains("paragraph") ? 0 : (source.contains("first") ? 2 : 1)
+            #expect(items.count == expectedCount, "Source: \(source)")
+            if expectedCount > 0 { #expect((items.last?.inlineRuns ?? []).isEmpty) }
+        }
+    }
+
+    @Test("Direct nested quotes retain wide ordered-item ownership after deindent")
+    func directWideListQuotes() async throws {
+        for fixture in Self.directListQuoteDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let nested = try #require(result.blocks.last)
+            #expect(nested.kind == .blockquote)
+            #expect(nested.parentID == (fixture.owned ? item.id : result.blocks.first?.id))
+            #expect(nested.depth == (fixture.owned ? item.depth + 1 : 1))
+            #expect(nested.inlineRuns?.map(\.text).joined() == "nested\nmore\n")
+            #expect(item.inlineRuns?.map(\.text).joined() == "item\n")
+        }
     }
 
     @Test("Quoted structured children require their ordered marker's full content indent")

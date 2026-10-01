@@ -1073,6 +1073,23 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Inline link text is not truncated to the reference-label limit", arguments: ["", "!"])
+    func longInlineLinkText(prefix: String) async {
+        let label = String(repeating: "a", count: 1000)
+        let source = prefix + "[" + label + "](/url)"
+        let expected = prefix.isEmpty ? InlineRunShape(text: label, style: [.link], linkURL: "/url") : image(label, source: "/url")
+        #expect(coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init)) == [expected])
+        let characters = Array(source)
+        for split in 0...characters.count {
+            let chunks = [String(characters[..<split]), String(characters[split...]), "\n\n"]
+            let events = await collectEvents(chunks: chunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: [expected])])
+            #expect(events == (await collectEvents(chunks: chunks)))
+        }
+        let scalarChunks = characters.map(String.init) + ["\n\n"]
+        #expect(summarizeBlocks(from: await collectEvents(chunks: scalarChunks)) == [.inline(kind: "paragraph", runs: [expected])])
+    }
+
     @Test("Reference-style link resolves definition")
     func referenceStyleLinkResolvesDefinition() async {
         let tokenizer = MarkdownTokenizer()
