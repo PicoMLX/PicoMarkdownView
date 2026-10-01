@@ -874,7 +874,10 @@ struct QuotedBlockTests {
             let items = result.blocks.filter { if case .listItem = $0.kind { return true }; return false }
             let expectedCount = source.contains("paragraph") ? 0 : (source.contains("first") ? 2 : 1)
             #expect(items.count == expectedCount, "Source: \(source)")
-            if expectedCount > 0 { #expect((items.last?.inlineRuns ?? []).isEmpty) }
+            if expectedCount > 0 {
+                let runs = items.last?.inlineRuns ?? []
+                #expect(runs.isEmpty)
+            }
         }
     }
 
