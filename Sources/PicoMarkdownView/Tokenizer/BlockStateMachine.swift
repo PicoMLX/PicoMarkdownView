@@ -87,6 +87,7 @@ struct StreamingParser {
         var index: Int?
         var indent: Int
         var markerLength: Int
+        var contentIndent: Int
         var indentText: String
         var task: TaskListState?
         var taskMarkerLength: Int
@@ -359,9 +360,9 @@ struct StreamingParser {
         if lineWasQuoted, let current = currentBlock, case .listItem = current.kind,
            emittedCount <= current.linePrefixToStrip,
            listContinuationPrefixLength(lineBuffer, currentIndent: current.listIndent, contentIndent: current.listContentIndent) > 0 {
-            let prefix = lineBuffer.prefix { $0 == " " || $0 == "\t" }.count
-            let childLine = String(lineBuffer.dropFirst(prefix))
-            if !isLineComplete, displayMathLineIsPending(childLine) {
+            let (childLine, prefix) = removingListContentIndent(lineBuffer, columns: current.listContentIndent)
+            if !isLineComplete, displayMathLineIsPending(childLine) ||
+                shouldDeferParagraphFallback(for: childLine) || quotedBlockOpenerIsPending(childLine) {
                 pendingQuotePrefix = true
                 lineAnalyzed = true
                 return
@@ -383,7 +384,7 @@ struct StreamingParser {
                 // The item's original inline segment precedes its children.
                 // Keep later text in a new child, preserving source order.
                 lineListChildPrefixLength = prefix
-                lineBuffer = childLine
+                lineBuffer = String(childLine.drop { $0 == " " || $0 == "\t" })
                 emittedCount = 0
                 openInlineBlock(kind: .paragraph)
                 lineAnalyzed = true
@@ -818,18 +819,20 @@ struct StreamingParser {
            !context.fenceJustOpened,
            let closingMarker = context.fenceInfo?.closingMarker,
            let closingRange = delta.range(of: closingMarker) {
-            if lineWasQuoted && !isLineComplete { return }
-            let beforeClosing = String(delta[..<closingRange.lowerBound])
-            if !beforeClosing.isEmpty {
-                append(beforeClosing, context: &context)
-            } else {
-                context.fenceJustOpened = false
+            if !isLineComplete { return }
+            if delta[closingRange.upperBound...].allSatisfy(\.isWhitespace) {
+                let beforeClosing = String(delta[..<closingRange.lowerBound])
+                if !beforeClosing.isEmpty {
+                    append(beforeClosing, context: &context)
+                } else {
+                    context.fenceJustOpened = false
+                }
+                context.pendingSameLineClose = true
+                emittedCount = lineBuffer.count
+                setCurrentBlock(context)
+                enforceLineBufferBudget()
+                return
             }
-            context.pendingSameLineClose = true
-            emittedCount = lineBuffer.count
-            setCurrentBlock(context)
-            enforceLineBufferBudget()
-            return
         }
         if case .fencedCode = context.kind,
            !context.fenceJustOpened,
@@ -1419,7 +1422,7 @@ struct StreamingParser {
             let padding = content.prefix { $0 == " " || $0 == "\t" }
             let columns = padding.reduce(0) { $1 == "\t" ? ($0 / 4 + 1) * 4 : $0 + 1 }
             if !isLineComplete, padding.count == content.count,
-               columns < current.listContentIndent || padding.count < current.listContentPrefixLength {
+               columns < current.listContentIndent {
                 pendingQuotePrefix = true
                 return false
             }
@@ -1439,7 +1442,10 @@ struct StreamingParser {
                 if let parent = currentBlock, case .listItem = parent.kind { closeCurrentBlock() }
             } else {
                 lineHasListContentIndent = columns >= current.listContentIndent
-                content.removeFirst(min(padding.count, current.listContentPrefixLength))
+                content = removingListContentIndent(content, columns: current.listContentIndent).content
+                if current.kind == .paragraph {
+                    content = String(content.drop { $0 == " " || $0 == "\t" })
+                }
             }
         }
         let nestedQuoteBelongsToList: Bool = {
@@ -1597,7 +1603,7 @@ struct StreamingParser {
             headingPendingSuffix: "",
             eventStartIndex: events.count,
             listIndent: info.indent,
-            listContentIndent: info.indent + info.markerLength
+            listContentIndent: info.contentIndent
         )
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .listItem(ordered: info.ordered, index: info.index, task: info.task)))
@@ -1888,11 +1894,13 @@ struct StreamingParser {
         let indentText = String(line[line.startIndex..<index])
 
         var markerLength = 0
+        var markerWidth = 0
         var ordered = false
         var listIndex: Int? = nil
 
         if line[index...].hasPrefix("- ") || line[index...].hasPrefix("* ") || line[index...].hasPrefix("+ ") {
             markerLength = 2
+            markerWidth = 1
         } else {
             var numberEnd = index
             var digits = 0
@@ -1913,6 +1921,7 @@ struct StreamingParser {
                     if let number = Int(numberPart) {
                         ordered = true
                         listIndex = number
+                        markerWidth = digits + 1
                         markerLength = hasSpaceAfterDot
                             ? digits + 2   // "1. " — digits + ". "
                             : digits + 1   // "1." — no trailing space
@@ -1923,7 +1932,17 @@ struct StreamingParser {
 
         guard markerLength > 0 else { return nil }
 
+        let paddingStart = line.index(index, offsetBy: markerWidth)
+        let padding = line[paddingStart...].prefix(5).prefix { $0 == " " }.count
+        if contextStack.contains(where: { $0.kind == .blockquote }), (1...4).contains(padding) {
+            let paddingEnd = line.index(paddingStart, offsetBy: padding)
+            // The item's content column is immutable once published. Wait
+            // while its one-to-four-space padding can still grow.
+            if !isLineComplete, paddingEnd == line.endIndex { return nil }
+            markerLength = markerWidth + padding
+        }
         let markerEnd = line.index(index, offsetBy: markerLength)
+        let contentIndent = indent + (line[markerEnd...].allSatisfy(\.isWhitespace) ? markerWidth + 1 : markerLength)
         var task: TaskListState? = nil
         var taskMarkerLength = 0
         if markerEnd < line.endIndex, line[markerEnd] == "[" {
@@ -1948,6 +1967,7 @@ struct StreamingParser {
             index: listIndex,
             indent: indent,
             markerLength: markerLength,
+            contentIndent: contentIndent,
             indentText: indentText,
             task: task,
             taskMarkerLength: taskMarkerLength
@@ -2004,6 +2024,22 @@ struct StreamingParser {
             count += 1
         }
         return columns >= (contentIndent ?? currentIndent + 2) ? count : 0
+    }
+
+    private func removingListContentIndent(_ line: String, columns target: Int) -> (content: String, prefixLength: Int) {
+        var count = 0
+        var columns = 0
+        for character in line {
+            guard columns < target else { break }
+            if character == " " { columns += 1 }
+            else if character == "\t" { columns = (columns / 4 + 1) * 4 }
+            else { break }
+            count += 1
+        }
+        // A tab can straddle the container boundary. Its remaining columns
+        // belong to the child and must survive as literal spaces.
+        let remainder = String(repeating: " ", count: max(0, columns - target))
+        return (remainder + line.dropFirst(count), count)
     }
 
     private func shouldStartNewListItem(currentContext: BlockContext, list: ListInfo, emittedCount: Int) -> Bool {
