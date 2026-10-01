@@ -60,18 +60,22 @@ actor MarkdownAttributeBuilder {
 
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
                 blockquoteLevel: Int = 0) async -> RenderedContentResult {
-        var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
-                                         blockquoteLevel: blockquoteLevel)
-        guard blockquoteLevel > 0, snapshot.kind != .blockquote else { return result }
-        let content = NSMutableAttributedString(attributedString: .picoConverted(from: result.attributed))
-        let range = NSRange(location: 0, length: content.length)
+        let ownsQuoteStyle = snapshot.kind == .blockquote
+        let inheritedQuoteLevels = max(0, blockquoteLevel - (ownsQuoteStyle ? 1 : 0))
         let listIndent: CGFloat
         if case .listItem = snapshot.kind {
             listIndent = 0 // List rendering already applies its nesting indent.
         } else {
-            listIndent = CGFloat(max(0, snapshot.depth - blockquoteLevel)) * 20
+            listIndent = CGFloat(max(0, snapshot.depth - inheritedQuoteLevels)) * 20
         }
-        let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel) + listIndent
+        let quoteIndent = blockquoteLevel > 0 ? BlockquoteBarMetrics.textIndent(level: blockquoteLevel) : 0
+        var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                        blockquoteLevel: blockquoteLevel, reservedIndent: quoteIndent + listIndent)
+        guard blockquoteLevel > 0 else { return result }
+        let gutter = (ownsQuoteStyle ? 0 : quoteIndent) + listIndent
+        guard gutter > 0 else { return result }
+        let content = NSMutableAttributedString(attributedString: .picoConverted(from: result.attributed))
+        let range = NSRange(location: 0, length: content.length)
         content.enumerateAttribute(.paragraphStyle, in: range) { value, paragraphRange, _ in
             let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             paragraph.firstLineHeadIndent += gutter
@@ -87,7 +91,7 @@ actor MarkdownAttributeBuilder {
     }
 
     private func renderContent(snapshot: BlockSnapshot, previousBlockKind: BlockKind?,
-                               blockquoteLevel: Int) async -> RenderedContentResult {
+                               blockquoteLevel: Int, reservedIndent: CGFloat) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
             let (fallback, table, images) = await renderTable(snapshot, font: bodyFont)
@@ -104,7 +108,8 @@ actor MarkdownAttributeBuilder {
         case .blockquote:
             return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: blockquoteLevel)
         case .fencedCode:
-            if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
+            if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                                               reservedIndent: reservedIndent) {
                 return mermaid
             }
             let text = snapshot.codeText ?? ""
@@ -641,7 +646,7 @@ actor MarkdownAttributeBuilder {
     }
 
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
-                                               previousBlockKind: BlockKind?) async -> RenderedContentResult? {
+                                               previousBlockKind: BlockKind?, reservedIndent: CGFloat) async -> RenderedContentResult? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
         guard snapshot.isClosed else { return nil }
         guard let provider = mermaidProvider else { return nil }
@@ -650,7 +655,7 @@ actor MarkdownAttributeBuilder {
         let source = snapshot.codeText ?? ""
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
-        let mermaidMaxWidth = effectiveMermaidMaxWidth()
+        let mermaidMaxWidth = effectiveMermaidMaxWidth().map { max(1, $0 - reservedIndent) }
         let request = MermaidRenderRequest(source: source,
                                            targetWidth: mermaidMaxWidth,
                                            scale: await mermaidRenderScale())

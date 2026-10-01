@@ -71,7 +71,18 @@ struct QuotedBlockTests {
         "> - item\n>   $$x$$\n\n",
         "> - item\n>   [^a]: definition\n\n",
         "> - item\n>   ---\n\n",
-        "> - item\n>   :::note\n\n"
+        "> - item\n>   :::note\n\n",
+        "> ````\n> code\n> `````\n> after\n\n",
+        "> ~~~~\n> code\n> ~~~~~~\n> after\n\n",
+        ">  # Title\n\n",
+        ">   # Title\n\n",
+        ">    # Title\n\n",
+        "> # h\n>     # literal\n\n",
+        "> text\n***\nafter\n\n",
+        "> text\n---\nafter\n\n",
+        "> text\n___\nafter\n\n",
+        "> text\n* * *\nafter\n\n",
+        "> ````\n> code\n> ```\n> ````tail\n> ~~~~~\n> `````\n> after\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -348,7 +359,7 @@ struct QuotedBlockTests {
 
     @Test("Indented structured quote children retain their list parent")
     func quotedStructuredListChildren() async throws {
-        for document in Self.documents[51...] {
+        for document in Self.documents[51...60] {
             let result = await parse(chunks: [document])
             let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
             let child = try #require(result.blocks.first { $0.parentID == item.id })
@@ -382,6 +393,43 @@ struct QuotedBlockTests {
         layout.ensureLayout(for: container)
         let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: 0, length: 1), actualCharacterRange: nil)
         #expect(layout.boundingRect(forGlyphRange: glyphs, in: container).minX >= indent)
+    }
+
+    @Test("Quoted fence closers, heading indentation, and unmarked rules retain boundaries")
+    func quotedContainerBoundaries() async throws {
+        for document in Self.documents[61...62] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil), .paragraph])
+            #expect(result.blocks[1].codeText == "code\n")
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+        }
+        for document in Self.documents[63...65] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .heading(level: 1)])
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "Title")
+        }
+        let code = await parse(chunks: [Self.documents[66]])
+        #expect(code.blocks.last?.codeText == "# literal\n")
+        for document in Self.documents[67...70] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .horizontalRule, .paragraph])
+            #expect(result.blocks.dropFirst().allSatisfy { $0.parentID == nil })
+        }
+        let invalidClosers = await parse(chunks: [Self.documents[71]])
+        #expect(invalidClosers.blocks[1].codeText == "code\n```\n````tail\n~~~~~\n")
+        #expect(invalidClosers.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+    }
+
+    @Test("List-owned nested quotes include the list indentation")
+    func nestedQuoteListIndentation() async throws {
+        let result = await parse(chunks: [Self.documents[40]])
+        let nested = try #require(result.blocks.last)
+        let builder = MarkdownAttributeBuilder(theme: .default())
+        let rendered = await builder.render(snapshot: nested, blockquoteLevel: 2)
+        let content = NSAttributedString.picoConverted(from: rendered.attributed)
+        let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        #expect(paragraph.firstLineHeadIndent == BlockquoteBarMetrics.textIndent(level: 2) + 20)
+        #expect(paragraph.headIndent == paragraph.firstLineHeadIndent)
     }
 
     private func parse(chunks: [String]) async -> (blocks: [BlockSnapshot], events: [BlockEvent]) {

@@ -86,3 +86,17 @@ $$x$$y
 > # Indented code
 >     one
 >     two
+
+>  ## Indented heading and longer closer
+> ````text
+> Verbatim code
+> `````
+> - Diagram owner
+>   ```mermaid
+>   graph LR
+>   A[Start] --> B[Process] --> C[Finish]
+>   ```
+
+> Quote before an unmarked rule.
+***
+Paragraph outside the quote.
