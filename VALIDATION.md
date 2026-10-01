@@ -21,11 +21,11 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 268 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 278 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  306 tests passed, zero failures, skips, or runtime warnings. Parameterized
-  test invocations are reported separately by Xcode.
+  316 definitions / 850 invocations passed, zero failures, skips, or runtime
+  warnings. Final package builds and both example builds have no compiler warnings.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
   disabled: no compiler warnings.
@@ -45,7 +45,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 329 container/math fixtures pass every chunk split and character-at-a-time
+  All 384 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -105,7 +105,7 @@ The earlier local-package/WizardKit build configuration fix is already on
   At the look-behind cap, reference/table fallbacks preserve eligible list
   parents and exact raw payloads while discarding only container indentation.
   Six capped variants pass every split, character streams, deterministic
-  events, and bounded-buffer checks in addition to the 329 quote fixtures.
+  events, and bounded-buffer checks in addition to the 384 quote fixtures.
 - [x] GFM block boundaries: four-space/tab-indented thematic markers remain
   code, while three-space controls remain rules. Confirmed tables close before
   successor block openers without rejecting ordinary non-pipe body rows.
@@ -129,9 +129,27 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Quoted list indentation includes complete one-to-four-space marker
   padding; task/empty-item/five-space controls retain the correct content
   column. Each child line strips its own indentation columns, preserving a
-  tab's residual columns and the fence's relative indentation. All 329 quoted
+  tab's residual columns and the fence's relative indentation. All 384 quoted
   fixtures pass split/character/determinism checks. Test fixtures use explicit
   loops after CI's older compiler rejected a nested inference expression.
+- [x] Active tables unwind on reduced quote depth; unknown blocks preserve extra
+  quote markers literally. Footnote successors retain eligible list owners, and
+  wide ordered-item reference definitions resolve after local content deindent.
+  Quote indentation uses physical four-column tab stops: one tab after `> `
+  allows a heading, while two tabs open indented code. Code/unknown body tabs
+  remain verbatim. All 384 fixtures pass split/character/determinism checks.
+- [x] Marker-only quoted `-`/`*`/`+` items resolve at newline/EOF without
+  interrupting existing paragraphs. Direct nested quotes under `1.`/`10.`/`123.`
+  items retain ownership after full deindent, including tab, under-indented exit,
+  and lazy-continuation controls. Explicit Boolean test assertions allow only
+  plain whitespace (including ordinary newline runs) in empty items.
+- [x] Two additional review suggestions are not applied. GFM ends a table before
+  `- item | value`; GitHub's own Markdown API confirms the separate list, with
+  top-level/quoted regressions and an ordinary-row control. CommonMark's
+  999-character limit is for reference labels, not inline link text: 1000-character
+  inline link/image regressions pass every split, character streams, and repeats.
+  General unclosed-link buffering predates the changed closed-bracket lookahead;
+  truncating valid inline text is not an appropriate fix. Both threads explain why.
 - [x] Unquoted display-math closing lines wait for newline/EOF. Dollar and
   command markers with non-whitespace suffixes remain math content rather
   than swallowing the rest of the line. Both forms pass every split, character
@@ -142,6 +160,17 @@ The earlier local-package/WizardKit build configuration fix is already on
   ASCII/non-ASCII/combining-mark cases reproduce the defect before the fix
   and pass direct inline parsing, every scalar split, tokenizer output, and
   deterministic event checks afterward.
+- [x] Post-math punctuation context survives combining marks, variation selectors,
+  spacing marks, and ZWJ scalars across chunk boundaries. A trailing underscore
+  waits for its following character. Forty dollar/command inline/display variants
+  pass direct parsing, every scalar split, scalar/character streams, and repeated
+  tokenizer events, including the exact `p$z$` + combining-mark + `_foo_` report.
+  Only local cursor state is retained; emitted runs are not reparsed or corrected.
+- [x] Inline/display/table math attachments reserve quote/list/cell gutters and
+  refresh their bounds on content-width changes without changing snapshots.
+  Native AppKit/UIKit glyph bounds and line heights pass at 160/320/800 points
+  and at a width where intrinsic math fits the container but not the quote gutter.
+  Actual latest example-app appearance remains unverified while the desktop is locked.
 - [x] Ordinary images reserve quote/list gutters before sizing attachments;
   list bullet columns and table cell padding/separators are also reserved.
   Native AppKit/UIKit glyph bounds at 160, 320, and 800 points stay inside the
@@ -202,9 +231,14 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Width refreshes publish incremental diffs instead of full replacements.
   A view-model/native-controller regression reproduced truncated selection
   before the fix and now preserves whole-document and two attachment-overlap
-  selections across narrowing, widening, and nil reset. Image and real Mermaid
+  selections across narrowing, widening, and nil reset. Image, real Mermaid, and math
   cases pass both TextKit entry points on AppKit/UIKit, with unchanged text,
   snapshots, replacement tokens, and correctly resized attachments.
+- [x] Width staging records and publishes only changed block IDs. Three 130-block
+  image/Mermaid/math cases reproduce nine all-block diffs before the fix and now
+  emit exactly one changed attachment per update. Ordinary blocks and snapshots
+  remain unchanged; repeated widths are no-ops and subsequent feeds retain their
+  consecutive diff versions. Native selection tests still cover both TextKit paths.
 - [x] Queued width refreshes register request revisions before the operation
   gate. Deterministic paused-image tests queue 20 obsolete width buckets, a
   latest width or nil reset, and a feed: only the latest queued width renders,
@@ -264,7 +298,8 @@ The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
 footnote/continuation, verbatim-code, unmarked definition/math interruption,
 fence-boundary, initial-code, source-order, structured list-child/Mermaid,
-empty-heading/marker, wide-marker/tab-indentation, and mixed list-padding
+empty-heading/marker, wide-marker/tab-indentation, mixed list-padding,
+direct wide-list quotes, physical quote tab stops, and constrained math-width
 additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual

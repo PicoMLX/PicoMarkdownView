@@ -827,3 +827,57 @@ Full lower-branch suites pass 37 XCTest + 269 Swift Testing definitions on
 macOS and 307 definitions / 776 invocations on iOS, with no failures, skips,
 or runtime warnings. The fix is renderer/pipeline-only; tokenizer code and
 inputs match the preceding serial PR9 benchmark checkpoint.
+
+## Final Grapheme, Container, And Width Stack Checkpoint (2026-10-01)
+
+All fifteen new actionable review findings are fixed. Two new suggestions are
+not applied, with standards/regression evidence on their threads. The combined
+stack passes 37 XCTest + 278 Swift Testing definitions on macOS and 316
+definitions / 850 invocations on iOS 18.5, with no failures, skips, runtime
+warnings, or compiler warnings. Both example builds are warning-free. All 384
+quoted fixtures and forty post-math grapheme variants pass split/scalar/character
+equivalence and deterministic events. The final test-only assertion adjustment
+allows ordinary plain line breaks in empty items; no parser change was needed.
+Actual latest example inspection is still blocked by the locked desktop.
+
+The handoff fix retains punctuation context only while scalars extend a math
+closer and defers unresolved underscores. A local optional byte cursor replaces
+per-character mutable-state resets. No emitted runs are revisited. An earlier
+serial handoff checkpoint (before the latest lower-branch fixes) measured
+sample1 `0.017200 / 0.024417 / 0.025198 s`, word streaming `0.032609 s`,
+long math `0.004512 / 0.010014 s`, and combining-mark scanning
+`0.000723 / 0.001296 s`; those elevations remain recorded, without attributing
+all timing variation to a single code change.
+
+Both final serial skip-build runs followed all completed local suites and
+example builds, with no concurrent local build/test commands:
+
+| Case | First Mean (s) | Repeat Mean (s) |
+| --- | ---: | ---: |
+| sample1, 128-byte chunks, 50 iterations | 0.017080 | 0.016934 |
+| sample1, 512-byte chunks, 50 iterations | 0.016655 | 0.016535 |
+| sample1, 1024-byte chunks, 50 iterations | 0.016649 | 0.016668 |
+| sample1 word stream, 50 iterations | 0.024205 | 0.023935 |
+| long math, 8192 bytes, 10 iterations | 0.003176 | 0.003251 |
+| long math, 16384 bytes, 10 iterations | 0.006255 | 0.006246 |
+| combining marks, 512 chunks, 20 iterations | 0.000537 | 0.000543 |
+| combining marks, 1024 chunks, 20 iterations | 0.000944 | 0.000959 |
+| quoted spaces, 1024 chunks, 10 iterations | 0.027771 | 0.028168 |
+| quoted spaces, 2048 chunks, 10 iterations | 0.037719 | 0.037820 |
+| alternating quote padding, 1024 chunks, 10 iterations | 0.028316 | 0.028464 |
+| alternating quote padding, 2048 chunks, 10 iterations | 0.039786 | 0.040405 |
+| deferred quoted tables, 1024 chunks, 10 iterations | 0.024922 | 0.024838 |
+| deferred quoted tables, 2048 chunks, 10 iterations | 0.035025 | 0.034419 |
+
+Repeat sample1/word/quoted means are within 4% of stable checkpoint `3c00a0a`
+or faster. Doubling long math takes 1.92x, combining-mark chunks 1.77x, and
+quoted cases 1.34-1.42x. The isolated combining-mark means are 6%/9% above
+`5270cd4`, under 0.1 ms extra per 1024-chunk run. The required constant-time
+handoff bookkeeping is retained to ensure chunk-independent Markdown output;
+this small microbenchmark cost does not change linear scaling. The larger
+earlier elevations are not persistent in the final combined measurements.
+
+The following serial assembler run (25 iterations) measured average apply
+times of `0.000010 / 0.000027 / 0.000040 s` for sample1 128/512/1024-byte
+chunks and `0.000003 s` for word streams, all below the 10 ms assertion.
+The required final combined comparison is complete.
