@@ -406,3 +406,17 @@ Serial means after both completed suites were sample1
 checkpoint, with the 128-byte sample faster. An overlapping benchmark attempt
 was discarded and rerun after the iOS process completed; only this serial run
 is used. The final combined stack still requires its own comparison.
+
+## Sparse Width-Refresh Diff Checkpoint (2026-10-01)
+
+Width staging records only block IDs with changed attributed presentations,
+and the pipeline publishes those IDs rather than all retained blocks. Three
+image/Mermaid/math cases reproduce nine all-block diffs before the fix; after
+the fix each narrow/wide/reset update changes only its one attachment among
+130 blocks. Snapshots, ordinary text, consecutive streaming, repeated-width
+no-ops, and the six native TextKit selection scenarios still pass.
+
+Full lower-branch suites pass 37 XCTest + 269 Swift Testing definitions on
+macOS and 307 definitions / 776 invocations on iOS, with no failures, skips,
+or runtime warnings. The fix is renderer/pipeline-only; tokenizer code and
+inputs match the preceding serial PR9 benchmark checkpoint.

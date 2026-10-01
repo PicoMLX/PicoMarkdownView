@@ -222,7 +222,8 @@ actor MarkdownRenderer {
         let generation: UInt64
         let builder: MarkdownAttributeBuilder
         let blocks: [RenderedBlock]
-        let didMutate: Bool
+        let changedBlockIDs: [BlockID]
+        var didMutate: Bool { !changedBlockIDs.isEmpty }
         let previousWidth: CGFloat?
         let previousBucket: Int?
         let previousBuilder: MarkdownAttributeBuilder
@@ -240,7 +241,7 @@ actor MarkdownRenderer {
         let previousBlocks = blocks
         let builder = await previousBuilder.copyForContentWidth(width)
         var staged = previousBlocks
-        var mutated = false
+        var changedBlockIDs: [BlockID] = []
         for index in staged.indices where shouldRefreshForContentWidthChange(previousBlocks[index]) {
             guard await shouldContinue(), generation == renderGeneration else { return nil }
             let block = previousBlocks[index]
@@ -248,12 +249,12 @@ actor MarkdownRenderer {
                 previousBlockKind: index > 0 ? previousBlocks[index - 1].kind : nil,
                 blockquoteLevel: block.blockquoteLevel)
             guard await shouldContinue(), generation == renderGeneration else { return nil }
-            mutated = mutated || block.content != result.attributed
+            if block.content != result.attributed { changedBlockIDs.append(block.id) }
             staged[index].updatePresentation(from: result)
         }
         guard await shouldContinue(), generation == renderGeneration else { return nil }
         return PreparedContentWidthUpdate(width: width, bucket: bucket, generation: generation,
-            builder: builder, blocks: staged, didMutate: mutated, previousWidth: previousWidth,
+            builder: builder, blocks: staged, changedBlockIDs: changedBlockIDs, previousWidth: previousWidth,
             previousBucket: previousBucket, previousBuilder: previousBuilder, previousBlocks: previousBlocks)
     }
 

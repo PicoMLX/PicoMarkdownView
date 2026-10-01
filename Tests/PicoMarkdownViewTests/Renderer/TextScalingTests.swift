@@ -388,6 +388,46 @@ struct TextScalingTests {
         }
     }
 
+    @Test("Width diffs contain only changed attachment blocks in long documents", arguments: ["image", "mermaid", "math"])
+    func widthDiffsStayBlockLocal(kind: String) async throws {
+        let size = CGSize(width: 200, height: 100)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        let attachment: String
+        switch kind {
+        case "mermaid": attachment = "```mermaid\ngraph LR\nA-->B\n```"
+        case "math": attachment = "$$" + String(repeating: "x+", count: 30) + "x$$"
+        default: attachment = "![image](https://example.com/image.png)"
+        }
+        let paragraphs = (0..<128).map { "Paragraph \($0)\n\n" }.joined()
+        _ = await pipeline.feed(paragraphs + attachment + "\n\nAfter\n\n")
+        _ = await pipeline.finish()
+        let original = await pipeline.blocksSnapshot()
+        let changedID = try #require(original.dropFirst(128).first).id
+        var previous = original
+        let widths: [CGFloat?] = [48, 64, nil]
+        for width in widths {
+            let update = try #require(await pipeline.updateMermaidContentWidth(width))
+            #expect(update.blocks.map(\.snapshot) == original.map(\.snapshot))
+            #expect(update.diff.changes == [.blockEnded(id: changedID)])
+            var actuallyChanged: [BlockID] = []
+            for (before, after) in zip(previous, update.blocks) where before.content != after.content {
+                actuallyChanged.append(after.id)
+            }
+            #expect(actuallyChanged == [changedID])
+            #expect(await pipeline.updateMermaidContentWidth(width) == nil)
+            previous = update.blocks
+        }
+        let appended = try #require(await pipeline.feed("New tail"))
+        #expect(appended.blocks.dropLast().map(\.snapshot) == original.map(\.snapshot))
+        #expect(appended.diff.documentVersion > 0)
+    }
+
     @Test("Width publication preserves selection across image, Mermaid, and math attachments", arguments: ["image", "mermaid", "math"], [false, true])
     func widthPublicationPreservesSelection(kind: String, textKit2: Bool) async throws {
         let size = CGSize(width: 200, height: 100)
