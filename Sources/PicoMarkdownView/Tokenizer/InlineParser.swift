@@ -126,7 +126,7 @@ struct InlineParser {
         var plainStart = text.startIndex
         var consumedEnd = text.startIndex
         var consumedAll = true
-        var mathGraphemeBoundary = text.startIndex
+        var mathGraphemeBoundary: String.Index? = followsMathGrapheme ? text.startIndex : nil
         if let state = mathState,
            let resume = text.utf8.index(text.utf8.startIndex, offsetBy: state.resumeUTF8Offset, limitedBy: text.utf8.endIndex) {
             index = resume
@@ -175,7 +175,7 @@ struct InlineParser {
         }
 
         func character(before index: String.Index) -> Character? {
-            if followsMathGrapheme, index <= mathGraphemeBoundary {
+            if let boundary = mathGraphemeBoundary, index <= boundary {
                 return "$" // Both math closers are punctuation, even with trailing combining scalars.
             }
             guard index > text.startIndex else { return nil }
@@ -938,7 +938,6 @@ struct InlineParser {
                     index = afterClose
                     plainStart = afterClose
                     mathState = nil
-                    followsMathGrapheme = true
                     mathGraphemeBoundary = afterClose
                 } else {
                     index = next
@@ -947,19 +946,13 @@ struct InlineParser {
             }
             // Drain only scalars extending the ASCII closer. Keep its flanking
             // context across chunks without retaining or rescanning emitted text.
-            if followsMathGrapheme {
+            if index == mathGraphemeBoundary {
                 let scalar = text.unicodeScalars[index]
                 if scalar.properties.isGraphemeExtend || scalar.value == 0x200D ||
                     scalar.properties.generalCategory == .spacingMark {
                     index = text.unicodeScalars.index(after: index)
                     mathGraphemeBoundary = index
                     continue parsing
-                }
-            }
-            let ordinaryStart = index
-            defer {
-                if index > ordinaryStart {
-                    followsMathGrapheme = false
                 }
             }
             // Inline tag dispatch — fires before the normal switch so that
@@ -1297,6 +1290,8 @@ struct InlineParser {
             let remainder = replacements.drainLiteralTail()
             appendProcessed(remainder)
         }
+
+        followsMathGrapheme = mathState == nil && index == mathGraphemeBoundary
 
         if consumedEnd > text.startIndex {
             let consumedBytes = text.utf8.distance(from: text.utf8.startIndex, to: consumedEnd)
