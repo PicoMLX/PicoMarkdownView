@@ -162,6 +162,7 @@ struct StreamingParser {
     private var lineLookBehindLimitChecked = false
     private var lineAlreadyConsumed = false
     private var lineListChildPrefixLength = 0
+    private var lineHasListContentIndent = false
     private var events: [BlockEvent] = []
 
     mutating func feed(_ chunk: String) -> ChunkResult {
@@ -226,7 +227,7 @@ struct StreamingParser {
         guard lineWasQuoted || detectBlockquote(lineBuffer) != nil || displayMathLineIsPending(lineBuffer) ||
               contextStack.contains(where: { $0.kind == .blockquote }) else { return }
         analyzeLineIfNeeded(isLineComplete: false)
-        let deferredQuotedConstruct = lineWasQuoted && emittedCount == 0 &&
+        let deferredQuotedConstruct = lineWasQuoted && emittedCount <= (currentBlock?.linePrefixToStrip ?? 0) &&
             currentBlock?.kind.isVerbatim != true && currentBlock?.kind != .table &&
             shouldDeferParagraphFallback(for: lineBuffer)
         if pendingQuotePrefix || pendingMathOpeningLine || deferredQuotedConstruct {
@@ -234,7 +235,19 @@ struct StreamingParser {
             // Decide at the cap in the character loop, independent of feeds;
             // never retain arbitrary padding or retract a provisional block.
             if !quotePrefixResolved { _ = prepareQuotedLine(isLineComplete: true) }
-            while let context = currentBlock, context.kind != .blockquote { closeCurrentBlock() }
+            while let context = currentBlock, context.kind != .blockquote {
+                if case .listItem = context.kind {
+                    if lineListChildPrefixLength > 0 { break }
+                    let padding = lineBuffer.prefix { $0 == " " || $0 == "\t" }
+                    let columns = padding.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
+                    if columns >= context.listContentIndent {
+                        lineListChildPrefixLength = padding.count
+                        lineBuffer.removeFirst(padding.count)
+                        break
+                    }
+                }
+                closeCurrentBlock(preservingListContentPrefix: lineHasListContentIndent)
+            }
             openUnknown(streamingLiteral: true)
             pendingQuotePrefix = false
             pendingMathOpeningLine = false
@@ -377,6 +390,9 @@ struct StreamingParser {
         if lineWasQuoted, isLineComplete, detectHorizontalRule(lineBuffer, indent: 0), let kind = currentBlock?.kind {
             switch kind {
             case .blockquote, .paragraph, .listItem, .footnoteDefinition:
+                if kind == .paragraph, lineHasListContentIndent {
+                    closeCurrentBlock(preservingListContentPrefix: true)
+                }
                 if lineListChildPrefixLength == 0 {
                     while let context = currentBlock, context.kind != .blockquote { closeCurrentBlock() }
                 }
@@ -906,6 +922,7 @@ struct StreamingParser {
         lineLookBehindLimitChecked = false
         lineAlreadyConsumed = false
         lineListChildPrefixLength = 0
+        lineHasListContentIndent = false
     }
 
     private mutating func closePendingSameLineBlocks() {
@@ -1364,6 +1381,7 @@ struct StreamingParser {
                 closeCurrentBlock()
                 if let parent = currentBlock, case .listItem = parent.kind { closeCurrentBlock() }
             } else {
+                lineHasListContentIndent = columns >= current.listContentIndent
                 content.removeFirst(min(padding.count, current.listContentPrefixLength))
             }
         }
@@ -1405,7 +1423,10 @@ struct StreamingParser {
         } else if quote.markerCount < activeLevel &&
                     (currentBlock?.kind.isVerbatim == true || currentBlock?.kind.isHeading == true || currentBlock?.hasBlockChildren == true ||
                      detectHeading(content) != nil || detectList(content, isLineComplete: isLineComplete) != nil ||
-                     (isLineComplete && detectFenceOpening(content) != nil)) {
+                     detectFootnoteDefinition(content) != nil ||
+                     (isLineComplete && (detectFenceOpening(content) != nil || detectTableCandidate(content) ||
+                                         detectDisplayMathOpening(content) != nil ||
+                                         detectHorizontalRule(content, indent: 0) || content.hasPrefix(":::")))) {
             while let current = currentBlock,
                   current.kind != .blockquote || current.blockquoteLevel > quote.markerCount {
                 if case .listItem = current.kind,

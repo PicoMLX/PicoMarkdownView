@@ -247,3 +247,24 @@ Repeat quoted 1024/2048 means were `0.071198 / 0.051777 s` for spaces,
 `0.025604 / 0.040591 s` for tables (10 iterations). The inverted space pair
 and run-to-run variation preclude a reliable throughput inference here.
 No build commands ran concurrently with either measurement.
+
+### Non-Lazy Quote Boundaries And Bounded List Ownership (8d4bc4c)
+
+All 116 quoted fixtures and six capped list-child variants pass every split,
+character streaming, and deterministic-event checks. Full suites pass 34
+XCTest + 225 Swift Testing definitions on macOS and 260 definitions on iOS.
+
+After all tests finished, a serial skip-build sample1 measurement returned
+`0.017134 / 0.016624 / 0.016467 s` at 128/512/1024 bytes and `0.023309 s`
+for word streaming (50 iterations). These are within 3% of the pre-slowdown
+lower-branch checkpoint. The elevated timings above are not persistent in
+the latest lower-branch run, so no cause is attributed without evidence.
+The previously completed combined `74d158a` repeat also returned fixed-chunk
+means within 3%; its word-stream mean was 12% higher and remains recorded
+on PR11. The earlier required comparison is therefore complete, not pending.
+
+Quoted 1024/2048 means are `0.032233 / 0.047057 s` for spaces,
+`0.034688 / 0.049661 s` for alternating padding, and
+`0.025049 / 0.040193 s` for tables (10 iterations, 1.43-1.60x). No build
+commands ran concurrently. A final combined run will include these latest
+state-local boundary fixes as well.
