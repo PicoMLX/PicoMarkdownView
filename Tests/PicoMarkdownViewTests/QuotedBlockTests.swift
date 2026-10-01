@@ -58,7 +58,20 @@ struct QuotedBlockTests {
         "> # Heading\n> [ref]: /url \"title\"\n> [ref]\n\n",
         "> # heading\n> :::note\n\n",
         "> :::note\n> body\n> :::\n\n",
-        "> [^a]: one\n> [ref]: /url\n> [ref]\n\n"
+        "> [^a]: one\n> [ref]: /url\n> [ref]\n\n",
+        "> ```\n> [ref]: /url\n> ```\n> [ref]\n\n",
+        "> # h\n>     one\n>     two\n\n",
+        "> # h\n> \tone\n> \ttwo\n\n",
+        "> - item\n>   ```swift\n>   code\n>   ```\n> - sibling\n\n",
+        "> 1. item\n>    ```swift\n>    code\n>    ```\n\n",
+        "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n>\n> - sibling\n\n",
+        "> - item\n>     ```swift\n>     code\n>     ```\n\n",
+        "> - item\n> \t```swift\n> \tcode\n> \t```\n\n",
+        "> - item\n>   # child\n\n",
+        "> - item\n>   $$x$$\n\n",
+        "> - item\n>   [^a]: definition\n\n",
+        "> - item\n>   ---\n\n",
+        "> - item\n>   :::note\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -320,6 +333,55 @@ struct QuotedBlockTests {
             let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
             #expect(paragraph.firstLineHeadIndent >= BlockquoteBarMetrics.textIndent(level: 1))
         }
+    }
+
+    @Test("Quoted code retains definitions and resolves partial indentation")
+    func quotedVerbatimRegressions() async throws {
+        let fence = await parse(chunks: [Self.documents[48]])
+        #expect(fence.blocks.first(where: { $0.codeText != nil })?.codeText == "[ref]: /url\n")
+        #expect(!fence.blocks.flatMap { $0.inlineRuns ?? [] }.contains { $0.linkURL != nil })
+        for document in Self.documents[49...50] {
+            let code = await parse(chunks: [document])
+            #expect(code.blocks.first(where: { $0.codeText != nil })?.codeText == "one\ntwo\n")
+        }
+    }
+
+    @Test("Indented structured quote children retain their list parent")
+    func quotedStructuredListChildren() async throws {
+        for document in Self.documents[51...] {
+            let result = await parse(chunks: [document])
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let child = try #require(result.blocks.first { $0.parentID == item.id })
+            #expect(child.parentID == item.id)
+            #expect(child.depth == item.depth + 1)
+            if let code = child.codeText { #expect(code == "code\n") }
+            let builder = MarkdownAttributeBuilder(theme: .default())
+            let rendered = await builder.render(snapshot: child, blockquoteLevel: 1)
+            let content = NSAttributedString.picoConverted(from: rendered.attributed)
+            let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+            #expect(paragraph.firstLineHeadIndent >= BlockquoteBarMetrics.textIndent(level: 1) + 20)
+        }
+    }
+
+    @Test("Attachment-only quoted math receives quote indentation")
+    @MainActor
+    func attachmentOnlyQuoteIndentation() async throws {
+        let builder = MarkdownAttributeBuilder(theme: .default())
+        let snapshot = BlockSnapshot(id: 1, kind: .math(display: true), mathText: "x^{2}", isClosed: true)
+        let rendered = await builder.render(snapshot: snapshot, blockquoteLevel: 1)
+        let content = NSAttributedString.picoConverted(from: rendered.attributed)
+        #expect(content.attribute(.attachment, at: 0, effectiveRange: nil) is NSTextAttachment)
+        let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        let indent = BlockquoteBarMetrics.textIndent(level: 1)
+        #expect(paragraph.firstLineHeadIndent >= indent)
+        let storage = NSTextStorage(attributedString: content)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 320, height: 1000))
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        layout.ensureLayout(for: container)
+        let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: 0, length: 1), actualCharacterRange: nil)
+        #expect(layout.boundingRect(forGlyphRange: glyphs, in: container).minX >= indent)
     }
 
     private func parse(chunks: [String]) async -> (blocks: [BlockSnapshot], events: [BlockEvent]) {

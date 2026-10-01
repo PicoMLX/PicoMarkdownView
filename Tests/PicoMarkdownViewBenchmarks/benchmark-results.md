@@ -263,7 +263,7 @@ one-character feeds. Forty-eight fixtures pass every chunk split and repeat
 determinism. A renderer regression evicts the quote parent and verifies that
 later refreshes retain the children's quote level, attributes, and indentation.
 
-## Final Stack With Scalar-Safe Math Openers (2026-09-30)
+## Stack Checkpoint With Scalar-Safe Math Openers (2026-09-30)
 
 After checkpoint `36ed036` propagates PR9 `f489f4e` and PR10 `2512a0a`,
 the additional PR11 opener fix uses byte boundaries for dollar and command
@@ -293,3 +293,25 @@ faster, and long-math means differ by under 3%. Doubling input takes 1.96x
 for long math, 1.72x for the isolated Unicode scanner, and 1.31-1.38x for
 capped/deferred quote cases. Opening-marker resolution remains local and
 does not reparse already-emitted text.
+
+### Verbatim Quoted Lines And Structured List Children
+
+Reference definitions are no longer detected inside verbatim blocks. Partial
+indented-code prefixes stay local until resolved, and eligible structured
+children retain their list parent and content indentation. Sixty-one fixtures
+now pass every chunk split and repeat determinism, including tab indentation.
+Native math-attachment layout confirms the existing quote gutter is applied
+even when the original attachment range has no paragraph-style attribute.
+
+After the full platform suites, the final serial run measured sample1 means
+of `0.017085 / 0.016464 / 0.016428 s` for 128/512/1024-byte chunks, and
+`0.023340 s` for the example word stream. These are within 5% of the preceding
+PR9 checkpoint. An initial run measured `0.018866 / 0.017375 / 0.017295 s`
+and `0.024370 s`; the final code avoids redispatch checks once list content
+has already been emitted.
+
+The 1024/2048 one-character means are `0.032973 / 0.047931 s` for spaces,
+`0.035200 / 0.050115 s` for alternating padding, and
+`0.024794 / 0.039296 s` for deferred table candidates. Doubling input takes
+1.42-1.58x. All measurements use the existing 50 sample / 10 padding iteration
+counts, skip-build, and no concurrent build work.
