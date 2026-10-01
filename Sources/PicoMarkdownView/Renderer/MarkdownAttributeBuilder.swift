@@ -92,9 +92,10 @@ actor MarkdownAttributeBuilder {
 
     private func renderContent(snapshot: BlockSnapshot, previousBlockKind: BlockKind?,
                                blockquoteLevel: Int, reservedIndent: CGFloat) async -> RenderedContentResult {
+        let imageMaxWidth = effectiveInlineImageMaxWidth().map { max(1, $0 - reservedIndent) }
         switch snapshot.kind {
         case .table:
-            let (fallback, table, images) = await renderTable(snapshot, font: bodyFont)
+            let (fallback, table, images) = await renderTable(snapshot, font: bodyFont, imageMaxWidth: imageMaxWidth)
             return RenderedContentResult(attributed: AttributedString(fallback),
                                         table: table,
                                         listItem: nil,
@@ -104,9 +105,11 @@ actor MarkdownAttributeBuilder {
                                         codeBlock: nil)
         case .listItem(let ordered, let index, let task):
             return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task,
-                                         previousBlockKind: previousBlockKind, blockquoteLevel: blockquoteLevel)
+                                         previousBlockKind: previousBlockKind, blockquoteLevel: blockquoteLevel,
+                                         imageMaxWidth: imageMaxWidth)
         case .blockquote:
-            return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: blockquoteLevel)
+            return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                          blockquoteLevel: blockquoteLevel, imageMaxWidth: imageMaxWidth)
         case .fencedCode:
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                                                reservedIndent: reservedIndent) {
@@ -215,7 +218,7 @@ actor MarkdownAttributeBuilder {
                                                 prefix: nil,
                                                 suffix: "\n",
                                                 font: font,
-                                                spacing: spacing)
+                                                spacing: spacing, imageMaxWidth: imageMaxWidth)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
@@ -230,7 +233,7 @@ actor MarkdownAttributeBuilder {
                                                 prefix: nil,
                                                 suffix: suffix,
                                                 font: bodyFont,
-                                                spacing: spacing)
+                                                spacing: spacing, imageMaxWidth: imageMaxWidth)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
@@ -246,7 +249,7 @@ actor MarkdownAttributeBuilder {
                                                 prefix: prefixText,
                                                 suffix: suffix,
                                                 font: bodyFont,
-                                                spacing: spacing)
+                                                spacing: spacing, imageMaxWidth: imageMaxWidth)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
@@ -261,7 +264,7 @@ actor MarkdownAttributeBuilder {
                                                 prefix: nil,
                                                 suffix: suffix,
                                                 font: bodyFont,
-                                                spacing: spacing)
+                                                spacing: spacing, imageMaxWidth: imageMaxWidth)
             return RenderedContentResult(attributed: AttributedString(ns),
                                         table: nil,
                                         listItem: nil,
@@ -364,7 +367,7 @@ actor MarkdownAttributeBuilder {
                                    prefix: String?,
                                    suffix: String,
                                    font: PlatformFont,
-                                   spacing: ParagraphSpacing) async -> (NSAttributedString, [RenderedImage]) {
+                                   spacing: ParagraphSpacing, imageMaxWidth: CGFloat?) async -> (NSAttributedString, [RenderedImage]) {
         var imageIndex = 0
         let result = NSMutableAttributedString()
         if let prefix {
@@ -372,7 +375,7 @@ actor MarkdownAttributeBuilder {
         }
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
-        let body = await renderInline(bodyRuns, font: font)
+        let body = await renderInline(bodyRuns, font: font, imageMaxWidth: imageMaxWidth)
         result.append(body)
         let paragraph = makeParagraphStyle(spacing)
         if result.length > 0 {
@@ -405,10 +408,10 @@ actor MarkdownAttributeBuilder {
         return images
     }
 
-    private func renderInline(_ runs: [InlineRun], font: PlatformFont) async -> NSMutableAttributedString {
+    private func renderInline(_ runs: [InlineRun], font: PlatformFont, imageMaxWidth: CGFloat?) async -> NSMutableAttributedString {
         let reduced = NSMutableAttributedString()
         for run in runs {
-            let fragment = await render(run: run, baseFont: font)
+            let fragment = await render(run: run, baseFont: font, imageMaxWidth: imageMaxWidth)
             reduced.append(fragment)
         }
         return reduced
@@ -418,7 +421,8 @@ actor MarkdownAttributeBuilder {
                                 ordered: Bool,
                                 index: Int?,
                                 task: TaskListState?,
-                                previousBlockKind: BlockKind?, blockquoteLevel: Int) async -> RenderedContentResult {
+                                previousBlockKind: BlockKind?, blockquoteLevel: Int,
+                                imageMaxWidth: CGFloat?) async -> RenderedContentResult {
         let listDepth = max(0, snapshot.depth - blockquoteLevel)
         let bulletText: String
         if let task {
@@ -433,19 +437,7 @@ actor MarkdownAttributeBuilder {
         var imageIndex = 0
         let runs = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         let inlineImages = collectImages(from: runs, blockID: snapshot.id, counter: &imageIndex)
-        let body = await renderInline(runs, font: bodyFont)
-        trimLeadingWhitespace(in: body)
-        // A finalized list line stores a trailing "\n" run. It normally
-        // coalesces into the plain text and is sanitized to a space, but when
-        // the item ends in a styled span (inline code, bold, link) the runs
-        // can't merge and the bare "\n" survives — combined with the "\n"
-        // terminator appended below it rendered as an empty paragraph
-        // (a full blank line between bullets). Trim it here.
-        trimTrailingNewlines(in: body)
-
         let bulletPrefix = bulletText + " "
-        let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: bodyFont])
-        rendered.append(body)
 
         // Spacing via margin collapsing
         var listSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
@@ -477,6 +469,15 @@ actor MarkdownAttributeBuilder {
         let headIndent = nestingIndent + max(bulletWidth, minReservedWidth) + bulletTextGap
         listParagraph.firstLineHeadIndent = headIndent - bulletWidth
         listParagraph.headIndent = headIndent
+
+        let body = await renderInline(runs, font: bodyFont,
+                                      imageMaxWidth: imageMaxWidth.map { max(1, $0 - headIndent) })
+        trimLeadingWhitespace(in: body)
+        // Styled terminal runs can leave a bare newline; the item supplies
+        // its own terminator with the same paragraph spacing below.
+        trimTrailingNewlines(in: body)
+        let rendered = NSMutableAttributedString(string: bulletPrefix, attributes: [.font: bodyFont])
+        rendered.append(body)
 
         rendered.addAttributes([.paragraphStyle: listParagraph],
                                range: NSRange(location: 0, length: rendered.length))
@@ -756,7 +757,7 @@ actor MarkdownAttributeBuilder {
 
 
     private func renderBlockquote(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
-                                  blockquoteLevel: Int) async -> RenderedContentResult {
+                                  blockquoteLevel: Int, imageMaxWidth: CGFloat?) async -> RenderedContentResult {
         var imageIndex = 0
         let bodyRuns = sanitizeInlineRuns(snapshot.inlineRuns ?? [], kind: snapshot.kind)
         // Container-only parents (e.g. the implicit level-1 block that
@@ -779,7 +780,7 @@ actor MarkdownAttributeBuilder {
                                         codeBlock: nil)
         }
         let inlineImages = collectImages(from: bodyRuns, blockID: snapshot.id, counter: &imageIndex)
-        let body = await renderInline(bodyRuns, font: bodyFont)
+        let body = await renderInline(bodyRuns, font: bodyFont, imageMaxWidth: imageMaxWidth)
         // Trailing newline runs that survive styled spans would otherwise
         // combine with the terminator below into a blank quoted line. Only
         // newlines: trailing spaces can be real content (e.g. a code span
@@ -845,7 +846,7 @@ actor MarkdownAttributeBuilder {
     /// separator — until a native iOS table presentation exists.
     /// `RenderedTable` is still populated with per-cell content so the view
     /// layer (or a future overlay) has the structured data.
-    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
+    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont, imageMaxWidth: CGFloat?) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
         guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
 
         let maxRowColumns = table.rows.reduce(0) { max($0, $1.count) }
@@ -864,7 +865,7 @@ actor MarkdownAttributeBuilder {
                                                                        blockID: snapshot.id,
                                                                        imageCounter: &imageIndex,
                                                                        collectedImages: &collectedImages,
-                                                                       isHeader: true)
+                                                                       isHeader: true, imageMaxWidth: imageMaxWidth)
             renderedTable.headers = headerCells
             result.append(headerAttributed)
         }
@@ -877,7 +878,7 @@ actor MarkdownAttributeBuilder {
                                                                       blockID: snapshot.id,
                                                                       imageCounter: &imageIndex,
                                                                       collectedImages: &collectedImages,
-                                                                      isHeader: false)
+                                                                      isHeader: false, imageMaxWidth: imageMaxWidth)
             renderedRows.append(renderedCells)
             result.append(rowAttributed)
         }
@@ -893,7 +894,7 @@ actor MarkdownAttributeBuilder {
                                 blockID: BlockID,
                                 imageCounter: inout Int,
                                 collectedImages: inout [RenderedImage],
-                                isHeader: Bool) async -> (NSAttributedString, [AttributedString]) {
+                                isHeader: Bool, imageMaxWidth: CGFloat?) async -> (NSAttributedString, [AttributedString]) {
         let rowAttributed = NSMutableAttributedString()
         var renderedCells: [AttributedString] = []
         let displayFont = isHeader ? boldFont(from: font) : font
@@ -910,7 +911,9 @@ actor MarkdownAttributeBuilder {
 
         for column in 0..<numberOfColumns {
             let inlineRuns = column < cells.count ? cells[column] : []
-            let inline = await renderInline(inlineRuns, font: displayFont)
+            let separatorWidth = cellSeparator.size().width * CGFloat(numberOfColumns - 1)
+            let cellImageWidth = imageMaxWidth.map { max(1, ($0 - separatorWidth) / CGFloat(numberOfColumns)) }
+            let inline = await renderInline(inlineRuns, font: displayFont, imageMaxWidth: cellImageWidth)
             let images = collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter)
             if !images.isEmpty {
                 collectedImages.append(contentsOf: images)
@@ -945,7 +948,7 @@ actor MarkdownAttributeBuilder {
         return (rowAttributed, renderedCells)
     }
 #else
-    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
+    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont, imageMaxWidth: CGFloat?) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
         guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
 
         let maxRowColumns = table.rows.reduce(0) { max($0, $1.count) }
@@ -975,7 +978,7 @@ actor MarkdownAttributeBuilder {
                                                                  blockID: snapshot.id,
                                                                  imageCounter: &imageIndex,
                                                                  collectedImages: &collectedImages,
-                                                                 isHeader: true)
+                                                                 isHeader: true, imageMaxWidth: imageMaxWidth)
             renderedTable.headers = headerCells
             result.append(headerAttributed)
             currentRow += 1
@@ -992,7 +995,7 @@ actor MarkdownAttributeBuilder {
                                                                 blockID: snapshot.id,
                                                                 imageCounter: &imageIndex,
                                                                 collectedImages: &collectedImages,
-                                                                isHeader: false)
+                                                                isHeader: false, imageMaxWidth: imageMaxWidth)
             renderedRows.append(renderedCells)
             result.append(rowAttributed)
             currentRow += 1
@@ -1012,7 +1015,7 @@ actor MarkdownAttributeBuilder {
                                 blockID: BlockID,
                                 imageCounter: inout Int,
                                 collectedImages: inout [RenderedImage],
-                                isHeader: Bool) async -> (NSAttributedString, [AttributedString]) {
+                                isHeader: Bool, imageMaxWidth: CGFloat?) async -> (NSAttributedString, [AttributedString]) {
         let rowAttributed = NSMutableAttributedString()
         var renderedCells: [AttributedString] = []
         let displayFont = isHeader ? boldFont(from: font) : font
@@ -1035,7 +1038,8 @@ actor MarkdownAttributeBuilder {
             paragraph.paragraphSpacingBefore = rowIndex == 0 ? 0 : 0
 
             let inlineRuns = column < cells.count ? cells[column] : []
-            let inline = await renderInline(inlineRuns, font: displayFont)
+            let cellImageWidth = imageMaxWidth.map { max(1, $0 / CGFloat(numberOfColumns) - 24 - 2 * tableBorderWidth) }
+            let inline = await renderInline(inlineRuns, font: displayFont, imageMaxWidth: cellImageWidth)
             let images = collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter)
             if !images.isEmpty {
                 collectedImages.append(contentsOf: images)
@@ -1093,7 +1097,7 @@ actor MarkdownAttributeBuilder {
     }
 #endif
 
-    private func render(run: InlineRun, baseFont: PlatformFont) async -> NSAttributedString {
+    private func render(run: InlineRun, baseFont: PlatformFont, imageMaxWidth: CGFloat?) async -> NSAttributedString {
         if run.style.contains(.math), let payload = run.math {
             return InlineMathAttachment.mathString(tex: payload.tex,
                                                    display: payload.display,
@@ -1138,7 +1142,7 @@ actor MarkdownAttributeBuilder {
                     let attachment = NSTextAttachment()
                     attachment.image = result.image
                     let size = result.size ?? result.image.size
-                    let target = constrainImageSize(size, maxWidth: effectiveInlineImageMaxWidth())
+                    let target = constrainImageSize(size, maxWidth: imageMaxWidth)
                     attachment.bounds = CGRect(origin: .zero, size: target)
                     return NSAttributedString(attachment: attachment)
                 }

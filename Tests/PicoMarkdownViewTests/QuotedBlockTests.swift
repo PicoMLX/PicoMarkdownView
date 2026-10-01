@@ -112,7 +112,14 @@ struct QuotedBlockTests {
         ">>> foo\n> bar\n>>baz\n\n",
         "> > inner\n>\n> outer\n\n",
         "> - item\n>   ```\n>   code\n>   ```\n> after\n\n",
-        "> - item\n>   ```\n>   first\n>   ```\n>   after\n>   ```\n>   second\n>   ```\n\n"
+        "> - item\n>   ```\n>   first\n>   ```\n>   after\n>   ```\n>   second\n>   ```\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n> - sibling\n\n",
+        "> 1. item\n>    ```\n>    code\n>    ```\n>    after\n> 2. sibling\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   - nested\n\n",
+        "> - item\n>   ---\n>   after\n\n",
+        "> - item\n>   | a | b |\n>   | --- | --- |\n> - sibling\n\n",
+        "> 1. item\n>    | a | b |\n>    | --- | --- |\n> 2. sibling\n\n",
+        "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n> - sibling\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -543,6 +550,27 @@ struct QuotedBlockTests {
         let separated = await parse(chunks: Self.documents[99].map(String.init))
         #expect(separated.blocks.last?.depth == 0)
         #expect(separated.blocks.last?.inlineRuns?.map(\.text).joined() == "outer\n")
+    }
+
+    @Test("Quoted list successors retain sibling ownership and rule/table boundaries")
+    func quotedListSuccessors() async throws {
+        for document in Self.documents[102...103] + Self.documents[106...108] {
+            let result = await parse(chunks: document.map(String.init))
+            let items = result.blocks.filter { if case .listItem = $0.kind { return true }; return false }
+            #expect(items.count == 2)
+            #expect(items.allSatisfy { $0.parentID == result.blocks.first?.id && $0.depth == 1 })
+            #expect(items.last?.inlineRuns?.map(\.text).joined() == "sibling\n")
+            #expect(!result.blocks.compactMap(\.table).flatMap(\.rows).flatMap { $0 }.flatMap { $0 }.contains { $0.text.contains("sibling") })
+        }
+        let nested = await parse(chunks: Self.documents[104].map(String.init))
+        let items = nested.blocks.filter { if case .listItem = $0.kind { return true }; return false }
+        #expect(items.count == 2)
+        #expect(items.last?.parentID == items.first?.id)
+        let rule = await parse(chunks: Self.documents[105].map(String.init))
+        #expect(rule.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .horizontalRule, .paragraph])
+        #expect(rule.blocks.last?.parentID == rule.blocks[1].id)
+        #expect(rule.blocks[1].inlineRuns?.map(\.text).joined() == "item\n")
+        #expect(rule.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
     }
 
     @Test("List-owned nested quotes include the list indentation")

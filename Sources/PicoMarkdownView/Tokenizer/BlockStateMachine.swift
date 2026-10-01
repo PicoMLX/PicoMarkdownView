@@ -110,7 +110,7 @@ struct StreamingParser {
         contextStack.last
     }
 
-    private mutating func pushBlock(_ context: BlockContext) {
+    private mutating func markCurrentBlockHasChild() {
         if let parent = contextStack.indices.last {
             switch contextStack[parent].kind {
             case .blockquote:
@@ -120,6 +120,10 @@ struct StreamingParser {
             default: break
             }
         }
+    }
+
+    private mutating func pushBlock(_ context: BlockContext) {
+        markCurrentBlockHasChild()
         var context = context
         context.listContentPrefixLength = lineListChildPrefixLength
         if lineListChildPrefixLength > 0 {
@@ -352,7 +356,8 @@ struct StreamingParser {
                 lineListChildPrefixLength = prefix
                 lineBuffer = childLine
                 emittedCount = 0
-            } else if current.hasBlockChildren, emittedCount <= prefix {
+            } else if current.hasBlockChildren, emittedCount <= prefix,
+                      detectList(lineBuffer, isLineComplete: isLineComplete) == nil {
                 if !isLineComplete, shouldDeferParagraphFallback(for: childLine) || quotedBlockOpenerIsPending(childLine) {
                     pendingQuotePrefix = true
                     lineAnalyzed = true
@@ -1336,6 +1341,11 @@ struct StreamingParser {
         }
         var content = String(lineBuffer.dropFirst(quote.prefixLength))
         if let current = currentBlock, current.listContentPrefixLength > 0 {
+            if current.kind == .paragraph, !isLineComplete,
+               shouldDeferParagraphFallback(for: content) || quotedBlockOpenerIsPending(content, deferLineConstructs: true) {
+                pendingQuotePrefix = true
+                return false
+            }
             let padding = content.prefix { $0 == " " || $0 == "\t" }
             let columns = padding.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
             if !isLineComplete, padding.count == content.count,
@@ -1343,8 +1353,13 @@ struct StreamingParser {
                 pendingQuotePrefix = true
                 return false
             }
-            if current.kind.isVerbatim, padding.count < content.count, columns < current.listContentIndent {
-                // Code cannot lazily continue its owning list without the
+            if current.kind == .paragraph, detectList(content, isLineComplete: isLineComplete) != nil {
+                // Compare markers in the owner's original indentation space,
+                // not after stripping the child paragraph's content prefix.
+                closeCurrentBlock()
+            } else if (current.kind.isVerbatim || current.kind == .table),
+                      padding.count < content.count, columns < current.listContentIndent {
+                // Code/tables cannot lazily continue their owning list without the
                 // complete content indent. Reprocess this line in the quote.
                 closeCurrentBlock()
                 if let parent = currentBlock, case .listItem = parent.kind { closeCurrentBlock() }
@@ -1667,15 +1682,13 @@ struct StreamingParser {
     }
 
     private mutating func emitHorizontalRuleBlock() {
-        if var quote = currentBlock, quote.kind == .blockquote {
-            quote.hasBlockChildren = true
-            setCurrentBlock(quote)
-        }
+        markCurrentBlockHasChild()
         let blockID = nextID
         nextID &+= 1
         events.append(.blockStart(id: blockID, kind: .horizontalRule))
         events.append(.blockEnd(id: blockID))
         emittedCount = lineBuffer.count
+        lineAlreadyConsumed = true
         lineAnalyzed = true
     }
 
