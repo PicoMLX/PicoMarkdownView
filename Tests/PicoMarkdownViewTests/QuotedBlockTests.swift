@@ -61,7 +61,7 @@ struct QuotedBlockTests {
         "> [^a]: one\n> [ref]: /url\n> [ref]\n\n",
         "> ```\n> [ref]: /url\n> ```\n> [ref]\n\n",
         "> # h\n>     one\n>     two\n\n",
-        "> # h\n> \tone\n> \ttwo\n\n",
+        "> # h\n> \t  one\n> \t  two\n\n",
         "> - item\n>   ```swift\n>   code\n>   ```\n> - sibling\n\n",
         "> 1. item\n>    ```swift\n>    code\n>    ```\n\n",
         "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n>\n> - sibling\n\n",
@@ -94,13 +94,13 @@ struct QuotedBlockTests {
         "> - item\n>   ```\n>  outside\n>   ```\n\n",
         "> ```\n> code\n>     ```\n> after\n> ```\n\n",
         "> ~~~\n> code\n>     ~~~\n> after\n> ~~~\n\n",
-        "> ```\n> code\n> \t```\n> after\n> ```\n\n",
+        "> ```\n> code\n> \t  ```\n> after\n> ```\n\n",
         "> ```\n> code\n>    ```\n> after\n\n",
         "> - item\n>   ```\n>       ```\n>   after\n>   ```\n\n",
         "> 1. item\n>    ```\n>   outside\n>    ```\n\n",
         "> - item\n>   ```\n> \tcode\n> \t```\n\n",
         ">     code\n>     more\n\n",
-        "> \tcode\n> \tmore\n\n",
+        "> \t  code\n> \t  more\n\n",
         ">     code",
         "> paragraph\n>     continuation\n\n",
         "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   more\n\n",
@@ -131,7 +131,7 @@ struct QuotedBlockTests {
         ">     ---\n\n",
         "   ---\n\n",
         ">    ---\n\n",
-        "> \t---\n\n",
+        "> \t  ---\n\n",
         "| a | b |\n| --- | --- |\n# Heading\n\n",
         "> | a | b |\n> | --- | --- |\n> # Heading\n\n",
         "> | a | b |\n> | --- | --- |\n> - item\n\n",
@@ -150,6 +150,40 @@ struct QuotedBlockTests {
       + ["> - \n\n", "> 1.\n\n", "> paragraph\n> - [ ] \n\n"]
       + markerPaddingDocuments.map(\.source) + mixedIndentDocuments.map(\.source)
       + markerPaddingControls + ["> -     item.\n>   # heading\n\n"]
+      + containerBoundaryDocuments + footnoteSuccessorDocuments.map(\.source)
+      + listReferenceDocuments + quoteTabDocuments
+
+    private static let containerBoundaryDocuments = [
+        "> > | a | b |\n> > | --- | --- |\n> plain row\n\n",
+        "> :::note\n> > body\n> :::\n\n",
+        "| a | b |\n| --- | --- |\n- item | value\n\n",
+        "> | a | b |\n> | --- | --- |\n> - item | value\n\n",
+        "| a | b |\n| --- | --- |\nitem | value\n\n"
+    ]
+
+    private static let footnoteSuccessorDocuments: [(source: String, owned: Bool)] = {
+        var fixtures: [(source: String, owned: Bool)] = []
+        for marker in ["-", "1.", "10."] {
+            let padding = String(repeating: " ", count: marker.count + 1)
+            for owned in [false, true] {
+                fixtures.append(("> \(marker) item\n> \(padding)[^x]: def\n> \(owned ? padding : "")after\n\n", owned))
+            }
+        }
+        return fixtures
+    }()
+
+    private static let listReferenceDocuments = ["-", "1.", "10.", "123."].map { marker in
+        let padding = String(repeating: " ", count: marker.count + 1)
+        return "> \(marker) item\n> \(padding)[ref]: /url\n> \(padding)[ref]\n\n"
+    }
+
+    private static let quoteTabDocuments = [
+        "> \t# heading\n\n", ">\t# heading\n\n", "> \t\tcode\n\n",
+        ">\t\tcode\n\n", "> \t```swift\n> \tcode\n> \t```\n\n",
+        "> ```\n> \t\tcode\n> ```\n\n", ">\t>\t# heading\n\n",
+        "> \t---\n\n", "> ```\n> \tcode\tinner\n> ```\n\n",
+        "> :::note\n> \tbody\tinner\n> :::\n\n"
+    ]
 
     private static let markerPaddingControls: [String] = {
         var fixtures: [String] = []
@@ -181,9 +215,9 @@ struct QuotedBlockTests {
     private static let mixedIndentDocuments: [(source: String, code: String)] = {
         var fixtures: [(source: String, code: String)] = []
         for opening in ["\t", "  ", "    "] {
-            let openingColumns = opening == "\t" ? 4 : opening.count
+            let openingColumns = opening == "\t" ? 2 : opening.count
             for continuation in ["  ", "\t", "    ", "      "] {
-                let continuationColumns = continuation == "\t" ? 4 : continuation.count
+                let continuationColumns = continuation == "\t" ? 2 : continuation.count
                 let source = "> - item\n> \(opening)```\n> \(continuation)code\n>   ```\n\n"
                 let code = String(repeating: " ", count: max(0, continuationColumns - openingColumns)) + "code\n"
                 fixtures.append((source: source, code: code))
@@ -218,7 +252,7 @@ struct QuotedBlockTests {
         }
     }
 
-    private static let tabFenceDocuments = ["\t", " \t", "\t\t"].map { "> " + $0 + "```swift\n> \tcode\n> after\n\n" } + ["\t```swift\n\tcode\nafter\n\n"]
+    private static let tabFenceDocuments = ["\t  ", " \t   ", "\t\t"].map { "> " + $0 + "```swift\n> \t  code\n> after\n\n" } + ["\t```swift\n\tcode\nafter\n\n"]
 
     private static let successorDocuments: [(source: String, kind: BlockKind, owned: Bool)] = {
         var cases: [(source: String, kind: BlockKind, owned: Bool)] = []
@@ -616,7 +650,7 @@ struct QuotedBlockTests {
         let ordered = await parse(chunks: Self.documents[86].map(String.init))
         #expect(!ordered.blocks.contains { $0.codeText?.contains("outside") == true })
         let tab = await parse(chunks: Self.documents[87].map(String.init))
-        #expect(tab.blocks.first { $0.codeText != nil }?.codeText == "  code\n")
+        #expect(tab.blocks.first { $0.codeText != nil }?.codeText == "code\n")
     }
 
     @Test("Initial quoted code and post-child list text retain literal content and order")
@@ -882,6 +916,62 @@ struct QuotedBlockTests {
                 if !suffix.isEmpty { #expect(valid.blocks.last?.inlineRuns?.map(\.text).joined() == "after") }
             }
         }
+    }
+
+    @Test("Open tables cannot lazily drop quote depth and unknown bodies retain extra markers")
+    func containerBoundaryReviewRegressions() async throws {
+        let table = await parse(chunks: Self.containerBoundaryDocuments[0].map(String.init))
+        #expect(table.blocks.map(\.kind) == [.blockquote, .blockquote, .table, .paragraph])
+        #expect(table.blocks.last?.parentID == table.blocks.first?.id)
+        #expect(table.blocks.last?.inlineRuns?.map(\.text).joined() == "plain row")
+        #expect(table.blocks.first { $0.kind == .table }?.table?.rows.isEmpty == true)
+        let unknown = await parse(chunks: Self.containerBoundaryDocuments[1].map(String.init))
+        #expect(unknown.blocks.map(\.kind) == [.blockquote, .unknown])
+        #expect(unknown.blocks.last?.inlineRuns?.map(\.text).joined() == ":::note\n> body\n:::\n")
+        for source in Self.containerBoundaryDocuments[2...3] {
+            let result = await parse(chunks: source.map(String.init))
+            #expect(result.blocks.last?.kind == .listItem(ordered: false, index: nil, task: nil))
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "item | value\n")
+            #expect(result.blocks.first { $0.kind == .table }?.table?.rows.isEmpty == true)
+        }
+        let row = await parse(chunks: Self.containerBoundaryDocuments[4].map(String.init))
+        #expect(row.blocks.first?.table?.rows.first?.map { $0.map(\.text).joined() } == ["item", "value"])
+    }
+
+    @Test("Footnote successors retain only eligible list ownership and wide list references resolve")
+    func definitionContainerReviewRegressions() async throws {
+        for fixture in Self.footnoteSuccessorDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            #expect(result.blocks.last?.kind == .paragraph)
+            #expect(result.blocks.last?.parentID == (fixture.owned ? item.id : result.blocks.first?.id))
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+        }
+        for source in Self.listReferenceDocuments {
+            let result = await parse(chunks: source.map(String.init))
+            let runs = result.blocks.flatMap { $0.inlineRuns ?? [] }
+            #expect(runs.contains { $0.text == "ref" && $0.linkURL == "/url" })
+            #expect(!runs.map(\.text).joined().contains("[ref]:"))
+        }
+    }
+
+    @Test("Quote prefixes preserve residual tab columns without changing internal tabs")
+    func residualQuoteTabs() async throws {
+        for source in Self.quoteTabDocuments.prefix(2) {
+            #expect(await parse(chunks: source.map(String.init)).blocks.last?.kind == .heading(level: 1))
+        }
+        for source in Self.quoteTabDocuments[2...3] {
+            #expect(await parse(chunks: source.map(String.init)).blocks.last?.codeText == "  code\n")
+        }
+        let fence = await parse(chunks: Self.quoteTabDocuments[4].map(String.init))
+        #expect(fence.blocks.last?.kind == .fencedCode(language: "swift"))
+        #expect(fence.blocks.last?.codeText == "code\n")
+        let body = await parse(chunks: Self.quoteTabDocuments[5].map(String.init))
+        #expect(body.blocks.last?.codeText == "\t\tcode\n")
+        #expect(await parse(chunks: Self.quoteTabDocuments[6].map(String.init)).blocks.last?.kind == .heading(level: 1))
+        #expect(await parse(chunks: Self.quoteTabDocuments[7].map(String.init)).blocks.last?.kind == .horizontalRule)
+        #expect(await parse(chunks: Self.quoteTabDocuments[8].map(String.init)).blocks.last?.codeText == "\tcode\tinner\n")
+        #expect(await parse(chunks: Self.quoteTabDocuments[9].map(String.init)).blocks.last?.inlineRuns?.map(\.text).joined() == ":::note\n\tbody\tinner\n:::\n")
     }
 
     private func parse(chunks: [String], maxLookBehind: Int? = nil) async -> (blocks: [BlockSnapshot], events: [BlockEvent]) {

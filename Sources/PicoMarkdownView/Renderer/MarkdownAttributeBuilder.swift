@@ -286,7 +286,8 @@ actor MarkdownAttributeBuilder {
             // Render math using InlineMathAttachment (same approach as inline math)
             let mathNS = InlineMathAttachment.mathString(tex: tex,
                                                         display: display,
-                                                        baseFont: bodyFont)
+                                                        baseFont: bodyFont,
+                                                        maxWidth: imageMaxWidth)
             let result = NSMutableAttributedString(attributedString: mathNS)
             
             let suffix = display ? "\n" : ""
@@ -1110,7 +1111,8 @@ actor MarkdownAttributeBuilder {
         if run.style.contains(.math), let payload = run.math {
             return InlineMathAttachment.mathString(tex: payload.tex,
                                                    display: payload.display,
-                                                   baseFont: baseFont)
+                                                   baseFont: baseFont,
+                                                   maxWidth: imageMaxWidth)
         }
 
         var attributes: [NSAttributedString.Key: Any] = [
