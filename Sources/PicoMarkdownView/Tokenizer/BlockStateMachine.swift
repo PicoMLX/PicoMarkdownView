@@ -406,7 +406,7 @@ struct StreamingParser {
             (currentBlock?.hasBlockChildren == true ||
              detectHeading(lineBuffer) != nil ||
              detectFootnoteDefinition(lineBuffer) != nil ||
-             detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
+             detectParagraphBoundaryList(lineBuffer, isLineComplete: isLineComplete) != nil ||
              detectDisplayMathOpening(lineBuffer) != nil ||
              (currentBlock?.hasInlineContent == false && detectIndentedCodePrefix(lineBuffer) != nil) ||
              (isLineComplete && lineBuffer.hasPrefix(":::")) ||
@@ -534,7 +534,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
+                if let list = detectParagraphBoundaryList(lineBuffer, isLineComplete: isLineComplete) {
                     closeCurrentBlock(preservingListContentPrefix: true)
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
@@ -703,6 +703,17 @@ struct StreamingParser {
             case .horizontalRule:
                 break
             case .table:
+                // A confirmed table ends at a new block opener. Reuse only
+                // the pending physical line; emitted rows stay unchanged.
+                if isLineComplete, ctx.tableState?.stage == .rows,
+                   detectHeading(lineBuffer) != nil || detectList(lineBuffer, isLineComplete: true) != nil ||
+                    detectFootnoteDefinition(lineBuffer) != nil || detectDisplayMathOpening(lineBuffer) != nil ||
+                    detectFenceOpening(lineBuffer) != nil || detectHorizontalRule(lineBuffer, indent: 0) ||
+                    lineBuffer.hasPrefix(":::") {
+                    closeCurrentBlock(preservingListContentPrefix: true)
+                    analyzeLineIfNeeded(isLineComplete: true)
+                    return
+                }
                 break
             case .unknown:
                 break
@@ -1346,7 +1357,7 @@ struct StreamingParser {
                 return false
             }
             if !lazyContinuation || lineBuffer.trimmingCharacters(in: .whitespaces).isEmpty ||
-                detectHeading(lineBuffer) != nil || detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
+                detectHeading(lineBuffer) != nil || detectParagraphBoundaryList(lineBuffer, isLineComplete: isLineComplete) != nil ||
                 detectFootnoteDefinition(lineBuffer) != nil ||
                 (isLineComplete && detectDisplayMathOpening(lineBuffer) != nil) ||
                 (isLineComplete && detectHorizontalRule(lineBuffer, indent: 0)) ||
@@ -1422,7 +1433,7 @@ struct StreamingParser {
             openBlockquotes(from: activeLevel, to: quote.markerCount, prefixLength: 0)
         } else if quote.markerCount < activeLevel &&
                     (currentBlock?.kind.isVerbatim == true || currentBlock?.kind.isHeading == true || currentBlock?.hasBlockChildren == true ||
-                     detectHeading(content) != nil || detectList(content, isLineComplete: isLineComplete) != nil ||
+                     detectHeading(content) != nil || detectParagraphBoundaryList(content, isLineComplete: isLineComplete) != nil ||
                      detectFootnoteDefinition(content) != nil ||
                      (isLineComplete && (detectFenceOpening(content) != nil || detectTableCandidate(content) ||
                                          detectDisplayMathOpening(content) != nil ||
@@ -1775,6 +1786,19 @@ struct StreamingParser {
         return HeadingInfo(level: level, prefixLength: prefixLength)
     }
 
+    private func detectParagraphBoundaryList(_ line: String, isLineComplete: Bool) -> ListInfo? {
+        guard let list = detectList(line, isLineComplete: isLineComplete) else { return nil }
+        // Within quotes, only an ordered marker starting at 1 may interrupt
+        // paragraph text. Sibling items still use ordinary marker detection.
+        if let current = currentBlock, current.hasInlineContent,
+           current.kind == .blockquote || current.kind == .paragraph,
+           contextStack.contains(where: { $0.kind == .blockquote }),
+           list.ordered, list.index != 1 {
+            return nil
+        }
+        return list
+    }
+
     private func detectList(_ line: String, isLineComplete: Bool = false) -> ListInfo? {
         var index = line.startIndex
         var indent = 0
@@ -2023,15 +2047,13 @@ struct StreamingParser {
     }
 
     private func detectHorizontalRule(_ line: String, indent: Int) -> Bool {
+        let padding = line.prefix { $0 == " " || $0 == "\t" }
+        guard !padding.contains("\t"), padding.count >= indent, padding.count - indent <= 3 else { return false }
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= 3 else { return false }
-        let stripped = trimmed.replacingOccurrences(of: " ", with: "")
+        let stripped = trimmed.filter { $0 != " " && $0 != "\t" }
         guard let first = stripped.first, ["-", "*", "_"].contains(first) else { return false }
         guard stripped.allSatisfy({ $0 == first }) else { return false }
-        let leadingSpaces = line.prefix { $0 == " " }.count
-        if indent > 0 {
-            return leadingSpaces >= indent
-        }
         return true
     }
 
