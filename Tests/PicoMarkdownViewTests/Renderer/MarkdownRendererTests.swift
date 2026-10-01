@@ -361,6 +361,48 @@ struct MarkdownRendererTests {
         }
     }
 
+    @Test("Quoted ordinary images reserve native quote, list, and table gutters")
+    @MainActor
+    func quotedImagesReserveGutters() async throws {
+        let provider = TestImageProvider(imageSize: CGSize(width: 1000, height: 500))
+        let builder = MarkdownAttributeBuilder(theme: .default(), imageProvider: provider)
+        let run = InlineRun(text: "image", image: InlineImage(source: "https://example.com/wide.png"))
+        let snapshots = [
+            BlockSnapshot(id: 1, kind: .blockquote, inlineRuns: [run], isClosed: true),
+            BlockSnapshot(id: 2, kind: .paragraph, inlineRuns: [run], isClosed: true, depth: 1),
+            BlockSnapshot(id: 3, kind: .paragraph, inlineRuns: [run], isClosed: true, depth: 2),
+            BlockSnapshot(id: 4, kind: .listItem(ordered: false, index: nil, task: nil), inlineRuns: [run], isClosed: true, depth: 1),
+            BlockSnapshot(id: 5, kind: .table, table: TableSnapshot(headerCells: [[run]], isHeaderConfirmed: true), isClosed: true, depth: 1),
+            BlockSnapshot(id: 6, kind: .table, table: TableSnapshot(headerCells: [[run], [run]], isHeaderConfirmed: true), isClosed: true, depth: 2)
+        ]
+        for width in [CGFloat(160), 320, 800] {
+            await builder.setRuntimeMermaidMaxWidth(width)
+            for snapshot in snapshots {
+                let result = await builder.render(snapshot: snapshot, blockquoteLevel: 1)
+                let content = NSAttributedString.picoConverted(from: result.attributed)
+                let storage = NSTextStorage(attributedString: content)
+                let layout = NSLayoutManager()
+                let container = NSTextContainer(size: CGSize(width: width, height: 4000))
+                container.lineFragmentPadding = 0
+                storage.addLayoutManager(layout)
+                layout.addTextContainer(container)
+                layout.ensureLayout(for: container)
+                var attachments = 0
+                content.enumerateAttribute(.attachment, in: NSRange(location: 0, length: content.length)) { value, range, _ in
+                    guard let attachment = value as? NSTextAttachment else { return }
+                    attachments += 1
+                    let paragraph = content.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+                    #expect(attachment.bounds.width + (paragraph?.headIndent ?? 0) <= width + 0.1)
+                    #expect(abs(attachment.bounds.height / attachment.bounds.width - 0.5) < 0.001)
+                    let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                    let bounds = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                    #expect(bounds.maxX <= width + 0.1)
+                }
+                #expect(attachments == (snapshot.id == 6 ? 2 : 1))
+            }
+        }
+    }
+
     @Test("Mermaid width updates are ignored when mermaid rendering is disabled")
     func mermaidWidthUpdatesIgnoredWhenDisabled() async {
         let tokenizer = MarkdownTokenizer()
