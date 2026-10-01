@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 258 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 259 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  296 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  297 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -182,6 +182,13 @@ The earlier local-package/WizardKit build configuration fix is already on
   bucket, builder, and presentation. Paused-image tests cover latest-width/nil
   resets, only one obsolete render, retained fonts/IDs/snapshots/selection/feed
   text, same-width retry, previous-width restoration, and stale rollback.
+- [x] Width-only staging copies the active builder's configuration while
+  preserving its current image/Mermaid providers and their caches. Text-scale
+  staging still creates a scaled default Mermaid provider. A real-backend test
+  verifies identical cached image objects for two diagrams across widths
+  48/80/128/nil, commit/rollback, and scaled-width refreshes; scaling produces
+  distinct images and retains the scaled suffix font. Tokenizer and benchmark
+  code are unchanged from the final serial successor checkpoint above.
 - [x] Successfully rendered paragraph/quote/table images survive shared-cache
   eviction across repeated scales and narrow/wide content-width updates.
   The renderer retains original image results only while their blocks survive;
