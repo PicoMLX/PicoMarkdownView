@@ -44,7 +44,16 @@ struct QuotedBlockTests {
         "> $$x$$\n> y\n\n",
         "> \\[x\\]\n> y\n\n",
         "> [^a]: definition\n\n",
-        "> [^a]:**definition**\n\n"
+        "> [^a]:**definition**\n\n",
+        "$$x$$y\n\n",
+        "\\[x\\]y\n\n",
+        "$$x$$\ny\n\n",
+        "> [^a]: one\n> [^b]: two\n\n",
+        "> [^a]: one\n> after\n\n",
+        "> [^a]: one\n>     continued\n> after\n\n",
+        "> - item\n>   > nested\n\n",
+        "> - item\n>   > nested\n>   continued\n> - sibling\n\n",
+        "> 1. item\n>    > nested\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -136,6 +145,59 @@ struct QuotedBlockTests {
         }.map(\.text).joined()
         #expect(text == "x")
         _ = parser.finish()
+    }
+
+    @Test("Deferred quoted table candidates use bounded raw fallback")
+    func quotedTableCandidateIsBounded() {
+        var parser = StreamingParser(maxLookBehind: 32)
+        _ = parser.feed("> |")
+        var unknownStarts = 0
+        var peakBytes = 0
+        for _ in 0..<4096 {
+            let result = parser.feed("x")
+            peakBytes = max(peakBytes, parser.bufferedLineByteCount)
+            unknownStarts += result.events.filter { if case .blockStart(_, .unknown) = $0 { return true }; return false }.count
+        }
+        #expect(peakBytes <= 64)
+        #expect(unknownStarts == 1)
+        let next = parser.feed("y")
+        #expect(next.events.contains { if case .blockAppendInline(_, let runs) = $0 { return runs.map(\.text).joined() == "y" }; return false })
+        _ = parser.finish()
+    }
+
+    @Test("Unquoted math suffixes, footnote boundaries, and list-owned quotes retain structure")
+    func finalReviewRegressions() async throws {
+        for opener in ["$$x$$", "\\[x\\]"] {
+            let tokenizer = MarkdownTokenizer()
+            let first = await tokenizer.feed(opener)
+            #expect(first.events.isEmpty)
+            #expect(first.openBlocks.isEmpty)
+        }
+        for document in Self.documents[34...35] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.paragraph])
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined().contains("y") == true)
+        }
+        let nextLine = await parse(chunks: [Self.documents[36]])
+        #expect(nextLine.blocks.map(\.kind) == [.math(display: true), .paragraph])
+        #expect(nextLine.blocks.last?.inlineRuns?.map(\.text).joined() == "y")
+        let footnotes = await parse(chunks: [Self.documents[37]])
+        #expect(footnotes.blocks.map(\.kind) == [.blockquote, .footnoteDefinition(id: "a", index: 1), .footnoteDefinition(id: "b", index: 2)])
+        #expect(footnotes.blocks.dropFirst().map { $0.inlineRuns?.map(\.text).joined() } == ["one", "two"])
+        for document in Self.documents[38...39] {
+            let result = await parse(chunks: [document])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .footnoteDefinition(id: "a", index: 1), .paragraph])
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+        }
+        let continuation = await parse(chunks: [Self.documents[39]])
+        let continuedText = continuation.blocks[1].inlineRuns?.map(\.text).joined()
+        #expect(continuedText == "one continued")
+        for document in Self.documents[40...42] {
+            let result = await parse(chunks: [document])
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let nested = try #require(result.blocks.last { $0.kind == .blockquote })
+            #expect(nested.parentID == item.id)
+        }
     }
 
     @Test("Quoted blocks are structured children with no leaked markers")
