@@ -133,6 +133,8 @@ struct StreamingParser {
     }
     private var lineBuffer: String = ""
     private var emittedCount: Int = 0
+    private var emittedLineUTF8Offset: Int?
+    private var emittedLineBlockID: BlockID?
     private var lineAnalyzed: Bool = false
     private var quotePrefixResolved = false
     private var lineWasQuoted = false
@@ -556,7 +558,13 @@ struct StreamingParser {
         }
         var context = ctx
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
-        guard emittedCount < sourceLine.count else { return }
+        let start: String.Index
+        if emittedLineBlockID == ctx.id, let byteOffset = emittedLineUTF8Offset {
+            start = sourceLine.utf8.index(sourceLine.utf8.startIndex, offsetBy: byteOffset)
+        } else {
+            start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
+        }
+        guard start < sourceLine.endIndex else { return }
         // Marker-only quote lines (`>`, `>  `) are paragraph separators, not
         // content: never emit their leftover whitespace (or a hard-break
         // newline from trailing spaces). While the line may still grow this
@@ -579,7 +587,6 @@ struct StreamingParser {
                 break
             }
         }
-        let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
         let fenceIndent = lineBuffer.prefix(context.fenceInfo?.leadingIndent ?? 0).prefix { $0 == " " }.count
@@ -633,6 +640,10 @@ struct StreamingParser {
         }
         append(delta, context: &context)
         setCurrentBlock(context)
+        // A newly appended scalar can extend the last emitted grapheme without
+        // increasing Character count. Track the exact byte boundary instead.
+        emittedLineUTF8Offset = lineBuffer.utf8.count
+        emittedLineBlockID = context.id
         emittedCount = lineBuffer.count
         enforceLineBufferBudget()
     }
@@ -736,6 +747,8 @@ struct StreamingParser {
     private mutating func resetLineState() {
         lineBuffer.removeAll(keepingCapacity: true)
         emittedCount = 0
+        emittedLineUTF8Offset = nil
+        emittedLineBlockID = nil
         lineAnalyzed = false
         quotePrefixResolved = false
         lineWasQuoted = false
@@ -937,7 +950,12 @@ struct StreamingParser {
         let trimCount = min(overflow, emittedCount)
         guard trimCount > 0 else { return }
 
+        let trimEnd = lineBuffer.index(lineBuffer.startIndex, offsetBy: trimCount)
+        let trimmedBytes = lineBuffer.utf8.distance(from: lineBuffer.utf8.startIndex, to: trimEnd)
         lineBuffer.removeFirst(trimCount)
+        if let byteOffset = emittedLineUTF8Offset {
+            emittedLineUTF8Offset = max(0, byteOffset - trimmedBytes)
+        }
         emittedCount = max(0, emittedCount - trimCount)
     }
 

@@ -84,6 +84,44 @@ struct MathIsolationTests {
         #expect(await tokenizer.finish().events.isEmpty)
     }
 
+    static let graphemeEquations = [
+        Equation(source: "$a\u{0301}\u{FE0F}$", tex: "a\u{0301}\u{FE0F}"),
+        Equation(source: "$\u{1F469}\u{200D}\u{1F4BB}$", tex: "\u{1F469}\u{200D}\u{1F4BB}"),
+        Equation(source: "\\(a\u{0301}\u{0308}\\)", tex: "a\u{0301}\u{0308}"),
+        Equation(source: "$$a\u{0301} + \\$b$$", tex: "a\u{0301} + \\$b", display: true)
+    ]
+
+    @Test("Math remains opaque when chunks extend a preceding grapheme", arguments: graphemeEquations)
+    func scalarChunkBoundaries(equation: Equation) async {
+        let expected = [InlineRun(text: equation.tex, style: [.math],
+                                  math: MathInlinePayload(tex: equation.tex, display: equation.display))]
+        let scalars = equation.source.unicodeScalars.map(String.init)
+        for split in 0...scalars.count {
+            var parser = InlineParser()
+            let chunks = [scalars[..<split].joined(), scalars[split...].joined()]
+            let runs = parser.append(chunks[0]) + parser.append(chunks[1]) + parser.finish()
+            #expect(runs == expected, "Scalar split at \(split)")
+            #expect(await parse(["Equation: "] + chunks + ["\n\n"]).runs == [InlineRun(text: "Equation: ")] + expected)
+        }
+        var parser = InlineParser()
+        var runs: [InlineRun] = []
+        for scalar in scalars { runs += parser.append(scalar) }
+        runs += parser.finish()
+        #expect(runs == expected)
+        let chunks = ["Equation: "] + scalars + ["\n\n"]
+        let first = await parse(chunks)
+        #expect(first.runs == [InlineRun(text: "Equation: ")] + expected)
+        #expect(first.runs == (await parse([chunks.joined()])).runs)
+        #expect(first.events == (await parse(chunks)).events)
+    }
+
+    @Test("Unclosed grapheme math flushes once as literal text")
+    func unclosedGraphemeMath() async {
+        let source = "Equation: $a" + String(repeating: "\u{0301}", count: 1024)
+        let chunks = source.unicodeScalars.map(String.init)
+        #expect(await parse(chunks).runs == [InlineRun(text: source)])
+    }
+
     private func parse(_ chunks: [String]) async -> (runs: [InlineRun], events: [BlockEvent]) {
         let tokenizer = MarkdownTokenizer()
         var events: [BlockEvent] = []

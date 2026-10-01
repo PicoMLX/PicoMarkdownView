@@ -94,3 +94,28 @@ Apple Silicon, Xcode 27.0 / Apple Swift 6.4, debug build. Before and after
 
 No material throughput regression. Changes buffer only ambiguous local quote,
 task, math, and fence prefixes; already-emitted content is not reparsed.
+
+## PR 11 Review Fix (2026-09-30)
+
+Same local toolchain and debug configuration as above; no concurrent builds.
+Before and after commands:
+`RUN_BENCHMARKS=1 swift test --skip-build --filter MarkdownTokenizerBenchmarks --no-parallel`.
+
+| Case | Iterations | Before average | After average |
+| --- | --- | --- | --- |
+| sample1, 128-byte chunks | 50 | 0.015610 s | 0.015326 s |
+| sample1, 512-byte chunks | 50 | 0.015498 s | 0.014916 s |
+| sample1, 1024-byte chunks | 50 | 0.015285 s | 0.014887 s |
+| sample1, example word stream | 50 | 0.022035 s | 0.022038 s |
+| Inline math, 128 chunks / 8192 bytes | 10 | 0.003750 s | 0.002771 s |
+| Inline math, 256 chunks / 16384 bytes | 10 | 0.007573 s | 0.005489 s |
+| InlineParser math, 512 combining-mark chunks | 20 | 0.021543 s | 0.000546 s |
+| InlineParser math, 1024 combining-mark chunks | 20 | 0.082128 s | 0.000922 s |
+
+The last two cases isolate the inline scanner from the block FSM: each new
+scalar extends the same grapheme. Before the fix, conversion of the saved
+UTF-8 offset to a Character boundary failed and rescanned the body. Doubling
+chunks took 3.81x before and 1.69x after the fix. Byte-based math cursors keep
+scan work local to new input; byte-based line emission also preserves scalar
+chunks that do not increase the line's Character count. Sample1 shows no
+material throughput regression.

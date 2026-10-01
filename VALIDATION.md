@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 210 Swift Testing tests
-  passed. Five benchmark definitions also passed with measurement disabled.
+- [x] Full macOS `swift test`: 37 XCTest tests and 216 Swift Testing tests
+  passed. Six benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  247 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  253 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -33,9 +33,23 @@ The earlier local-package/WizardKit build configuration fix is already on
   repeated identical event sequences, and streamed/single-shot equivalence.
 - [x] Long inline math emits once on closure; TeX commands and Markdown-like
   math contents do not leak plain runs. Table cells emit exactly their math.
+- [x] Review regressions: quoted tables (confirmed, malformed, interrupted,
+  and EOF), split task metadata, indented quote prefixes, display-math
+  delimiters, and opening fence indentation pass every chunk split. The
+  updated Blockquotes example visibly renders its tasks, table/math rows,
+  display math, and relative fence indentation without clipping or raw TeX.
+- [x] Math cursors resume at UTF-8 byte boundaries even when combining marks,
+  variation selectors, or ZWJ continuations extend a prior grapheme. Scalar
+  chunk tests preserve TeX, match single-shot output, and repeat identical
+  events; unclosed grapheme math flushes once as literal text. The isolated
+  combining-mark scanner benchmark no longer exhibits quadratic rescans.
 - [x] Live scaling retains block IDs and parser state, including scale updates
   overlapping incoming chunks. Code, headings, table/display math, and quotes
   scale together.
+- [x] Suspended image renders cannot overlap scale/feed/refresh operations;
+  scaling across the 1,000-closed-block retention boundary preserves complete
+  text, unique IDs, and consistent fonts. Unsupported inline/display math
+  fallbacks retain the scaled font without changing parser output.
 - [x] Hosted SwiftUI iOS view: Dynamic Type changes the existing native view's
   font, reports content sizing, and preserves selection across paragraphs.
 - [x] Both macOS text-view entry points: native link/tag click routing, hover
