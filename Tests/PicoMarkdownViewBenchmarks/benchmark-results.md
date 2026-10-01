@@ -380,3 +380,19 @@ The 1024/2048 one-character means are `0.033459 / 0.047753 s` for spaces,
 1.42-1.61x). One initial alternating 2048 measurement was `0.059818 s`;
 the repeat returned to the previous checkpoint's range. No material
 regression was observed. Both runs used skip-build with no concurrent builds.
+
+## Combined Interrupt/Cancellation Checkpoint a788d43 (2026-09-30)
+
+The combined stack passes 37 XCTest + 243 Swift Testing tests on macOS and
+281 test definitions on iOS Simulator. Both example builds are warning-free.
+All platform tests/builds completed before this serial, skip-build benchmark.
+
+Sample1 means at 128/512/1024-byte chunks are `0.016916 / 0.016439 /
+0.016263 s`; the example word stream is `0.023031 s` (50 iterations each).
+These are within 3% of checkpoint `570090c`, with no material regression.
+Long-math means for 8192/16384 bytes are `0.003067 / 0.006152 s`
+(10 iterations, 2.01x when input doubles). Isolated combining-mark scanner
+means for 512/1024 chunks are `0.000515 / 0.000886 s` (20 iterations, 1.72x).
+Quoted 1024/2048 means are `0.032463 / 0.042441 s` for spaces,
+`0.034685 / 0.044553 s` for alternating padding, and
+`0.023295 / 0.033132 s` for deferred tables (10 iterations, 1.28-1.42x).

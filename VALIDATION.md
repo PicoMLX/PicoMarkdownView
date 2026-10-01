@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 238 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 243 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  276 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  281 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 72 container/math fixtures pass every chunk split and character-at-a-time
+  All 88 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -73,6 +73,14 @@ The earlier local-package/WizardKit build configuration fix is already on
   accept up to three spaces; a four-space code control retains raw `#` text.
   Unmarked compact/spaced thematic breaks end lazy quote continuation and
   retain top-level ownership. All cases pass every chunk split.
+- [x] Unmarked footnote/reference prefixes after quotes remain pending until
+  resolved, including capped fallback for overlong labels. Confirmed unmarked
+  display math ends the quote and retains its TeX and following paragraph.
+  List-owned verbatim children close before nonblank lines without complete
+  list-content indentation, including ordered items and tab controls. Fence
+  closer checks preserve raw indentation: four-space/tab markers stay literal,
+  while three-space closers remain valid. Every-split and repeated character
+  streams cover these boundaries without revising emitted events.
 - [x] List-owned nested quotes retain non-quote ancestor indentation without
   double-applying quote gutters. Quoted/list-owned Mermaid requests and
   attachment bounds reserve gutters at widths 160, 320, and 800 points;
@@ -99,6 +107,13 @@ The earlier local-package/WizardKit build configuration fix is already on
   superseded queued scales skip rendering; committed results still publish.
   Deterministic paused-image tests exercise cancellation bursts, and canceled
   finite-input initialization still completes the initial document.
+- [x] In-flight scale refreshes stage presentations without mutating the active
+  cache, check cancellation/supersession between blocks, and suppress obsolete
+  publication. Cancellation during the commit handoff rolls back the complete
+  previous presentation. Paused-image tests verify only one obsolete block is
+  rendered, same-size retries succeed, snapshots/IDs/selection survive, and
+  canceling without a replacement retains the old presentation. A deterministic
+  commit/rollback test verifies restoration and rejection of stale rollback.
 - [x] Successfully rendered paragraph/quote/table images survive shared-cache
   eviction across repeated scales and narrow/wide content-width updates.
   The renderer retains original image results only while their blocks survive;
@@ -134,8 +149,8 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
-footnote/continuation, verbatim-code, boundary, and structured list-child/Mermaid
-additions. Those additions
+footnote/continuation, verbatim-code, unmarked definition/math interruption,
+fence-boundary, and structured list-child/Mermaid additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
