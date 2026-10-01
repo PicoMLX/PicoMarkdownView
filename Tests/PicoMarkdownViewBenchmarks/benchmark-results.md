@@ -808,6 +808,12 @@ checkpoint, with the 128-byte sample faster. An overlapping benchmark attempt
 was discarded and rerun after the iOS process completed; only this serial run
 is used. The final combined stack still requires its own comparison.
 
+The final empty-item assertion uses explicit Boolean locals to avoid a Swift
+Testing optional-property macro warning. It accepts the parser's ordinary
+plain newline run while rejecting non-whitespace/formatting in empty items.
+Both complete suites were rerun successfully after that test-only correction;
+parser code and the serial measurements above are unchanged.
+
 ## Sparse Width-Refresh Diff Checkpoint (2026-10-01)
 
 Width staging records only block IDs with changed attributed presentations,
