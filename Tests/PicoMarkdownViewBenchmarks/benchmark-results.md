@@ -194,3 +194,22 @@ The 1024/2048 one-character means are `0.033459 / 0.047753 s` for spaces,
 1.42-1.61x). One initial alternating 2048 measurement was `0.059818 s`;
 the repeat returned to the previous checkpoint's range. No material
 regression was observed. Both runs used skip-build with no concurrent builds.
+
+### Quoted Literal Content And List Source Order
+
+Initial quoted indented code, list paragraphs after structured children, and
+literal reference-definition text in unknown blocks are covered by 101
+every-split fixtures. CommonMark 0.31.2 examples 250-251 confirm that reduced
+markers may lazily continue a nested paragraph; that finding requires no
+production change, and tests verify both continuation and blank-line exit.
+Full suites pass: 34 XCTest + 221 Swift Testing tests on macOS, and 256
+test definitions on iOS Simulator, including native quote-style checks.
+
+The repeat serial sample1 means are `0.016943 / 0.016373 / 0.016510 s` for
+128/512/1024-byte chunks, and `0.023405 s` for the word stream (50 iterations).
+The initial run was slower (`0.025545 / 0.029444 / 0.026593 s`, word stream
+`0.027793 s`); the unchanged-code repeat returned to the preceding range.
+Quoted 1024/2048 means are `0.032396 / 0.046912 s` for spaces,
+`0.034474 / 0.049321 s` for alternating padding, and
+`0.025061 / 0.039811 s` for deferred tables (10 iterations, 1.43-1.59x).
+Both runs used skip-build after full tests, with no concurrent build commands.
