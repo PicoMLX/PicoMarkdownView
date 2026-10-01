@@ -145,7 +145,23 @@ struct QuotedBlockTests {
         "> # heading\n> paragraph\n> 2. continuation\n\n",
         "> 2. item\n\n",
         "> > paragraph\n> 2. continuation\n\n"
-    ]
+    ] + successorDocuments.map(\.source)
+
+    private static let successorDocuments: [(source: String, kind: BlockKind, owned: Bool)] = {
+        var cases: [(source: String, kind: BlockKind, owned: Bool)] = []
+        let children = ["```\ncode\n```", "# heading", "$$x$$", "| a |\n| --- |\n| x |\n"]
+        for (marker, indent) in [("-", "  "), ("1.", "   "), ("-", "\t")] {
+            for child in children {
+                let prefix = "> \(marker) item\n" + child.components(separatedBy: "\n").map { "> \(indent)\($0)\n" }.joined() + "> \(indent)after\n"
+                cases.append((prefix + "> \(indent)> nested\n\n", .blockquote, true))
+                cases.append((prefix + "> \(indent)[^x]: def\n\n", .footnoteDefinition(id: "x", index: 1), true))
+            }
+        }
+        let prefix = "> - item\n>   ```\n>   code\n>   ```\n>   after\n"
+        cases.append((prefix + "> > nested\n\n", .blockquote, false))
+        cases.append((prefix + "> [^x]: def\n\n", .footnoteDefinition(id: "x", index: 1), false))
+        return cases
+    }()
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
     func reviewRegressions() async throws {
@@ -600,14 +616,17 @@ struct QuotedBlockTests {
 
     @Test("List-owned nested quotes include the list indentation")
     func nestedQuoteListIndentation() async throws {
-        let result = await parse(chunks: [Self.documents[40]])
-        let nested = try #require(result.blocks.last)
         let builder = MarkdownAttributeBuilder(theme: .default())
-        let rendered = await builder.render(snapshot: nested, blockquoteLevel: 2)
-        let content = NSAttributedString.picoConverted(from: rendered.attributed)
-        let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
-        #expect(paragraph.firstLineHeadIndent == BlockquoteBarMetrics.textIndent(level: 2) + 20)
-        #expect(paragraph.headIndent == paragraph.firstLineHeadIndent)
+        let documents = [(source: Self.documents[40], owned: true)] + Self.successorDocuments.filter { $0.kind == .blockquote }.map { (source: $0.source, owned: $0.owned) }
+        for fixture in documents {
+            let result = await parse(chunks: [fixture.source])
+            let nested = try #require(result.blocks.last)
+            let rendered = await builder.render(snapshot: nested, blockquoteLevel: 2)
+            let content = NSAttributedString.picoConverted(from: rendered.attributed)
+            let paragraph = try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+            #expect(paragraph.firstLineHeadIndent == BlockquoteBarMetrics.textIndent(level: 2) + (fixture.owned ? 20 : 0))
+            #expect(paragraph.headIndent == paragraph.firstLineHeadIndent)
+        }
     }
 
     @Test("Reduced quote markers end nested containers before non-lazy blocks")
@@ -680,6 +699,20 @@ struct QuotedBlockTests {
         }
         for index in [130, 132] {
             #expect(await parse(chunks: Self.documents[index].map(String.init)).blocks.last?.kind == .listItem(ordered: true, index: index == 132 ? 2 : 1, task: nil))
+        }
+    }
+
+    @Test("Nested quote and footnote successors preserve only eligible list owners")
+    func structuredSuccessorOwnership() async throws {
+        for fixture in Self.successorDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            let list = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let successor = try #require(result.blocks.last)
+            #expect(successor.kind == fixture.kind)
+            #expect(successor.parentID == (fixture.owned ? list.id : result.blocks.first?.id))
+            #expect(successor.depth == (fixture.owned ? list.depth + 1 : 1))
+            #expect(result.blocks.contains { $0.kind == .paragraph && $0.inlineRuns?.map(\.text).joined() == "after" && $0.parentID == list.id })
+            #expect(successor.inlineRuns?.map(\.text).joined() == (fixture.kind == .blockquote ? "nested\n" : "def"))
         }
     }
 

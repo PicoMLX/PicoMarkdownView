@@ -359,6 +359,11 @@ struct StreamingParser {
            listContinuationPrefixLength(lineBuffer, currentIndent: current.listIndent) > 0 {
             let prefix = lineBuffer.prefix { $0 == " " || $0 == "\t" }.count
             let childLine = String(lineBuffer.dropFirst(prefix))
+            if !isLineComplete, displayMathLineIsPending(childLine) {
+                pendingQuotePrefix = true
+                lineAnalyzed = true
+                return
+            }
             let structured = detectHeading(childLine) != nil || detectFootnoteDefinition(childLine) != nil ||
                 detectDisplayMathOpening(childLine) != nil ||
                 (isLineComplete && (detectFenceOpening(childLine) != nil || detectTableCandidate(childLine) ||
@@ -508,6 +513,17 @@ struct StreamingParser {
             }
             switch ctx.kind {
         case .paragraph, .footnoteDefinition:
+                if ctx.kind == .paragraph, let footnote = detectFootnoteDefinition(lineBuffer) {
+                    closeCurrentBlock(preservingListContentPrefix: lineHasListContentIndent)
+                    if ctx.listContentPrefixLength > 0, !lineHasListContentIndent,
+                       let parent = currentBlock, case .listItem = parent.kind { closeCurrentBlock() }
+                    let index = footnoteRegistry.index(for: footnote.id)
+                    openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
+                                    prefixToStrip: footnote.prefixLength)
+                    emittedCount = min(lineBuffer.count, footnote.prefixLength)
+                    lineAnalyzed = true
+                    return
+                }
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
                     closeCurrentBlock(preservingListContentPrefix: true)
                     let closeAfterLine = mathOpen.closesOnSameLine
@@ -1398,11 +1414,22 @@ struct StreamingParser {
         }
         let nestedQuoteBelongsToList: Bool = {
             guard quote.markerCount > activeLevel, activeLevel > 0,
-                  let current = currentBlock, case .listItem = current.kind,
+                  let current = currentBlock,
                   let outerPrefix = detectBlockquote(lineBuffer, maxMarkers: activeLevel) else { return false }
             let itemContent = String(lineBuffer.dropFirst(outerPrefix.prefixLength))
-            return listContinuationPrefixLength(itemContent, currentIndent: current.listIndent) > 0
+            if case .listItem = current.kind {
+                return listContinuationPrefixLength(itemContent, currentIndent: current.listIndent) > 0
+            }
+            guard current.kind == .paragraph, current.listContentPrefixLength > 0,
+                  let parent = contextStack.dropLast().last, case .listItem = parent.kind else { return false }
+            let columns = itemContent.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) }
+            return columns >= current.listContentIndent
         }()
+        if nestedQuoteBelongsToList, currentBlock?.kind == .paragraph {
+            // End the successor paragraph before deepening, leaving its
+            // list owner open. The quote prefix already consumed its indent.
+            closeCurrentBlock()
+        }
         if !isLineComplete, quote.markerCount < activeLevel, !inQuotedFence,
            shouldDeferParagraphFallback(for: content) || quotedBlockOpenerIsPending(content) {
             pendingQuotePrefix = true

@@ -282,3 +282,23 @@ Quoted 1024/2048 means are `0.032956 / 0.047910 s` for spaces,
 `0.035014 / 0.050049 s` for alternating padding, and
 `0.025662 / 0.039660 s` for tables (10 iterations, 1.43-1.55x).
 Measurements followed both completed test suites with no concurrent builds.
+
+### Successor Nested Quote And Footnote Matrix
+
+The two additional review findings are fixed using only the current paragraph's
+stored list owner/prefix and pending line. A 26-case successor matrix covers
+fences, headings, math, and tables followed by paragraphs and nested quotes or
+footnotes, including ordered/unordered/tab indentation and unindented controls.
+It also exposed and fixed premature acceptance of tab-indented list-child math
+openers. All 160 quote fixtures pass every split, character streams, and
+determinism; native successor indentation passes on AppKit/UIKit. Full suites
+pass 34 XCTest + 227 Swift Testing definitions on macOS and 262 on iOS.
+
+After both suites completed, serial skip-build sample1 means were
+`0.016795 / 0.016968 / 0.016759 s` at 128/512/1024 bytes and `0.023937 s`
+for word streaming (50 iterations), within 3% of the preceding PR9 checkpoint.
+Quoted 1024/2048 means are `0.034281 / 0.048277 s` for spaces,
+`0.035655 / 0.050128 s` for alternating padding, and
+`0.025425 / 0.040565 s` for tables (10 iterations, 1.41-1.60x).
+The 1024-space mean is 4% higher than the preceding run; the final combined
+comparison remains required. No build commands ran concurrently.
