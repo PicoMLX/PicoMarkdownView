@@ -551,3 +551,17 @@ measures `0.000538 / 0.000899 s` (20 iterations, 1.67x). Quoted 1024/2048
 means are `0.032933 / 0.042642 s` for spaces, `0.035081 / 0.044632 s` for
 alternating padding, and `0.024399 / 0.034175 s` for tables
 (10 iterations, 1.27-1.40x), also within 3% of `3c00a0a`.
+
+### GFM Thematic Indentation, Table Boundaries, And Ordered Interruption
+
+All 134 quoted fixtures pass every split, character streaming, and deterministic
+event checks. Full suites pass 34 XCTest + 226 Swift Testing definitions on
+macOS and 261 definitions on iOS, with no failures or runtime warnings.
+
+The serial skip-build sample1 means are `0.017025 / 0.016791 / 0.016623 s`
+at 128/512/1024-byte chunks, and `0.023465 s` for word streaming (50
+iterations), within 3% of the preceding stable lower-branch checkpoint.
+Quoted 1024/2048 means are `0.032956 / 0.047910 s` for spaces,
+`0.035014 / 0.050049 s` for alternating padding, and
+`0.025662 / 0.039660 s` for tables (10 iterations, 1.43-1.55x).
+Measurements followed both completed test suites with no concurrent builds.

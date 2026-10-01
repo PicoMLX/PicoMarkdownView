@@ -211,21 +211,73 @@ actor MarkdownRenderer {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
-        runtimeMermaidContentWidth = width
-        let effectiveWidth = effectiveMermaidContentWidth(for: width)
-        let bucket = mermaidWidthBucket(for: effectiveWidth)
-        guard bucket != mermaidContentWidthBucket else { return nil }
-        mermaidContentWidthBucket = bucket
+        guard let prepared = await prepareContentWidth(width, shouldContinue: { true }),
+              commitContentWidth(prepared), prepared.didMutate else { return nil }
+        return prepared.blocks
+    }
 
-        await attributeBuilder.setRuntimeMermaidMaxWidth(width)
+    struct PreparedContentWidthUpdate: Sendable {
+        let width: CGFloat?
+        let bucket: Int?
+        let generation: UInt64
+        let builder: MarkdownAttributeBuilder
+        let blocks: [RenderedBlock]
+        let didMutate: Bool
+        let previousWidth: CGFloat?
+        let previousBucket: Int?
+        let previousBuilder: MarkdownAttributeBuilder
+        let previousBlocks: [RenderedBlock]
+    }
 
+    func prepareContentWidth(_ width: CGFloat?,
+                             shouldContinue: @Sendable () async -> Bool) async -> PreparedContentWidthUpdate? {
+        let bucket = mermaidWidthBucket(for: effectiveMermaidContentWidth(for: width))
+        guard bucket != mermaidContentWidthBucket, await shouldContinue() else { return nil }
+        let generation = renderGeneration
+        let previousWidth = runtimeMermaidContentWidth
+        let previousBucket = mermaidContentWidthBucket
+        let previousBuilder = attributeBuilder
+        let previousBlocks = blocks
+        let scaledTheme = theme.scaled(by: textScale)
+        let builder = MarkdownAttributeBuilder(
+            theme: scaledTheme, imageProvider: imageProvider,
+            mermaidProvider: mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme))
+        await builder.setRuntimeMermaidMaxWidth(width)
+        var staged = previousBlocks
         var mutated = false
-        let candidateIDs = blocks.filter(shouldRefreshForContentWidthChange).map(\.id)
-        for id in candidateIDs {
-            mutated = await refreshBlock(id: id) || mutated
+        for index in staged.indices where shouldRefreshForContentWidthChange(previousBlocks[index]) {
+            guard await shouldContinue(), generation == renderGeneration else { return nil }
+            let block = previousBlocks[index]
+            let result = await builder.render(snapshot: block.snapshot,
+                previousBlockKind: index > 0 ? previousBlocks[index - 1].kind : nil,
+                blockquoteLevel: block.blockquoteLevel)
+            guard await shouldContinue(), generation == renderGeneration else { return nil }
+            mutated = mutated || block.content != result.attributed
+            staged[index].updatePresentation(from: result)
         }
+        guard await shouldContinue(), generation == renderGeneration else { return nil }
+        return PreparedContentWidthUpdate(width: width, bucket: bucket, generation: generation,
+            builder: builder, blocks: staged, didMutate: mutated, previousWidth: previousWidth,
+            previousBucket: previousBucket, previousBuilder: previousBuilder, previousBlocks: previousBlocks)
+    }
 
-        return mutated ? blocks : nil
+    func commitContentWidth(_ prepared: PreparedContentWidthUpdate) -> Bool {
+        guard prepared.generation == renderGeneration else { return false }
+        runtimeMermaidContentWidth = prepared.width
+        mermaidContentWidthBucket = prepared.bucket
+        attributeBuilder = prepared.builder
+        blocks = prepared.blocks
+        renderGeneration &+= 1
+        return true
+    }
+
+    func rollbackContentWidth(_ prepared: PreparedContentWidthUpdate) {
+        guard renderGeneration == prepared.generation &+ 1 else { return }
+        runtimeMermaidContentWidth = prepared.previousWidth
+        mermaidContentWidthBucket = prepared.previousBucket
+        attributeBuilder = prepared.previousBuilder
+        blocks = prepared.previousBlocks
+        renderGeneration &+= 1
     }
 
     /// Font changes require fresh presentation for each block, not a new parse.

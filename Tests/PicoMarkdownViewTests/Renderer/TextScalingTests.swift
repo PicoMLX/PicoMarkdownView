@@ -454,6 +454,78 @@ struct TextScalingTests {
         #expect(await pipeline.blocksSnapshot().last?.content.characters.elementsEqual("Tail\n") == true)
     }
 
+    @Test("Superseded in-flight widths stop rendering and never publish", arguments: [false, true])
+    func supersededInFlightWidth(resetWidth: Bool) async throws {
+        let size = CGSize(width: 1600, height: 800)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = PausingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        _ = await pipeline.updateTextScale(2)
+        _ = await pipeline.updateMermaidContentWidth(400)
+        _ = await pipeline.feed((0..<8).map { "Item \($0) ![image](https://example.com/\($0).png)\n\n" }.joined())
+        _ = await pipeline.finish()
+        let original = await pipeline.blocksSnapshot()
+        let countBefore = await provider.requestCount
+        await provider.pauseNextRequest()
+        let obsolete = Task { await pipeline.updateMermaidContentWidth(160) }
+        await provider.waitUntilPaused()
+        let version = await pipeline.widthRequestVersion
+        let latestWidth: CGFloat? = resetWidth ? nil : 800
+        let latest = Task { await pipeline.updateMermaidContentWidth(latestWidth) }
+        while await pipeline.widthRequestVersion == version { await Task.yield() }
+        let feed = Task { await pipeline.feed("Tail\n\n") }
+        await provider.resume()
+        #expect(await obsolete.value == nil)
+        let update = try #require(await latest.value)
+        #expect(await provider.requestCount == countBefore + 1 + original.count)
+        #expect(update.blocks.map(\.id) == original.map(\.id))
+        #expect(update.blocks.map(\.snapshot) == original.map(\.snapshot))
+        for block in update.blocks {
+            #expect(try attachmentBounds(in: block).width == (latestWidth ?? size.width))
+            #expect(try font(in: block).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+        let backend = TextKitStreamingBackend()
+        _ = backend.apply(blocks: original, selection: NSRange(location: 0, length: 0))
+        let selection = NSRange(location: 0, length: backend.length)
+        #expect(backend.apply(blocks: update.blocks, diffs: [update.diff], selection: selection) == selection)
+        #expect(await pipeline.updateMermaidContentWidth(latestWidth) == nil)
+        _ = await feed.value
+        #expect(await pipeline.blocksSnapshot().last?.content.characters.elementsEqual("Tail\n") == true)
+    }
+
+    @Test("Rolling back a committed width restores the previous configuration and allows retry")
+    func committedWidthRollback() async throws {
+        let size = CGSize(width: 1600, height: 800)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = PausingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer(imageProvider: provider) { await assembler.block($0) }
+        _ = await renderer.updateMermaidContentWidth(400)
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("One ![image](https://example.com/1.png)\n\n")))
+        let original = await renderer.renderedBlocks()
+        let prepared = try #require(await renderer.prepareContentWidth(160, shouldContinue: { true }))
+        #expect(await renderer.renderedBlocks() == original)
+        #expect(await renderer.commitContentWidth(prepared))
+        #expect(try attachmentBounds(in: #require(await renderer.renderedBlocks().first)).width == 160)
+        await renderer.rollbackContentWidth(prepared)
+        #expect(await renderer.renderedBlocks() == original)
+        _ = await renderer.updateTextScale(2)
+        #expect(try attachmentBounds(in: #require(await renderer.renderedBlocks().first)).width == 400)
+        let retried = try #require(await renderer.updateMermaidContentWidth(160))
+        #expect(try attachmentBounds(in: #require(retried.first)).width == 160)
+        await renderer.rollbackContentWidth(prepared)
+        #expect(await renderer.renderedBlocks() == retried)
+    }
+
     @Test("Canceled queued scale changes do not rerender retained blocks")
     func canceledScaleRequestsSkipRenders() async throws {
         let provider = PausingImageProvider()
@@ -625,10 +697,13 @@ private actor YieldingImageProvider: MarkdownImageProvider {
 }
 
 private actor PausingImageProvider: MarkdownImageProvider {
+    private let result: MarkdownImageResult?
     private(set) var requestCount = 0
     private var shouldPause = false
     private var paused: CheckedContinuation<Void, Never>?
     private var observer: CheckedContinuation<Void, Never>?
+
+    init(result: MarkdownImageResult? = nil) { self.result = result }
 
     func pauseNextRequest() { shouldPause = true }
 
@@ -652,6 +727,6 @@ private actor PausingImageProvider: MarkdownImageProvider {
                 observer = nil
             }
         }
-        return nil
+        return result
     }
 }

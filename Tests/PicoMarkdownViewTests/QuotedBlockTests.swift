@@ -126,7 +126,25 @@ struct QuotedBlockTests {
         "> > text\n> ---\n\n",
         "> > text\n> :::note\n\n",
         "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   ---\n>   more\n\n",
-        "> - item\n>   ```\n>   code\n>   ```\n>   after\n> ---\n> more\n\n"
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n> ---\n> more\n\n",
+        "    ---\n\n",
+        ">     ---\n\n",
+        "   ---\n\n",
+        ">    ---\n\n",
+        "> \t---\n\n",
+        "| a | b |\n| --- | --- |\n# Heading\n\n",
+        "> | a | b |\n> | --- | --- |\n> # Heading\n\n",
+        "> | a | b |\n> | --- | --- |\n> - item\n\n",
+        "> | a | b |\n> | --- | --- |\n> ```\n> code\n> ```\n\n",
+        "> | a | b |\n> | --- | --- |\n> ---\n\n",
+        "> | a | b |\n> | --- | --- |\n> $$x$$\n\n",
+        "> | a | b |\n> | --- | --- |\n> [^b]: y\n\n",
+        "> | a | b |\n> | --- | --- |\n> plain row\n\n",
+        "> paragraph\n> 2. continuation\n\n",
+        "> paragraph\n> 1. item\n\n",
+        "> # heading\n> paragraph\n> 2. continuation\n\n",
+        "> 2. item\n\n",
+        "> > paragraph\n> 2. continuation\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -633,6 +651,35 @@ struct QuotedBlockTests {
                     #expect(parser.bufferedLineByteCount <= 64)
                 }
             }
+        }
+    }
+
+    @Test("Thematic indentation, table block boundaries, and ordered interruption follow GFM")
+    func gfmBlockBoundaries() async throws {
+        for index in [116, 117, 120] {
+            let result = await parse(chunks: Self.documents[index].map(String.init))
+            #expect(result.blocks.last?.kind == .fencedCode(language: nil))
+            #expect(result.blocks.last?.codeText == (index == 116 ? "---\n\n" : "---\n"))
+        }
+        for index in [118, 119] {
+            #expect(await parse(chunks: Self.documents[index].map(String.init)).blocks.last?.kind == .horizontalRule)
+        }
+        for document in Self.documents[121...127] {
+            let result = await parse(chunks: document.map(String.init))
+            let table = try #require(result.blocks.first { $0.kind == .table })
+            #expect(table.table?.rows.isEmpty == true)
+            #expect(result.blocks.last?.kind != .table)
+            #expect(result.blocks.last?.parentID == table.parentID)
+        }
+        let row = await parse(chunks: Self.documents[128].map(String.init))
+        #expect(row.blocks.last?.table?.rows.first?.first?.map(\.text).joined() == "plain row")
+        for index in [129, 131, 133] {
+            let result = await parse(chunks: Self.documents[index].map(String.init))
+            #expect(!result.blocks.contains { if case .listItem = $0.kind { return true }; return false })
+            #expect(result.blocks.last?.inlineRuns?.map(\.text).joined().contains("2. continuation") == true)
+        }
+        for index in [130, 132] {
+            #expect(await parse(chunks: Self.documents[index].map(String.init)).blocks.last?.kind == .listItem(ordered: true, index: index == 132 ? 2 : 1, task: nil))
         }
     }
 
