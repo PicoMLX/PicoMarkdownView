@@ -98,7 +98,20 @@ struct QuotedBlockTests {
         "> ```\n> code\n>    ```\n> after\n\n",
         "> - item\n>   ```\n>       ```\n>   after\n>   ```\n\n",
         "> 1. item\n>    ```\n>   outside\n>    ```\n\n",
-        "> - item\n>   ```\n> \tcode\n> \t```\n\n"
+        "> - item\n>   ```\n> \tcode\n> \t```\n\n",
+        ">     code\n>     more\n\n",
+        "> \tcode\n> \tmore\n\n",
+        ">     code",
+        "> paragraph\n>     continuation\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   more\n\n",
+        "> - item\n>   # heading\n>   after\n\n",
+        "> - item\n>   $$x$$\n>   after\n\n",
+        "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n>\n>   after\n\n",
+        "> :::note\n> [ref]: /url\n> :::\n\n[ref] after\n",
+        "> > inner\n> outer\n\n",
+        ">>> foo\n> bar\n>>baz\n\n",
+        "> > inner\n>\n> outer\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n> after\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -482,6 +495,51 @@ struct QuotedBlockTests {
         #expect(!ordered.blocks.contains { $0.codeText?.contains("outside") == true })
         let tab = await parse(chunks: Self.documents[87].map(String.init))
         #expect(tab.blocks.first { $0.codeText != nil }?.codeText == "code\n")
+    }
+
+    @Test("Initial quoted code and post-child list text retain literal content and order")
+    func quotedLiteralAndListOrder() async throws {
+        for document in Self.documents[88...90] {
+            let result = await parse(chunks: document.map(String.init))
+            #expect(result.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil)])
+            let code = try #require(result.blocks.first { $0.codeText != nil })
+            #expect(code.codeText == (document == Self.documents[90] ? "code" : "code\nmore\n"))
+        }
+        let continuation = await parse(chunks: Self.documents[91].map(String.init))
+        #expect(continuation.blocks.map(\.kind) == [.blockquote])
+        for document in Self.documents[92...95] {
+            let result = await parse(chunks: document.map(String.init))
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let last = try #require(result.blocks.last)
+            #expect(item.inlineRuns?.map(\.text).joined() == "item\n")
+            #expect(last.kind == .paragraph)
+            #expect(last.parentID == item.id)
+            #expect(last.inlineRuns?.map(\.text).joined().hasPrefix("after") == true)
+        }
+        let literal = await parse(chunks: Self.documents[96].map(String.init))
+        #expect(literal.blocks.first { $0.kind == .unknown }?.inlineRuns?.map(\.text).joined() == ":::note\n[ref]: /url\n:::\n")
+        #expect(!literal.blocks.flatMap { $0.inlineRuns ?? [] }.contains { $0.linkURL != nil })
+        let outside = await parse(chunks: Self.documents[100].map(String.init))
+        #expect(outside.blocks.last?.kind == .paragraph)
+        #expect(outside.blocks.last?.parentID == outside.blocks.first?.id)
+        #expect(outside.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+    }
+
+    @Test("Reduced quote markers preserve CommonMark lazy paragraph continuation")
+    func nestedQuoteLazyContinuation() async throws {
+        // CommonMark 0.31.2 examples 250-251 permit omitted inner markers.
+        for document in Self.documents[97...98] {
+            let result = await parse(chunks: document.map(String.init))
+            let deepest = try #require(result.blocks.last)
+            #expect(deepest.depth == (document == Self.documents[97] ? 1 : 2))
+            #expect(deepest.inlineRuns?.map(\.text).joined() == (document == Self.documents[97] ? "inner\nouter\n" : "foo\nbar\nbaz\n"))
+            let builder = MarkdownAttributeBuilder(theme: .default())
+            let rendered = await builder.render(snapshot: deepest, blockquoteLevel: deepest.depth + 1)
+            #expect(NSAttributedString.picoConverted(from: rendered.attributed).attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int == deepest.depth + 1)
+        }
+        let separated = await parse(chunks: Self.documents[99].map(String.init))
+        #expect(separated.blocks.last?.depth == 0)
+        #expect(separated.blocks.last?.inlineRuns?.map(\.text).joined() == "outer\n")
     }
 
     @Test("List-owned nested quotes include the list indentation")
