@@ -61,6 +61,7 @@ struct InlineParser {
     private var pending: String = ""
     var replacements = StreamingReplacementEngine()
     private var mathState: InlineMathState?
+    private var followsMathGrapheme = false
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
 
@@ -114,6 +115,7 @@ struct InlineParser {
         pending.removeAll(keepingCapacity: true)
         replacements.reset()
         mathState = nil
+        followsMathGrapheme = false
         return runs
     }
 
@@ -124,6 +126,7 @@ struct InlineParser {
         var plainStart = text.startIndex
         var consumedEnd = text.startIndex
         var consumedAll = true
+        var mathGraphemeBoundary = text.startIndex
         if let state = mathState,
            let resume = text.utf8.index(text.utf8.startIndex, offsetBy: state.resumeUTF8Offset, limitedBy: text.utf8.endIndex) {
             index = resume
@@ -172,6 +175,9 @@ struct InlineParser {
         }
 
         func character(before index: String.Index) -> Character? {
+            if followsMathGrapheme, index <= mathGraphemeBoundary {
+                return "$" // Both math closers are punctuation, even with trailing combining scalars.
+            }
             guard index > text.startIndex else { return nil }
             let prior = text.index(before: index)
             return text[prior]
@@ -932,10 +938,29 @@ struct InlineParser {
                     index = afterClose
                     plainStart = afterClose
                     mathState = nil
+                    followsMathGrapheme = true
+                    mathGraphemeBoundary = afterClose
                 } else {
                     index = next
                 }
                 continue parsing
+            }
+            // Drain only scalars extending the ASCII closer. Keep its flanking
+            // context across chunks without retaining or rescanning emitted text.
+            if followsMathGrapheme {
+                let scalar = text.unicodeScalars[index]
+                if scalar.properties.isGraphemeExtend || scalar.value == 0x200D ||
+                    scalar.properties.generalCategory == .spacingMark {
+                    index = text.unicodeScalars.index(after: index)
+                    mathGraphemeBoundary = index
+                    continue parsing
+                }
+            }
+            let ordinaryStart = index
+            defer {
+                if index > ordinaryStart {
+                    followsMathGrapheme = false
+                }
             }
             // Inline tag dispatch — fires before the normal switch so that
             // characters which also have other meanings (e.g. "$" is also a
@@ -1083,6 +1108,11 @@ struct InlineParser {
                 let nextIndex = text.index(after: index)
                 let isDouble = nextIndex < text.endIndex && text[nextIndex] == delimiter
                 let markerLength = isDouble ? 2 : 1
+                if delimiter == "_", !includeUnterminated,
+                   character(after: index, offset: markerLength) == nil {
+                    consumedAll = false
+                    break parsing
+                }
                 if !canOpenEmphasis(at: index, delimiter: delimiter, length: markerLength) {
                     index = text.index(after: index)
                     continue parsing
