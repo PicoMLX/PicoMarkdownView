@@ -61,8 +61,33 @@ Same toolchain and command, with serial benchmark cases and no concurrent builds
 | Quoted blank line, 1024 one-space chunks | 10 | 0.032092 s | 0.003656 s |
 | Quoted blank line, 2048 one-space chunks | 10 | 0.117926 s | 0.007024 s |
 
-Unresolved quote padding is kept as counted whitespace runs after a bounded
-prefix. New padding is visited once; blank lines discard it without building
-or trimming a growing line string. When text follows, the pending literal
-padding is materialized once, preserving spaces and tabs. Doubling the blank
-line takes 1.92x rather than 3.67x. Sample1 shows no throughput regression.
+These measurements describe the intermediate counted-whitespace-run fix.
+It improved homogeneous padding but still retained unbounded alternating
+spaces/tabs and replayed them when later text arrived. The bounded fallback
+below supersedes that implementation.
+
+### Bounded Quote Fallback and Line-Boundary Follow-Up
+
+Same toolchain, serial execution, 50 sample iterations and 10 padding iterations.
+
+| Case | Final average |
+| --- | --- |
+| sample1, 128-byte chunks | 0.016108 s |
+| sample1, 512-byte chunks | 0.015774 s |
+| sample1, 1024-byte chunks | 0.015612 s |
+| sample1, example word stream | 0.022856 s |
+| Quoted blank line, 1024 one-space chunks | 0.033111 s |
+| Quoted blank line, 2048 one-space chunks | 0.047759 s |
+| Alternating space/tab padding, 1024 chunks then one-character text | 0.035019 s |
+| Alternating space/tab padding, 2048 chunks then one-character text | 0.050282 s |
+
+The existing local buffer now permanently falls back to a raw `.unknown`
+child at the configured look-behind cap (1024 UTF-8 bytes by default).
+This costs more than the intermediate homogeneous-padding shortcut, but
+retains neither arbitrary run history nor a delayed replay: a later `k = 1`
+feed emits only that character. Doubling padding takes 1.44x for either
+pattern. A regression with a 32-byte cap verifies bounded pending state
+through 4096 alternating one-character chunks. Sample1 averages are 2-4%
+above the fresh-review baseline, with no material throughput regression.
+All 34 quoted fixtures also check every two-way split, character-at-a-time
+equivalence, and repeat-sequence determinism.
