@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 257 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 258 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  295 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  296 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -45,7 +45,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 134 container/math fixtures pass every chunk split and character-at-a-time
+  All 160 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -105,13 +105,20 @@ The earlier local-package/WizardKit build configuration fix is already on
   At the look-behind cap, reference/table fallbacks preserve eligible list
   parents and exact raw payloads while discarding only container indentation.
   Six capped variants pass every split, character streams, deterministic
-  events, and bounded-buffer checks in addition to the 134 quote fixtures.
+  events, and bounded-buffer checks in addition to the 160 quote fixtures.
 - [x] GFM block boundaries: four-space/tab-indented thematic markers remain
   code, while three-space controls remain rules. Confirmed tables close before
   successor block openers without rejecting ordinary non-pipe body rows.
   Only ordered markers starting at 1 interrupt quoted paragraph text; initial
   and sibling ordered items retain ordinary marker detection. Top-level,
   quoted, and nested controls pass every split and deterministic event checks.
+- [x] A 26-case successor matrix covers fences/headings/math/tables followed
+  by paragraphs and then nested quotes or footnotes, using ordered/unordered
+  markers, space/tab indentation, and unindented exit controls. Stored paragraph
+  prefixes retain only eligible list owners; native successor quote indentation
+  includes the list gutter only for owned children. Tab-indented list-child
+  display-math openers stay pending until their physical line resolves. All
+  cases pass every split, character streams, and deterministic-event checks.
 - [x] Ordinary images reserve quote/list gutters before sizing attachments;
   list bullet columns and table cell padding/separators are also reserved.
   Native AppKit/UIKit glyph bounds at 160, 320, and 800 points stay inside the

@@ -607,3 +607,25 @@ Quoted 1024/2048 means are `0.034281 / 0.048277 s` for spaces,
 `0.025425 / 0.040565 s` for tables (10 iterations, 1.41-1.60x).
 The 1024-space mean is 4% higher than the preceding run; the final combined
 comparison remains required. No build commands ran concurrently.
+
+## Final Successor Stack Checkpoint 10f47e8 (2026-09-30)
+
+Full combined suites pass 37 XCTest + 258 Swift Testing definitions on macOS
+and 296 definitions on iOS Simulator (545 invocations including parameterized
+cases), with zero failures, skips, or runtime warnings. Both examples build
+without compiler warnings. All 160 quote fixtures and native successor
+indentation controls pass on both platforms.
+
+The serial skip-build benchmark followed all completed tests/builds. Sample1
+128/512/1024-byte means are `0.016734 / 0.016492 / 0.016406 s`, with word
+streaming `0.022874 s` (50 iterations). Long math at 8192/16384 bytes measures
+`0.003071 / 0.005947 s` (10 iterations, 1.94x); the isolated combining-mark
+scanner at 512/1024 chunks measures `0.000511 / 0.000882 s`
+(20 iterations, 1.73x).
+
+Quoted 1024/2048 means are `0.032248 / 0.042067 s` for spaces,
+`0.034518 / 0.044223 s` for alternating padding, and
+`0.024047 / 0.033589 s` for deferred tables (10 iterations, 1.28-1.40x).
+Sample1, word-stream, and quoted-case means remain within 3% of `3c00a0a`.
+The earlier required combined comparison is complete; no material throughput
+regression is observed, and all earlier measurements remain preserved.
