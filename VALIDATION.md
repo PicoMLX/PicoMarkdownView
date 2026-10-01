@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 243 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 245 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  281 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  283 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -119,6 +119,11 @@ The earlier local-package/WizardKit build configuration fix is already on
   The renderer retains original image results only while their blocks survive;
   a discarded-block regression verifies old results are released. The image
   retention fix does not change tokenizer code or benchmark inputs/results.
+- [x] Image retention updates URL reference counts per affected block instead
+  of scanning all retained blocks/cache entries on every eviction. The
+  nil-provider path creates no URL sets. Shared URLs survive until their last
+  referencing block is discarded; refreshed blocks release obsolete image
+  references. Both additional lifecycle regressions pass on AppKit and UIKit.
 - [x] Theme/code baselines are independent of ambient accessibility scaling:
   the macOS body baseline is 13 points; UIKit uses the large-category baseline.
   Initial effective scale is installed before finite, chunked, or streamed

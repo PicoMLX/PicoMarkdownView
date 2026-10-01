@@ -396,3 +396,10 @@ means for 512/1024 chunks are `0.000515 / 0.000886 s` (20 iterations, 1.72x).
 Quoted 1024/2048 means are `0.032463 / 0.042441 s` for spaces,
 `0.034685 / 0.044553 s` for alternating padding, and
 `0.023295 / 0.033132 s` for deferred tables (10 iterations, 1.28-1.42x).
+
+The subsequent renderer-only incremental image-retention checkpoint `f0717bc`
+passes 37 XCTest + 245 Swift Testing tests on macOS and 283 test definitions
+on iOS Simulator; both example builds remain warning-free. This change removes
+retained-document/cache scans from image pruning, with per-block URL ownership
+and shared reference counts. It changes no tokenizer or benchmark code, so
+the parser measurements above remain applicable without another parser run.
