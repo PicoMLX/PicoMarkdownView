@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 216 Swift Testing tests
-  passed. Six benchmark definitions also passed with measurement disabled.
+- [x] Full macOS `swift test`: 37 XCTest tests and 223 Swift Testing tests
+  passed. Eight benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  253 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  260 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -38,6 +38,15 @@ The earlier local-package/WizardKit build configuration fix is already on
   delimiters, and opening fence indentation pass every chunk split. The
   updated Blockquotes example visibly renders its tasks, table/math rows,
   display math, and relative fence indentation without clipping or raw TeX.
+- [x] Follow-up quote regressions: same-line math suffixes and next physical
+  lines survive; nested fence marker prefixes remain pending; compact/spaced
+  rules preserve source order; initial footnotes retain definition metadata.
+  All 34 quoted fixtures pass every chunk split and character-at-a-time
+  equivalence. Alternating whitespace reaches a bounded, permanent raw
+  fallback; a later one-character feed emits only that character, without
+  replaying pending history. The example's math/rule/footnote sequence was
+  inspected at 100% and 200% scale at 334-point width, with correct order
+  and no clipping.
 - [x] Math cursors resume at UTF-8 byte boundaries even when combining marks,
   variation selectors, or ZWJ continuations extend a prior grapheme. Scalar
   chunk tests preserve TeX, match single-shot output, and repeat identical
@@ -50,6 +59,11 @@ The earlier local-package/WizardKit build configuration fix is already on
   scaling across the 1,000-closed-block retention boundary preserves complete
   text, unique IDs, and consistent fonts. Unsupported inline/display math
   fallbacks retain the scaled font without changing parser output.
+- [x] Monotonic update versions reject stale publication on MainActor,
+  including a delayed full replacement after a newer flush. Canceled and
+  superseded queued scales skip rendering; committed results still publish.
+  Deterministic paused-image tests exercise cancellation bursts, and canceled
+  finite-input initialization still completes the initial document.
 - [x] Hosted SwiftUI iOS view: Dynamic Type changes the existing native view's
   font, reports content sizing, and preserves selection across paragraphs.
 - [x] Both macOS text-view entry points: native link/tag click routing, hover

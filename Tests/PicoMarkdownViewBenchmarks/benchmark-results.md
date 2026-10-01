@@ -162,3 +162,31 @@ through 4096 alternating one-character chunks. Sample1 averages are 2-4%
 above the fresh-review baseline, with no material throughput regression.
 All 34 quoted fixtures also check every two-way split, character-at-a-time
 equivalence, and repeat-sequence determinism.
+
+## Final Combined Stack (2026-09-30)
+
+Serial tokenizer benchmarks on the same toolchain, after propagating all
+review fixes through PR 11. Sample averages use 50 iterations; whitespace
+and long-math cases use 10; the isolated combining-mark scanner uses 20.
+
+| Case | Average |
+| --- | --- |
+| sample1, 128-byte chunks | 0.015885 s |
+| sample1, 512-byte chunks | 0.015714 s |
+| sample1, 1024-byte chunks | 0.015687 s |
+| sample1, example word stream | 0.023153 s |
+| Inline math, 128 chunks / 8192 bytes | 0.003109 s |
+| Inline math, 256 chunks / 16384 bytes | 0.005985 s |
+| InlineParser math, 512 combining-mark chunks | 0.000535 s |
+| InlineParser math, 1024 combining-mark chunks | 0.000916 s |
+| Quoted blank line, 1024 one-space chunks | 0.033212 s |
+| Quoted blank line, 2048 one-space chunks | 0.043448 s |
+| Alternating space/tab padding, 1024 chunks then one-character text | 0.035591 s |
+| Alternating space/tab padding, 2048 chunks then one-character text | 0.045672 s |
+
+The first sample run contained a 0.018056 s outlier for 1024-byte chunks;
+the immediate isolated repeat measured 0.015687 s. The table records that
+repeat for all three fixed chunk sizes. Sample1 is within 0-5% of the
+fresh-review baseline. Long math takes 1.93x when input doubles; the isolated
+Unicode scanner takes 1.71x, and padding takes 1.28-1.31x. No material
+throughput regression or renewed unbounded padding history was observed.
