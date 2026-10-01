@@ -490,3 +490,24 @@ Repeat quoted 1024/2048 means were `0.071198 / 0.051777 s` for spaces,
 `0.025604 / 0.040591 s` for tables (10 iterations). The inverted space pair
 and run-to-run variation preclude a reliable throughput inference here.
 No build commands ran concurrently with either measurement.
+
+## Combined Successor/Width Checkpoint 74d158a (2026-09-30)
+
+The combined stack passes 37 XCTest + 252 Swift Testing definitions on macOS
+and 290 definitions on iOS Simulator. Both examples build without compiler
+warnings. Two serial skip-build measurements followed all tests/builds.
+
+Initial sample1 means at 128/512/1024 bytes were `0.019490 / 0.019051 /
+0.017712 s`, with word streaming `0.026668 s`. An unchanged-code repeat gives
+`0.016615 / 0.016100 / 0.016711 s`, word streaming `0.025814 s` (50 iterations).
+The sample1 means return within 3% of `3c00a0a`; word streaming is 12% above
+that checkpoint, but below both elevated lower-branch measurements. These
+measurements do not reproduce a sustained lower-branch 50%+ slowdown; retain
+the earlier noisy results rather than attributing their cause without evidence.
+
+Repeat long math at 8192/16384 bytes measures `0.002985 / 0.006027 s`
+(10 iterations, 2.02x). The isolated combining-mark scanner at 512/1024 chunks
+measures `0.000531 / 0.000897 s` (20 iterations, 1.69x). Quoted 1024/2048
+means are `0.032444 / 0.042284 s` for spaces, `0.035804 / 0.045249 s` for
+alternating padding, and `0.024601 / 0.034467 s` for tables
+(10 iterations, 1.26-1.40x). Their means remain within 3% of `3c00a0a`.

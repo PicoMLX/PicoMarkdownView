@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 248 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 252 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  286 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  290 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 102 container/math fixtures pass every chunk split and character-at-a-time
+  All 109 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -88,6 +88,18 @@ The earlier local-package/WizardKit build configuration fix is already on
   inside unknown blocks remain literal and are not registered as links.
   Transitions from following paragraphs to successor structured children carry
   the resolved list-content prefix, preserving the second fence's verbatim text.
+- [x] Markers after quoted list child paragraphs use the owning item's original
+  indentation: unordered/ordered siblings remain siblings, while indented
+  nested items retain their parent. List-owned rules mark their owner as having
+  children and consume their line without adding parent inline text; following
+  text opens a later paragraph. Tables close with their list owner when a
+  nonblank line lacks its content indentation, rather than absorbing a sibling
+  marker as a cell. All added cases pass split/character/determinism checks.
+- [x] Ordinary images reserve quote/list gutters before sizing attachments;
+  list bullet columns and table cell padding/separators are also reserved.
+  Native AppKit/UIKit glyph bounds at 160, 320, and 800 points stay inside the
+  available width for direct quotes, list-owned paragraphs, list items, and
+  one/two-column tables; image aspect ratios and retained originals survive.
 - [x] The reported reduced-marker quote-depth failure is a false positive:
   CommonMark 0.31.2 examples 250-251 permit missing inner markers on lazy
   paragraph continuations. The reported two-level case and the spec's
@@ -132,6 +144,14 @@ The earlier local-package/WizardKit build configuration fix is already on
   remain scaled when MainActor delivery is reversed or SwiftUI coalesces
   flushes; both TextKit entry points retain complete text and selection on
   AppKit/UIKit. Structural gaps use the existing backend synchronization path.
+- [x] Full replacements carry the snapshot's document version through the model
+  and native wrappers, including coalesced replacement/delta flushes. Tests on
+  both TextKit entry points verify the next consecutive one-block update stays
+  narrow while genuine gaps still repair cached presentations.
+- [x] Queued width refreshes register request revisions before the operation
+  gate. Deterministic paused-image tests queue 20 obsolete width buckets, a
+  latest width or nil reset, and a feed: only the latest queued width renders,
+  repeated widths do no further work, and the feed text is retained.
 - [x] Successfully rendered paragraph/quote/table images survive shared-cache
   eviction across repeated scales and narrow/wide content-width updates.
   The renderer retains original image results only while their blocks survive;
