@@ -380,3 +380,29 @@ while an earlier byte-scanning repeat measured `0.016923 s`. This variation
 is recorded without attributing a cause. A final combined-stack repeat is
 required after the remaining inline-parser fix. No local builds/tests ran
 concurrently with these measurements.
+
+## Marker-Only Items And Direct Wide-List Quotes (2026-10-01)
+
+Initial and sibling `-`/`*`/`+` markers resolve as empty items only at newline
+or EOF, while existing paragraphs retain empty-marker text. Nested quotes
+strip their ordered owner's complete indentation before marker detection,
+preserving physical tab alignment, ownership, and lazy continuations. All 384
+quoted fixtures pass every split, character streams, and deterministic repeats.
+Full suites pass 34 XCTest + 241 Swift Testing definitions on macOS and 276
+definitions / 722 invocations on iOS, without failures, skips, or runtime warnings.
+
+The suggested generic link-label cap was not applied: CommonMark's 999-character
+limit is for reference labels, not inline link text. A 1000-character link/image
+regression passes every split, character streams, and deterministic repeats.
+Closed-bracket lookahead resolves after the next character; unclosed bracket or
+destination buffering predates this change and is not fixed by truncating valid
+inline text. This distinction is explained on the review thread.
+
+Serial means after both completed suites were sample1
+`0.016820 / 0.016387 / 0.016591 s`, word streaming `0.023856 s`
+(50 iterations), quoted spaces `0.027284 / 0.042642 s`, alternating padding
+`0.028011 / 0.044304 s`, and tables `0.025290 / 0.039974 s`
+(10 iterations). All means are no more than 1% above the preceding final PR9
+checkpoint, with the 128-byte sample faster. An overlapping benchmark attempt
+was discarded and rerun after the iOS process completed; only this serial run
+is used. The final combined stack still requires its own comparison.
