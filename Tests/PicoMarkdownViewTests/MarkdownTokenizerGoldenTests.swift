@@ -1073,6 +1073,23 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Inline link text is not truncated to the reference-label limit", arguments: ["", "!"])
+    func longInlineLinkText(prefix: String) async {
+        let label = String(repeating: "a", count: 1000)
+        let source = prefix + "[" + label + "](/url)"
+        let expected = prefix.isEmpty ? InlineRunShape(text: label, style: [.link], linkURL: "/url") : image(label, source: "/url")
+        #expect(coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init)) == [expected])
+        let characters = Array(source)
+        for split in 0...characters.count {
+            let chunks = [String(characters[..<split]), String(characters[split...]), "\n\n"]
+            let events = await collectEvents(chunks: chunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: [expected])])
+            #expect(events == (await collectEvents(chunks: chunks)))
+        }
+        let scalarChunks = characters.map(String.init) + ["\n\n"]
+        #expect(summarizeBlocks(from: await collectEvents(chunks: scalarChunks)) == [.inline(kind: "paragraph", runs: [expected])])
+    }
+
     @Test("Reference-style link resolves definition")
     func referenceStyleLinkResolvesDefinition() async {
         let tokenizer = MarkdownTokenizer()
@@ -1551,15 +1568,17 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.blockquote),
-                .blockAppendInline(.blockquote, runs: [plain("- item"), plain("\n")])
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("item"), plain("\n")])
             ],
-            openBlocks: [.blockquote]
+            openBlocks: [.blockquote, .listItem(ordered: false, index: nil, task: nil)]
         ), state: &state)
 
         let second = await tokenizer.feed(">   continuation\n> second line\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.blockquote, runs: [plain("  continuation"), plain("\n"), plain("second line"), plain("\n")]),
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("continuation"), plain("\n"), plain("second line"), plain("\n")]),
+                .blockEnd(.listItem(ordered: false, index: nil, task: nil)),
                 .blockEnd(.blockquote)
             ],
             openBlocks: []
@@ -2006,16 +2025,15 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx")
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx"),
+                .blockEnd(.math(display: true))
             ],
-            openBlocks: [.math(display: true)]
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("\n")
         assertChunk(second, matches: .init(
-            events: [
-                .blockEnd(.math(display: true))
-            ],
+            events: [],
             openBlocks: []
         ), state: &state)
     }
@@ -2029,16 +2047,15 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx")
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx"),
+                .blockEnd(.math(display: true))
             ],
-            openBlocks: [.math(display: true)]
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("\n")
         assertChunk(second, matches: .init(
-            events: [
-                .blockEnd(.math(display: true))
-            ],
+            events: [],
             openBlocks: []
         ), state: &state)
     }
@@ -2050,26 +2067,23 @@ struct MarkdownTokenizerGoldenTests {
 
         let first = await tokenizer.feed("\\[\\frac{a")
         assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\frac{a")
-            ],
-            openBlocks: [.math(display: true)]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("}{b}\\]\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendMath(.math(display: true), textChunk: "}{b}")
+                .blockStart(.math(display: true)),
+                .blockAppendMath(.math(display: true), textChunk: "\\frac{a}{b}"),
+                .blockEnd(.math(display: true))
             ],
-            openBlocks: [.math(display: true)]
+            openBlocks: []
         ), state: &state)
 
         let third = await tokenizer.feed("\n")
         assertChunk(third, matches: .init(
-            events: [
-                .blockEnd(.math(display: true))
-            ],
+            events: [],
             openBlocks: []
         ), state: &state)
     }
@@ -2514,18 +2528,18 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
-        // $$ opens math immediately (unambiguous display math marker)
+        // The opener remains ambiguous until the physical line completes:
+        // a later same-line closer followed by text is paragraph content.
         let first = await tokenizer.feed("$$")
         assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.math(display: true))
-            ],
-            openBlocks: [.math(display: true)]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("\nE=mc^2\n")
         assertChunk(second, matches: .init(
             events: [
+                .blockStart(.math(display: true)),
                 .blockAppendMath(.math(display: true), textChunk: "E=mc^2\n")
             ],
             openBlocks: [.math(display: true)]

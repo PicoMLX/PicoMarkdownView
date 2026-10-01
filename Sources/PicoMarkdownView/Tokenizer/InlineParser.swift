@@ -342,7 +342,7 @@ struct InlineParser {
                 return .literal
             }
             guard afterBracket < text.endIndex else {
-                return .literal
+                return includeUnterminated ? .literal : .incomplete
             }
             if text[afterBracket] != "(" {
                 if let reference = parseReferenceLink(label: label, afterBracket: afterBracket, treatAsImage: treatAsImage) {

@@ -222,7 +222,8 @@ actor MarkdownRenderer {
         guard let index = indexByID[id] else { return false }
         let snapshot = await snapshotProvider(id)
         let previousKind = previousBlockKind(at: index)
-        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousKind)
+        let quoteLevel = blockquoteLevel(for: snapshot)
+        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel)
         
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
@@ -231,6 +232,7 @@ actor MarkdownRenderer {
 
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
+        blocks[index].blockquoteLevel = quoteLevel
         blocks[index].content = rendered.attributed
         blocks[index].table = rendered.table
         blocks[index].listItem = rendered.listItem
@@ -270,6 +272,11 @@ actor MarkdownRenderer {
     }
 
     private func shouldRefreshForContentWidthChange(_ block: RenderedBlock) -> Bool {
+        if block.math != nil || block.snapshot.inlineRuns?.contains(where: { $0.math != nil }) == true ||
+           block.snapshot.table?.headerCells?.contains(where: { $0.contains(where: { $0.math != nil }) }) == true ||
+           block.snapshot.table?.rows.contains(where: { $0.contains(where: { $0.contains(where: { $0.math != nil }) }) }) == true {
+            return true
+        }
         if !block.images.isEmpty {
             return true
         }
@@ -313,7 +320,8 @@ actor MarkdownRenderer {
     }
 
     private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {
-        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind)
+        let quoteLevel = blockquoteLevel(for: snapshot)
+        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
@@ -324,7 +332,18 @@ actor MarkdownRenderer {
                              math: rendered.math,
                              images: rendered.images,
                              codeBlock: rendered.codeBlock,
-                             mermaidDiagram: rendered.mermaidDiagram)
+                             mermaidDiagram: rendered.mermaidDiagram,
+                             blockquoteLevel: quoteLevel)
+    }
+
+    private func blockquoteLevel(for snapshot: BlockSnapshot) -> Int {
+        if let parent = snapshot.parentID, indexByID[parent] == nil,
+           let retained = indexByID[snapshot.id] {
+            // Closed parents can be evicted before their retained children.
+            return blocks[retained].blockquoteLevel
+        }
+        let inherited = snapshot.parentID.flatMap { indexByID[$0] }.map { blocks[$0].blockquoteLevel } ?? 0
+        return inherited + (snapshot.kind == .blockquote ? 1 : 0)
     }
     
 }
@@ -341,6 +360,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var images: [RenderedImage] = []
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram?
+    var blockquoteLevel: Int = 0
 }
 
 extension RenderedBlock {
@@ -355,7 +375,8 @@ extension RenderedBlock {
         lhs.math == rhs.math &&
         lhs.images == rhs.images &&
         lhs.codeBlock == rhs.codeBlock &&
-        lhs.mermaidDiagram == rhs.mermaidDiagram
+        lhs.mermaidDiagram == rhs.mermaidDiagram &&
+        lhs.blockquoteLevel == rhs.blockquoteLevel
     }
 }
 
