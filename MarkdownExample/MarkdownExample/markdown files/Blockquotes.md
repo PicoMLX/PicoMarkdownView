@@ -59,3 +59,12 @@ Text after the quote, still part of the same selectable document.
 > Paragraph after the rule.
 >
 > [^quoted]: Quoted footnote definition.
+> [^second]: Separate footnote definition.
+>     Indented continuation.
+> Paragraph outside the definitions.
+>
+> - List parent
+>   > Nested quote inside the list item.
+> - Following list item
+
+$$x$$y

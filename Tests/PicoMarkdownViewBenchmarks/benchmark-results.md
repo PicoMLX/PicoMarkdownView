@@ -163,7 +163,7 @@ above the fresh-review baseline, with no material throughput regression.
 All 34 quoted fixtures also check every two-way split, character-at-a-time
 equivalence, and repeat-sequence determinism.
 
-## Final Combined Stack (2026-09-30)
+## Combined Stack Checkpoint 6e4def1 (2026-09-30)
 
 Serial tokenizer benchmarks on the same toolchain, after propagating all
 review fixes through PR 11. Sample averages use 50 iterations; whitespace
@@ -190,3 +190,30 @@ repeat for all three fixed chunk sizes. Sample1 is within 0-5% of the
 fresh-review baseline. Long math takes 1.93x when input doubles; the isolated
 Unicode scanner takes 1.71x, and padding takes 1.28-1.31x. No material
 throughput regression or renewed unbounded padding history was observed.
+## PR 9 Additional Deferred Constructs and Container Boundaries
+
+Same toolchain and serial command. The initial run had highly variable sample
+averages (0.018995/0.016536/0.024117 s fixed chunks and 0.034025 s word stream);
+the isolated repeat below returned to the prior range. No concurrent local
+builds ran during either benchmark.
+
+| Case | Repeat average |
+| --- | --- |
+| sample1, 128-byte chunks | 0.016513 s |
+| sample1, 512-byte chunks | 0.016136 s |
+| sample1, 1024-byte chunks | 0.016218 s |
+| sample1, example word stream | 0.022391 s |
+| Quoted blank line, 1024 one-space chunks | 0.032171 s |
+| Quoted blank line, 2048 one-space chunks | 0.048037 s |
+| Alternating space/tab padding, 1024 chunks | 0.034917 s |
+| Alternating space/tab padding, 2048 chunks | 0.049970 s |
+| Deferred quoted table candidate, 1024 one-character chunks | 0.024148 s |
+| Deferred quoted table candidate, 2048 one-character chunks | 0.039157 s |
+
+Sample1 is within -2% to +4% of the prior bounded-fallback checkpoint.
+Doubling deferred table input takes 1.62x; homogeneous/alternating padding
+takes 1.49x/1.43x. The cap applies to deferred quoted table/fence candidates
+as well as ambiguous metadata and padding. Unquoted display-math opening
+lines now also wait for the physical line boundary, with the same capped
+fallback. Forty-three fixtures validate every chunk split, scalar-sized
+feeds, repeat determinism, footnote boundaries, and list-owned nested quotes.

@@ -75,6 +75,13 @@ struct MarkdownTokenizerBenchmarks {
                                iterations: 10, label: "Tokenizer alternating-quoted-whitespace chunks=\(chunkCount)")
     }
 
+    @Test("Tokenizer deferred quoted table benchmark", arguments: [1024, 2048])
+    func deferredQuotedTableBenchmark(chunkCount: Int) async throws {
+        guard ProcessInfo.processInfo.environment["RUN_BENCHMARKS"] == "1" else { return }
+        try await runBenchmark(onChunks: ["> |"] + Array(repeating: "x", count: chunkCount) + ["y\n\n"],
+                               iterations: 10, label: "Tokenizer deferred-quoted-table chunks=\(chunkCount)")
+    }
+
     private func runBenchmark(onChunks chunks: [String], iterations: Int, label: String) async throws {
         let clock = ContinuousClock()
         let start = clock.now
