@@ -65,7 +65,13 @@ actor MarkdownAttributeBuilder {
         guard blockquoteLevel > 0, snapshot.kind != .blockquote else { return result }
         let content = NSMutableAttributedString(attributedString: .picoConverted(from: result.attributed))
         let range = NSRange(location: 0, length: content.length)
-        let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel)
+        let listIndent: CGFloat
+        if case .listItem = snapshot.kind {
+            listIndent = 0 // List rendering already applies its nesting indent.
+        } else {
+            listIndent = CGFloat(max(0, snapshot.depth - blockquoteLevel)) * 20
+        }
+        let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel) + listIndent
         content.enumerateAttribute(.paragraphStyle, in: range) { value, paragraphRange, _ in
             let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
             paragraph.firstLineHeadIndent += gutter

@@ -68,3 +68,21 @@ Text after the quote, still part of the same selectable document.
 > - Following list item
 
 $$x$$y
+
+> # Verbatim and list-child regressions
+> ```text
+> [ref]: /url
+> ```
+>
+> - Code owner
+>   ```swift
+>   let answer = 42
+>   ```
+> - Table owner
+>   | Expression | Value |
+>   | --- | --- |
+>   | $x^2$ | $4$ |
+>
+> # Indented code
+>     one
+>     two
