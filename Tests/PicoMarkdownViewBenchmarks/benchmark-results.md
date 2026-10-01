@@ -347,3 +347,17 @@ for spaces, `0.035121 / 0.049186 s` for alternating padding, and
 `0.024107 / 0.038600 s` for deferred tables (10 iterations; doubling takes
 1.40-1.60x). Benchmarks ran after all builds/tests, with skip-build and no
 concurrent build work.
+
+## Combined Boundary/Gutter Checkpoint 570090c (2026-09-30)
+
+All full platform tests and example builds completed before the serial run.
+Sample1 means for 128/512/1024-byte chunks are `0.016644 / 0.016074 /
+0.016161 s`; the example word stream is `0.022679 s` (50 iterations each).
+No material regression against checkpoint `4a3aad1` was observed.
+
+Long-math means for 8192/16384 bytes are `0.003042 / 0.005872 s`
+(10 iterations, 1.93x when input doubles). Isolated combining-mark scanner
+means for 512/1024 chunks are `0.000527 / 0.000889 s` (20 iterations, 1.69x).
+Quote means for 1024/2048 chunks are `0.032405 / 0.042790 s` for spaces,
+`0.034299 / 0.044522 s` for alternating padding, and
+`0.023845 / 0.033477 s` for deferred tables (10 iterations, 1.30-1.40x).

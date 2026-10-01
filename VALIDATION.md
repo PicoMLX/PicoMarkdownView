@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 235 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 238 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  273 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  276 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 61 container/math fixtures pass every chunk split and character-at-a-time
+  All 72 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -68,6 +68,15 @@ The earlier local-package/WizardKit build configuration fix is already on
   there. A successful math-attachment regression verifies the first-character
   paragraph style and native glyph position outside the quote bar on both
   AppKit and UIKit. No production change was needed for that finding.
+- [x] Longer matching backtick/tilde closers end quoted fences; shorter,
+  mismatched, or non-whitespace-suffixed runs remain literal code. ATX headings
+  accept up to three spaces; a four-space code control retains raw `#` text.
+  Unmarked compact/spaced thematic breaks end lazy quote continuation and
+  retain top-level ownership. All cases pass every chunk split.
+- [x] List-owned nested quotes retain non-quote ancestor indentation without
+  double-applying quote gutters. Quoted/list-owned Mermaid requests and
+  attachment bounds reserve gutters at widths 160, 320, and 800 points;
+  native AppKit/UIKit glyph bounds remain inside the available line width.
 - [x] Math cursors resume at UTF-8 byte boundaries even when combining marks,
   variation selectors, or ZWJ continuations extend a prior grapheme. Scalar
   chunk tests preserve TeX, match single-shot output, and repeat identical
@@ -125,7 +134,8 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
-footnote/continuation, verbatim-code, and structured list-child additions. Those additions
+footnote/continuation, verbatim-code, boundary, and structured list-child/Mermaid
+additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
