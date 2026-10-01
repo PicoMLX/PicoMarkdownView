@@ -330,6 +330,37 @@ struct MarkdownRendererTests {
         #expect(await provider.callCount() > sameBucketCallCount)
     }
 
+    @Test("Quoted Mermaid attachments reserve quote and list gutters")
+    @MainActor
+    func quotedMermaidReservesGutters() async throws {
+        let provider = TestMermaidProvider(imageSize: CGSize(width: 1000, height: 500))
+        let builder = MarkdownAttributeBuilder(theme: .default(), mermaidProvider: provider)
+        for depth in [1, 2] {
+            for width in [CGFloat(160), 320, 800] {
+                await builder.setRuntimeMermaidMaxWidth(width)
+                let snapshot = BlockSnapshot(id: 1, kind: .fencedCode(language: "mermaid"),
+                    codeText: "graph LR; A-->B", isClosed: true, depth: depth)
+                let result = await builder.render(snapshot: snapshot, blockquoteLevel: 1)
+                let content = NSAttributedString.picoConverted(from: result.attributed)
+                let attachment = try #require(content.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
+                let indent = BlockquoteBarMetrics.textIndent(level: 1) + CGFloat(depth - 1) * 20
+                #expect(abs(attachment.bounds.width - (width - indent)) < 0.1)
+                #expect(await provider.lastRequestedWidth() == width - indent)
+                let storage = NSTextStorage(attributedString: content)
+                let layout = NSLayoutManager()
+                let container = NSTextContainer(size: CGSize(width: width, height: 1000))
+                container.lineFragmentPadding = 0
+                storage.addLayoutManager(layout)
+                layout.addTextContainer(container)
+                layout.ensureLayout(for: container)
+                let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: 0, length: 1), actualCharacterRange: nil)
+                let bounds = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                #expect(bounds.minX >= indent)
+                #expect(bounds.maxX <= width + 0.1)
+            }
+        }
+    }
+
     @Test("Mermaid width updates are ignored when mermaid rendering is disabled")
     func mermaidWidthUpdatesIgnoredWhenDisabled() async {
         let tokenizer = MarkdownTokenizer()
@@ -966,6 +997,7 @@ struct MarkdownRendererTests {
 private actor TestMermaidProvider: MermaidDiagramProvider {
     private let imageSize: CGSize?
     private var calls = 0
+    private var lastWidth: CGFloat?
 
     init(imageSize: CGSize?) {
         self.imageSize = imageSize
@@ -973,6 +1005,7 @@ private actor TestMermaidProvider: MermaidDiagramProvider {
 
     func render(_ request: MermaidRenderRequest) async -> MermaidRenderResult? {
         calls += 1
+        lastWidth = request.targetWidth
         guard let imageSize else { return nil }
         let image = makeTestImage(size: imageSize)
         return MermaidRenderResult(image: image, intrinsicSize: imageSize, diagnostics: nil)
@@ -981,6 +1014,8 @@ private actor TestMermaidProvider: MermaidDiagramProvider {
     func callCount() -> Int {
         calls
     }
+
+    func lastRequestedWidth() -> CGFloat? { lastWidth }
 }
 
 private actor TestImageProvider: MarkdownImageProvider {
