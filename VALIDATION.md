@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 225 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 230 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  262 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  268 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 43 container/math fixtures pass every chunk split and character-at-a-time
+  All 48 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -53,11 +53,21 @@ The earlier local-package/WizardKit build configuration fix is already on
   definitions/unindented text and preserve indented soft-break continuations;
   ordered/unordered list items retain ownership of indented nested quotes.
   Event structure, bounded pending state, and every-split equivalence pass.
+- [x] Quoted reference definitions remain hidden across split labels, URLs,
+  and titles; partial `:`/`::` extension prefixes do not leak paragraphs.
+  Reference/extension/fence candidates share the capped literal fallback.
+  Refreshes preserve retained children's established quote levels and
+  indentation after the closed quote parent is evicted.
 - [x] Math cursors resume at UTF-8 byte boundaries even when combining marks,
   variation selectors, or ZWJ continuations extend a prior grapheme. Scalar
   chunk tests preserve TeX, match single-shot output, and repeat identical
   events; unclosed grapheme math flushes once as literal text. The isolated
   combining-mark scanner benchmark no longer exhibits quadratic rescans.
+- [x] Opening math delimiters also use UTF-8 boundaries. Seven additional
+  combining-mark/variation-selector cases cover dollar and command openers,
+  every scalar split, repeat determinism, and unclosed literal flushing.
+  The reported `p$$` followed by a combining mark now matches single-shot
+  parsing without an incorrect empty inline-math run.
 - [x] Live scaling retains block IDs and parser state, including scale updates
   overlapping incoming chunks. Code, headings, table/display math, and quotes
   scale together.
@@ -70,6 +80,11 @@ The earlier local-package/WizardKit build configuration fix is already on
   superseded queued scales skip rendering; committed results still publish.
   Deterministic paused-image tests exercise cancellation bursts, and canceled
   finite-input initialization still completes the initial document.
+- [x] Theme/code baselines are independent of ambient accessibility scaling:
+  the macOS body baseline is 13 points; UIKit uses the large-category baseline.
+  Initial effective scale is installed before finite, chunked, or streamed
+  input is rendered. Hosted UIKit tests verify that every first nonempty
+  publication already has the requested scale; image work is not duplicated.
 - [x] Hosted SwiftUI iOS view: Dynamic Type changes the existing native view's
   font, reports content sizing, and preserves selection across paragraphs.
 - [x] Both macOS text-view entry points: native link/tag click routing, hover

@@ -122,6 +122,44 @@ struct MathIsolationTests {
         #expect(await parse(chunks).runs == [InlineRun(text: source)])
     }
 
+    struct OpeningCase: Sendable {
+        let source: String
+        let tex: String?
+        var display: Bool = false
+    }
+
+    static let graphemeOpeners = [
+        OpeningCase(source: "p$$\u{0301}", tex: nil),
+        OpeningCase(source: "p$\u{0301}$", tex: "\u{0301}"),
+        OpeningCase(source: "p$$\u{0301}$$", tex: "\u{0301}", display: true),
+        OpeningCase(source: "p$\u{FE0F}$", tex: "\u{FE0F}"),
+        OpeningCase(source: "p\\(\u{0301}\\)", tex: "\u{0301}"),
+        OpeningCase(source: "p\\[\u{FE0F}\\]", tex: "\u{FE0F}", display: true),
+        OpeningCase(source: "p$\u{0301}", tex: nil)
+    ]
+
+    @Test("Math openers use scalar-safe boundaries", arguments: graphemeOpeners)
+    func scalarSafeOpeners(fixture: OpeningCase) async {
+        let expected: [InlineRun]
+        if let tex = fixture.tex {
+            expected = [InlineRun(text: "p"), InlineRun(text: tex, style: [.math],
+                math: MathInlinePayload(tex: tex, display: fixture.display))]
+        } else {
+            expected = [InlineRun(text: fixture.source)]
+        }
+        let document = fixture.source + "\n\n"
+        #expect(await parse([document]).runs == expected)
+        let scalars = document.unicodeScalars.map(String.init)
+        for split in 0...scalars.count {
+            let chunks = [scalars[..<split].joined(), scalars[split...].joined()]
+            #expect(await parse(chunks).runs == expected, "Scalar split at \(split)")
+        }
+        let streamed = await parse(scalars)
+        #expect(streamed.runs == expected)
+        #expect(streamed.events == (await parse(scalars)).events)
+        #expect(streamed.runs == (await parse([document])).runs)
+    }
+
     private func parse(_ chunks: [String]) async -> (runs: [InlineRun], events: [BlockEvent]) {
         let tokenizer = MarkdownTokenizer()
         var events: [BlockEvent] = []

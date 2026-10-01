@@ -262,3 +262,34 @@ reference labels, extension markers, and fence candidates, each with 4096
 one-character feeds. Forty-eight fixtures pass every chunk split and repeat
 determinism. A renderer regression evicts the quote parent and verifies that
 later refreshes retain the children's quote level, attributes, and indentation.
+
+## Final Stack With Scalar-Safe Math Openers (2026-09-30)
+
+After checkpoint `36ed036` propagates PR9 `f489f4e` and PR10 `2512a0a`,
+the additional PR11 opener fix uses byte boundaries for dollar and command
+markers. Seven scalar-split regressions reproduced 56 failed expectations
+before the fix and pass afterward. Full macOS/iOS suites and both example
+builds completed before this serial, skip-build benchmark run.
+
+| Case | Mean Per Iteration |
+| --- | ---: |
+| sample1, 128-byte chunks (50 iterations) | 0.016421 s |
+| sample1, 512-byte chunks (50 iterations) | 0.015986 s |
+| sample1, 1024-byte chunks (50 iterations) | 0.015823 s |
+| sample1, example word stream (50 iterations) | 0.022314 s |
+| Long math, 8192 bytes (10 iterations) | 0.002992 s |
+| Long math, 16384 bytes (10 iterations) | 0.005865 s |
+| InlineParser, 512 combining-mark chunks (20 iterations) | 0.000513 s |
+| InlineParser, 1024 combining-mark chunks (20 iterations) | 0.000882 s |
+| Quoted padding, 1024 one-character chunks (10 iterations) | 0.031903 s |
+| Quoted padding, 2048 one-character chunks (10 iterations) | 0.041804 s |
+| Alternating quote padding, 1024 chunks (10 iterations) | 0.034058 s |
+| Alternating quote padding, 2048 chunks (10 iterations) | 0.045284 s |
+| Deferred quoted table, 1024 chunks (10 iterations) | 0.023360 s |
+| Deferred quoted table, 2048 chunks (10 iterations) | 0.032340 s |
+
+No material regression against checkpoint `f83433f`: sample1 is slightly
+faster, and long-math means differ by under 3%. Doubling input takes 1.96x
+for long math, 1.72x for the isolated Unicode scanner, and 1.31-1.38x for
+capped/deferred quote cases. Opening-marker resolution remains local and
+does not reparse already-emitted text.

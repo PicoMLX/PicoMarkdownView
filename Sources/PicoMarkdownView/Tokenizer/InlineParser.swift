@@ -961,29 +961,57 @@ struct InlineParser {
                 }
             }
 
+            // Opening markers have the same byte boundaries as closers, even
+            // when the following scalar joins a marker's grapheme cluster.
+            let bytes = text.utf8
+            let byte = bytes[index]
+            if byte == 0x24 {
+                var length = 1
+                var cursor = bytes.index(after: index)
+                while cursor < bytes.endIndex, bytes[cursor] == 0x24 && length < 2 {
+                    length += 1
+                    cursor = bytes.index(after: cursor)
+                }
+                if length == 1 && cursor == bytes.endIndex && !includeUnterminated {
+                    flushPlain(upTo: index)
+                    consumedAll = false
+                    break parsing
+                }
+                flushPlain(upTo: index)
+                let markerEnd = cursor
+                let marker = String(text[index..<markerEnd])
+                consumedEnd = markerEnd
+                mathState = InlineMathState(
+                    delimiter: .dollar(count: length, display: length == 2),
+                    contentUTF8Offset: text.utf8.distance(from: text.utf8.startIndex, to: markerEnd),
+                    openingMarker: marker
+                )
+                plainStart = markerEnd
+                index = markerEnd
+                continue parsing
+            }
+            if byte == 0x5C {
+                let next = bytes.index(after: index)
+                if next < bytes.endIndex, bytes[next] == 0x28 || bytes[next] == 0x5B {
+                    flushPlain(upTo: index)
+                    let display = bytes[next] == 0x5B
+                    let markerEnd = bytes.index(after: next)
+                    consumedEnd = markerEnd
+                    mathState = InlineMathState(
+                        delimiter: .command(closing: display ? 0x5D : 0x29, display: display),
+                        contentUTF8Offset: bytes.distance(from: bytes.startIndex, to: markerEnd),
+                        openingMarker: String(text[index..<markerEnd])
+                    )
+                    plainStart = markerEnd
+                    index = markerEnd
+                    continue parsing
+                }
+            }
+
             let ch = text[index]
             switch ch {
             case "\\":
                 let nextIndex = text.index(after: index)
-                if nextIndex < text.endIndex {
-                    let nextChar = text[nextIndex]
-                    if nextChar == "(" || nextChar == "[" {
-                        flushPlain(upTo: index)
-                        let display = nextChar == "["
-                        let markerEnd = text.index(after: nextIndex)
-                        let marker = String(text[index..<markerEnd])
-                        consumedEnd = markerEnd
-                        mathState = InlineMathState(
-                            delimiter: .command(closing: nextChar == "(" ? 0x29 : 0x5D, display: display),
-                            contentUTF8Offset: text.utf8.distance(from: text.utf8.startIndex, to: markerEnd),
-                            openingMarker: marker
-                        )
-                        let contentIndex = markerEnd
-                        plainStart = contentIndex
-                        index = contentIndex
-                        continue parsing
-                    }
-                }
                 if nextIndex >= text.endIndex {
                     if includeUnterminated {
                         plainStart = index
@@ -1000,36 +1028,6 @@ struct InlineParser {
                 consumedEnd = after
                 index = after
                 plainStart = after
-            case "$":
-                if let prev = character(before: index), prev == "\\" {
-                    index = text.index(after: index)
-                    continue parsing
-                }
-                var length = 1
-                var cursor = text.index(after: index)
-                while cursor < text.endIndex, text[cursor] == "$" && length < 2 {
-                    length += 1
-                    cursor = text.index(after: cursor)
-                }
-                if length == 1 && cursor == text.endIndex && !includeUnterminated {
-                    flushPlain(upTo: index)
-                    consumedAll = false
-                    break parsing
-                }
-                let display = length >= 2
-                let markerLength = display ? 2 : 1
-                flushPlain(upTo: index)
-                let markerEnd = text.index(index, offsetBy: markerLength)
-                let marker = String(text[index..<markerEnd])
-                consumedEnd = markerEnd
-                mathState = InlineMathState(
-                    delimiter: .dollar(count: markerLength, display: display),
-                    contentUTF8Offset: text.utf8.distance(from: text.utf8.startIndex, to: markerEnd),
-                    openingMarker: marker
-                )
-                plainStart = markerEnd
-                index = markerEnd
-                continue parsing
             case "!":
                 let nextIndex = text.index(after: index)
                 guard nextIndex < text.endIndex else {
