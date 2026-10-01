@@ -217,3 +217,31 @@ as well as ambiguous metadata and padding. Unquoted display-math opening
 lines now also wait for the physical line boundary, with the same capped
 fallback. Forty-three fixtures validate every chunk split, scalar-sized
 feeds, repeat determinism, footnote boundaries, and list-owned nested quotes.
+
+## Combined Stack Checkpoint f83433f (2026-09-30)
+
+All tokenizer benchmark cases run serially with no concurrent builds, after
+propagating the four additional PR9 fixes into PR11. Iteration counts match
+the preceding combined-stack checkpoint.
+
+| Case | Average |
+| --- | --- |
+| sample1, 128-byte chunks | 0.016627 s |
+| sample1, 512-byte chunks | 0.016457 s |
+| sample1, 1024-byte chunks | 0.016197 s |
+| sample1, example word stream | 0.022839 s |
+| Inline math, 128 chunks / 8192 bytes | 0.002923 s |
+| Inline math, 256 chunks / 16384 bytes | 0.005790 s |
+| InlineParser math, 512 combining-mark chunks | 0.000528 s |
+| InlineParser math, 1024 combining-mark chunks | 0.000901 s |
+| Quoted blank line, 1024 one-space chunks | 0.032138 s |
+| Quoted blank line, 2048 one-space chunks | 0.042070 s |
+| Alternating space/tab padding, 1024 chunks | 0.034189 s |
+| Alternating space/tab padding, 2048 chunks | 0.044349 s |
+| Deferred quoted table candidate, 1024 one-character chunks | 0.023483 s |
+| Deferred quoted table candidate, 2048 one-character chunks | 0.032727 s |
+
+Sample1 remains within 3-6% of the fresh-review baseline, including the extra
+local opener/container checks. Long math takes 1.98x when input doubles;
+the isolated Unicode scanner takes 1.71x, and quoted deferred cases take
+1.30-1.39x. No material throughput regression was observed.

@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 223 Swift Testing tests
-  passed. Eight benchmark definitions also passed with measurement disabled.
+- [x] Full macOS `swift test`: 37 XCTest tests and 225 Swift Testing tests
+  passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  260 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  262 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,12 +41,18 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 34 quoted fixtures pass every chunk split and character-at-a-time
+  All 43 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
   inspected at 100% and 200% scale at 334-point width, with correct order
   and no clipping.
+- [x] Additional review regressions: unquoted same-line math also waits for
+  a physical line boundary without provisional events; deferred quoted table
+  candidates obey the look-behind cap; footnotes close before adjacent
+  definitions/unindented text and preserve indented soft-break continuations;
+  ordered/unordered list items retain ownership of indented nested quotes.
+  Event structure, bounded pending state, and every-split equivalence pass.
 - [x] Math cursors resume at UTF-8 byte boundaries even when combining marks,
   variation selectors, or ZWJ continuations extend a prior grapheme. Scalar
   chunk tests preserve TeX, match single-shot output, and repeat identical
@@ -88,7 +94,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 ## Remaining Manual Check
 
 The desktop was initially locked, then became available for the interaction
-checks above. Pointer-only hover and a host's popover placement remain manual
+checks above. It locked again before visual inspection of the latest adjacent
+footnote/continuation and list-owned nested-quote additions. Those additions
+pass event/structure and native rendering tests, but their actual example-app
+appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
 Native tests exercise the hover callbacks and glyph geometry, not a consuming
 app's coordinate conversion or popover anchoring.
