@@ -330,3 +330,20 @@ bytes (1.90x). The 20-iteration isolated Unicode scanner means are
 Ten-iteration quote means at 1024/2048 chunks are `0.032418 / 0.041926 s`
 for spaces, `0.034400 / 0.044157 s` for alternating padding, and
 `0.023275 / 0.033359 s` for deferred table candidates (1.28-1.43x).
+
+### Fence/Heading Boundaries And Quoted Attachment Widths
+
+After accepting longer matching fence closers, up-to-three-space ATX
+indentation, and unmarked rules that interrupt lazy quotes, 72 quoted fixtures
+pass every split and deterministic character streams. Native tests also cover
+list-owned quote indentation and Mermaid request/attachment widths after
+subtracting quote/list gutters at 160, 320, and 800 points.
+
+The serial sample1 means are `0.016558 / 0.016348 / 0.016452 s` at
+128/512/1024-byte chunks, and `0.022932 s` for the example word stream
+(50 iterations). No material regression against the preceding PR9 checkpoint
+was observed. The 1024/2048 one-character means are `0.033130 / 0.047848 s`
+for spaces, `0.035121 / 0.049186 s` for alternating padding, and
+`0.024107 / 0.038600 s` for deferred tables (10 iterations; doubling takes
+1.40-1.60x). Benchmarks ran after all builds/tests, with skip-build and no
+concurrent build work.

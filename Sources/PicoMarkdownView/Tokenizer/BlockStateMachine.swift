@@ -1308,6 +1308,7 @@ struct StreamingParser {
             }
             if !lazyContinuation || lineBuffer.trimmingCharacters(in: .whitespaces).isEmpty ||
                 detectHeading(lineBuffer) != nil || detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
+                (isLineComplete && detectHorizontalRule(lineBuffer, indent: 0)) ||
                 (isLineComplete && detectFenceOpening(lineBuffer) != nil) {
                 closeBlockquoteContexts()
             }
@@ -1680,6 +1681,10 @@ struct StreamingParser {
         guard let fence = fence else { return false }
         if fence.isIndented { return false }
         let marker = fence.closingMarker ?? fence.marker
+        if let first = marker.first, first == "`" || first == "~", marker.allSatisfy({ $0 == first }) {
+            let length = line.prefix { $0 == first }.count
+            return length >= marker.count && line.dropFirst(length).allSatisfy { $0.isWhitespace }
+        }
         guard line.hasPrefix(marker) else { return false }
         let remainder = line.dropFirst(marker.count)
         return remainder.trimmingCharacters(in: .whitespaces).isEmpty
@@ -1687,13 +1692,19 @@ struct StreamingParser {
 
     private func detectHeading(_ line: String) -> HeadingInfo? {
         var index = line.startIndex
+        var indent = 0
+        while index < line.endIndex, line[index] == " ", indent < 4 {
+            indent += 1
+            index = line.index(after: index)
+        }
+        guard indent <= 3 else { return nil }
         var level = 0
         while index < line.endIndex, line[index] == "#", level < 6 {
             level += 1
             index = line.index(after: index)
         }
-        guard level > 0, index < line.endIndex, line[index] == " " else { return nil }
-        let prefixLength = level + 1 // heading markers + following space
+        guard level > 0, index < line.endIndex, line[index] == " " || line[index] == "\t" else { return nil }
+        let prefixLength = indent + level + 1
         return HeadingInfo(level: level, prefixLength: prefixLength)
     }
 
