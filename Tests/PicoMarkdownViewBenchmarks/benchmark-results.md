@@ -302,3 +302,24 @@ Quoted 1024/2048 means are `0.034281 / 0.048277 s` for spaces,
 `0.025425 / 0.040565 s` for tables (10 iterations, 1.41-1.60x).
 The 1024-space mean is 4% higher than the preceding run; the final combined
 comparison remains required. No build commands ran concurrently.
+
+### Empty Markers And Complete Content Indentation
+
+Four additional review findings are fixed: blank first-item markers cannot
+interrupt quoted paragraphs, completed marker-only ATX headings are accepted,
+quoted list children require the complete marker/content indentation, and
+tab-expanded indentation distinguishes fences from indented code. All 284
+quoted fixtures pass every split, character streaming, and deterministic-event
+checks. Full suites pass 34 XCTest + 230 Swift Testing definitions on macOS
+and 265 definitions on iOS, without failures or runtime warnings.
+
+After both suites completed, serial skip-build sample1 means were
+`0.016870 / 0.016206 / 0.015947 s` at 128/512/1024 bytes and `0.022586 s`
+for word streaming (50 iterations). Quoted 1024/2048 means were
+`0.033167 / 0.049245 s` for spaces, `0.035040 / 0.050650 s` for alternating
+padding, and `0.024969 / 0.039950 s` for tables (10 iterations, 1.45-1.60x).
+Sample and word means remain within 3% of the stable `3c00a0a` checkpoint.
+The longer quoted cases are 13-18% slower than that checkpoint, although
+within 3% of the preceding lower-branch run. A final combined-stack repeat
+will check persistence; this run alone is not evidence of no regression.
+No build commands ran concurrently.
