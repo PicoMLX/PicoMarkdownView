@@ -148,6 +148,30 @@ struct QuotedBlockTests {
     ] + successorDocuments.map(\.source) + emptyMarkerDocuments + emptyHeadingDocuments.map(\.source)
       + contentIndentDocuments.map(\.source) + tabFenceDocuments
       + ["> - \n\n", "> 1.\n\n", "> paragraph\n> - [ ] \n\n"]
+      + markerPaddingDocuments.map(\.source) + mixedIndentDocuments.map(\.source)
+      + markerPaddingControls + ["> -     item.\n>   # heading\n\n"]
+
+    private static let markerPaddingControls: [String] = (1...4).flatMap { padding in
+        ["> -\(String(repeating: " ", count: padding))[x] item\n> \(String(repeating: " ", count: padding + 1))# heading\n\n",
+         "> 1.\(String(repeating: " ", count: padding))\n>    # heading\n\n"]
+    }
+
+    private static let markerPaddingDocuments: [(source: String, owned: Bool)] = ["-", "1.", "10."].flatMap { marker in
+        (1...4).flatMap { padding in
+            [marker.count, marker.count + padding].map { indent in
+                ("> \(marker)\(String(repeating: " ", count: padding))item\n> \(String(repeating: " ", count: indent))# heading\n\n", indent == marker.count + padding)
+            }
+        }
+    }
+
+    private static let mixedIndentDocuments: [(source: String, code: String)] = ["\t", "  ", "    "].flatMap { opening in
+        ["  ", "\t", "    ", "      "].map { continuation in
+            let openingColumns = opening == "\t" ? 4 : opening.count
+            let continuationColumns = continuation == "\t" ? 4 : continuation.count
+            return ("> - item\n> \(opening)```\n> \(continuation)code\n>   ```\n\n",
+                String(repeating: " ", count: max(0, continuationColumns - openingColumns)) + "code\n")
+        }
+    }
 
     private static let emptyMarkerDocuments: [String] = ["> paragraph\n> ", "> # heading\n> paragraph\n> ", "> > paragraph\n> "].flatMap { prefix in
         ["- ", "* ", "+ ", "1.", "1. ", "2. ", "1.  \t"].map { prefix + $0 + "\n\n" }
@@ -573,7 +597,7 @@ struct QuotedBlockTests {
         let ordered = await parse(chunks: Self.documents[86].map(String.init))
         #expect(!ordered.blocks.contains { $0.codeText?.contains("outside") == true })
         let tab = await parse(chunks: Self.documents[87].map(String.init))
-        #expect(tab.blocks.first { $0.codeText != nil }?.codeText == "code\n")
+        #expect(tab.blocks.first { $0.codeText != nil }?.codeText == "  code\n")
     }
 
     @Test("Initial quoted code and post-child list text retain literal content and order")
@@ -784,6 +808,60 @@ struct QuotedBlockTests {
             #expect(code.kind == .fencedCode(language: nil))
             #expect(code.codeText?.contains("```swift") == true)
             #expect(result.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+        }
+    }
+
+    @Test("Quoted list content columns include all one-to-four-space marker padding")
+    func completeMarkerPadding() async throws {
+        for fixture in Self.markerPaddingDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            let heading = try #require(result.blocks.last)
+            #expect(heading.kind == .heading(level: 1))
+            #expect(heading.parentID == (fixture.owned ? item.id : result.blocks.first?.id))
+            #expect(item.inlineRuns?.map(\.text).joined() == "item\n")
+        }
+        for source in Self.markerPaddingControls {
+            let result = await parse(chunks: source.map(String.init))
+            let item = try #require(result.blocks.first { if case .listItem = $0.kind { return true }; return false })
+            #expect(result.blocks.last?.parentID == item.id)
+            if source.contains("[x]") {
+                #expect(item.kind == .listItem(ordered: false, index: nil, task: .init(checked: true)))
+                #expect(item.inlineRuns?.map(\.text).joined() == "item\n")
+            }
+        }
+        let overPadding = await parse(chunks: "> -     item.\n>   # heading\n\n".map(String.init))
+        #expect(overPadding.blocks.last?.parentID == overPadding.blocks.first { if case .listItem = $0.kind { return true }; return false }?.id)
+    }
+
+    @Test("Quoted list-owned fences strip each line's content columns rather than the opener's character count")
+    func mixedListContentIndent() async throws {
+        for fixture in Self.mixedIndentDocuments {
+            let result = await parse(chunks: fixture.source.map(String.init))
+            #expect(result.blocks.first { $0.codeText != nil }?.codeText == fixture.code)
+        }
+    }
+
+    @Test("Incomplete unquoted display math closing lines remain pending")
+    func unquotedMathCloserSuffix() async throws {
+        for (opening, closing) in [("$$", "$$"), ("\\[", "\\]")] {
+            let source = "\(opening)\nx\n\(closing)not a closer\nafter\n\n"
+            let single = await parse(chunks: [source])
+            #expect(single.blocks.count == 1)
+            #expect(single.blocks.first?.mathText == "x\n\(closing)not a closer\nafter\n\n")
+            let characters = Array(source)
+            for split in 0...characters.count {
+                let chunks = [String(characters[..<split]), String(characters[split...])]
+                let streamed = await parse(chunks: chunks)
+                #expect(streamed.blocks == single.blocks)
+                #expect(streamed.events == (await parse(chunks: chunks)).events)
+            }
+            #expect((await parse(chunks: source.map(String.init))).blocks == single.blocks)
+            for suffix in ["\n\nafter\n\n", ""] {
+                let valid = await parse(chunks: ("\(opening)\nx\n\(closing)" + suffix).map(String.init))
+                #expect(valid.blocks.first?.mathText == "x\n")
+                if !suffix.isEmpty { #expect(valid.blocks.last?.inlineRuns?.map(\.text).joined() == "after") }
+            }
         }
     }
 
