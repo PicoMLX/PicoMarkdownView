@@ -13,7 +13,7 @@ import AppKit
 final class TextKitStreamingController: ObservableObject {
     private static let logger = Logger(subsystem: "com.picomarkdown", category: "Controller")
     private let backend = TextKitStreamingBackend()
-    private var lastAppliedVersion: UInt64 = 0
+    private(set) var lastAppliedVersion: UInt64 = 0
     private var lastAppliedReplaceToken: UInt64 = 0
 
 #if canImport(UIKit)
@@ -34,12 +34,13 @@ final class TextKitStreamingController: ObservableObject {
                 blocks: [RenderedBlock],
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
+                documentVersion: UInt64 = 0,
                 configuration: PicoTextKitConfiguration) {
         configure(textView, with: configuration)
         backend.setPaused(configuration.isPaused)
         if replaceToken != lastAppliedReplaceToken {
             lastAppliedReplaceToken = replaceToken
-            lastAppliedVersion = 0
+            lastAppliedVersion = configuration.isPaused ? 0 : documentVersion
             _ = backend.apply(blocks: blocks, selection: textView.selectedRange)
             textView.setNeedsDisplay()
             textView.invalidateIntrinsicContentSize()
@@ -123,6 +124,7 @@ final class TextKitStreamingController: ObservableObject {
                 blocks: [RenderedBlock],
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
+                documentVersion: UInt64 = 0,
                 configuration: PicoTextKitConfiguration) {
         Self.logger.debug("update: \(blocks.count) blocks, replaceToken=\(replaceToken), lastApplied=\(self.lastAppliedReplaceToken), storageLen=\(self.backend.length)")
         configure(textView, with: configuration)
@@ -130,7 +132,7 @@ final class TextKitStreamingController: ObservableObject {
         backend.setPaused(configuration.isPaused)
         if replaceToken != lastAppliedReplaceToken {
             lastAppliedReplaceToken = replaceToken
-            lastAppliedVersion = 0
+            lastAppliedVersion = configuration.isPaused ? 0 : documentVersion
             _ = backend.apply(blocks: blocks, selection: currentSelection)
             Self.logger.debug("applied full replace: storageLen=\(self.backend.length)")
             textView.needsDisplay = true
@@ -185,7 +187,7 @@ final class TextKitStreamingController: ObservableObject {
     }
 #endif
 
-    private func eligibleDiffs(from diffs: [AssemblerDiff], blocks: [RenderedBlock]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
+    func eligibleDiffs(from diffs: [AssemblerDiff], blocks: [RenderedBlock]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
         guard !diffs.isEmpty else { return ([], lastAppliedVersion) }
         var eligible: [AssemblerDiff] = []
         eligible.reserveCapacity(diffs.count)

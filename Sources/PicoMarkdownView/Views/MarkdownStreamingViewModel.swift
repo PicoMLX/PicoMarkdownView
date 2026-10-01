@@ -26,10 +26,12 @@ final class MarkdownStreamingViewModel {
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
     var replaceToken: UInt64 = 0
+    var documentVersion: UInt64 = 0
 
     private var pendingBlocks: [RenderedBlock]?
     private var pendingDiffs: [AssemblerDiff] = []
     private var pendingReplaceToken: UInt64?
+    private var pendingDocumentVersion: UInt64 = 0
     private var updateScheduled = false
     private var mermaidContentWidth: CGFloat?
     private var mermaidContentWidthBucket: Int?
@@ -241,13 +243,15 @@ final class MarkdownStreamingViewModel {
         latestEnqueuedVersion = update.diff.documentVersion
         let replace = replacing || documentNeedsReplacement
         documentNeedsReplacement = false
-        enqueueUpdate(blocks: update.blocks, diff: replace ? nil : update.diff)
+        enqueueUpdate(blocks: update.blocks, diff: replace ? nil : update.diff,
+                      version: update.diff.documentVersion)
     }
 
-    private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?) {
+    private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?, version: UInt64 = 0) {
         updateImageDependencies(using: blocks)
         scheduleImagePrefetchIfNeeded(using: blocks)
         pendingBlocks = blocks
+        pendingDocumentVersion = version
         if let diff {
             pendingDiffs.append(diff)
         } else {
@@ -277,6 +281,7 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("flushPendingUpdates: \(blocks.count) blocks, replaceToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
         #endif
         self.blocks = blocks
+        documentVersion = pendingDocumentVersion
         self.diffQueue = pendingDiffs
         if let token = pendingReplaceToken {
             replaceToken = token

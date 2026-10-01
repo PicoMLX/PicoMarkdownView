@@ -73,7 +73,21 @@ struct TextScalingTests {
             #expect(try font(in: #require(scaled.first)).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * scale)
         }
         let narrowed = try #require(await pipeline.updateMermaidContentWidth(80)).blocks
-        #expect(try narrowed.filter { !$0.images.isEmpty }.map(attachmentBounds).allSatisfy { $0.size == CGSize(width: 80, height: 40) })
+        for block in narrowed where !block.images.isEmpty {
+            let bounds = try attachmentBounds(in: block)
+            let expectedWidth: CGFloat
+            switch block.kind {
+            case .blockquote: expectedWidth = 80 - BlockquoteBarMetrics.textIndent(level: 1)
+            case .table:
+                #if canImport(AppKit)
+                expectedWidth = 80 - 24 - 2 // Cell padding and borders.
+                #else
+                expectedWidth = 80
+                #endif
+            default: expectedWidth = 80
+            }
+            #expect(bounds.size == CGSize(width: expectedWidth, height: expectedWidth / 2))
+        }
         let widened = try #require(await pipeline.updateMermaidContentWidth(400)).blocks
         #expect(try widened.filter { !$0.images.isEmpty }.map(attachmentBounds).allSatisfy { $0.size == size })
     }
@@ -338,7 +352,7 @@ struct TextScalingTests {
         let view = textKit2 ? controller.makeTextKit2View(configuration: configuration) : controller.makeTextKit1View(configuration: configuration)
         func updateView() {
             controller.update(textView: view, blocks: model.blocks, diffs: model.diffQueue,
-                replaceToken: model.replaceToken, configuration: configuration)
+                replaceToken: model.replaceToken, documentVersion: model.documentVersion, configuration: configuration)
         }
         updateView()
         let selection = NSRange(location: 0, length: initial.blocks.dropLast().reduce(0) { $0 + String($1.content.characters).utf16.count })
@@ -372,6 +386,72 @@ struct TextScalingTests {
             let font = try #require(storage.attribute(.font, at: range.location, effectiveRange: nil) as? MarkdownFont)
             #expect(font.pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
         }
+    }
+
+    @Test("Full replacements retain their snapshot version without false gap scans", arguments: [0, 1, 2], [false, true])
+    func replacementVersionBaseline(scenario: Int, textKit2: Bool) async throws {
+        let model = MarkdownStreamingViewModel()
+        if scenario == 0 {
+            await model.consume(.text("First closed\n\nOpen"))
+        } else {
+            let pipeline = MarkdownStreamingPipeline()
+            let initial = try #require(await pipeline.feed("First closed\n\nOpen"))
+            let next = try #require(await pipeline.feed(" tail"))
+            if scenario == 1 {
+                model.enqueueUpdate(next, replacing: true)
+            } else {
+                model.enqueueUpdate(initial, replacing: true)
+                model.enqueueUpdate(next)
+            }
+        }
+        await drainPublication()
+        #expect(model.documentVersion == 2)
+        #expect(model.diffQueue.isEmpty)
+        let controller = TextKitStreamingController()
+        let configuration = PicoTextKitConfiguration()
+        let view = textKit2 ? controller.makeTextKit2View(configuration: configuration) : controller.makeTextKit1View(configuration: configuration)
+        controller.update(textView: view, blocks: model.blocks, diffs: model.diffQueue,
+            replaceToken: model.replaceToken, documentVersion: model.documentVersion, configuration: configuration)
+        #expect(controller.lastAppliedVersion == model.documentVersion)
+        let narrow = AssemblerDiff(documentVersion: model.documentVersion + 1,
+            changes: [.blockEnded(id: try #require(model.blocks.last).id)])
+        #expect(controller.eligibleDiffs(from: [narrow], blocks: model.blocks).diffs == [narrow])
+        let gap = AssemblerDiff(documentVersion: narrow.documentVersion + 1, changes: narrow.changes)
+        #expect(controller.eligibleDiffs(from: [gap], blocks: model.blocks).diffs.first?.changes.count == 1 + model.blocks.count)
+    }
+
+    @Test("Only the latest queued width refresh renders", arguments: [false, true])
+    func queuedWidthsCoalesce(resetWidth: Bool) async throws {
+        let provider = PausingImageProvider()
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        _ = await pipeline.feed((0..<8).map { "Item \($0) ![image](https://example.com/\($0).png)\n\n" }.joined())
+        _ = await pipeline.finish()
+        let original = await pipeline.blocksSnapshot()
+        let countBefore = await provider.requestCount
+        await provider.pauseNextRequest()
+        let refresh = Task { await pipeline.refreshBlocks([original[0].id]) }
+        await provider.waitUntilPaused()
+        var obsolete: [Task<StreamingUpdate?, Never>] = []
+        for index in 0..<20 {
+            let version = await pipeline.widthRequestVersion
+            obsolete.append(Task { await pipeline.updateMermaidContentWidth(CGFloat(160 + index * 8)) })
+            while await pipeline.widthRequestVersion == version { await Task.yield() }
+        }
+        let latestWidth: CGFloat? = resetWidth ? nil : 800
+        let version = await pipeline.widthRequestVersion
+        let latest = Task { await pipeline.updateMermaidContentWidth(latestWidth) }
+        while await pipeline.widthRequestVersion == version { await Task.yield() }
+        let feed = Task { await pipeline.feed("Tail\n\n") }
+        await provider.resume()
+        _ = await refresh.value
+        for task in obsolete { #expect(await task.value == nil) }
+        _ = await latest.value
+        _ = await feed.value
+        #expect(await provider.requestCount == countBefore + 1 + (resetWidth ? 0 : original.count))
+        let countAfter = await provider.requestCount
+        #expect(await pipeline.updateMermaidContentWidth(latestWidth) == nil)
+        #expect(await provider.requestCount == countAfter)
+        #expect(await pipeline.blocksSnapshot().last?.content.characters.elementsEqual("Tail\n") == true)
     }
 
     @Test("Canceled queued scale changes do not rerender retained blocks")
