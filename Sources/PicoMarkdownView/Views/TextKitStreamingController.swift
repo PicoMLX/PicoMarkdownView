@@ -57,6 +57,9 @@ final class TextKitStreamingController: ObservableObject {
             } else if configuration.isSelectable {
                 textView.selectedRange = textView.selectedRange.clamped(maxLength: backend.length)
             }
+            if !configuration.isPaused {
+                lastAppliedVersion = max(lastAppliedVersion, documentVersion)
+            }
             textView.invalidateIntrinsicContentSize()
             return
         }
@@ -149,6 +152,9 @@ final class TextKitStreamingController: ObservableObject {
                 textView.needsDisplay = true
             } else if configuration.isSelectable {
                 textView.setSelectedRange(currentSelection.clamped(maxLength: backend.length))
+            }
+            if !configuration.isPaused {
+                lastAppliedVersion = max(lastAppliedVersion, documentVersion)
             }
             textView.invalidateIntrinsicContentSize()
             return
