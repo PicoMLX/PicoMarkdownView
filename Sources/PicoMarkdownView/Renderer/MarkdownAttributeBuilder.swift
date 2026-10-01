@@ -58,6 +58,14 @@ actor MarkdownAttributeBuilder {
         }
     }
 
+    // Width staging needs independent configuration, not new provider caches.
+    func copyForContentWidth(_ width: CGFloat?) async -> MarkdownAttributeBuilder {
+        let builder = MarkdownAttributeBuilder(theme: theme, imageProvider: imageProvider,
+                                               mermaidProvider: mermaidProvider)
+        await builder.setRuntimeMermaidMaxWidth(width)
+        return builder
+    }
+
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
                 blockquoteLevel: Int = 0) async -> RenderedContentResult {
         let ownsQuoteStyle = snapshot.kind == .blockquote
