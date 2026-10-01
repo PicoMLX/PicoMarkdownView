@@ -420,6 +420,49 @@ struct TextScalingTests {
         #expect(controller.eligibleDiffs(from: [gap], blocks: model.blocks).diffs.first?.changes.count == 1 + model.blocks.count)
     }
 
+    @Test("Resumed replacements establish their snapshot version before the next chunk", arguments: [0, 1, 2], [false, true])
+    func pausedReplacementVersionBaseline(scenario: Int, textKit2: Bool) async throws {
+        let pipeline = MarkdownStreamingPipeline()
+        _ = await pipeline.feed("First closed\n\nSecond closed\n\nOpen")
+        let replacement = try #require(await pipeline.feed(" tail"))
+        let controller = TextKitStreamingController()
+        var configuration = PicoTextKitConfiguration()
+        let view = textKit2 ? controller.makeTextKit2View(configuration: configuration) : controller.makeTextKit1View(configuration: configuration)
+        if scenario == 1 {
+            controller.update(textView: view, blocks: replacement.blocks, diffs: [],
+                replaceToken: 1, documentVersion: replacement.diff.documentVersion, configuration: configuration)
+        }
+        configuration.isPaused = true
+        controller.update(textView: view, blocks: replacement.blocks, diffs: [],
+            replaceToken: 2, documentVersion: replacement.diff.documentVersion, configuration: configuration)
+        #expect(controller.lastAppliedVersion == 0)
+        let resumed: StreamingUpdate
+        if scenario == 2 {
+            resumed = try #require(await pipeline.feed(" paused"))
+            controller.update(textView: view, blocks: resumed.blocks, diffs: [resumed.diff],
+                replaceToken: 2, documentVersion: resumed.diff.documentVersion, configuration: configuration)
+            #expect(controller.lastAppliedVersion == 0)
+        } else {
+            resumed = replacement
+        }
+        configuration.isPaused = false
+        controller.update(textView: view, blocks: resumed.blocks, diffs: [],
+            replaceToken: 2, documentVersion: resumed.diff.documentVersion, configuration: configuration)
+        #expect(controller.lastAppliedVersion == resumed.diff.documentVersion)
+        #if canImport(UIKit)
+        let storage = view.textStorage
+        #else
+        let storage = try #require(view.textStorage)
+        #endif
+        #expect(storage.string == resumed.blocks.map { String($0.content.characters) }.joined())
+        let next = try #require(await pipeline.feed(" next"))
+        #expect(controller.eligibleDiffs(from: [next.diff], blocks: next.blocks).diffs == [next.diff])
+        controller.update(textView: view, blocks: next.blocks, diffs: [next.diff],
+            replaceToken: 2, documentVersion: next.diff.documentVersion, configuration: configuration)
+        #expect(controller.lastAppliedVersion == next.diff.documentVersion)
+        #expect(storage.string == next.blocks.map { String($0.content.characters) }.joined())
+    }
+
     @Test("Only the latest queued width refresh renders", arguments: [false, true])
     func queuedWidthsCoalesce(resetWidth: Bool) async throws {
         let provider = PausingImageProvider()
