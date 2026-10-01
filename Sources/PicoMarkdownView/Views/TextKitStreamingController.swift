@@ -45,7 +45,7 @@ final class TextKitStreamingController: ObservableObject {
             textView.invalidateIntrinsicContentSize()
             return
         }
-        let eligible = eligibleDiffs(from: diffs)
+        let eligible = eligibleDiffs(from: diffs, blocks: blocks)
         if eligible.diffs.isEmpty {
             // Safety net: if the blocks have changed but all diffs were already
             // consumed (e.g. coalesced flush delivered stale diff versions),
@@ -137,7 +137,7 @@ final class TextKitStreamingController: ObservableObject {
             textView.invalidateIntrinsicContentSize()
             return
         }
-        let eligible = eligibleDiffs(from: diffs)
+        let eligible = eligibleDiffs(from: diffs, blocks: blocks)
         if eligible.diffs.isEmpty {
             // Safety net: if the blocks have changed but all diffs were already
             // consumed (e.g. coalesced flush delivered stale diff versions),
@@ -185,14 +185,22 @@ final class TextKitStreamingController: ObservableObject {
     }
 #endif
 
-    private func eligibleDiffs(from diffs: [AssemblerDiff]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
+    private func eligibleDiffs(from diffs: [AssemblerDiff], blocks: [RenderedBlock]) -> (diffs: [AssemblerDiff], lastVersion: UInt64) {
         guard !diffs.isEmpty else { return ([], lastAppliedVersion) }
         var eligible: [AssemblerDiff] = []
         eligible.reserveCapacity(diffs.count)
         var latest = lastAppliedVersion
+        var hasGap = false
         for diff in diffs where diff.documentVersion > latest {
+            hasGap = hasGap || diff.documentVersion - latest > 1
             eligible.append(diff)
             latest = diff.documentVersion
+        }
+        if hasGap {
+            // A rejected or coalesced publication may have changed closed
+            // blocks. Patch cached presentations too; structural gaps use
+            // the backend's existing full-synchronization fallback.
+            eligible[eligible.count - 1].changes.append(contentsOf: blocks.map { .blockEnded(id: $0.id) })
         }
         return (eligible, latest)
     }
