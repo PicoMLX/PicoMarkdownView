@@ -29,6 +29,7 @@ struct MarkdownView: View {
     @State private var tagHoverReadout: String?
     @State private var linkHoverReadout: String?
     @State private var contentSize: CGSize?
+    @State private var textScale: CGFloat = 1
 
     private let autoScrollClock = ContinuousClock()
 
@@ -67,6 +68,7 @@ struct MarkdownView: View {
                             handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
                         }
                     }
+                    .markdownTextScale(textScale)
                 }
                 Tab("Debug", systemImage: "ladybug") {
                     ScrollView {
@@ -120,6 +122,32 @@ struct MarkdownView: View {
                 }
             }
             .font(.caption)
+
+            HStack(spacing: 12) {
+                Button("Zoom Out", systemImage: "minus.magnifyingglass") {
+                    textScale = max(0.5, textScale - 0.25)
+                }
+                .disabled(textScale <= 0.5)
+                .help("Zoom Out")
+                Button("Actual Size", systemImage: "1.magnifyingglass") {
+                    textScale = 1
+                }
+                .help("Actual Size")
+                Button("Zoom In", systemImage: "plus.magnifyingglass") {
+                    textScale = min(2, textScale + 0.25)
+                }
+                .disabled(textScale >= 2)
+                .help("Zoom In")
+                Text(textScale, format: .percent.precision(.fractionLength(0)))
+                    .monospacedDigit()
+                    .frame(width: 44, alignment: .trailing)
+            }
+            .labelStyle(.iconOnly)
+            #if os(iOS)
+            .buttonStyle(ZoomButtonStyle())
+            #else
+            .buttonStyle(.borderless)
+            #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
@@ -185,6 +213,17 @@ struct MarkdownView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct ZoomButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+#endif
 
 private struct ScrollMetrics: Equatable {
     let offsetY: CGFloat

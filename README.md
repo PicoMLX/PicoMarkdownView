@@ -9,7 +9,7 @@ SwiftUI component for rendering streaming Markdown and KaTeX in chat-style apps 
 Add the package in your project’s `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/ronaldmannak/PicoMarkdownView.git", branch: "main")
+.package(url: "https://github.com/PicoMLX/PicoMarkdownView.git", branch: "main")
 ```
 
 Then add `PicoMarkdownView` to the target dependencies that require it.
@@ -17,6 +17,7 @@ Then add `PicoMarkdownView` to the target dependencies that require it.
 ## Usage
 
 ```swift
+import SwiftUI
 import PicoMarkdownView
 
 @State private var text = "Hello **Markdown**"
@@ -65,20 +66,21 @@ PicoMarkdownView("Hello", configuration: config)
 
 ### Custom Theme (Fonts & Colors)
 
-`MarkdownRenderTheme` lets you tune typography and colors across platforms using the shared `MarkdownFont` / `MarkdownColor` aliases (which map to `UIFont` on iOS and `NSFont` on macOS):
+`MarkdownRenderTheme` uses Sendable `FontSpec` and `ThemeColor` values, resolved to native fonts and colors by the renderer:
 
 ```swift
+import SwiftUI
 import PicoMarkdownView
 
 let theme = MarkdownRenderTheme(
-    bodyFont: MarkdownFont.preferredFont(forTextStyle: .body).withSize(18),
-    codeFont: MarkdownFont.monospacedSystemFont(ofSize: 16, weight: .regular),
-    blockquoteColor: MarkdownColor.secondaryLabel,
-    linkColor: MarkdownColor.systemBlue,
+    bodyFont: FontSpec(size: 18),
+    codeFont: FontSpec(size: 16, design: .monospaced),
+    blockquoteColor: .secondaryLabel,
+    linkColor: .link,
     headingFonts: [
-        1: MarkdownFont.systemFont(ofSize: 30, weight: .bold),
-        2: MarkdownFont.systemFont(ofSize: 26, weight: .semibold),
-        3: MarkdownFont.systemFont(ofSize: 22, weight: .semibold)
+        1: FontSpec(size: 30, weight: .bold),
+        2: FontSpec(size: 26, weight: .semibold),
+        3: FontSpec(size: 22, weight: .semibold)
     ]
 )
 
@@ -89,9 +91,10 @@ var body: some View {
 
 ### Adjusting Font Size (Zoom Controls)
 
-You can provide “Actual Size”, “Zoom In”, and “Zoom Out” controls by keeping a zoom factor in state and rebuilding the theme when it changes:
+The view follows SwiftUI Dynamic Type. Use `.markdownTextScale(_:)` for additional live zoom; it updates block presentation without restarting the stream or reparsing text. Body, heading, inline code, syntax-highlighted code, and math sizes scale together, and selections spanning blocks are preserved.
 
 ```swift
+import SwiftUI
 import PicoMarkdownView
 
 struct ZoomableMarkdownView: View {
@@ -102,33 +105,30 @@ struct ZoomableMarkdownView: View {
     Inline math: \\(E = mc^2\\)
     """
 
-    private let baseTheme = MarkdownRenderTheme.default()
-
-    private var scaledTheme: MarkdownRenderTheme {
-        var theme = baseTheme
-        theme.bodyFont = theme.bodyFont.withSize(theme.bodyFont.pointSize * zoom)
-        theme.codeFont = theme.codeFont.withSize(theme.codeFont.pointSize * zoom)
-        var headings: [Int: MarkdownFont] = [:]
-        for (level, font) in theme.headingFonts {
-            headings[level] = font.withSize(font.pointSize * zoom)
-        }
-        theme.headingFonts = headings
-        return theme
-    }
-
     var body: some View {
         VStack(spacing: 16) {
             HStack(spacing: 12) {
-                Button("Zoom Out") { zoom = max(0.5, zoom - 0.1) }
+                Button("Zoom Out", systemImage: "minus.magnifyingglass") { zoom = max(0.5, zoom - 0.1) }
+                    .labelStyle(.iconOnly).help("Zoom Out")
                 Button("Actual Size") { zoom = 1.0 }
-                Button("Zoom In") { zoom = min(2.0, zoom + 0.1) }
+                Button("Zoom In", systemImage: "plus.magnifyingglass") { zoom = min(2.0, zoom + 0.1) }
+                    .labelStyle(.iconOnly).help("Zoom In")
             }
-            PicoMarkdownView(markdown, theme: scaledTheme)
+            PicoMarkdownView(markdown)
+                .markdownTextScale(zoom)
         }
         .padding()
     }
 }
 ```
+
+Theme, image provider, and tag-prefix configuration remain fixed per view identity. Change `.id(...)` when replacing that configuration; use live text scaling for zoom instead. `MarkdownRenderTheme.scaled(by:)` also returns an immutable scaled theme for non-view renderer use.
+
+### Quoted Blocks And Math
+
+Blockquotes support nested quotes, headings, lists, and fenced code. Child blocks retain their native styling and inherit quote bars, which are decorations rather than selectable characters. See the example app's `Blockquotes` document.
+
+Math inside `$...$`, `$$...$$`, `\(...\)`, and `\[...\]` is opaque to Markdown, including in table cells. The tokenizer buffers ambiguous delimiters and emits each complete inline equation once. Unsupported math rendering falls back in the renderer without changing tokenizer events. The example app's `TableMath` document and zoom controls exercise table equations and quoted child blocks at multiple sizes.
 
 ### Code Block Highlighting
 

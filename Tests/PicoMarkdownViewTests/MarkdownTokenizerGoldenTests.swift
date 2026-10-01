@@ -1932,6 +1932,56 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Closed inline math retains plain suffixes before unfinished delimiters",
+          arguments: ["$[$", "\\([\\)"], ["a*", "a_", "a`", "\u{e9}*", "e\u{301}*"])
+    func inlineMathBufferedSuffix(mathSpan: String, suffix: String) async {
+        let source = mathSpan + suffix
+        let expected = [mathInline("["), plain(suffix)]
+        #expect(coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init)) == expected)
+        let scalars = Array(source.unicodeScalars).map(String.init)
+        for split in 0...scalars.count {
+            let chunks = [scalars[..<split].joined(), scalars[split...].joined()]
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
+            let documentChunks = chunks + ["\n\n"]
+            let events = await collectEvents(chunks: documentChunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: expected)])
+            #expect(events == (await collectEvents(chunks: documentChunks)))
+        }
+        #expect(summarizeBlocks(from: await collectEvents(chunks: scalars + ["\n\n"])) == [.inline(kind: "paragraph", runs: expected)])
+    }
+
+    @Test("Post-math grapheme context is independent of chunk boundaries",
+          arguments: ["$z$", "$$z$$", "\\(z\\)", "\\[z\\]"],
+          ["\u{301}_foo_", "\u{fe0f}_foo_", "\u{200d}_foo_", "\u{903}_foo_",
+           "\u{301}\u{fe0f}\u{200d}_foo_", "_foo_", "__foo__", "\u{301}*foo*", "\u{301}`foo`", "\u{301}a*"])
+    func inlineMathGraphemeHandoff(mathSpan: String, suffix: String) async {
+        let source = "p" + mathSpan + suffix
+        let expected = coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init))
+        let display = mathSpan.hasPrefix("$$") || mathSpan.hasPrefix("\\[")
+        #expect(Array(expected.prefix(2)) == [plain("p"), mathInline("z", display: display)])
+        if suffix.hasSuffix("_foo_"), suffix != "__foo__" {
+            #expect(expected.last == InlineRunShape(text: "foo", style: [.italic]))
+        }
+        let scalars = Array(source.unicodeScalars).map(String.init)
+        var chunkSequences: [[String]] = [scalars, Array(source).map(String.init)]
+        for split in 0...scalars.count {
+            chunkSequences.append([scalars[..<split].joined(), scalars[split...].joined()])
+        }
+        for chunks in chunkSequences {
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "Chunks: \(chunks)")
+            let documentChunks = chunks + ["\n\n"]
+            let events = await collectEvents(chunks: documentChunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: expected)], "Chunks: \(chunks)")
+            #expect(events == (await collectEvents(chunks: documentChunks)))
+        }
+    }
+
     @Test("Inline math via command delimiters preserves TeX commands")
     func inlineMathCommandDelimitersPreserveTeXCommands() async {
         let tokenizer = MarkdownTokenizer()

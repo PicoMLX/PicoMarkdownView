@@ -30,9 +30,9 @@ final class TextKitInteractionTests: XCTestCase {
                     let view = usesTextKit2 ? controller.makeTextKit2View(configuration: .default()) : controller.makeTextKit1View(configuration: .default())
                     view.frame = NSRect(x: 0, y: 0, width: width, height: 1600)
                     view.appearance = NSAppearance(named: .aqua)
+                    controller.update(textView: view, blocks: blocks, diffs: [], replaceToken: 1, configuration: .default())
                     view.drawsBackground = true
                     view.backgroundColor = .white
-                    controller.update(textView: view, blocks: blocks, diffs: [], replaceToken: 1, configuration: .default())
                     view.layoutSubtreeIfNeeded()
                     let layout = try XCTUnwrap(view.layoutManager)
                     let container = try XCTUnwrap(view.textContainer)

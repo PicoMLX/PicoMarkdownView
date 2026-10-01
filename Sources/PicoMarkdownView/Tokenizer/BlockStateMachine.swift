@@ -161,6 +161,8 @@ struct StreamingParser {
     }
     private var lineBuffer: String = ""
     private var emittedCount: Int = 0
+    private var emittedLineUTF8Offset: Int?
+    private var emittedLineBlockID: BlockID?
     private var lineAnalyzed: Bool = false
     private var quotePrefixResolved = false
     private var lineWasQuoted = false
@@ -789,7 +791,13 @@ struct StreamingParser {
             emittedCount = max(emittedCount, strip)
         }
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
-        guard emittedCount < sourceLine.count else { return }
+        let start: String.Index
+        if emittedLineBlockID == ctx.id, let byteOffset = emittedLineUTF8Offset {
+            start = sourceLine.utf8.index(sourceLine.utf8.startIndex, offsetBy: byteOffset)
+        } else {
+            start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
+        }
+        guard start < sourceLine.endIndex else { return }
         // Marker-only quote lines (`>`, `>  `) are paragraph separators, not
         // content: never emit their leftover whitespace (or a hard-break
         // newline from trailing spaces). While the line may still grow this
@@ -814,9 +822,9 @@ struct StreamingParser {
         }
         let delta: String
         if context.kind.isVerbatim || context.kind == .unknown {
-            delta = quotedLiteralDelta(from: sourceLine, startingAt: emittedCount)
+            delta = quotedLiteralDelta(from: sourceLine, startingAt: start)
         } else {
-            delta = String(sourceLine.dropFirst(emittedCount))
+            delta = String(sourceLine[start...])
         }
         let trimmedLine = context.kind.isVerbatim ? lineBuffer.trimmingCharacters(in: .whitespaces) : ""
         let closingIndentIsPossible = lineBuffer.prefix(4).count < 4 ||
@@ -875,6 +883,10 @@ struct StreamingParser {
         }
         append(delta, context: &context)
         setCurrentBlock(context)
+        // A newly appended scalar can extend the last emitted grapheme without
+        // increasing Character count. Track the exact byte boundary instead.
+        emittedLineUTF8Offset = lineBuffer.utf8.count
+        emittedLineBlockID = context.id
         emittedCount = lineBuffer.count
         quoteIndentTabs.removeAll(keepingCapacity: true)
         quoteIndentOffset = 0
@@ -985,6 +997,8 @@ struct StreamingParser {
     private mutating func resetLineState() {
         lineBuffer.removeAll(keepingCapacity: true)
         emittedCount = 0
+        emittedLineUTF8Offset = nil
+        emittedLineBlockID = nil
         lineAnalyzed = false
         quotePrefixResolved = false
         lineWasQuoted = false
@@ -1199,7 +1213,12 @@ struct StreamingParser {
         let trimCount = min(overflow, emittedCount)
         guard trimCount > 0 else { return }
 
+        let trimEnd = lineBuffer.index(lineBuffer.startIndex, offsetBy: trimCount)
+        let trimmedBytes = lineBuffer.utf8.distance(from: lineBuffer.utf8.startIndex, to: trimEnd)
         lineBuffer.removeFirst(trimCount)
+        if let byteOffset = emittedLineUTF8Offset {
+            emittedLineUTF8Offset = max(0, byteOffset - trimmedBytes)
+        }
         emittedCount = max(0, emittedCount - trimCount)
     }
 
@@ -2106,10 +2125,10 @@ struct StreamingParser {
         return (content, index == bytes.endIndex ? column : nil, tabs)
     }
 
-    private func quotedLiteralDelta(from line: String, startingAt start: Int) -> String {
-        var index = line.index(line.startIndex, offsetBy: start)
+    private func quotedLiteralDelta(from line: String, startingAt start: String.Index) -> String {
+        var index = start
         guard !quoteIndentTabs.isEmpty else { return String(line[index...]) }
-        var offset = start
+        var offset = line.utf8.distance(from: line.utf8.startIndex, to: start)
         var result = ""
         // Only unresolved indentation is mapped; already-emitted tabs are
         // discarded after appending. A partially stripped tab leaves spaces.

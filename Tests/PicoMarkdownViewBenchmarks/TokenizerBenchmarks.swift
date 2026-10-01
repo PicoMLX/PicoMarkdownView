@@ -28,6 +28,32 @@ struct MarkdownTokenizerBenchmarks {
         try await runBenchmark(onChunks: chunks, iterations: 50, label: "Tokenizer sample1 example-word-stream")
     }
 
+    @Test("Tokenizer long inline math benchmark", arguments: [128, 256])
+    func tokenizerLongInlineMathBenchmark(chunkCount: Int) async throws {
+        guard ProcessInfo.processInfo.environment["RUN_BENCHMARKS"] == "1" else { return }
+        let chunk = String(repeating: "x+", count: 32)
+        let chunks = ["Equation: $"] + Array(repeating: chunk, count: chunkCount) + ["$\n\n"]
+        try await runBenchmark(onChunks: chunks, iterations: 10,
+                               label: "Tokenizer inline-math chunkCount=\(chunkCount) bytes=\(chunk.utf8.count * chunkCount)")
+    }
+
+    @Test("Inline math grapheme-extension benchmark", arguments: [512, 1024])
+    func inlineMathGraphemeBenchmark(chunkCount: Int) async {
+        guard ProcessInfo.processInfo.environment["RUN_BENCHMARKS"] == "1" else { return }
+        let clock = ContinuousClock()
+        let start = clock.now
+        let iterations = 20
+        for _ in 0..<iterations {
+            var parser = InlineParser()
+            _ = parser.append("Equation: $a")
+            for _ in 0..<chunkCount { _ = parser.append("\u{0301}") }
+            _ = parser.append("$")
+            _ = parser.finish()
+        }
+        let total = start.duration(to: clock.now)
+        print("InlineParser math combining-mark chunks=\(chunkCount) iterations=\(iterations) total=\(format(total)) average=\(format(total / iterations))")
+    }
+
     private func runBenchmark(on text: String, chunkSize: Int, iterations: Int) async throws {
         try await runBenchmark(onChunks: chunk(text, size: chunkSize),
                                iterations: iterations,
