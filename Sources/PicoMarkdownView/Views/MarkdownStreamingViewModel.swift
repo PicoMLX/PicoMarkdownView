@@ -231,7 +231,7 @@ final class MarkdownStreamingViewModel {
 
         let generation = pipelineGeneration
         if let update = await pipeline.updateMermaidContentWidth(normalizedWidth), generation == pipelineGeneration {
-            enqueueUpdate(update, replacing: true)
+            enqueueUpdate(update)
         }
     }
 

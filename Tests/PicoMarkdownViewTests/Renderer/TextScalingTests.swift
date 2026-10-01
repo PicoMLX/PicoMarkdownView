@@ -388,6 +388,69 @@ struct TextScalingTests {
         }
     }
 
+    @Test("Width publication preserves selection across image and Mermaid attachments", arguments: [false, true], [false, true])
+    func widthPublicationPreservesSelection(mermaid: Bool, textKit2: Bool) async throws {
+        let size = CGSize(width: 200, height: 100)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let model = MarkdownStreamingViewModel(imageProvider: provider)
+        let attachment = mermaid ? "```mermaid\ngraph LR\nA-->B\n```" : "![image](https://example.com/image.png)"
+        await model.consume(.text("Before\n\n\(attachment)\n\nAfter\n\n"))
+        await drainPublication()
+        let original = model.blocks
+        #expect(original.count == 3)
+        let attachmentBlock = try #require(original.dropFirst().first)
+        if mermaid { #expect(attachmentBlock.mermaidDiagram != nil) }
+        let initialBounds = try attachmentBounds(in: attachmentBlock)
+        let originalText = original.map { String($0.content.characters) }.joined()
+        let attachmentOffset = String(try #require(original.first).content.characters).utf16.count
+        let selections = [
+            NSRange(location: 0, length: originalText.utf16.count),
+            NSRange(location: 1, length: attachmentOffset),
+            NSRange(location: attachmentOffset, length: originalText.utf16.count - attachmentOffset)
+        ]
+        let controller = TextKitStreamingController()
+        let configuration = PicoTextKitConfiguration()
+        let view = textKit2 ? controller.makeTextKit2View(configuration: configuration) : controller.makeTextKit1View(configuration: configuration)
+        func updateView() {
+            controller.update(textView: view, blocks: model.blocks, diffs: model.diffQueue,
+                replaceToken: model.replaceToken, documentVersion: model.documentVersion, configuration: configuration)
+        }
+        updateView()
+        let replaceToken = model.replaceToken
+        let widths: [CGFloat?] = [48, 64, nil]
+        for selection in selections {
+            #if canImport(UIKit)
+            view.selectedRange = selection
+            #else
+            view.setSelectedRange(selection)
+            #endif
+            for width in widths {
+                let previousVersion = model.documentVersion
+                await model.updateMermaidContentWidth(width)
+                await drainPublication()
+                #expect(model.replaceToken == replaceToken)
+                #expect(model.documentVersion > previousVersion)
+                #expect(model.diffQueue.last?.documentVersion == model.documentVersion)
+                #expect(model.blocks.map(\.snapshot) == original.map(\.snapshot))
+                let refreshed = try #require(model.blocks.first { $0.id == attachmentBlock.id })
+                #expect(try attachmentBounds(in: refreshed).width == min(width ?? initialBounds.width, initialBounds.width))
+                updateView()
+                #if canImport(UIKit)
+                #expect(view.selectedRange == selection)
+                #expect(view.textStorage.string == originalText)
+                #else
+                #expect(view.selectedRange() == selection)
+                #expect(view.textStorage?.string == originalText)
+                #endif
+            }
+        }
+    }
+
     @Test("Full replacements retain their snapshot version without false gap scans", arguments: [0, 1, 2], [false, true])
     func replacementVersionBaseline(scenario: Int, textKit2: Bool) async throws {
         let model = MarkdownStreamingViewModel()
