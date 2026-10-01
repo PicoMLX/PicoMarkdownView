@@ -34,6 +34,13 @@ struct MarkdownTokenizerBenchmarks {
                                label: "Tokenizer sample1 chunkSize=\(chunkSize)")
     }
 
+    @Test("Tokenizer unresolved quoted whitespace benchmark", arguments: [1024, 2048])
+    func quotedWhitespaceBenchmark(chunkCount: Int) async throws {
+        guard ProcessInfo.processInfo.environment["RUN_BENCHMARKS"] == "1" else { return }
+        try await runBenchmark(onChunks: ["> "] + Array(repeating: " ", count: chunkCount) + ["\n\n"],
+                               iterations: 10, label: "Tokenizer quoted-whitespace chunks=\(chunkCount)")
+    }
+
     private func runBenchmark(onChunks chunks: [String], iterations: Int, label: String) async throws {
         let clock = ContinuousClock()
         let start = clock.now

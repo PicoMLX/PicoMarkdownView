@@ -47,3 +47,22 @@ Apple Silicon, Xcode 27.0 / Apple Swift 6.4, debug build. Before and after
 
 No material throughput regression. Changes buffer only ambiguous local quote,
 task, math, and fence prefixes; already-emitted content is not reparsed.
+
+### Fresh Review Follow-Up
+
+Same toolchain and command, with serial benchmark cases and no concurrent builds.
+
+| Case | Iterations | Before average | After average |
+| --- | --- | --- | --- |
+| sample1, 128-byte chunks | 50 | 0.015846 s | 0.015819 s |
+| sample1, 512-byte chunks | 50 | 0.015499 s | 0.015421 s |
+| sample1, 1024-byte chunks | 50 | 0.015419 s | 0.015307 s |
+| sample1, example word stream | 50 | 0.022050 s | 0.021961 s |
+| Quoted blank line, 1024 one-space chunks | 10 | 0.032092 s | 0.003656 s |
+| Quoted blank line, 2048 one-space chunks | 10 | 0.117926 s | 0.007024 s |
+
+Unresolved quote padding is kept as counted whitespace runs after a bounded
+prefix. New padding is visited once; blank lines discard it without building
+or trimming a growing line string. When text follows, the pending literal
+padding is materialized once, preserving spaces and tabs. Doubling the blank
+line takes 1.92x rather than 3.67x. Sample1 shows no throughput regression.
