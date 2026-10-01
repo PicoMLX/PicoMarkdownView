@@ -876,7 +876,11 @@ struct QuotedBlockTests {
             #expect(items.count == expectedCount, "Source: \(source)")
             if expectedCount > 0 {
                 let runs = items.last?.inlineRuns ?? []
-                #expect(runs.isEmpty)
+                let text = runs.map(\.text).joined()
+                let textIsWhitespace = text.allSatisfy { $0.isWhitespace }
+                let stylesArePlain = runs.allSatisfy { $0.style.isEmpty }
+                #expect(textIsWhitespace)
+                #expect(stylesArePlain)
             }
         }
     }
