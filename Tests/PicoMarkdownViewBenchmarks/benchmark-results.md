@@ -136,3 +136,25 @@ reference labels, extension markers, and fence candidates, each with 4096
 one-character feeds. Forty-eight fixtures pass every chunk split and repeat
 determinism. A renderer regression evicts the quote parent and verifies that
 later refreshes retain the children's quote level, attributes, and indentation.
+
+### Verbatim Quoted Lines And Structured List Children
+
+Reference definitions are no longer detected inside verbatim blocks. Partial
+indented-code prefixes stay local until resolved, and eligible structured
+children retain their list parent and content indentation. Sixty-one fixtures
+now pass every chunk split and repeat determinism, including tab indentation.
+Native math-attachment layout confirms the existing quote gutter is applied
+even when the original attachment range has no paragraph-style attribute.
+
+After the full platform suites, the final serial run measured sample1 means
+of `0.017085 / 0.016464 / 0.016428 s` for 128/512/1024-byte chunks, and
+`0.023340 s` for the example word stream. These are within 5% of the preceding
+PR9 checkpoint. An initial run measured `0.018866 / 0.017375 / 0.017295 s`
+and `0.024370 s`; the final code avoids redispatch checks once list content
+has already been emitted.
+
+The 1024/2048 one-character means are `0.032973 / 0.047931 s` for spaces,
+`0.035200 / 0.050115 s` for alternating padding, and
+`0.024794 / 0.039296 s` for deferred table candidates. Doubling input takes
+1.42-1.58x. All measurements use the existing 50 sample / 10 padding iteration
+counts, skip-build, and no concurrent build work.
