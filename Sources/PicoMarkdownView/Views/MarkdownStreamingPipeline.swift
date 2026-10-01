@@ -13,6 +13,7 @@ actor MarkdownStreamingPipeline {
     private var operationInProgress = false
     private var operationWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextOperationWaiter = 0
+    private var scaleRequestVersion: UInt64 = 0
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
@@ -65,15 +66,22 @@ actor MarkdownStreamingPipeline {
         return StreamingUpdate(diff: diff, blocks: blocks)
     }
 
-    func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
+    func updateMermaidContentWidth(_ width: CGFloat?) async -> StreamingUpdate? {
         await acquireOperation()
         defer { releaseOperation() }
-        return await renderer.updateMermaidContentWidth(width)
+        guard let blocks = await renderer.updateMermaidContentWidth(width) else { return nil }
+        let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
+            changes: blocks.map { .blockEnded(id: $0.id) }))
+        return StreamingUpdate(diff: diff, blocks: blocks)
     }
 
-    func updateTextScale(_ scale: CGFloat) async -> StreamingUpdate? {
+    func updateTextScale(_ scale: CGFloat, skipIfCancelled: Bool = true) async -> StreamingUpdate? {
+        guard !skipIfCancelled || !Task.isCancelled else { return nil }
+        scaleRequestVersion &+= 1
+        let requestVersion = scaleRequestVersion
         await acquireOperation()
         defer { releaseOperation() }
+        guard (!skipIfCancelled || !Task.isCancelled), requestVersion == scaleRequestVersion else { return nil }
         let refreshed = await renderer.updateTextScale(scale)
         guard !refreshed.isEmpty else { return nil }
         let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,

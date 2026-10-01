@@ -168,6 +168,65 @@ struct TextScalingTests {
         }
     }
 
+    @Test("Out-of-order publication cannot overwrite newer text or scale")
+    func stalePublicationIsIgnored() async throws {
+        let pipeline = MarkdownStreamingPipeline()
+        let older = try #require(await pipeline.feed("Hello "))
+        _ = await pipeline.feed("world\n\n")
+        let newest = try #require(await pipeline.updateTextScale(2))
+        let model = MarkdownStreamingViewModel()
+        model.enqueueUpdate(newest, replacing: true)
+        await drainPublication()
+        for replacing in [false, true] {
+            model.enqueueUpdate(older, replacing: replacing)
+            await drainPublication()
+            #expect(model.blocks.map { String($0.content.characters) }.joined() == "Hello world\n")
+            #expect(try font(in: #require(model.blocks.first)).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+    }
+
+    @Test("Canceled queued scale changes do not rerender retained blocks")
+    func canceledScaleRequestsSkipRenders() async throws {
+        let provider = PausingImageProvider()
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        _ = await pipeline.feed("![image](https://example.com/image.png)\n\n")
+        let countBefore = await provider.requestCount
+        await provider.pauseNextRequest()
+        let first = Task { await pipeline.updateTextScale(2) }
+        await provider.waitUntilPaused()
+        let canceled = (0..<20).map { index in
+            Task { await pipeline.updateTextScale(CGFloat(index + 3)) }
+        }
+        for _ in 0..<20 { await Task.yield() }
+        for task in canceled { task.cancel() }
+        let last = Task { await pipeline.updateTextScale(3) }
+        await provider.resume()
+        _ = await first.value
+        for task in canceled { #expect(await task.value == nil) }
+        _ = await last.value
+        #expect(await provider.requestCount <= countBefore + 2)
+        let final = try #require(await pipeline.blocksSnapshot().first)
+        #expect(try font(in: final).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 3)
+    }
+
+    @Test("Canceled finite-input initialization still completes at the requested scale")
+    func canceledInitializationRetainsScale() async throws {
+        let model = MarkdownStreamingViewModel()
+        await model.updateTextScale(2)
+        let task = Task { await model.consume(.chunks(["Hello ", "world\n\n"])) }
+        task.cancel()
+        await task.value
+        await drainPublication()
+        #expect(model.blocks.map { String($0.content.characters) }.joined() == "Hello world\n")
+        #expect(try font(in: #require(model.blocks.first)).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+    }
+
+    private func drainPublication() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     private func font(in block: RenderedBlock) throws -> MarkdownFont {
         try #require(NSAttributedString.picoConverted(from: block.content).attribute(.font, at: 0, effectiveRange: nil) as? MarkdownFont)
     }
@@ -199,6 +258,7 @@ private actor YieldingImageProvider: MarkdownImageProvider {
 }
 
 private actor PausingImageProvider: MarkdownImageProvider {
+    private(set) var requestCount = 0
     private var shouldPause = false
     private var paused: CheckedContinuation<Void, Never>?
     private var observer: CheckedContinuation<Void, Never>?
@@ -216,6 +276,7 @@ private actor PausingImageProvider: MarkdownImageProvider {
     }
 
     func image(for url: URL) async -> MarkdownImageResult? {
+        requestCount += 1
         if shouldPause {
             shouldPause = false
             await withCheckedContinuation { continuation in
