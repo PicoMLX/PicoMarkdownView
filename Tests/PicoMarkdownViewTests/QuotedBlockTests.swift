@@ -111,7 +111,8 @@ struct QuotedBlockTests {
         "> > inner\n> outer\n\n",
         ">>> foo\n> bar\n>>baz\n\n",
         "> > inner\n>\n> outer\n\n",
-        "> - item\n>   ```\n>   code\n>   ```\n> after\n\n"
+        "> - item\n>   ```\n>   code\n>   ```\n> after\n\n",
+        "> - item\n>   ```\n>   first\n>   ```\n>   after\n>   ```\n>   second\n>   ```\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -523,6 +524,8 @@ struct QuotedBlockTests {
         #expect(outside.blocks.last?.kind == .paragraph)
         #expect(outside.blocks.last?.parentID == outside.blocks.first?.id)
         #expect(outside.blocks.last?.inlineRuns?.map(\.text).joined() == "after")
+        let transition = await parse(chunks: Self.documents[101].map(String.init))
+        #expect(transition.blocks.compactMap(\.codeText) == ["first\n", "second\n"])
     }
 
     @Test("Reduced quote markers preserve CommonMark lazy paragraph continuation")

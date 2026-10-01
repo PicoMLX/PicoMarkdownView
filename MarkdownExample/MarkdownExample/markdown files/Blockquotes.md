@@ -130,6 +130,9 @@ Paragraph after the equation.
 >   Code before the following paragraph.
 >   ```
 >   Paragraph after the code.
+>   ```text
+>   Later code retains the list-content indentation.
+>   ```
 
 > :::note
 > [literal-ref]: /url
