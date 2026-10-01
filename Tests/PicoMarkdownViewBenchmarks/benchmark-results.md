@@ -698,7 +698,34 @@ streaming `0.023722 s` (50 iterations). The 1024-byte and word means are about
 5% above the preceding PR9 run; all four means are within 3% of `3c00a0a`.
 Quoted 1024/2048 means were `0.033095 / 0.048016 s` for spaces,
 `0.035764 / 0.050472 s` for alternating padding, and
-`0.025424 / 0.039525 s` for tables (10 iterations, 1.41-1.55x), within 2%
+`0.025424 / 0.039525 s` for tables (10 iterations, 1.41-1.55x), about 2%
 of the preceding lower-branch run. The larger lower/combined differences
 remain recorded; a final combined-stack comparison is required. No build
 commands ran concurrently.
+
+## Padding And Inline Suffix Stack Checkpoint 5270cd4 (2026-10-01)
+
+All four new review findings were independently reproduced and fixed; none
+was dismissed. The combined stack passes 37 XCTest + 267 Swift Testing
+definitions on macOS and 305 definitions / 737 parameterized invocations on
+iOS, with no failures, skips, or runtime warnings. Both examples build without
+compiler warnings. The 329 quoted fixtures and ten inline-suffix variants
+cover split/character/scalar streams and deterministic repeats. Initial CI
+failed only to type-check a nested fixture expression; explicit typed loops
+preserve the same cases and remove that compiler compatibility issue.
+
+The serial skip-build benchmark followed all completed local test/build
+commands. Sample1 128/512/1024-byte means were
+`0.017125 / 0.016468 / 0.016274 s`, with word streaming `0.023245 s`
+(50 iterations). Long math at 8192/16384 bytes measured
+`0.003147 / 0.006147 s` (10 iterations, 1.95x); the combining-mark scanner
+at 512/1024 chunks measured `0.000513 / 0.000881 s`
+(20 iterations, 1.72x). Quoted 1024/2048 means were
+`0.032251 / 0.041865 s` for spaces, `0.034247 / 0.043992 s` for alternating
+padding, and `0.024674 / 0.034166 s` for tables
+(10 iterations, 1.28-1.39x).
+
+All sample1, word-stream, and quoted-case means are within 3% of `3c00a0a`.
+The required combined comparison is complete; no material throughput
+regression is observed in this final measurement. Earlier elevations and
+failed compilation evidence remain recorded rather than being discarded.

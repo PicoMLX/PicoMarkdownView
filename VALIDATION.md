@@ -1,6 +1,6 @@
 # Validation Record
 
-Date: 2026-09-30. Local toolchain: Xcode 27.0 (27A266a), Apple Swift 6.4
+Date: 2026-10-01. Local toolchain: Xcode 27.0 (27A266a), Apple Swift 6.4
 (swiftlang-6.4.0.34.1), macOS 26.6.2, Apple Silicon. Package minimums remain
 macOS 15 and iOS 18. The example app has its existing, higher deployment
 targets (macOS 15.6 and iOS 26).
@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 263 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 267 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  301 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  305 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -45,7 +45,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 284 container/math fixtures pass every chunk split and character-at-a-time
+  All 329 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -105,7 +105,7 @@ The earlier local-package/WizardKit build configuration fix is already on
   At the look-behind cap, reference/table fallbacks preserve eligible list
   parents and exact raw payloads while discarding only container indentation.
   Six capped variants pass every split, character streams, deterministic
-  events, and bounded-buffer checks in addition to the 284 quote fixtures.
+  events, and bounded-buffer checks in addition to the 329 quote fixtures.
 - [x] GFM block boundaries: four-space/tab-indented thematic markers remain
   code, while three-space controls remain rules. Confirmed tables close before
   successor block openers without rejecting ordinary non-pipe body rows.
@@ -126,6 +126,22 @@ The earlier local-package/WizardKit build configuration fix is already on
   under-indented children become quote-level siblings. Tab-expanded fence
   prefixes remain indented code at four columns. The 124 added fixtures cover
   every split, character streams, repeated events, and single-shot equivalence.
+- [x] Quoted list indentation includes complete one-to-four-space marker
+  padding; task/empty-item/five-space controls retain the correct content
+  column. Each child line strips its own indentation columns, preserving a
+  tab's residual columns and the fence's relative indentation. All 329 quoted
+  fixtures pass split/character/determinism checks. Test fixtures use explicit
+  loops after CI's older compiler rejected a nested inference expression.
+- [x] Unquoted display-math closing lines wait for newline/EOF. Dollar and
+  command markers with non-whitespace suffixes remain math content rather
+  than swallowing the rest of the line. Both forms pass every split, character
+  streams, deterministic repeats, and valid newline/EOF controls.
+- [x] Plain text after closed inline math survives unfinished emphasis/code
+  delimiters. The pending UTF-8 slice was already correct; the final literal
+  fallback now retains the unflushed plain start. Ten dollar/command and
+  ASCII/non-ASCII/combining-mark cases reproduce the defect before the fix
+  and pass direct inline parsing, every scalar split, tokenizer output, and
+  deterministic event checks afterward.
 - [x] Ordinary images reserve quote/list gutters before sizing attachments;
   list bullet columns and table cell padding/separators are also reserved.
   Native AppKit/UIKit glyph bounds at 160, 320, and 800 points stay inside the
@@ -242,7 +258,8 @@ The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
 footnote/continuation, verbatim-code, unmarked definition/math interruption,
 fence-boundary, initial-code, source-order, structured list-child/Mermaid,
-empty-heading/marker, and wide-marker/tab-indentation additions. Those additions
+empty-heading/marker, wide-marker/tab-indentation, and mixed list-padding
+additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
