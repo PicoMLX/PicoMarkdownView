@@ -471,3 +471,22 @@ at 512/1024 chunks measures `0.000526 / 0.000921 s` (20 iterations, 1.75x).
 Quoted 1024/2048 means are `0.032783 / 0.042847 s` for spaces,
 `0.035090 / 0.044639 s` for alternating padding, and
 `0.024278 / 0.033827 s` for deferred tables (10 iterations, 1.27-1.39x).
+
+### Quoted List Successors And Ordinary Image Gutters (be4450f)
+
+All 109 quoted split/determinism fixtures pass. Full platform suites pass
+34 XCTest + 223 Swift Testing definitions on macOS and 258 definitions on
+iOS, including native wide-image bounds for quotes, lists, and tables.
+
+Two serial skip-build runs followed the completed suites. Initial sample1
+128/512/1024 means were `0.023502 / 0.029935 / 0.028278 s`, with word streaming
+`0.033658 s`; the unchanged-code repeat measured `0.026528 / 0.025564 /
+0.026061 s`, word streaming `0.038726 s` (50 iterations). These are elevated
+relative to the preceding checkpoint; do not treat them as evidence of no
+regression. The final combined-stack comparison is still required.
+
+Repeat quoted 1024/2048 means were `0.071198 / 0.051777 s` for spaces,
+`0.037901 / 0.051063 s` for alternating padding, and
+`0.025604 / 0.040591 s` for tables (10 iterations). The inverted space pair
+and run-to-run variation preclude a reliable throughput inference here.
+No build commands ran concurrently with either measurement.

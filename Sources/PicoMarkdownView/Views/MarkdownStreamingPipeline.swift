@@ -14,6 +14,7 @@ actor MarkdownStreamingPipeline {
     private var operationWaiters: [CheckedContinuation<Void, Never>] = []
     private var nextOperationWaiter = 0
     private(set) var scaleRequestVersion: UInt64 = 0
+    private(set) var widthRequestVersion: UInt64 = 0
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
@@ -67,8 +68,11 @@ actor MarkdownStreamingPipeline {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> StreamingUpdate? {
+        widthRequestVersion &+= 1
+        let requestVersion = widthRequestVersion
         await acquireOperation()
         defer { releaseOperation() }
+        guard requestVersion == widthRequestVersion else { return nil }
         guard let blocks = await renderer.updateMermaidContentWidth(width) else { return nil }
         let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
             changes: blocks.map { .blockEnded(id: $0.id) }))

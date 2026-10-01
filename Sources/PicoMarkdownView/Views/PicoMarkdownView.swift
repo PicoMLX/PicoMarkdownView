@@ -135,6 +135,7 @@ public struct PicoMarkdownView: View {
                           blocks: viewModel.blocks,
                           diffs: viewModel.diffQueue,
                           replaceToken: viewModel.replaceToken,
+                          documentVersion: viewModel.documentVersion,
                           configuration: configuration,
                           onMeasuredContentWidth: { width in
                               Task {
@@ -217,6 +218,7 @@ private struct TextKit2Container: UIViewRepresentable {
     var blocks: [RenderedBlock]
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
+    var documentVersion: UInt64
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
@@ -239,7 +241,8 @@ private struct TextKit2Container: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextView, context: Context) {
-        controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        controller.update(textView: uiView, blocks: blocks, diffs: diffs, replaceToken: replaceToken,
+                          documentVersion: documentVersion, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: uiView))
         controller.installContentSizeObserver(on: uiView, onContentSize)
         controller.installLinkHandler(on: uiView, linkHandler)
@@ -253,6 +256,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var blocks: [RenderedBlock]
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
+    var documentVersion: UInt64
     var configuration: PicoTextKitConfiguration
     var onMeasuredContentWidth: (CGFloat?) -> Void
     var onContentSize: ((CGSize) -> Void)?
@@ -274,7 +278,8 @@ private struct TextKit2Container: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
-        controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken,
+                          documentVersion: documentVersion, configuration: configuration)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
         controller.installContentSizeObserver(on: nsView, onContentSize)
         controller.installLinkHandler(on: nsView, linkHandler)
