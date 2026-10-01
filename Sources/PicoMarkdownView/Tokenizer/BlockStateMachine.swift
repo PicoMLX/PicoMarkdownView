@@ -137,6 +137,8 @@ struct StreamingParser {
     private var quotePrefixResolved = false
     private var lineWasQuoted = false
     private var pendingQuotePrefix = false
+    private var collectingQuotePadding = false
+    private var quotePadding: [(character: Character, count: Int)] = []
     private var lineAlreadyConsumed = false
     private var events: [BlockEvent] = []
 
@@ -161,12 +163,27 @@ struct StreamingParser {
     private mutating func process(_ text: String, isFinal: Bool) {
         for character in text {
             if character == "\n" {
+                // A whitespace-only quote line is a separator, not verbatim
+                // content. Counted padding need not be materialized for it.
+                collectingQuotePadding = false
+                quotePadding.removeAll(keepingCapacity: true)
                 lineAnalyzed = false   // force re-analysis now that line is complete
                 analyzeLineIfNeeded(isLineComplete: true)
                 let includeNewline = shouldIncludeTerminatingNewline()
                 appendDeltaIfNeeded(includeTerminatingNewline: includeNewline, isLineComplete: true)
                 finalizeLine(terminated: true, force: false)
             } else if !lineAlreadyConsumed {
+                if collectingQuotePadding {
+                    if character == " " || character == "\t" {
+                        appendQuotePadding(character)
+                        continue
+                    }
+                    for run in quotePadding {
+                        lineBuffer += String(repeating: String(run.character), count: run.count)
+                    }
+                    quotePadding.removeAll(keepingCapacity: true)
+                    collectingQuotePadding = false
+                }
                 lineBuffer.append(character)
                 lineAnalyzed = false
             }
@@ -216,7 +233,7 @@ struct StreamingParser {
         }
         pendingQuotePrefix = false
         if lineWasQuoted, !isLineComplete, currentBlock?.kind.isVerbatim != true,
-           quotedBlockOpenerIsPending(lineBuffer) {
+           quotedBlockOpenerIsPending(lineBuffer, deferMathLine: true) {
             pendingQuotePrefix = true
             lineAnalyzed = true
             return
@@ -250,9 +267,14 @@ struct StreamingParser {
              detectHeading(lineBuffer) != nil ||
              detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
              detectDisplayMathOpening(lineBuffer) != nil ||
+             (isLineComplete && detectHorizontalRule(lineBuffer, indent: 0)) ||
              (isLineComplete && detectTableCandidate(lineBuffer)) ||
              (isLineComplete && detectFenceOpening(lineBuffer) != nil))
         if contextStack.isEmpty || opensQuotedChild {
+            if isLineComplete, detectHorizontalRule(lineBuffer, indent: 0) {
+                emitHorizontalRuleBlock()
+                return
+            }
             if let footnote = detectFootnoteDefinition(lineBuffer) {
                 let index = footnoteRegistry.index(for: footnote.id)
                 openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
@@ -555,6 +577,10 @@ struct StreamingParser {
             return
         }
         var context = ctx
+        if ctx.kind.isVerbatim, let fence = ctx.fenceInfo, !fence.isIndented {
+            let strip = lineBuffer.prefix(fence.leadingIndent).prefix { $0 == " " }.count
+            emittedCount = max(emittedCount, strip)
+        }
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         guard emittedCount < sourceLine.count else { return }
         // Marker-only quote lines (`>`, `>  `) are paragraph separators, not
@@ -582,15 +608,17 @@ struct StreamingParser {
         let start = sourceLine.index(sourceLine.startIndex, offsetBy: emittedCount)
         let delta = String(sourceLine[start...])
         let trimmedLine = lineBuffer.trimmingCharacters(in: .whitespaces)
+        let closingIndentIsPossible = lineBuffer.prefix(4).count < 4 ||
+            lineBuffer.prefix(4).contains { $0 != " " && $0 != "\t" }
         let fenceIndent = lineBuffer.prefix(context.fenceInfo?.leadingIndent ?? 0).prefix { $0 == " " }.count
-        if !isLineComplete, case .fencedCode = context.kind,
+        if !isLineComplete, closingIndentIsPossible, case .fencedCode = context.kind,
            !context.fenceJustOpened, emittedCount == fenceIndent,
            let fence = context.fenceInfo, !fence.isIndented,
            let marker = fence.marker.first,
            trimmedLine.allSatisfy({ $0 == marker || $0.isWhitespace }) {
             return
         }
-        if !isLineComplete, case .math = context.kind,
+        if !isLineComplete, closingIndentIsPossible, case .math = context.kind,
            !context.fenceJustOpened, emittedCount == fenceIndent,
            let closing = context.fenceInfo?.closingMarker, closing.hasPrefix(trimmedLine) {
             return
@@ -605,6 +633,7 @@ struct StreamingParser {
            !context.fenceJustOpened,
            let closingMarker = context.fenceInfo?.closingMarker,
            let closingRange = delta.range(of: closingMarker) {
+            if lineWasQuoted && !isLineComplete { return }
             let beforeClosing = String(delta[..<closingRange.lowerBound])
             if !beforeClosing.isEmpty {
                 append(beforeClosing, context: &context)
@@ -740,6 +769,8 @@ struct StreamingParser {
         quotePrefixResolved = false
         lineWasQuoted = false
         pendingQuotePrefix = false
+        collectingQuotePadding = false
+        quotePadding.removeAll(keepingCapacity: true)
         lineAlreadyConsumed = false
     }
 
@@ -1166,7 +1197,15 @@ struct StreamingParser {
             pendingQuotePrefix = true
             return false
         }
-        if !isLineComplete && content.trimmingCharacters(in: .whitespaces).isEmpty {
+        if !isLineComplete && content.trimmingCharacters(in: .whitespaces).isEmpty &&
+           (!inQuotedFence || lineBuffer.last == ">") {
+            if !inQuotedFence, content.count >= 4 {
+                // Four spaces rule out a further quote marker. Retain only
+                // the bounded prefix; scan new padding once into counted runs.
+                for character in content.dropFirst(4) { appendQuotePadding(character) }
+                lineBuffer = String(lineBuffer.prefix(quote.prefixLength)) + String(content.prefix(4))
+                collectingQuotePadding = true
+            }
             if quoteIndex == nil {
                 while currentBlock != nil { closeCurrentBlock() }
                 openBlockquotes(from: 0, to: quote.markerCount, prefixLength: 0)
@@ -1184,8 +1223,8 @@ struct StreamingParser {
         } else if quote.markerCount > activeLevel {
             while let current = currentBlock, current.kind != .blockquote { closeCurrentBlock() }
             openBlockquotes(from: activeLevel, to: quote.markerCount, prefixLength: 0)
-        } else if quote.markerCount < activeLevel && currentBlock?.kind.isVerbatim != true &&
-                    (currentBlock?.kind.isHeading == true || currentBlock?.hasBlockChildren == true ||
+        } else if quote.markerCount < activeLevel &&
+                    (currentBlock?.kind.isVerbatim == true || currentBlock?.kind.isHeading == true || currentBlock?.hasBlockChildren == true ||
                      detectHeading(content) != nil || detectList(content, isLineComplete: isLineComplete) != nil ||
                      (isLineComplete && detectFenceOpening(content) != nil)) {
             while let current = currentBlock,
@@ -1208,8 +1247,18 @@ struct StreamingParser {
         return true
     }
 
-    private func quotedBlockOpenerIsPending(_ content: String) -> Bool {
-        let trimmed = content.trimmingCharacters(in: .whitespaces)
+    private mutating func appendQuotePadding(_ character: Character) {
+        if quotePadding.last?.character == character {
+            quotePadding[quotePadding.count - 1].count += 1
+        } else {
+            quotePadding.append((character, 1))
+        }
+    }
+
+    private func quotedBlockOpenerIsPending(_ content: String, deferMathLine: Bool = false) -> Bool {
+        let prefix = String(decoding: content.utf8.prefix(16), as: UTF8.self)
+        let trimmed = prefix.trimmingCharacters(in: .whitespaces)
+        if deferMathLine, detectDisplayMathOpening(prefix) != nil { return true }
         if trimmed == "$" || trimmed == "\\" { return true }
         guard let list = detectList(content) else { return false }
         let suffix = content.dropFirst(list.indentText.count + list.markerLength)

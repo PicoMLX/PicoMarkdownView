@@ -27,7 +27,13 @@ struct QuotedBlockTests {
         "> \\[\n> x\n> \\]\n\n",
         ">   ```swift\n>   let x = 1\n>  one\n> zero\n>    three\n>   ```\n\n",
         "> | a | b |",
-        "> | a | b |\n\nOutside\n"
+        "> | a | b |\n\nOutside\n",
+        "> $$x$$y\n\n",
+        "> \\[x\\]y\n\n",
+        "> > ```\n> code\n> > ```\n\n",
+        "> ---\n\n",
+        "> ***\n\n",
+        "> ___\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -56,6 +62,31 @@ struct QuotedBlockTests {
 
         let fence = await parse(chunks: [Self.documents[14]])
         #expect(fence.blocks.first(where: { $0.codeText != nil })?.codeText == "let x = 1\none\nzero\n three\n")
+    }
+
+    @Test("Fresh review regressions retain math suffixes, close nested fences, and recognize rules")
+    func freshReviewRegressions() async {
+        let math = await parse(chunks: ["> $$x$$", "y\n\n"])
+        #expect(math.blocks == (await parse(chunks: [Self.documents[17]])).blocks)
+        #expect(math.blocks.flatMap { $0.inlineRuns ?? [] }.map(\.text).joined().contains("y"))
+        let fence = await parse(chunks: [Self.documents[19]])
+        let firstFence = fence.blocks.first { if case .fencedCode = $0.kind { return true }; return false }
+        #expect(firstFence != nil)
+        #expect((firstFence?.codeText ?? "") == "")
+        #expect(fence.blocks.contains { $0.inlineRuns?.map(\.text).joined().contains("code") == true })
+        for document in Self.documents[20...22] {
+            #expect(await parse(chunks: [document]).blocks.map(\.kind) == [.blockquote, .horizontalRule])
+        }
+    }
+
+    @Test("Long unresolved quote spaces remain local and preserve later text")
+    func longQuotedPadding() async {
+        for padding in [" ", "\t "] {
+            for tail in ["\n\n", "text\n\n", "> literal\n\n"] {
+                let source = "> " + String(repeating: padding, count: 2048) + tail
+                #expect(await parse(chunks: source.map(String.init)).blocks == (await parse(chunks: [source])).blocks)
+            }
+        }
     }
 
     @Test("Quoted blocks are structured children with no leaked markers")
