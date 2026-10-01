@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 101 container/math fixtures pass every chunk split and character-at-a-time
+  All 102 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -86,6 +86,8 @@ The earlier local-package/WizardKit build configuration fix is already on
   code/headings/math/tables opens a later paragraph child, preserving source
   order; unindented following text returns to the quote. Reference definitions
   inside unknown blocks remain literal and are not registered as links.
+  Transitions from following paragraphs to successor structured children carry
+  the resolved list-content prefix, preserving the second fence's verbatim text.
 - [x] The reported reduced-marker quote-depth failure is a false positive:
   CommonMark 0.31.2 examples 250-251 permit missing inner markers on lazy
   paragraph continuations. The reported two-level case and the spec's

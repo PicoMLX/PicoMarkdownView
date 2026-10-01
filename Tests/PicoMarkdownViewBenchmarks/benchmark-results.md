@@ -454,3 +454,20 @@ within 3% of the preceding repeat. Quoted 1024/2048 means are
 `0.033018 / 0.047702 s` for spaces, `0.034982 / 0.050326 s` for alternating
 padding, and `0.025569 / 0.039978 s` for tables (10 iterations, 1.44-1.56x).
 The skip-build run followed all tests with no concurrent build commands.
+
+## Combined Successor-Prefix Checkpoint 3c00a0a (2026-09-30)
+
+The final stack passes 37 XCTest + 248 Swift Testing tests on macOS and 286
+test definitions on iOS Simulator, including all 102 quoted split/determinism
+fixtures. Both examples build without compiler warnings. All tests/builds
+finished before this serial skip-build benchmark.
+
+Sample1 means at 128/512/1024-byte chunks are `0.016693 / 0.016183 /
+0.016331 s`, and word streaming is `0.023103 s` (50 iterations). These remain
+within the preceding checkpoint's range, with no material regression.
+Long math at 8192/16384 bytes measures `0.003109 / 0.005926 s`
+(10 iterations, 1.91x when input doubles). The isolated combining-mark scanner
+at 512/1024 chunks measures `0.000526 / 0.000921 s` (20 iterations, 1.75x).
+Quoted 1024/2048 means are `0.032783 / 0.042847 s` for spaces,
+`0.035090 / 0.044639 s` for alternating padding, and
+`0.024278 / 0.033827 s` for deferred tables (10 iterations, 1.27-1.39x).
