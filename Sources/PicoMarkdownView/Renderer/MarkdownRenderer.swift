@@ -108,7 +108,7 @@ actor MarkdownRenderer {
 
     private let theme: MarkdownRenderTheme
     private var attributeBuilder: MarkdownAttributeBuilder
-    private let imageProvider: MarkdownImageProvider?
+    private let imageProvider: RetainedMarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private var textScale: CGFloat = 1
     private var renderGeneration: UInt64 = 0
@@ -123,11 +123,12 @@ actor MarkdownRenderer {
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
-        self.imageProvider = imageProvider
+        let retainedImageProvider = imageProvider.map { RetainedMarkdownImageProvider(provider: $0) }
+        self.imageProvider = retainedImageProvider
         self.mermaidProvider = mermaidProvider
         let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
         self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
-                                                         imageProvider: imageProvider,
+                                                         imageProvider: retainedImageProvider,
                                                          mermaidProvider: resolvedMermaidProvider)
         self.snapshotProvider = snapshotProvider
     }
@@ -167,7 +168,7 @@ actor MarkdownRenderer {
                  .blockEnded(let id):
                 mutated = await refreshBlock(id: id) || mutated
             case .blocksDiscarded(let range):
-                removeBlocks(in: range)
+                await removeBlocks(in: range)
                 mutated = true
             }
         }
@@ -290,7 +291,7 @@ actor MarkdownRenderer {
         return didMutate
     }
 
-    private func removeBlocks(in range: Range<Int>) {
+    private func removeBlocks(in range: Range<Int>) async {
         guard !blocks.isEmpty else { return }
         let lower = max(range.lowerBound, 0)
         let upper = min(range.upperBound, blocks.count)
@@ -303,6 +304,8 @@ actor MarkdownRenderer {
             indexByID[block.id] = nil
         }
         rebuildIndex(startingAt: lower)
+        let retainedURLs = Set(blocks.flatMap { $0.images.compactMap(\.url) })
+        await imageProvider?.retainImages(for: retainedURLs)
     }
 
     private func rebuildIndex(startingAt start: Int) {
@@ -387,6 +390,27 @@ actor MarkdownRenderer {
         return inherited + (snapshot.kind == .blockquote ? 1 : 0)
     }
     
+}
+
+// Keep successful results while their blocks survive. The shared provider's
+// bounded cache may evict them between presentation-only refreshes.
+private actor RetainedMarkdownImageProvider: MarkdownImageProvider {
+    private let provider: any MarkdownImageProvider
+    private var images: [URL: MarkdownImageResult] = [:]
+
+    init(provider: any MarkdownImageProvider) { self.provider = provider }
+
+    func image(for url: URL) async -> MarkdownImageResult? {
+        if let result = await provider.image(for: url) {
+            images[url] = result
+            return result
+        }
+        return images[url]
+    }
+
+    func retainImages(for urls: Set<URL>) {
+        images = images.filter { urls.contains($0.key) }
+    }
 }
 
 struct RenderedBlock: Sendable, Identifiable, Equatable {
