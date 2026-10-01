@@ -143,7 +143,11 @@ struct MarkdownView: View {
                     .frame(width: 44, alignment: .trailing)
             }
             .labelStyle(.iconOnly)
+            #if os(iOS)
+            .buttonStyle(ZoomButtonStyle())
+            #else
             .buttonStyle(.borderless)
+            #endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
@@ -209,6 +213,17 @@ struct MarkdownView: View {
         }
     }
 }
+
+#if os(iOS)
+private struct ZoomButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.6 : 1)
+    }
+}
+#endif
 
 private struct ScrollMetrics: Equatable {
     let offsetY: CGFloat

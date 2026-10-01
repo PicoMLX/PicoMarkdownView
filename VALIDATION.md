@@ -29,6 +29,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
   disabled: no compiler warnings.
+- [x] iOS example zoom controls use 44-point minimum label frames and a
+  rectangular content shape inside the button style; macOS retains compact
+  borderless controls. Both examples rebuild without warnings and full package
+  suites still pass. Direct-touch and VoiceOver checks remain manual.
 - [x] Quoted blocks and math: every two-chunk split, one-character streams,
   repeated identical event sequences, and streamed/single-shot equivalence.
 - [x] Long inline math emits once on closure; TeX commands and Markdown-like
@@ -205,6 +209,8 @@ additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
+The iOS zoom-control touch area and VoiceOver interaction also need a device
+or Accessibility Inspector check; their minimum frames are verified in source.
 Native tests exercise the hover callbacks and glyph geometry, not a consuming
 app's coordinate conversion or popover anchoring.
 
