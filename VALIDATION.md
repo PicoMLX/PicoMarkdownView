@@ -21,10 +21,10 @@ The earlier local-package/WizardKit build configuration fix is already on
 
 ## Completed Checks
 
-- [x] Full macOS `swift test`: 37 XCTest tests and 245 Swift Testing tests
+- [x] Full macOS `swift test`: 37 XCTest tests and 248 Swift Testing tests
   passed. Nine benchmark definitions also passed with measurement disabled.
 - [x] Full iOS package tests on iPhone 16 Pro / iOS 18.5: xcresult reports
-  283 tests passed, zero failures, skips, or runtime warnings. Parameterized
+  286 tests passed, zero failures, skips, or runtime warnings. Parameterized
   test invocations are reported separately by Xcode.
 - [x] macOS example app build with signing disabled: no compiler warnings.
 - [x] iOS example app build for iPhone 17 Pro / iOS 26.4.1 with signing
@@ -41,7 +41,7 @@ The earlier local-package/WizardKit build configuration fix is already on
 - [x] Follow-up quote regressions: same-line math suffixes and next physical
   lines survive; nested fence marker prefixes remain pending; compact/spaced
   rules preserve source order; initial footnotes retain definition metadata.
-  All 88 container/math fixtures pass every chunk split and character-at-a-time
+  All 101 container/math fixtures pass every chunk split and character-at-a-time
   equivalence. Alternating whitespace reaches a bounded, permanent raw
   fallback; a later one-character feed emits only that character, without
   replaying pending history. The example's math/rule/footnote sequence was
@@ -81,6 +81,16 @@ The earlier local-package/WizardKit build configuration fix is already on
   closer checks preserve raw indentation: four-space/tab markers stay literal,
   while three-space closers remain valid. Every-split and repeated character
   streams cover these boundaries without revising emitted events.
+- [x] Initial quoted space/tab-indented code opens a native code child without
+  interrupting an existing paragraph. Following indented text after list-owned
+  code/headings/math/tables opens a later paragraph child, preserving source
+  order; unindented following text returns to the quote. Reference definitions
+  inside unknown blocks remain literal and are not registered as links.
+- [x] The reported reduced-marker quote-depth failure is a false positive:
+  CommonMark 0.31.2 examples 250-251 permit missing inner markers on lazy
+  paragraph continuations. The reported two-level case and the spec's
+  three-level case retain their nesting and native quote styles; a blank-line
+  control exits the nested paragraph. No production change is appropriate.
 - [x] List-owned nested quotes retain non-quote ancestor indentation without
   double-applying quote gutters. Quoted/list-owned Mermaid requests and
   attachment bounds reserve gutters at widths 160, 320, and 800 points;
@@ -114,6 +124,12 @@ The earlier local-package/WizardKit build configuration fix is already on
   rendered, same-size retries succeed, snapshots/IDs/selection survive, and
   canceling without a replacement retains the old presentation. A deterministic
   commit/rollback test verifies restoration and rejection of stale rollback.
+- [x] Native controllers detect publication-version gaps and synchronize all
+  cached block presentations in the latest eligible diff, without reparsing or
+  whole-document replacement for presentation-only gaps. Closed-block fonts
+  remain scaled when MainActor delivery is reversed or SwiftUI coalesces
+  flushes; both TextKit entry points retain complete text and selection on
+  AppKit/UIKit. Structural gaps use the existing backend synchronization path.
 - [x] Successfully rendered paragraph/quote/table images survive shared-cache
   eviction across repeated scales and narrow/wide content-width updates.
   The renderer retains original image results only while their blocks survive;
@@ -155,7 +171,8 @@ The earlier local-package/WizardKit build configuration fix is already on
 The desktop was initially locked, then became available for the interaction
 checks above. It locked again before visual inspection of the latest adjacent
 footnote/continuation, verbatim-code, unmarked definition/math interruption,
-fence-boundary, and structured list-child/Mermaid additions. Those additions
+fence-boundary, initial-code, source-order, and structured list-child/Mermaid
+additions. Those additions
 pass event/structure and native rendering tests, but their actual example-app
 appearance still needs inspection. Pointer-only hover and a host's popover placement remain manual
 checks: the example reports hover status but does not implement a popover.
