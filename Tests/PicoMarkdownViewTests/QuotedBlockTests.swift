@@ -119,7 +119,14 @@ struct QuotedBlockTests {
         "> - item\n>   ---\n>   after\n\n",
         "> - item\n>   | a | b |\n>   | --- | --- |\n> - sibling\n\n",
         "> 1. item\n>    | a | b |\n>    | --- | --- |\n> 2. sibling\n\n",
-        "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n> - sibling\n\n"
+        "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n> - sibling\n\n",
+        "> > text\n> [^b]: y\n\n",
+        "> > text\n> | a | b |\n> | --- | --- |\n\n",
+        "> > text\n> $$x$$\n\n",
+        "> > text\n> ---\n\n",
+        "> > text\n> :::note\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   ---\n>   more\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n> ---\n> more\n\n"
     ]
 
     @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
@@ -585,8 +592,52 @@ struct QuotedBlockTests {
         #expect(paragraph.headIndent == paragraph.firstLineHeadIndent)
     }
 
-    private func parse(chunks: [String]) async -> (blocks: [BlockSnapshot], events: [BlockEvent]) {
-        let tokenizer = MarkdownTokenizer()
+    @Test("Reduced quote markers end nested containers before non-lazy blocks")
+    func reducedQuoteBlockBoundaries() async throws {
+        for document in Self.documents[109...113] {
+            let result = await parse(chunks: document.map(String.init))
+            #expect(result.blocks.last?.parentID == result.blocks.first?.id)
+            #expect(result.blocks.last?.depth == 1)
+            #expect(result.blocks[1].inlineRuns?.map(\.text).joined() == "text\n")
+        }
+        let child = await parse(chunks: Self.documents[114].map(String.init))
+        #expect(child.blocks.suffix(2).map(\.kind) == [.horizontalRule, .paragraph])
+        #expect(child.blocks.suffix(2).allSatisfy { $0.parentID == child.blocks[1].id })
+        let outer = await parse(chunks: Self.documents[115].map(String.init))
+        #expect(outer.blocks.suffix(2).allSatisfy { $0.parentID == outer.blocks.first?.id })
+    }
+
+    @Test("Bounded ambiguous list children preserve their eligible owner")
+    func boundedListChildOwnership() async throws {
+        for prefix in ["> - item\n>   ", "> 1. item\n>    ",
+                       "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   "] {
+            for opener in ["[ref", "|"] {
+                let document = prefix + opener + String(repeating: "x", count: 80) + "\n\n"
+                let baseline = await parse(chunks: [document], maxLookBehind: 32)
+                let item = try #require(baseline.blocks.first { if case .listItem = $0.kind { return true }; return false })
+                let fallback = try #require(baseline.blocks.last)
+                #expect(fallback.kind == .unknown && fallback.parentID == item.id)
+                #expect(fallback.inlineRuns?.map(\.text).joined() == opener + String(repeating: "x", count: 80) + "\n")
+                let characters = Array(document)
+                for split in 0...characters.count {
+                    let streamed = await parse(chunks: [String(characters[..<split]), String(characters[split...])], maxLookBehind: 32)
+                    #expect(streamed.blocks == baseline.blocks)
+                }
+                let first = await parse(chunks: characters.map(String.init), maxLookBehind: 32)
+                let repeated = await parse(chunks: characters.map(String.init), maxLookBehind: 32)
+                #expect(first.blocks == baseline.blocks)
+                #expect(first.events == repeated.events)
+                var parser = StreamingParser(maxLookBehind: 32)
+                for character in document {
+                    _ = parser.feed(String(character))
+                    #expect(parser.bufferedLineByteCount <= 64)
+                }
+            }
+        }
+    }
+
+    private func parse(chunks: [String], maxLookBehind: Int? = nil) async -> (blocks: [BlockSnapshot], events: [BlockEvent]) {
+        let tokenizer = MarkdownTokenizer(maxLookBehind: maxLookBehind)
         let assembler = MarkdownAssembler()
         var events: [BlockEvent] = []
         var open: [BlockID] = []
