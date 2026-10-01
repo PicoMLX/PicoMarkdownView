@@ -40,6 +40,7 @@ struct StreamingParser {
         /// `listIndent`.
         var blockquoteLevel: Int = 0
         var hasBlockChildren: Bool = false
+        var hasInlineContent: Bool = false
         var streamsLiteral: Bool = false
         var listContentPrefixLength: Int = 0
         var listContentIndent: Int = 0
@@ -110,8 +111,14 @@ struct StreamingParser {
     }
 
     private mutating func pushBlock(_ context: BlockContext) {
-        if let parent = contextStack.indices.last, contextStack[parent].kind == .blockquote {
-            contextStack[parent].hasBlockChildren = true
+        if let parent = contextStack.indices.last {
+            switch contextStack[parent].kind {
+            case .blockquote:
+                contextStack[parent].hasBlockChildren = true
+            case .listItem where contextStack.contains(where: { $0.kind == .blockquote }):
+                contextStack[parent].hasBlockChildren = true
+            default: break
+            }
         }
         var context = context
         context.listContentPrefixLength = lineListChildPrefixLength
@@ -283,7 +290,7 @@ struct StreamingParser {
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
         lineIsLinkDefinition = false
-        if isLineComplete, currentBlock?.kind.isVerbatim != true,
+        if isLineComplete, currentBlock?.kind.isVerbatim != true, currentBlock?.kind != .unknown,
            let linkDefinition = detectLinkDefinition(lineBuffer) {
             linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
             lineIsLinkDefinition = true
@@ -347,6 +354,20 @@ struct StreamingParser {
                 lineListChildPrefixLength = prefix
                 lineBuffer = childLine
                 emittedCount = 0
+            } else if current.hasBlockChildren, emittedCount <= prefix {
+                if !isLineComplete, shouldDeferParagraphFallback(for: childLine) || quotedBlockOpenerIsPending(childLine) {
+                    pendingQuotePrefix = true
+                    lineAnalyzed = true
+                    return
+                }
+                // The item's original inline segment precedes its children.
+                // Keep later text in a new child, preserving source order.
+                lineListChildPrefixLength = prefix
+                lineBuffer = childLine
+                emittedCount = 0
+                openInlineBlock(kind: .paragraph)
+                lineAnalyzed = true
+                return
             }
         }
 
@@ -368,6 +389,7 @@ struct StreamingParser {
              detectFootnoteDefinition(lineBuffer) != nil ||
              detectList(lineBuffer, isLineComplete: isLineComplete) != nil ||
              detectDisplayMathOpening(lineBuffer) != nil ||
+             (currentBlock?.hasInlineContent == false && detectIndentedCodePrefix(lineBuffer) != nil) ||
              (isLineComplete && lineBuffer.hasPrefix(":::")) ||
              (isLineComplete && detectTableCandidate(lineBuffer)) ||
              (isLineComplete && detectFenceOpening(lineBuffer) != nil))
@@ -625,7 +647,7 @@ struct StreamingParser {
                     // context, this text starts a new paragraph outside the
                     // list.  Without a prior blank line, it is a lazy
                     // continuation of the current list item.
-                    if current.sawBlankInSubContext {
+                    if current.sawBlankInSubContext || current.hasBlockChildren {
                         closeCurrentBlock()
                         closeListContexts(deeperThan: -1)
                         openInlineBlock(kind: .paragraph)
@@ -941,6 +963,7 @@ struct StreamingParser {
         guard !text.isEmpty else { return }
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote, .footnoteDefinition:
+            ctx.hasInlineContent = true
             if var parser = ctx.inlineParser {
                 var input = text
                 if ctx.pendingSoftBreak {
@@ -1303,7 +1326,8 @@ struct StreamingParser {
             }
             let lazyContinuation = currentBlock.map { context in
                 switch context.kind {
-                case .paragraph, .listItem: return true
+                case .paragraph: return true
+                case .listItem: return !context.hasBlockChildren
                 case .blockquote: return !context.hasBlockChildren
                 default: return false
                 }

@@ -236,6 +236,7 @@ final class MarkdownStreamingViewModel {
     func enqueueUpdate(_ update: StreamingUpdate, replacing: Bool = false) {
         // Gate ownership orders mutations, not resumption of their MainActor
         // callers. Reject late results before touching pending content or deps.
+        // The native controller repairs change coverage across skipped versions.
         guard update.diff.documentVersion > latestEnqueuedVersion else { return }
         latestEnqueuedVersion = update.diff.documentVersion
         let replace = replacing || documentNeedsReplacement

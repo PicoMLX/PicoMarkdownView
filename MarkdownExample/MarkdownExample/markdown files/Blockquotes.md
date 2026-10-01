@@ -121,3 +121,19 @@ Paragraph after the equation.
 >     ```
 > Still code.
 > ```
+
+>     Initial indented code
+>     More indented code
+
+> - Source-order owner
+>   ```text
+>   Code before the following paragraph.
+>   ```
+>   Paragraph after the code.
+
+> :::note
+> [literal-ref]: /url
+> :::
+
+> > Nested paragraph with lazy continuation.
+> This line stays in the nested paragraph.

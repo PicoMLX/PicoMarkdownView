@@ -326,6 +326,54 @@ struct TextScalingTests {
         }
     }
 
+    @Test("Publication gaps synchronize closed-block scale changes", arguments: [false, true], [false, true])
+    func publicationGapsPreserveScale(deliverScale: Bool, textKit2: Bool) async throws {
+        let pipeline = MarkdownStreamingPipeline()
+        let initial = try #require(await pipeline.feed("First closed\n\nSecond closed\n\nOpen"))
+        let model = MarkdownStreamingViewModel()
+        model.enqueueUpdate(initial, replacing: true)
+        await drainPublication()
+        let controller = TextKitStreamingController()
+        let configuration = PicoTextKitConfiguration()
+        let view = textKit2 ? controller.makeTextKit2View(configuration: configuration) : controller.makeTextKit1View(configuration: configuration)
+        func updateView() {
+            controller.update(textView: view, blocks: model.blocks, diffs: model.diffQueue,
+                replaceToken: model.replaceToken, configuration: configuration)
+        }
+        updateView()
+        let selection = NSRange(location: 0, length: initial.blocks.dropLast().reduce(0) { $0 + String($1.content.characters).utf16.count })
+        #if canImport(UIKit)
+        view.selectedRange = selection
+        #else
+        view.setSelectedRange(selection)
+        #endif
+        let scaled = try #require(await pipeline.updateTextScale(2))
+        let appended = try #require(await pipeline.feed(" tail"))
+        if deliverScale {
+            model.enqueueUpdate(scaled)
+            await drainPublication()
+            // SwiftUI can coalesce flushes before the native view updates.
+        }
+        model.enqueueUpdate(appended)
+        await drainPublication()
+        model.enqueueUpdate(scaled)
+        await drainPublication()
+        updateView()
+        #if canImport(UIKit)
+        let storage = view.textStorage
+        #expect(view.selectedRange == selection)
+        #else
+        let storage = try #require(view.textStorage)
+        #expect(view.selectedRange() == selection)
+        #endif
+        #expect(storage.string == appended.blocks.map { String($0.content.characters) }.joined())
+        for text in ["First closed", "Second closed", "Open tail"] {
+            let range = (storage.string as NSString).range(of: text)
+            let font = try #require(storage.attribute(.font, at: range.location, effectiveRange: nil) as? MarkdownFont)
+            #expect(font.pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * 2)
+        }
+    }
+
     @Test("Canceled queued scale changes do not rerender retained blocks")
     func canceledScaleRequestsSkipRenders() async throws {
         let provider = PausingImageProvider()
