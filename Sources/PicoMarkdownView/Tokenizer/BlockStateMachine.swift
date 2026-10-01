@@ -1399,7 +1399,26 @@ struct StreamingParser {
         }
         let activeLevel = quoteIndex.map { contextStack[$0].blockquoteLevel } ?? 0
         let inQuotedFence = quoteIndex != nil && (currentBlock?.kind.isVerbatim == true || currentBlock?.kind == .unknown)
-        guard let quote = detectBlockquote(lineBuffer, maxMarkers: inQuotedFence ? activeLevel : nil) else {
+        var quoteLine = lineBuffer
+        var listQuoteIndent: Int?
+        if !inQuotedFence,
+           let itemIndex = contextStack.lastIndex(where: { if case .listItem = $0.kind { return true }; return false }),
+           let ownerQuote = contextStack[..<itemIndex].last(where: { $0.kind == .blockquote }),
+           let outer = detectBlockquote(lineBuffer, maxMarkers: ownerQuote.blockquoteLevel) {
+            let item = contextStack[itemIndex]
+            let itemLine = removingQuotePrefix(lineBuffer, quote: outer).content
+            if listContinuationPrefixLength(itemLine, currentIndent: item.listIndent, contentIndent: item.listContentIndent) > 0 {
+                let child = removingListContentIndent(itemLine, columns: item.listContentIndent).content
+                if detectBlockquote(child) != nil {
+                    // Remove only full tab-stop groups from the owner's indent,
+                    // preserving physical tab alignment for the inner markers.
+                    let prefixEnd = lineBuffer.utf8.index(lineBuffer.utf8.startIndex, offsetBy: outer.prefixLength)
+                    quoteLine = String(lineBuffer[..<prefixEnd]) + String(repeating: " ", count: item.listContentIndent % 4) + child
+                    listQuoteIndent = item.listContentIndent
+                }
+            }
+        }
+        guard let quote = detectBlockquote(quoteLine, maxMarkers: inQuotedFence ? activeLevel : nil) else {
             pendingQuotePrefix = false
             guard quoteIndex != nil else { return true }
             if lineBuffer.isEmpty && !isLineComplete { return true }
@@ -1431,10 +1450,10 @@ struct StreamingParser {
             quotePrefixResolved = true
             return true
         }
-        let stripped = removingQuotePrefix(lineBuffer, quote: quote, canDeferIndent: !isLineComplete && !inQuotedFence)
+        let stripped = removingQuotePrefix(quoteLine, quote: quote, canDeferIndent: !isLineComplete && !inQuotedFence)
         var content = stripped.content
         var removedIndentColumns = 0
-        if let current = currentBlock, current.listContentPrefixLength > 0 {
+        if let current = currentBlock, current.listContentPrefixLength > 0, listQuoteIndent == nil {
             if current.kind == .paragraph, !isLineComplete,
                shouldDeferParagraphFallback(for: content) || quotedBlockOpenerIsPending(content, deferLineConstructs: true) {
                 pendingQuotePrefix = true
@@ -1471,6 +1490,7 @@ struct StreamingParser {
             }
         }
         let nestedQuoteBelongsToList: Bool = {
+            if listQuoteIndent != nil { return true }
             guard quote.markerCount > activeLevel, activeLevel > 0,
                   let current = currentBlock,
                   let outerPrefix = detectBlockquote(lineBuffer, maxMarkers: activeLevel) else { return false }
@@ -1483,6 +1503,9 @@ struct StreamingParser {
             let columns = itemContent.prefix { $0 == " " || $0 == "\t" }.reduce(0) { $1 == "\t" ? ($0 / 4 + 1) * 4 : $0 + 1 }
             return columns >= current.listContentIndent
         }()
+        if quote.markerCount > activeLevel, let indent = listQuoteIndent {
+            lineListChildPrefixLength = indent
+        }
         if nestedQuoteBelongsToList, currentBlock?.kind == .paragraph {
             // End the successor paragraph before deepening, leaving its
             // list owner open. The quote prefix already consumed its indent.
@@ -1926,6 +1949,9 @@ struct StreamingParser {
 
         if line[index...].hasPrefix("- ") || line[index...].hasPrefix("* ") || line[index...].hasPrefix("+ ") {
             markerLength = 2
+            markerWidth = 1
+        } else if isLineComplete, ["-", "*", "+"].contains(line[index]), line.index(after: index) == line.endIndex {
+            markerLength = 1
             markerWidth = 1
         } else {
             var numberEnd = index
