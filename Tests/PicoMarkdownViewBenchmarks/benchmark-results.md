@@ -323,3 +323,26 @@ The longer quoted cases are 13-18% slower than that checkpoint, although
 within 3% of the preceding lower-branch run. A final combined-stack repeat
 will check persistence; this run alone is not evidence of no regression.
 No build commands ran concurrently.
+
+### Marker Padding, Mixed Indentation, And Unquoted Math Closers (2026-10-01)
+
+Three confirmed review defects are fixed using only current line/container
+state. Quoted list content indentation includes complete one-to-four-space
+marker padding, each continuation strips its own columns while preserving
+residual tab columns, and display-math closing lines wait for newline/EOF and
+reject non-whitespace suffixes. Existing top-level marker event semantics are
+unchanged. All 329 quoted fixtures pass every split, character streams, and
+determinism; valid/invalid dollar/command math closers have additional every-
+split regressions. Full suites pass 34 XCTest + 233 Swift Testing definitions
+on macOS and 268 on iOS, with no failures, skips, or runtime warnings.
+
+The serial skip-build benchmark followed both completed suites. Sample1
+128/512/1024-byte means were `0.016850 / 0.016538 / 0.016687 s`, with word
+streaming `0.023722 s` (50 iterations). The 1024-byte and word means are about
+5% above the preceding PR9 run; all four means are within 3% of `3c00a0a`.
+Quoted 1024/2048 means were `0.033095 / 0.048016 s` for spaces,
+`0.035764 / 0.050472 s` for alternating padding, and
+`0.025424 / 0.039525 s` for tables (10 iterations, 1.41-1.55x), within 2%
+of the preceding lower-branch run. The larger lower/combined differences
+remain recorded; a final combined-stack comparison is required. No build
+commands ran concurrently.
