@@ -18,8 +18,45 @@ struct QuotedBlockTests {
         "> ~~~text\n> # literal\n> ~~~not a close\n> ~~~\n\n",
         "> ```swift\n> unfinished code",
         "```text\n> not a quote\n```\n",
-        "[link](https://example.com) and ![image](image.png)\n\n"
+        "[link](https://example.com) and ![image](image.png)\n\n",
+        "> | **a** | b |\n> | --- | --- |\n> | one | two |\n\n",
+        "> | not | a table |\n> no separator\n\n",
+        "> - [x] task\n> - [ ] pending\n> 1. [X] ordered\n\n",
+        "   > # H\n   > para\n\n",
+        "> $$\n> x\n> $$\n\n",
+        "> \\[\n> x\n> \\]\n\n",
+        ">   ```swift\n>   let x = 1\n>  one\n> zero\n>    three\n>   ```\n\n",
+        "> | a | b |",
+        "> | a | b |\n\nOutside\n"
     ]
+
+    @Test("Quoted review regressions preserve tables, task metadata, math, and fence indentation")
+    func reviewRegressions() async throws {
+        let table = await parse(chunks: [Self.documents[8]])
+        #expect(table.blocks.map(\.kind) == [.blockquote, .table])
+        #expect(table.blocks.dropFirst().first?.parentID == table.blocks.first?.id)
+        #expect(table.events.contains { if case .tableAppendRow = $0 { return true }; return false })
+        let fallback = await parse(chunks: [Self.documents[15]])
+        #expect(fallback.blocks.map(\.kind) == [.blockquote, .unknown])
+        #expect(fallback.blocks.last?.inlineRuns?.map(\.text).joined().contains("| a | b |") == true)
+
+        let tasks = await parse(chunks: ["> - ", "[x] task\n\n"])
+        #expect(tasks.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: .init(checked: true))])
+
+        let indented = await parse(chunks: ["   > # H\n ", "  > para\n\n"])
+        #expect(indented.blocks.map(\.kind) == [.blockquote, .heading(level: 1), .paragraph])
+        #expect(indented.blocks.last?.parentID == indented.blocks.first?.id)
+
+        for opener in ["$$", "\\["] {
+            let closer = opener == "$$" ? "$$" : "\\]"
+            let math = await parse(chunks: ["> " + String(opener.prefix(1)), String(opener.suffix(1)) + "\n> x\n> " + closer + "\n\n"])
+            #expect(math.blocks.map(\.kind) == [.blockquote, .math(display: true)])
+            #expect((math.blocks.first?.inlineRuns?.map(\.text).joined() ?? "") == "")
+        }
+
+        let fence = await parse(chunks: [Self.documents[14]])
+        #expect(fence.blocks.first(where: { $0.codeText != nil })?.codeText == "let x = 1\none\nzero\n three\n")
+    }
 
     @Test("Quoted blocks are structured children with no leaked markers")
     func quotedBlocksHaveStructure() async throws {

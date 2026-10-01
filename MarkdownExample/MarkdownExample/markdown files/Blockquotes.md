@@ -20,3 +20,26 @@ Text before the quote.
 > Final quoted paragraph.
 
 Text after the quote, still part of the same selectable document.
+
+> ## Review regressions
+> - [x] Checked task
+> - [ ] Unchecked task
+>
+> | Expression | Value |
+> | --- | --- |
+> | $x^2$ | $4$ |
+> | $y^2$ | $9$ |
+>
+> $$
+> x^2 + y^2 = 13
+> $$
+>
+>   ```swift
+>   let x = 1
+>  one
+> zero
+>    three
+>   ```
+
+   > # Indented quote
+   > Final quoted paragraph.
