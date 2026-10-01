@@ -47,6 +47,61 @@ struct TextScalingTests {
         }
     }
 
+    @Test("Scaling and width refresh retain images after shared-cache eviction")
+    func scalingRetainsEvictedImages() async throws {
+        let size = CGSize(width: 200, height: 100)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
+        let source = "https://example.com/image.png"
+        _ = await pipeline.feed("Before ![image](\(source))\n\n> ![image](\(source))\n\n| Image |\n| --- |\n| ![image](\(source)) |\n\n")
+        _ = await pipeline.finish()
+        let original = await pipeline.blocksSnapshot()
+        #expect(try original.filter { !$0.images.isEmpty }.map(attachmentBounds).count == 3)
+        await provider.evict()
+        for scale in [CGFloat(2), 1, 1.5] {
+            let scaled = try #require(await pipeline.updateTextScale(scale)).blocks
+            #expect(scaled.map(\.snapshot) == original.map(\.snapshot))
+            #expect(try scaled.filter { !$0.images.isEmpty }.map(attachmentBounds).allSatisfy { $0.size == size })
+            #expect(try font(in: #require(scaled.first)).pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * scale)
+        }
+        let narrowed = try #require(await pipeline.updateMermaidContentWidth(80)).blocks
+        #expect(try narrowed.filter { !$0.images.isEmpty }.map(attachmentBounds).allSatisfy { $0.size == CGSize(width: 80, height: 40) })
+        let widened = try #require(await pipeline.updateMermaidContentWidth(400)).blocks
+        #expect(try widened.filter { !$0.images.isEmpty }.map(attachmentBounds).allSatisfy { $0.size == size })
+    }
+
+    @Test("Image retention ends when its rendered block is discarded")
+    func discardedBlocksReleaseRetainedImages() async throws {
+        let size = CGSize(width: 20, height: 10)
+        #if canImport(UIKit)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in }
+        #else
+        let image = NSImage(size: size)
+        #endif
+        let provider = EvictingImageProvider(result: MarkdownImageResult(image: image, size: size))
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler(config: .init(maxClosedBlocks: 1))
+        let renderer = MarkdownRenderer(imageProvider: provider) { await assembler.block($0) }
+        let markdown = "![image](https://example.com/image.png)\n\n"
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed(markdown)))
+        #expect(try attachmentBounds(in: #require((await renderer.renderedBlocks()).first)).size == size)
+        await provider.evict()
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("outside\n\n")))
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed(markdown)))
+        let block = try #require((await renderer.renderedBlocks()).first)
+        let content = NSAttributedString.picoConverted(from: block.content)
+        #expect(content.string == "image\n")
+        #expect(content.attribute(.attachment, at: 0, effectiveRange: nil) == nil)
+    }
+
     @Test("Live scaling preserves parser state, block IDs, and selection")
     func liveScalingPreservesStream() async throws {
         let pipeline = MarkdownStreamingPipeline()
@@ -279,6 +334,14 @@ struct TextScalingTests {
         }
         return try #require(bounds)
     }
+}
+
+private actor EvictingImageProvider: MarkdownImageProvider {
+    private var result: MarkdownImageResult?
+
+    init(result: MarkdownImageResult) { self.result = result }
+    func evict() { result = nil }
+    func image(for url: URL) async -> MarkdownImageResult? { result }
 }
 
 private actor YieldingImageProvider: MarkdownImageProvider {
