@@ -761,10 +761,9 @@ private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-        guard let linkActionHandler else { return true }
-        linkActionHandler(URL, linkDisplayText(range: characterRange))
-        return false
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        TextItemLinkAction.make(for: textItem.content, range: textItem.range,
+                                in: textView, defaultAction: defaultAction, handler: linkActionHandler)
     }
 
     override var intrinsicContentSize: CGSize {
@@ -852,10 +851,9 @@ private final class StreamingTextKit2View: UITextView, UITextViewDelegate, NSTex
         fatalError("init(coder:) has not been implemented")
     }
 
-    func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange, interaction: UITextItemInteraction) -> Bool {
-        guard let linkActionHandler else { return true }
-        linkActionHandler(URL, linkDisplayText(range: characterRange))
-        return false
+    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+        TextItemLinkAction.make(for: textItem.content, range: textItem.range,
+                                in: textView, defaultAction: defaultAction, handler: linkActionHandler)
     }
 
     override var intrinsicContentSize: CGSize {
@@ -900,6 +898,19 @@ private final class StreamingTextKit2View: UITextView, UITextViewDelegate, NSTex
                 || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
         lastReportedContentSize = newSize
         onContentSizeChanged(newSize)
+    }
+}
+
+@MainActor
+enum TextItemLinkAction {
+    static func make(for content: UITextItem.Content, range: NSRange,
+                     in textView: UITextView, defaultAction: UIAction,
+                     handler: ((URL, String) -> Void)?) -> UIAction {
+        guard case let .link(url) = content, let handler else { return defaultAction }
+        let displayText = textView.linkDisplayText(range: range)
+        return UIAction(title: defaultAction.title, image: defaultAction.image) { _ in
+            handler(url, displayText)
+        }
     }
 }
 

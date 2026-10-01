@@ -96,9 +96,7 @@ struct MarkdownView: View {
         VStack(alignment: .leading, spacing: 4) {
             if let tag = lastTappedTag {
                 Label {
-                    Text("Tapped ")
-                        + Text("\(tag.prefix)\(tag.identifier)").bold()
-                        + Text("  ·  prefix \(tag.prefix)  ·  id \(tag.identifier)")
+                    Text("Tapped \(Text("\(tag.prefix)\(tag.identifier)").bold())  ·  prefix \(tag.prefix)  ·  id \(tag.identifier)")
                 } icon: {
                     Image(systemName: "hand.tap")
                 }
