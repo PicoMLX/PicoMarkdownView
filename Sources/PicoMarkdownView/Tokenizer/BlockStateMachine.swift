@@ -490,7 +490,7 @@ struct StreamingParser {
             switch ctx.kind {
         case .paragraph, .footnoteDefinition:
                 if let mathOpen = detectDisplayMathOpening(lineBuffer) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     let closeAfterLine = mathOpen.closesOnSameLine
                     openDisplayMathBlock(marker: mathOpen.marker,
                                          closing: mathOpen.closing,
@@ -502,47 +502,47 @@ struct StreamingParser {
                     return
                 }
                 if isLineComplete, let fence = detectFenceOpening(lineBuffer) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     openFencedCode(fence)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
                 }
                 if let heading = detectHeading(lineBuffer) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
                     emittedCount = min(lineBuffer.count, heading.prefixLength)
                     lineAnalyzed = true
                     return
                 }
                 if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
                     lineAnalyzed = true
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     openBlockquotes(from: 0, to: quote.markerCount, prefixLength: quote.prefixLength)
                     emittedCount = min(lineBuffer.count, quote.prefixLength)
                     lineAnalyzed = true
                     return
                 }
             if isLineComplete, detectTableCandidate(lineBuffer) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     openTable(lineBuffer)
                     emittedCount = lineBuffer.count
                     lineAnalyzed = true
                     return
                 }
             if isLineComplete, detectHorizontalRule(lineBuffer, indent: 0) {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     emitHorizontalRuleBlock()
                     return
                 }
             if isLineComplete, lineBuffer.hasPrefix(":::") {
-                    closeCurrentBlock()
+                    closeCurrentBlock(preservingListContentPrefix: true)
                     openUnknown()
                     appendUnknownLiteral(lineBuffer)
                     emittedCount = lineBuffer.count
@@ -1248,8 +1248,12 @@ struct StreamingParser {
         closeCurrentBlock()
     }
 
-    private mutating func closeCurrentBlock() {
+    private mutating func closeCurrentBlock(preservingListContentPrefix: Bool = false) {
         guard let ctx = currentBlock else { return }
+        if preservingListContentPrefix, lineWasQuoted {
+            // Transfer the current child's resolved prefix to its successor.
+            lineListChildPrefixLength = ctx.listContentPrefixLength
+        }
         if let table = ctx.tableState, table.stage != .rows {
             var candidate = ctx
             degradeTableCandidate(context: &candidate, table: table, terminated: true)

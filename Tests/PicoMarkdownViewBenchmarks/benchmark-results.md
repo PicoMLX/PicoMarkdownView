@@ -439,3 +439,18 @@ at 512/1024 chunks measures `0.000511 / 0.000884 s` (20 iterations, 1.73x).
 Quoted 1024/2048 means are `0.032349 / 0.042467 s` for spaces,
 `0.034794 / 0.044658 s` for alternating padding, and
 `0.024421 / 0.034040 s` for deferred tables (10 iterations, 1.28-1.39x).
+
+### Successor List-Content Prefix
+
+A following paragraph's transition into another structured child now transfers
+its resolved list-content prefix locally. The second fence therefore retains
+verbatim code without adding container spaces. All 102 split/determinism
+fixtures and both full platform suites pass; test-definition counts are
+unchanged from the preceding checkpoint.
+
+The serial sample1 means are `0.016941 / 0.016868 / 0.016583 s` at
+128/512/1024-byte chunks, and `0.023644 s` for word streaming (50 iterations),
+within 3% of the preceding repeat. Quoted 1024/2048 means are
+`0.033018 / 0.047702 s` for spaces, `0.034982 / 0.050326 s` for alternating
+padding, and `0.025569 / 0.039978 s` for tables (10 iterations, 1.44-1.56x).
+The skip-build run followed all tests with no concurrent build commands.
