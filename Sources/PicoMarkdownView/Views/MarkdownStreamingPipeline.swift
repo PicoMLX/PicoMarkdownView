@@ -73,7 +73,20 @@ actor MarkdownStreamingPipeline {
         await acquireOperation()
         defer { releaseOperation() }
         guard requestVersion == widthRequestVersion else { return nil }
-        guard let blocks = await renderer.updateMermaidContentWidth(width) else { return nil }
+        guard let prepared = await renderer.prepareContentWidth(width, shouldContinue: { [weak self] in
+            guard let self else { return false }
+            return await self.isCurrentWidthRequest(requestVersion)
+        }) else { return nil }
+        guard requestVersion == widthRequestVersion else { return nil }
+        let committed = await renderer.commitContentWidth(prepared)
+        guard requestVersion == widthRequestVersion else {
+            // A newer request can register during the actor handoff to commit.
+            // Restore the last published width before releasing the gate.
+            if committed { await renderer.rollbackContentWidth(prepared) }
+            return nil
+        }
+        guard committed, prepared.didMutate else { return nil }
+        let blocks = prepared.blocks
         let diff = nextEmittedDiff(from: AssemblerDiff(documentVersion: 0,
             changes: blocks.map { .blockEnded(id: $0.id) }))
         return StreamingUpdate(diff: diff, blocks: blocks)
@@ -106,6 +119,10 @@ actor MarkdownStreamingPipeline {
 
     private func isCurrentScaleRequest(_ version: UInt64) -> Bool {
         version == scaleRequestVersion
+    }
+
+    private func isCurrentWidthRequest(_ version: UInt64) -> Bool {
+        version == widthRequestVersion
     }
 
     private func acquireOperation() async {
