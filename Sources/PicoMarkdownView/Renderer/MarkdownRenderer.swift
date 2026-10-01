@@ -43,13 +43,7 @@ public struct MarkdownRenderTheme: Sendable {
     }
 
     public static func `default`() -> MarkdownRenderTheme {
-        let bodySize: CGFloat
-        #if canImport(UIKit)
-        bodySize = UIFont.preferredFont(forTextStyle: .body,
-                                       compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)).pointSize + 2
-        #else
-        bodySize = NSFont.preferredFont(forTextStyle: .body).pointSize + 2
-        #endif
+        let bodySize = FontSpec.defaultBodyPointSize + 2
 
         let body = FontSpec(size: bodySize)
         let code = FontSpec(size: bodySize, design: .monospaced)
