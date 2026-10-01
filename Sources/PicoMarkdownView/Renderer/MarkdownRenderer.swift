@@ -238,11 +238,7 @@ actor MarkdownRenderer {
         let previousBucket = mermaidContentWidthBucket
         let previousBuilder = attributeBuilder
         let previousBlocks = blocks
-        let scaledTheme = theme.scaled(by: textScale)
-        let builder = MarkdownAttributeBuilder(
-            theme: scaledTheme, imageProvider: imageProvider,
-            mermaidProvider: mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme))
-        await builder.setRuntimeMermaidMaxWidth(width)
+        let builder = await previousBuilder.copyForContentWidth(width)
         var staged = previousBlocks
         var mutated = false
         for index in staged.indices where shouldRefreshForContentWidthChange(previousBlocks[index]) {

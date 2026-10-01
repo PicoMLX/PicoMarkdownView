@@ -330,6 +330,48 @@ struct MarkdownRendererTests {
         #expect(await provider.callCount() > sameBucketCallCount)
     }
 
+    @Test("Width staging retains the default Mermaid cache before and after scaling")
+    @MainActor
+    func defaultMermaidCacheSurvivesWidthStaging() async throws {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { await assembler.block($0) }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("```mermaid\ngraph LR\nA-->B\n```\n\n```mermaid\ngraph TD\nC-->D\n```\n\n")))
+        _ = await renderer.apply(await assembler.apply(await tokenizer.finish()))
+        func attachment(in block: RenderedBlock) throws -> NSTextAttachment {
+            let content = NSAttributedString.picoConverted(from: block.content)
+            return try #require(content.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment)
+        }
+        let initial = await renderer.renderedBlocks()
+        let originalImages = try initial.map { try #require(attachment(in: $0).image) }
+        for scale in [CGFloat(1), 2] {
+            _ = await renderer.updateTextScale(scale)
+            let scaled = await renderer.renderedBlocks()
+            let cachedImages = try scaled.map { try #require(attachment(in: $0).image) }
+            if scale == 2 {
+                for (before, after) in zip(originalImages, cachedImages) { #expect(before !== after) }
+            }
+            let prepared = try #require(await renderer.prepareContentWidth(48, shouldContinue: { true }))
+            #expect(await renderer.renderedBlocks() == scaled)
+            #expect(await renderer.commitContentWidth(prepared))
+            await renderer.rollbackContentWidth(prepared)
+            #expect(await renderer.renderedBlocks() == scaled)
+            for width: CGFloat? in [48, 80, 128, nil] {
+                _ = await renderer.updateMermaidContentWidth(width)
+                let resized = await renderer.renderedBlocks()
+                #expect(resized.map(\.snapshot) == initial.map(\.snapshot))
+                for (block, cachedImage) in zip(resized, cachedImages) {
+                    let renderedAttachment = try attachment(in: block)
+                    #expect(renderedAttachment.image === cachedImage)
+                    if let width { #expect(renderedAttachment.bounds.width <= width) }
+                    let content = NSAttributedString.picoConverted(from: block.content)
+                    let font = try #require(content.attribute(.font, at: content.length - 1, effectiveRange: nil) as? MarkdownFont)
+                    #expect(font.pointSize == MarkdownRenderTheme.default().bodyFont.pointSize * scale)
+                }
+            }
+        }
+    }
+
     @Test("Quoted Mermaid attachments reserve quote and list gutters")
     @MainActor
     func quotedMermaidReservesGutters() async throws {
