@@ -565,3 +565,25 @@ Quoted 1024/2048 means are `0.032956 / 0.047910 s` for spaces,
 `0.035014 / 0.050049 s` for alternating padding, and
 `0.025662 / 0.039660 s` for tables (10 iterations, 1.43-1.55x).
 Measurements followed both completed test suites with no concurrent builds.
+
+## GFM And Atomic Width Stack Checkpoint 0bbe2dc (2026-09-30)
+
+Full combined suites pass 37 XCTest + 257 Swift Testing definitions on macOS
+and 295 definitions on iOS Simulator (518 parameterized invocations reported
+separately), with zero failures, skips, or runtime warnings. Both examples
+build without compiler warnings. All 134 quote fixtures and the paused-image
+in-flight width supersession/rollback regressions pass on both platforms.
+
+The serial skip-build benchmark followed all completed tests and builds.
+Sample1 means at 128/512/1024 bytes are `0.016927 / 0.016351 / 0.016247 s`,
+with word streaming `0.023045 s` (50 iterations). Long math at 8192/16384
+bytes measures `0.003140 / 0.006154 s` (10 iterations, 1.96x), and the
+isolated combining-mark scanner at 512/1024 chunks measures
+`0.000535 / 0.000897 s` (20 iterations, 1.68x).
+
+Quoted 1024/2048 means are `0.032858 / 0.043210 s` for spaces,
+`0.035848 / 0.045555 s` for alternating padding, and
+`0.024921 / 0.034731 s` for deferred tables (10 iterations, 1.27-1.39x).
+Sample1, word-stream, and quoted-case means remain within 3% of the stable
+`3c00a0a` checkpoint. No material throughput regression is observed; earlier
+elevated measurements remain preserved above.
