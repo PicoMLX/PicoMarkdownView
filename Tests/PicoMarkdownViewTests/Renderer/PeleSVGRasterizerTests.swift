@@ -233,6 +233,36 @@ struct PeleSVGRasterizerTests {
         style.apply(element: text)
         #expect(abs(style.fontSize - 14 / 1.2) < 0.0001)
         #expect(!style.bold)
+
+        // What Pele writes for `style A font-size:150%`.
+        var percent = PeleSVGStyle()
+        percent.fontSize = 16
+        percent.apply(element: PeleSVGElement(name: "text", attributes: ["style": "font-size:150%;"]))
+        #expect(percent.fontSize == 24)
+        percent.apply(element: PeleSVGElement(name: "tspan", attributes: ["font-size": "0.5em"]))
+        #expect(percent.fontSize == 12)
+    }
+
+    @Test("Line-through decorations are drawn")
+    func strikethrough() throws {
+        // What Pele writes for `style A text-decoration:line-through`.
+        let struck = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" font-size="20" fill="#ff0000">
+        <text x="10" y="30" style="text-decoration:line-through;">Removed label</text></svg>
+        """)
+        let plain = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" font-size="20" fill="#ff0000">
+        <text x="10" y="30">Removed label</text></svg>
+        """)
+        let glyphs = try #require(plain.columns(inRow: 25, where: \.isOpaqueRed))
+        // Somewhere between the baseline (30) and mid x-height a row must be red across the whole label.
+        let strikeRow = (22...29).first { row in
+            let columns = struck.columns(inRow: row, where: \.isOpaqueRed)
+            guard let columns else { return false }
+            return columns.count >= glyphs.count - 2 && struck.count(where: { $0.isOpaqueRed }) > plain.count(where: { $0.isOpaqueRed })
+                && (columns.lowerBound...columns.upperBound).allSatisfy { struck.pixel($0, row).isOpaqueRed }
+        }
+        #expect(strikeRow != nil, "a continuous line crosses the glyphs")
     }
 
     // MARK: Document

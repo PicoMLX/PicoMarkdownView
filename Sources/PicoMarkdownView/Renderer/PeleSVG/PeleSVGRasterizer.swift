@@ -297,8 +297,21 @@ extension PeleSVGDocument {
 
             for (run, line) in zip(chunk, lines) {
                 let shift = run.style.baselineShift * style.fontSize
-                context.textPosition = CGPoint(x: x, y: pen.y - shift)
+                let baseline = pen.y - shift
+                context.textPosition = CGPoint(x: x, y: baseline)
                 CTLineDraw(line.line, context)
+                if run.style.strikethrough, line.width > 0,
+                   let color = run.style.resolvedColor(run.style.fill, opacity: run.style.fillOpacity) {
+                    // CoreText draws underlines but not strike-throughs.
+                    let font = line.font
+                    let y = baseline - CTFontGetXHeight(font) / 2
+                    context.setStrokeColor(color)
+                    context.setLineWidth(max(CTFontGetUnderlineThickness(font), 1))
+                    context.setLineDash(phase: 0, lengths: [])
+                    context.move(to: CGPoint(x: x, y: y))
+                    context.addLine(to: CGPoint(x: x + line.width, y: y))
+                    context.strokePath()
+                }
                 x += line.width
             }
             pen.x = x
@@ -362,6 +375,7 @@ extension PeleSVGDocument {
     private struct MeasuredLine {
         var line: CTLine
         var width: CGFloat
+        var font: CTFont
     }
 
     private func makeLine(for run: TextRun) -> MeasuredLine {
@@ -409,7 +423,7 @@ extension PeleSVGDocument {
         }
         let line = CTLineCreateWithAttributedString(attributed)
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
-        return MeasuredLine(line: line, width: width)
+        return MeasuredLine(line: line, width: width, font: font)
     }
 }
 
