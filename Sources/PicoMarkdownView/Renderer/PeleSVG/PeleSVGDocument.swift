@@ -284,7 +284,10 @@ struct PeleSVGStyle {
             if value == "none" {
                 dashes = []
             } else {
-                let list = PeleSVGValue.numberList(value).filter { $0 >= 0 }
+                // Mermaid styles pass `5px 2px` through; lengths, not bare numbers.
+                let list = value.split(whereSeparator: { $0 == "," || $0.isWhitespace })
+                    .compactMap { PeleSVGValue.length(String($0)) }
+                    .filter { $0 >= 0 }
                 dashes = list.allSatisfy({ $0 == 0 }) ? [] : list
             }
         case "stroke-dashoffset":
