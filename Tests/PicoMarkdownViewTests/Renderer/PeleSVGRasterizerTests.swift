@@ -194,6 +194,26 @@ struct PeleSVGRasterizerTests {
         #expect(style.strokeWidth == 5, "stroke width inherits")
     }
 
+    @Test("Dash arrays accept px lengths")
+    func dashArrayLengths() throws {
+        // What Pele writes for `style A stroke-dasharray:5px 2px`.
+        let dashed = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="100" height="10">
+        <line x1="0" y1="5" x2="100" y2="5" stroke="#ff0000" stroke-width="4" style="stroke-dasharray:5px 2px"/>
+        </svg>
+        """)
+        let painted = try #require(dashed.columns(inRow: 5, where: \.isOpaqueRed))
+        #expect(painted.lowerBound == 0)
+        #expect(dashed.count(where: \.isOpaqueRed) < 100 * 4, "gaps were left between dashes")
+        #expect(dashed.pixel(6, 5) == .transparent, "first gap at 5–7")
+
+        var style = PeleSVGStyle()
+        style.apply(element: PeleSVGElement(name: "line", attributes: ["stroke-dasharray": "3, 1.5px 2"]))
+        #expect(style.dashes == [3, 1.5, 2])
+        style.apply(element: PeleSVGElement(name: "line", attributes: ["stroke-dasharray": "none"]))
+        #expect(style.dashes == [])
+    }
+
     @Test("Font shorthand and relative sizes")
     func fontShorthand() throws {
         let document = try #require(PeleSVGDocument(svg: """
