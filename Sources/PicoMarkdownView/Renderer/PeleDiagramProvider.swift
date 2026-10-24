@@ -71,7 +71,9 @@ actor PeleDiagramProvider: MermaidDiagramProvider {
         do {
             rendered = try await renderer.render(source, options: options)
         } catch {
-            Self.logger.debug("Pele could not render a fence (\(error.code, privacy: .public)): \(error.message, privacy: .public)")
+            // The message quotes the offending source line, which is chat
+            // content; only the code is safe to log unredacted.
+            Self.logger.debug("Pele could not render a fence (\(error.code, privacy: .public)): \(error.message, privacy: .private)")
             return nil
         }
 
