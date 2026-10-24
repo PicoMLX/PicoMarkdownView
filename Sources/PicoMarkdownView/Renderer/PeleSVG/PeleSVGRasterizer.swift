@@ -18,9 +18,14 @@ extension PeleSVGDocument {
     /// transparent unless `background` is given.
     func makeCGImage(scale: CGFloat, background: CGColor? = nil) -> CGImage? {
         guard scale > 0, scale.isFinite else { return nil }
-        let pixelWidth = Int((width * scale).rounded(.up))
-        let pixelHeight = Int((height * scale).rounded(.up))
-        guard pixelWidth > 0, pixelHeight > 0, pixelWidth * pixelHeight <= Self.maxRasterPixels else { return nil }
+        // Bounds are checked in floating point first: a document can declare
+        // a size whose pixel count does not fit an Int.
+        let scaledWidth = (width * scale).rounded(.up)
+        let scaledHeight = (height * scale).rounded(.up)
+        guard scaledWidth >= 1, scaledHeight >= 1, scaledWidth.isFinite, scaledHeight.isFinite,
+              scaledWidth * scaledHeight <= CGFloat(Self.maxRasterPixels) else { return nil }
+        let pixelWidth = Int(scaledWidth)
+        let pixelHeight = Int(scaledHeight)
 
         guard let context = CGContext(data: nil,
                                       width: pixelWidth,
@@ -109,7 +114,11 @@ extension PeleSVGDocument {
             }
         case "path", "rect", "circle", "ellipse", "line", "polygon", "polyline":
             if let path = makePath(for: element, style: style) {
-                paint(path, style: style, in: context)
+                // `opacity` applies to the shape as a whole, so fill and
+                // stroke must be composited together, not each at half.
+                withGroupOpacity(style.opacity, in: context) {
+                    paint(path, style: style, in: context)
+                }
             }
         case "text":
             withGroupOpacity(style.opacity, in: context) {
@@ -160,8 +169,10 @@ extension PeleSVGDocument {
                               width: element.length("width", default: 0),
                               height: element.length("height", default: 0))
             guard rect.width > 0, rect.height > 0 else { return nil }
-            var rx = element.length("rx") ?? style.rx
-            var ry = element.length("ry") ?? style.ry
+            // `style.rx`/`ry` already resolve the attribute and any `style`
+            // declaration in the right precedence.
+            var rx = style.rx
+            var ry = style.ry
             if rx == nil { rx = ry }
             if ry == nil { ry = rx }
             let cornerWidth = min(max(rx ?? 0, 0), rect.width / 2)
@@ -205,14 +216,14 @@ extension PeleSVGDocument {
 
     private func paint(_ path: CGPath, style: PeleSVGStyle, in context: CGContext) {
         if case let .gradient(id, _) = style.fill, let gradient = gradients[id] {
-            fill(path, with: gradient, opacity: style.fillOpacity * style.opacity, in: context)
-        } else if let color = style.resolvedColor(style.fill, opacity: style.fillOpacity * style.opacity) {
+            fill(path, with: gradient, opacity: style.fillOpacity, in: context)
+        } else if let color = style.resolvedColor(style.fill, opacity: style.fillOpacity) {
             context.setFillColor(color)
             context.addPath(path)
             context.fillPath()
         }
 
-        if style.strokeWidth > 0, let color = style.resolvedColor(style.stroke, opacity: style.strokeOpacity * style.opacity) {
+        if style.strokeWidth > 0, let color = style.resolvedColor(style.stroke, opacity: style.strokeOpacity) {
             context.setStrokeColor(color)
             context.setLineWidth(style.strokeWidth)
             context.setLineCap(style.lineCap)

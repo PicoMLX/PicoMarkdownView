@@ -274,6 +274,50 @@ struct PeleSVGRasterizerTests {
         #expect(abs(pixel.alpha - 128) <= 2, "two overlapping shapes in a half-transparent group stay half transparent: \(pixel)")
     }
 
+    @Test("Shape opacity composites fill and stroke together")
+    func shapeOpacity() throws {
+        // What Pele writes for `style A fill:#f00,stroke:#00f,stroke-width:4px,opacity:0.5`.
+        let bitmap = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <rect x="10" y="10" width="20" height="20" style="fill:#ff0000;stroke:#0000ff;stroke-width:4px;opacity:0.5"/>
+        </svg>
+        """)
+        let onStroke = bitmap.pixel(11, 20)
+        #expect(abs(onStroke.alpha - 128) <= 2, "where the stroke covers the fill the shape is still half transparent: \(onStroke)")
+        #expect(onStroke.isOpaqueBlue == false && onStroke.blue > 200 && onStroke.red < 50, "the stroke color wins where it covers the fill: \(onStroke)")
+        let inside = bitmap.pixel(20, 20)
+        #expect(abs(inside.alpha - 128) <= 2 && inside.red > 200, "fill interior: \(inside)")
+    }
+
+    @Test("Style declarations override corner radius attributes")
+    func cornerRadiusPrecedence() throws {
+        // What Pele writes for a rounded node with `style A rx:1,ry:1`.
+        let bitmap = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <rect x="0" y="0" width="40" height="40" rx="12" style="rx:1;ry:1" fill="#ff0000"/>
+        </svg>
+        """)
+        #expect(bitmap.pixel(2, 2).isOpaqueRed, "a 1pt corner leaves (2,2) inside the rect; a 12pt corner would not")
+
+        let attributeOnly = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+        <rect x="0" y="0" width="40" height="40" rx="12" fill="#ff0000"/>
+        </svg>
+        """)
+        #expect(attributeOnly.pixel(2, 2) == .transparent, "the attribute still applies on its own")
+    }
+
+    @Test("Oversized drawings are refused instead of trapping")
+    func refusesOversizedRaster() throws {
+        let huge = try #require(PeleSVGDocument(svg: #"<svg xmlns="http://www.w3.org/2000/svg" width="10000000000" height="10000000000"></svg>"#))
+        #expect(huge.makeCGImage(scale: 1) == nil)
+        #expect(huge.makeImage(scale: 2) == nil)
+
+        let modest = try #require(PeleSVGDocument(svg: #"<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="4000"></svg>"#))
+        #expect(modest.makeCGImage(scale: 1) != nil)
+        #expect(modest.makeCGImage(scale: 3) == nil, "scale pushes it past the pixel budget")
+    }
+
     @Test("Rendering scale multiplies pixels, not points")
     func rasterScale() throws {
         let document = try #require(PeleSVGDocument(svg: ##"<svg xmlns="http://www.w3.org/2000/svg" width="30" height="20"><rect width="30" height="20" fill="#ff0000"/></svg>"##))
