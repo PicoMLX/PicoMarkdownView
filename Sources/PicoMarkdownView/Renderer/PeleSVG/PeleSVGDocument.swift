@@ -224,6 +224,7 @@ struct PeleSVGStyle {
     var underline = false
     var textAnchor: PeleSVGTextAnchor = .start
     var letterSpacing: CGFloat = 0
+    var wordSpacing: CGFloat = 0
     var preserveSpace = false
 
     // Not inherited; reset for every element.
@@ -239,7 +240,7 @@ struct PeleSVGStyle {
         "fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset",
         "stroke-linecap", "stroke-linejoin", "stroke-opacity", "opacity", "color",
         "font-family", "font-size", "font-weight", "font-style", "font", "text-decoration",
-        "text-anchor", "letter-spacing", "baseline-shift", "rx", "ry", "stop-color", "stop-opacity"
+        "text-anchor", "letter-spacing", "word-spacing", "baseline-shift", "rx", "ry", "stop-color", "stop-opacity"
     ]
 
     /// Layers `element`'s presentation attributes and `style` declarations
@@ -328,6 +329,8 @@ struct PeleSVGStyle {
             }
         case "letter-spacing":
             letterSpacing = value == "normal" ? 0 : (PeleSVGValue.length(value) ?? 0)
+        case "word-spacing":
+            wordSpacing = value == "normal" ? 0 : (PeleSVGValue.length(value) ?? 0)
         case "baseline-shift":
             switch value {
             case "sub": baselineShift = -0.2
