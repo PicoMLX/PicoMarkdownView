@@ -1,0 +1,101 @@
+// Appended verbatim to pele-bundle.js by Scripts/bundle-pele.sh.
+// Bridges Pele's render() to the single entry point called from Swift by
+// PeleRenderer (JavaScriptCore) in
+// Sources/PicoMarkdownView/Renderer/PeleRenderer.swift.
+//
+// Pele themes its SVG with CSS custom properties (`var(--pele-bg,#fff)`),
+// which only a browser resolves. The Swift side draws the SVG itself, so the
+// wrapper substitutes every `var()` with the host theme's value, or Pele's
+// own fallback, and strips the custom-property declarations from the root
+// style. The returned markup contains no `var(` at all.
+(function (global) {
+  'use strict';
+
+  // `--_bg:var(--pele-bg,#fff);` private aliases Pele declares on the root
+  // <svg> style, each used as `var(--_bg)` throughout the drawing.
+  var ALIAS_DECLARATION = /--_([a-z]+):((?:[^;"]|\([^)]*\))*);?/g;
+  // `var(--name)` or `var(--name,fallback)`; the fallback may itself hold one
+  // level of parentheses (`var(--_fm)` inside a font list, for example).
+  var VAR_REFERENCE = /var\(--([a-z0-9_-]+)(?:,((?:[^()]|\([^()]*\))*))?\)/g;
+  var MAX_PASSES = 8;
+
+  function resolveVariables(svg, theme) {
+    var aliases = {};
+    var out = svg.replace(ALIAS_DECLARATION, function (match, name, value) {
+      aliases[name] = value;
+      return '';
+    });
+
+    function lookup(name, fallback) {
+      var value;
+      if (name.charAt(0) === '_') {
+        value = aliases[name.slice(1)];
+      } else if (name.indexOf('pele-') === 0) {
+        value = theme[name.slice(5)];
+      }
+      if (value !== undefined && value !== null && value !== '') { return String(value); }
+      return fallback !== undefined ? fallback.trim() : '';
+    }
+
+    var previous;
+    var passes = 0;
+    do {
+      previous = out;
+      out = out.replace(VAR_REFERENCE, function (match, name, fallback) {
+        return lookup(name, fallback);
+      });
+      passes += 1;
+    } while (out !== previous && passes < MAX_PASSES);
+
+    // Removing declarations can leave empty slots behind.
+    return out.replace(/;;+/g, ';').replace(/style=";/g, 'style="').replace(/;"/g, '"');
+  }
+
+  // Entry point called from Swift.
+  //
+  //   options.fontSize    label font size in CSS pixels (points on Apple platforms)
+  //   options.fontFamily  family Pele measures labels in when no native
+  //                       measurer is installed (see `global.peleMeasureText`)
+  //   options.maxWidth    width available to the diagram; types that can
+  //                       draw narrower do, and wide flowcharts may turn
+  //                       vertical
+  //   options.theme       values for Pele's `--pele-*` variables, keyed
+  //                       without the prefix (`bg`, `fg`, `series-1`, ...)
+  //
+  // Returns `{ok:true, svg, width, height, type}` or
+  // `{ok:false, code, message}`; it never throws.
+  function renderDiagram(source, options) {
+    options = options || {};
+    try {
+      var renderOptions = { responsive: false };
+      if (typeof options.fontSize === 'number' && options.fontSize > 0) { renderOptions.fontSize = options.fontSize; }
+      if (typeof options.fontFamily === 'string' && options.fontFamily !== '') { renderOptions.fontFamily = options.fontFamily; }
+      if (typeof options.fontFamilyMono === 'string' && options.fontFamilyMono !== '') { renderOptions.fontFamilyMono = options.fontFamilyMono; }
+      if (typeof options.maxWidth === 'number' && options.maxWidth > 0) { renderOptions.maxWidth = options.maxWidth; }
+      if (typeof global.peleMeasureText === 'function') {
+        renderOptions.measurer = {
+          width: function (text, size, style) {
+            return global.peleMeasureText(text, size, style);
+          }
+        };
+      }
+      var result = pele.render(String(source), renderOptions);
+      return {
+        ok: true,
+        svg: resolveVariables(result.svg, options.theme || {}),
+        width: result.width,
+        height: result.height,
+        type: result.type
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        code: (error && typeof error.code === 'string') ? error.code : 'error',
+        message: String(error && error.message ? error.message : error)
+      };
+    }
+  }
+
+  global.renderDiagram = renderDiagram;
+  global.resolvePeleVariables = resolveVariables;
+})(this);
