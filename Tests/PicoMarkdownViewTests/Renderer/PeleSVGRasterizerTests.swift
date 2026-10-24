@@ -122,7 +122,11 @@ struct PeleSVGRasterizerTests {
         ("rgba(0,0,255,0.5)", (0, 0, 255, 128)),
         ("red", (255, 0, 0, 255)),
         ("LightBlue", (173, 216, 230, 255)),
-        ("transparent", (0, 0, 0, 0))
+        ("transparent", (0, 0, 0, 0)),
+        ("hsl(120, 100%, 50%)", (0, 255, 0, 255)),
+        ("hsl(0 0% 50%)", (128, 128, 128, 255)),
+        ("hsla(240, 100%, 50%, 0.5)", (0, 0, 255, 128)),
+        ("hsl(390deg, 100%, 25%)", (128, 64, 0, 255))
     ])
     func parsesColors(input: String, expected: (Int, Int, Int, Int)) throws {
         let color = try #require(PeleSVGValue.color(input))
@@ -395,6 +399,42 @@ struct PeleSVGRasterizerTests {
         #expect(collapsedColumns.lowerBound <= 12, "leading whitespace trimmed")
         #expect(preservedColumns.lowerBound > collapsedColumns.lowerBound + 10, "preserved spaces indent the text")
         #expect(preservedColumns.count > collapsedColumns.count)
+    }
+
+    @Test("Non-breaking spaces are not collapsed")
+    func nonBreakingSpaces() throws {
+        // What Pele writes for `A["hello&nbsp;&nbsp;world"]`: literal U+00A0s, no xml:space.
+        let regular = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="30" font-size="14" fill="#000000">
+        <text x="10" y="20">hello  world</text></svg>
+        """)
+        let nonBreaking = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="30" font-size="14" fill="#000000">
+        <text x="10" y="20">hello\u{00A0}\u{00A0}\u{00A0}\u{00A0}world</text></svg>
+        """)
+        let regularColumns = try #require(regular.columns(inRow: 15, where: { $0.alpha > 60 }))
+        let nonBreakingColumns = try #require(nonBreaking.columns(inRow: 15, where: { $0.alpha > 60 }))
+        #expect(nonBreakingColumns.upperBound > regularColumns.upperBound + 6, "four nbsp are wider than one collapsed space")
+    }
+
+    @Test("Text strokes draw an outline")
+    func textStroke() throws {
+        // What Pele writes for an outlined sankey label: a stroked, unfilled pass behind the filled one.
+        let bitmap = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" font-size="20" font-weight="bold">
+        <text x="10" y="30" fill="none" stroke="#ff0000" stroke-width="3">Outline</text>
+        <text x="10" y="30" fill="#0000ff">Outline</text>
+        </svg>
+        """)
+        #expect(bitmap.count(where: { $0.red > 150 && $0.blue < 100 && $0.alpha > 100 }) > 50, "red outline pixels around the glyphs")
+        #expect(bitmap.count(where: \.isOpaqueBlue) > 50, "blue fill inside the glyphs")
+
+        let unstroked = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="40" font-size="20">
+        <text x="10" y="30" fill="#0000ff">Outline</text>
+        </svg>
+        """)
+        #expect(unstroked.count(where: { $0.red > 150 && $0.blue < 100 && $0.alpha > 100 }) == 0)
     }
 
     @Test("Unsupported elements are skipped, not drawn")

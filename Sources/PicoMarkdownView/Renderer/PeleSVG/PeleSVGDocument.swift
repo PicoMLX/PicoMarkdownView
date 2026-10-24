@@ -506,8 +506,44 @@ enum PeleSVGValue {
             let alpha = parts.count > 3 ? (fraction(parts[3]) ?? 1) : 1
             return rgba(min(max(red, 0), 1), min(max(green, 0), 1), min(max(blue, 0), 1), min(max(alpha, 0), 1))
         }
+        if text.hasPrefix("hsl") {
+            return hslColor(text)
+        }
         if text == "transparent" { return rgba(0, 0, 0, 0) }
         return namedColors[text].flatMap(hexColor)
+    }
+
+    /// `hsl(120, 100%, 50%)`, `hsla(240 100% 50% / 0.5)`; Mermaid sequence
+    /// diagrams pass `rect hsl(...)` highlights straight through.
+    private static func hslColor(_ text: String) -> CGColor? {
+        guard let open = text.firstIndex(of: "("), let close = text.lastIndex(of: ")") else { return nil }
+        let parts = text[text.index(after: open)..<close]
+            .split(whereSeparator: { $0 == "," || $0 == " " || $0 == "/" })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count >= 3 else { return nil }
+        var hueText = parts[0]
+        if hueText.hasSuffix("deg") { hueText = String(hueText.dropLast(3)) }
+        guard let hueDegrees = Double(hueText),
+              let saturation = fraction(parts[1]),
+              let lightness = fraction(parts[2]) else { return nil }
+        let alpha = parts.count > 3 ? (fraction(parts[3]) ?? 1) : 1
+
+        let hue = CGFloat((hueDegrees.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)) / 360
+        let s = min(max(saturation, 0), 1)
+        let l = min(max(lightness, 0), 1)
+        let chroma = (1 - abs(2 * l - 1)) * s
+        let x = chroma * (1 - abs((hue * 6).truncatingRemainder(dividingBy: 2) - 1))
+        let m = l - chroma / 2
+        let (r, g, b): (CGFloat, CGFloat, CGFloat)
+        switch hue * 6 {
+        case ..<1: (r, g, b) = (chroma, x, 0)
+        case ..<2: (r, g, b) = (x, chroma, 0)
+        case ..<3: (r, g, b) = (0, chroma, x)
+        case ..<4: (r, g, b) = (0, x, chroma)
+        case ..<5: (r, g, b) = (x, 0, chroma)
+        default: (r, g, b) = (chroma, 0, x)
+        }
+        return rgba(r + m, g + m, b + m, min(max(alpha, 0), 1))
     }
 
     private static func hexColor(_ hex: String) -> CGColor? {
