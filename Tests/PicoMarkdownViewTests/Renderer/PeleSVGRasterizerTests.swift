@@ -394,9 +394,14 @@ struct PeleSVGRasterizerTests {
         <svg xmlns="http://www.w3.org/2000/svg" width="200" height="30" font-size="14" fill="#000000">
         <text x="10" y="20" xml:space="preserve">    a    b</text></svg>
         """)
+        let reference = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="200" height="30" font-size="14" fill="#000000">
+        <text x="10" y="20">a b</text></svg>
+        """)
         let collapsedColumns = try #require(collapsed.columns(inRow: 15, where: { $0.alpha > 60 }))
         let preservedColumns = try #require(preserved.columns(inRow: 15, where: { $0.alpha > 60 }))
-        #expect(collapsedColumns.lowerBound <= 12, "leading whitespace trimmed")
+        let referenceColumns = try #require(reference.columns(inRow: 15, where: { $0.alpha > 60 }))
+        #expect(collapsedColumns == referenceColumns, "collapsing and trimming yields exactly \"a b\"")
         #expect(preservedColumns.lowerBound > collapsedColumns.lowerBound + 10, "preserved spaces indent the text")
         #expect(preservedColumns.count > collapsedColumns.count)
     }
