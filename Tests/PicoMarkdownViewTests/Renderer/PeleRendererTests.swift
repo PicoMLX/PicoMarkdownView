@@ -117,6 +117,30 @@ struct PeleRendererTests {
         }
     }
 
+    @Test("Variable resolution never touches label text")
+    func labelTextIsLeftAlone() async throws {
+        let renderer = try #require(PeleRenderer.shared)
+        let result = try await renderer.render("flowchart LR\n  A[\"var(--foo)\"] --> B[\"a;;b --_bg:red;\"]",
+                                               options: PeleRenderOptions(theme: ["bg": "#123456"]))
+        #expect(result.svg.contains(">var(--foo)<"), "a label that happens to look like a CSS variable survives")
+        #expect(result.svg.contains(">a;;b --_bg:red;<"), "declaration stripping and separator cleanup stay inside tags")
+        let rootTag = result.svg.prefix(while: { $0 != ">" })
+        #expect(!rootTag.contains("--_"), "the real alias declarations on the root are still stripped")
+    }
+
+    @Test("Theme values are escaped for the attributes they land in")
+    func themeValuesAreAttributeSafe() async throws {
+        let renderer = try #require(PeleRenderer.shared)
+        let result = try await renderer.render(Self.flowchart, options: PeleRenderOptions(theme: [
+            "font": "\"Helvetica Neue\", sans-serif",
+            "fg": "#111<&"
+        ]))
+        #expect(result.svg.contains("font-family:&quot;Helvetica Neue&quot;, sans-serif"))
+        #expect(result.svg.contains("fill=\"#111&lt;&amp;\""))
+        let parser = XMLParser(data: Data(result.svg.utf8))
+        #expect(parser.parse(), "the themed SVG must stay well-formed XML")
+    }
+
     @Test("Diagram text is escaped, never interpreted as markup")
     func diagramTextIsEscaped() async throws {
         let renderer = try #require(PeleRenderer.shared)
