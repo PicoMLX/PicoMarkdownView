@@ -165,13 +165,26 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
   // `var(--name)` or `var(--name,fallback)`; the fallback may itself hold one
   // level of parentheses (`var(--_fm)` inside a font list, for example).
   var VAR_REFERENCE = /var\(--([a-z0-9_-]+)(?:,((?:[^()]|\([^()]*\))*))?\)/g;
+  // Every tag, with its attributes. Pele escapes `<` and `>` in attribute
+  // values and text, so a tag never contains a `>` before its end.
+  var TAG = /<[^>]*>/g;
+  var STYLE_ATTRIBUTE = / style="([^"]*)"/g;
   var MAX_PASSES = 8;
 
+  var ATTRIBUTE_ESCAPES = { '&': '&amp;', '<': '&lt;', '"': '&quot;' };
+  function escapeAttribute(value) {
+    return String(value).replace(/[&<"]/g, function (character) { return ATTRIBUTE_ESCAPES[character]; });
+  }
+
+  // Only tags are touched: diagram text such as a label reading `var(--x)`
+  // or `a;;b` is left exactly as Pele wrote it.
   function resolveVariables(svg, theme) {
     var aliases = {};
-    var out = svg.replace(ALIAS_DECLARATION, function (match, name, value) {
-      aliases[name] = value;
-      return '';
+    var stripped = svg.replace(TAG, function (tag) {
+      return tag.indexOf('--_') < 0 ? tag : tag.replace(ALIAS_DECLARATION, function (match, name, value) {
+        aliases[name] = value;
+        return '';
+      });
     });
 
     function lookup(name, fallback) {
@@ -180,23 +193,29 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
         value = aliases[name.slice(1)];
       } else if (name.indexOf('pele-') === 0) {
         value = theme[name.slice(5)];
+        if (value !== undefined && value !== null && value !== '') { return escapeAttribute(value); }
       }
       if (value !== undefined && value !== null && value !== '') { return String(value); }
       return fallback !== undefined ? fallback.trim() : '';
     }
 
-    var previous;
-    var passes = 0;
-    do {
-      previous = out;
-      out = out.replace(VAR_REFERENCE, function (match, name, fallback) {
-        return lookup(name, fallback);
+    return stripped.replace(TAG, function (tag) {
+      if (tag.indexOf('var(') < 0) { return tag; }
+      var out = tag;
+      var previous;
+      var passes = 0;
+      do {
+        previous = out;
+        out = out.replace(VAR_REFERENCE, function (match, name, fallback) {
+          return lookup(name, fallback);
+        });
+        passes += 1;
+      } while (out !== previous && passes < MAX_PASSES);
+      // Removing declarations can leave empty slots in the style attribute.
+      return out.replace(STYLE_ATTRIBUTE, function (match, css) {
+        return ' style="' + css.replace(/;;+/g, ';').replace(/^;/, '').replace(/;$/, '') + '"';
       });
-      passes += 1;
-    } while (out !== previous && passes < MAX_PASSES);
-
-    // Removing declarations can leave empty slots behind.
-    return out.replace(/;;+/g, ';').replace(/style=";/g, 'style="').replace(/;"/g, '"');
+    });
   }
 
   // Entry point called from Swift.
