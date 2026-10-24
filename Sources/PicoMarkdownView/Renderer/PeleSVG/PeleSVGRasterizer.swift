@@ -330,8 +330,9 @@ extension PeleSVGDocument {
         }
     }
 
-    /// Without `xml:space="preserve"`, SVG collapses runs of whitespace to
-    /// one space and trims the ends of the whole text element.
+    /// Without `xml:space="preserve"`, SVG collapses runs of XML whitespace
+    /// (space, tab, newline, return — not non-breaking spaces) to one space
+    /// and trims the ends of the whole text element.
     private func normalizeWhitespace(_ runs: [TextRun], preserve: Bool) -> [TextRun] {
         var result = runs
         if !preserve {
@@ -339,7 +340,7 @@ extension PeleSVGDocument {
                 var collapsed = ""
                 var previousWasSpace = false
                 for character in result[index].text {
-                    if character.isWhitespace {
+                    if character == " " || character == "\t" || character == "\n" || character == "\r" {
                         if !previousWasSpace { collapsed.append(" ") }
                         previousWasSpace = true
                     } else {
@@ -380,6 +381,17 @@ extension PeleSVGDocument {
         if run.style.underline {
             attributes[NSAttributedString.Key(kCTUnderlineStyleAttributeName as String)] = CTUnderlineStyle.single.rawValue
             attributes[NSAttributedString.Key(kCTUnderlineColorAttributeName as String)] = color
+        }
+        // Outlined labels (sankey `labelStyle: outlined`) are a stroked,
+        // unfilled text pass behind the filled one. CoreText takes the
+        // stroke width as a percentage of the font size; a negative value
+        // strokes and fills, a positive one strokes only.
+        if run.style.strokeWidth > 0, run.style.fontSize > 0,
+           let strokeColor = run.style.resolvedColor(run.style.stroke, opacity: run.style.strokeOpacity) {
+            let percent = run.style.strokeWidth / run.style.fontSize * 100
+            let hasFill = run.style.resolvedColor(run.style.fill, opacity: run.style.fillOpacity) != nil
+            attributes[NSAttributedString.Key(kCTStrokeColorAttributeName as String)] = strokeColor
+            attributes[NSAttributedString.Key(kCTStrokeWidthAttributeName as String)] = hasFill ? -percent : percent
         }
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: run.text, attributes: attributes))
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
