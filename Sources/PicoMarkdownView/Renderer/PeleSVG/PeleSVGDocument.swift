@@ -222,6 +222,7 @@ struct PeleSVGStyle {
     var bold = false
     var italic = false
     var underline = false
+    var strikethrough = false
     var textAnchor: PeleSVGTextAnchor = .start
     var letterSpacing: CGFloat = 0
     var wordSpacing: CGFloat = 0
@@ -324,6 +325,7 @@ struct PeleSVGStyle {
             applyFontShorthand(value, parentFontSize: parentFontSize)
         case "text-decoration":
             underline = value.contains("underline")
+            strikethrough = value.contains("line-through")
         case "text-anchor":
             switch value {
             case "middle": textAnchor = .middle
@@ -361,6 +363,8 @@ struct PeleSVGStyle {
         default:
             if value.hasSuffix("em"), let factor = PeleSVGValue.length(String(value.dropLast(2))) {
                 fontSize = parentFontSize * factor
+            } else if value.hasSuffix("%"), let percent = PeleSVGValue.length(String(value.dropLast())), percent > 0 {
+                fontSize = parentFontSize * percent / 100
             } else if let size = PeleSVGValue.length(value), size > 0 {
                 fontSize = size
             }
