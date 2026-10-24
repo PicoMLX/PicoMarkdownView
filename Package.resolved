@@ -1,24 +1,6 @@
 {
-  "originHash" : "b6fec7005d6e41508afaeb001500b4447ad7d3f3f173acc6f39cd0391b574ba9",
+  "originHash" : "a08aede4d02eb981de973654730f433b81a98f3103dd55f90b888f67e3441cab",
   "pins" : [
-    {
-      "identity" : "beautiful-mermaid-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/PicoMLX/beautiful-mermaid-swift",
-      "state" : {
-        "branch" : "br-tag",
-        "revision" : "bd0a8df677d7352a4513bba408066b41ef18d05b"
-      }
-    },
-    {
-      "identity" : "dagre-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lukilabs/dagre-swift",
-      "state" : {
-        "revision" : "92efb78b73a8b665ee74bacfb0f1f5b17bbe1b38",
-        "version" : "0.1.0"
-      }
-    },
     {
       "identity" : "swiftmath",
       "kind" : "remoteSourceControl",

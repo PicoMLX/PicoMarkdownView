@@ -2,24 +2,6 @@
   "originHash" : "5a27e4c5fc6190af3033244bc82d412f31c3c625b738e385752c20673c3961e0",
   "pins" : [
     {
-      "identity" : "beautiful-mermaid-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/PicoMLX/beautiful-mermaid-swift",
-      "state" : {
-        "branch" : "br-tag",
-        "revision" : "bd0a8df677d7352a4513bba408066b41ef18d05b"
-      }
-    },
-    {
-      "identity" : "dagre-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lukilabs/dagre-swift",
-      "state" : {
-        "revision" : "92efb78b73a8b665ee74bacfb0f1f5b17bbe1b38",
-        "version" : "0.1.0"
-      }
-    },
-    {
       "identity" : "meshingkit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/rryam/MeshingKit",

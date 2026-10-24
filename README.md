@@ -178,6 +178,20 @@ Conformances must be `Sendable`; `highlight` is called off the main actor while 
 
 The bundled grammar set is regenerated with `Scripts/bundle-prism.sh` (pins the Prism version, resolves component dependencies, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/prism-bundle.js` by hand — change the language list in `Scripts/bundle-prism.js` and rerun the script.
 
+### Diagrams (Mermaid)
+
+Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle, and the resulting SVG is rasterized natively with CoreGraphics on both macOS and iOS (no WebView, no SVG library). Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
+
+A diagram renders once its closing fence arrives; while the block is still streaming it shows as a highlighted code block, so streaming cost is unchanged. Colors follow the `MarkdownRenderTheme` (code block foreground/background for text and node surfaces, `linkColor` for accents) in light and dark mode, labels are measured and drawn in the system font, and a flowchart that is too wide for the view is laid out vertically instead of being scaled down. Sources Pele cannot parse stay as code blocks.
+
+To keep mermaid fences as plain code:
+
+```swift
+let theme = MarkdownRenderTheme.default().withMermaidRendering(.disabled)
+```
+
+The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele version, verifies the npm tarball checksum, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/pele-bundle.js` by hand — bump the version in the script and rerun it.
+
 ### Resetting Content
 
 To replace content, pass a new string/chunks/stream so the view creates a fresh input:
