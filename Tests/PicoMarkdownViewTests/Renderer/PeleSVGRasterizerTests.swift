@@ -422,6 +422,25 @@ struct PeleSVGRasterizerTests {
         #expect(nonBreakingColumns.upperBound > regularColumns.upperBound + 6, "four nbsp are wider than one collapsed space")
     }
 
+    @Test("Word spacing widens the gaps between words and the anchored width")
+    func wordSpacing() throws {
+        // What Pele writes for `style A word-spacing:20px` on a two-word label.
+        let plain = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="30" font-size="14" fill="#000000">
+        <text x="150" y="20" text-anchor="middle">hello wide world</text></svg>
+        """)
+        let spaced = try rasterize("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="300" height="30" font-size="14" fill="#000000">
+        <text x="150" y="20" text-anchor="middle" style="word-spacing:20px;">hello wide world</text></svg>
+        """)
+        let plainColumns = try #require(plain.columns(inRow: 15, where: { $0.alpha > 60 }))
+        let spacedColumns = try #require(spaced.columns(inRow: 15, where: { $0.alpha > 60 }))
+        #expect(spacedColumns.count >= plainColumns.count + 36, "two spaces each 20pt wider: \(spacedColumns) vs \(plainColumns)")
+        let plainCenter = CGFloat(plainColumns.lowerBound + plainColumns.upperBound) / 2
+        let spacedCenter = CGFloat(spacedColumns.lowerBound + spacedColumns.upperBound) / 2
+        #expect(abs(spacedCenter - plainCenter) < 4, "the wider text is still centered on x, so the measured width included the spacing")
+    }
+
     @Test("Text strokes draw an outline")
     func textStroke() throws {
         // What Pele writes for an outlined sankey label: a stroked, unfilled pass behind the filled one.
