@@ -393,7 +393,21 @@ extension PeleSVGDocument {
             attributes[NSAttributedString.Key(kCTStrokeColorAttributeName as String)] = strokeColor
             attributes[NSAttributedString.Key(kCTStrokeWidthAttributeName as String)] = hasFill ? -percent : percent
         }
-        let line = CTLineCreateWithAttributedString(NSAttributedString(string: run.text, attributes: attributes))
+        let attributed = NSMutableAttributedString(string: run.text, attributes: attributes)
+        if run.style.wordSpacing != 0 {
+            // CoreText has no word-spacing; widen the advance of each space.
+            let text = run.text as NSString
+            var search = NSRange(location: 0, length: text.length)
+            while search.length > 0 {
+                let found = text.rangeOfCharacter(from: .whitespaces, range: search)
+                guard found.location != NSNotFound else { break }
+                attributed.addAttribute(NSAttributedString.Key(kCTKernAttributeName as String),
+                                        value: run.style.letterSpacing + run.style.wordSpacing,
+                                        range: found)
+                search = NSRange(location: found.upperBound, length: text.length - found.upperBound)
+            }
+        }
+        let line = CTLineCreateWithAttributedString(attributed)
         let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
         return MeasuredLine(line: line, width: width)
     }
