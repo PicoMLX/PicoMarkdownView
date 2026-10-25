@@ -75,7 +75,10 @@ struct QuotedContainerTests {
         ">> a\n> $$x$$y\n\n",
         ">> a\n> $$x$$\n\n",
         ">> a\n> $$\n> x\n> $$\n\n",
-        ">> a\n> \\[x\\]y\n\n"
+        ">> a\n> \\[x\\]y\n\n",
+        "> ```\n[x]: /url\n> visible\n\n",
+        "> text\n[x]: /url\n\n",
+        "> ```\n[x]: /url\n\n[link][x]\n\n"
     ] + emptyHeadingDocuments + markerOnlyDocuments
 
     /// `> #` … `> ######`, with and without a trailing newline.
@@ -311,6 +314,40 @@ struct QuotedContainerTests {
         #expect(text.blocks.map(\.kind) == [.blockquote, .blockquote, .heading(level: 1)])
         #expect(self.text(of: text.blocks[0]).contains("**before"), "the outer quote's pending text flushes")
         #expect(text.blocks.allSatisfy { $0.isClosed })
+    }
+
+    @Test("An unmarked reference definition ends quoted code and cannot interrupt a quoted paragraph")
+    func definitionAfterQuotedCode() async throws {
+        let afterCode = await parse(chunks: [Self.documents[61]])
+        #expect(afterCode.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil), .blockquote])
+        #expect((afterCode.blocks[1].codeText ?? "").isEmpty, "the definition line is not code")
+        #expect(afterCode.blocks.last.map(text(of:))?.contains("visible") == true)
+        let afterText = await parse(chunks: [Self.documents[62]])
+        #expect(afterText.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: afterText.blocks[0]).contains("[x]: /url"), "a definition cannot interrupt a paragraph (CommonMark)")
+        let resolved = await parse(chunks: [Self.documents[63]])
+        #expect(resolved.blocks.last?.inlineRuns?.contains(where: { $0.linkURL == "/url" }) == true, "the definition was recorded")
+    }
+
+    @Test("A streamed display-math line waits for its newline without re-emitting or re-analyzing")
+    func streamedMathLineWaits() async {
+        let tokenizer = MarkdownTokenizer()
+        let opener = await tokenizer.feed("> $$")
+        #expect(opener.events == [.blockStart(id: 1, kind: .blockquote)])
+        let chunk = String(repeating: "x", count: 100)
+        for _ in 0..<50 {
+            #expect(await tokenizer.feed(chunk).events.isEmpty)
+        }
+        let closed = await tokenizer.feed("\n> $$\n\n")
+        #expect(closed.events.contains(.blockStart(id: 2, kind: .math(display: true))))
+        let content = closed.events.compactMap { event -> String? in
+            if case .blockAppendMath(2, let text) = event { return text }
+            return nil
+        }.joined()
+        #expect(content == String(repeating: chunk, count: 50) + "\n")
+        let streamed = await parse(chunks: ["> $$"] + Array(repeating: chunk, count: 50) + ["\n> $$\n\n"])
+        let whole = await parse(chunks: ["> $$" + String(repeating: chunk, count: 50) + "\n> $$\n\n"])
+        #expect(streamed.blocks == whole.blocks)
     }
 
     @Test("A quoted code line longer than the look-behind budget stays in the code")
