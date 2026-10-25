@@ -110,7 +110,11 @@ struct QuotedContainerTests {
         "> > text\n> :::note\n\n",
         "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n>\n> - sibling\n\n",
         "> - \n\n", "> 1.\n\n", "> paragraph\n> - [ ] \n\n",
-        "- item\n> quoted after a list\n\n"
+        "- item\n> quoted after a list\n\n",
+        "> - a\n> * * *\n\n", "> - a\n> - - -\n\n", "- a\n* * *\n\n", "- a\n_ _ _\nafter\n\n",
+        "> | a | b |\n> | --- | --- |\n> > nested\n\n",
+        "| a | b |\n| --- | --- |\n> quoted\n\n",
+        "> - parent\n>   - child", ">> - item"
     ]
 
     /// A quoted list marker with nothing after it, in every spelling.
@@ -557,6 +561,45 @@ struct QuotedContainerTests {
         #expect(content.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int == 2)
         let outerHeading = try #require(blocks.last(where: { $0.kind == .heading(level: 1) }))
         #expect(NSAttributedString.picoConverted(from: outerHeading.content).attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int == 1)
+    }
+
+    @Test("A thematic break after a list item is a rule, inside a quote and at top level")
+    func ruleOutranksListItem() async {
+        for index in [37, 38] {
+            let result = await parse(chunks: [Self.containerDocuments[index]])
+            #expect(result.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .horizontalRule],
+                    Comment(rawValue: Self.containerDocuments[index]))
+            #expect(result.blocks.last?.parentID == result.blocks.first?.id)
+        }
+        let top = await parse(chunks: [Self.containerDocuments[39]])
+        #expect(top.blocks.map(\.kind) == [.listItem(ordered: false, index: nil, task: nil), .horizontalRule])
+        let after = await parse(chunks: [Self.containerDocuments[40]])
+        #expect(after.blocks.map(\.kind) == [.listItem(ordered: false, index: nil, task: nil), .horizontalRule, .paragraph])
+        let partial = await parse(chunks: ["> - a\n> * ", "* *\n\n"])
+        #expect(partial.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .horizontalRule])
+    }
+
+    @Test("A quote marker after a table ends the table")
+    func quoteEndsTable() async {
+        let nested = await parse(chunks: [Self.containerDocuments[41]])
+        #expect(nested.blocks.map(\.kind) == [.blockquote, .table, .blockquote])
+        #expect(nested.blocks.last?.parentID == nested.blocks.first?.id)
+        #expect(nested.blocks.last.map(text(of:))?.contains("nested") == true)
+        let top = await parse(chunks: [Self.containerDocuments[42]])
+        #expect(top.blocks.map(\.kind) == [.table, .blockquote])
+        #expect(top.blocks.last.map(text(of:))?.contains("quoted") == true)
+    }
+
+    @Test("End of input closes a quote around a nested list")
+    func endOfInputClosesQuotedLists() async {
+        for index in [43, 44] {
+            let tokenizer = MarkdownTokenizer()
+            _ = await tokenizer.feed(Self.containerDocuments[index])
+            let finished = await tokenizer.finish()
+            #expect(finished.openBlocks.isEmpty, Comment(rawValue: Self.containerDocuments[index]))
+            let result = await parse(chunks: [Self.containerDocuments[index]])
+            #expect(result.blocks.allSatisfy { $0.isClosed }, Comment(rawValue: Self.containerDocuments[index]))
+        }
     }
 
     @Test("An unclosed `[` stops waiting for a definition at the label limit")

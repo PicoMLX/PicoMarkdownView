@@ -472,7 +472,8 @@ struct StreamingParser {
                 // block. Only the line in hand is reconsidered; emitted rows
                 // stay as they are.
                 if isLineComplete, ctx.tableState?.stage == .rows,
-                   startsBlock(lineContent, isLineComplete: true), !detectTableCandidate(String(lineContent)) {
+                   startsBlock(lineContent, isLineComplete: true) || detectBlockquote(String(lineContent)) != nil,
+                   !detectTableCandidate(String(lineContent)) {
                     closeCurrentBlock()
                     // Table lines are consumed whole as they stream; the
                     // line is now someone else's and is analyzed afresh.
@@ -530,6 +531,18 @@ struct StreamingParser {
             closeListContexts(deeperThan: -1)
             openFencedCode(fence)
             emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return
+        }
+        // A thematic break outranks a list item (CommonMark): `* * *` after
+        // `- a` is a rule, not another item, and a partial `* ` waits.
+        if isLineComplete, detectHorizontalRule(line, indent: 0) {
+            closeCurrentBlock()
+            closeListContexts(deeperThan: -1)
+            emitHorizontalRuleBlock()
+            return
+        }
+        if !isLineComplete, isPotentialHorizontalRule(line) {
             lineAnalyzed = true
             return
         }
