@@ -127,7 +127,10 @@ struct QuotedContainerTests {
         ">> - x\n>   ```\n> y\n> ```\n",
         "> | a | b |\n> ```swift\n> let x=1\n> ```\n\n", "| a | b |\n```swift\nlet x=1\n```\n\n", "| a | b |\n# Heading\n\n",
         "> - parent\n> \t- child text\n\n", "- parent\n\t- child text\n\n",
-        "paragraph\n2. continuation\n\n", "paragraph\n- \n\n", "> paragraph\n> 1. item\n> 2. two\n\n"
+        "paragraph\n2. continuation\n\n", "paragraph\n- \n\n", "> paragraph\n> 1. item\n> 2. two\n\n",
+        ">> - item\n> - [x] task\n> after\n\n",
+        "> | a | b |\n> | --- | --- |\n> 2. next\n\n", "| a | b |\n| --- | --- |\n2. next\n\n", "| a | b |\n| --- | --- |\n- \n\n",
+        ">> :::note\n>  ```swift\n> x\n> ```\n"
     ]
 
     /// A quoted list marker with nothing after it, in every spelling.
@@ -701,6 +704,29 @@ struct QuotedContainerTests {
             // `  child` does); the marker and its space are stripped.
             #expect(items.last.map(text(of:)) == "\tchild text\n", Comment(rawValue: Self.containerDocuments[index]))
         }
+    }
+
+    @Test("A table ends at any list; an empty task marker waits for its content; quoted whitespace stays out of a `:::` block")
+    func tableTerminationAndPendingMarkers() async {
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
+        let task = await parse(chunks: [Self.containerDocuments[58]])
+        #expect(task.blocks.map(\.kind) == [.blockquote, .blockquote, item, .listItem(ordered: false, index: nil, task: TaskListState(checked: true))])
+        #expect(task.blocks.last?.parentID == task.blocks.first?.id, "the task item belongs to the outer quote")
+        let split = await parse(chunks: [">> - item\n> - [x] ", "task\n> after\n\n"])
+        #expect(split.blocks == task.blocks)
+
+        let quotedTable = await parse(chunks: [Self.containerDocuments[59]])
+        #expect(quotedTable.blocks.map(\.kind) == [.blockquote, .table, .listItem(ordered: true, index: 2, task: nil)])
+        let topTable = await parse(chunks: [Self.containerDocuments[60]])
+        #expect(topTable.blocks.map(\.kind) == [.table, .listItem(ordered: true, index: 2, task: nil)])
+        let emptyAfterTable = await parse(chunks: [Self.containerDocuments[61]])
+        #expect(emptyAfterTable.blocks.map(\.kind) == [.table, item], "a table is not a paragraph, so any list ends it")
+
+        let extensionBlock = await parse(chunks: [Self.containerDocuments[62]])
+        #expect(extensionBlock.blocks.map(\.kind) == [.blockquote, .blockquote, .unknown, .fencedCode(language: "swift")])
+        #expect(extensionBlock.blocks.last?.codeText == "x\n")
+        let whitespaceSplit = await parse(chunks: [">> :::note\n>  ", "```swift\n> x\n> ```\n"])
+        #expect(whitespaceSplit.blocks == extensionBlock.blocks)
     }
 
     @Test("A quote marker after a table ends the table")

@@ -498,7 +498,7 @@ struct StreamingParser {
                 // block. Only the line in hand is reconsidered; emitted rows
                 // stay as they are.
                 if isLineComplete, ctx.tableState?.stage == .rows,
-                   startsBlock(lineContent, isLineComplete: true) || detectBlockquote(String(lineContent)) != nil,
+                   startsBlock(lineContent, isLineComplete: true, interruptingParagraph: false) || detectBlockquote(String(lineContent)) != nil,
                    !detectTableCandidate(String(lineContent)) {
                     closeCurrentBlock()
                     // Table lines are consumed whole as they stream; the
@@ -881,11 +881,13 @@ struct StreamingParser {
     /// Whether a line (already stripped of any quote prefix) opens a block
     /// that interrupts a paragraph. Mirrors the openers `openQuotedChild`
     /// knows plus the ones a top-level paragraph yields to.
-    private func startsBlock(_ content: Substring, isLineComplete: Bool) -> Bool {
+    private func startsBlock(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool = true) -> Bool {
         let line = String(content)
         if detectHeading(line) != nil { return true }
         if let list = detectList(line, isLineComplete: isLineComplete) {
-            return listCanInterruptParagraph(list, line: line)
+            // Ending a table (or another non-paragraph) has no interruption
+            // rule; only a paragraph is picky about which lists may follow.
+            return !interruptingParagraph || listCanInterruptParagraph(list, line: line)
         }
         // `$$x$$` is display math only if nothing follows on the line
         // (`$$x$$y` is a paragraph), so math waits for the complete line
@@ -902,7 +904,10 @@ struct StreamingParser {
         guard let list = detectList(line, isLineComplete: true) else { return false }
         let suffix = line.dropFirst(list.indentText.count + list.markerLength)
         if suffix.isEmpty { return true }
-        return suffix.hasPrefix("[") && ["[ ] ", "[x] ", "[X] "].contains { $0.hasPrefix(suffix) && $0 != suffix }
+        // A complete but empty `[x] ` waits too: an empty item cannot
+        // interrupt a paragraph, so where it belongs (which quote, or text)
+        // is only known once content or the newline arrives.
+        return suffix.hasPrefix("[") && ["[ ] ", "[x] ", "[X] "].contains { $0.hasPrefix(suffix) }
     }
 
     private mutating func closeContexts(above index: Int) {
@@ -958,6 +963,11 @@ struct StreamingParser {
                     if let marker = closing.first, trimmedLine.allSatisfy({ $0 == marker }) { return }
                     if case .math = context.kind, closing.hasPrefix(trimmedLine) { return }
                 }
+            case .unknown:
+                // Same as code: inside a quote, whitespace after a partial
+                // marker may still be part of the prefix, or the line may
+                // end the quote. Nothing of it is the block's text yet.
+                if trimmedLine.isEmpty, contextStack.contains(where: { $0.kind == .blockquote }) { return }
             default:
                 break
             }
@@ -1879,7 +1889,7 @@ struct StreamingParser {
             // still grow into `[ ] ` / `[x] `.
             let suffix = line[markerEnd...]
             if suffix.hasPrefix("["),
-               ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) && $0 != suffix }) {
+               ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) }) {
                 return nil
             }
         }
