@@ -1983,6 +1983,30 @@ struct MarkdownTokenizerGoldenTests {
         }
     }
 
+    @Test("Intraword underscores stream as text instead of waiting for the next chunk")
+    func intrawordUnderscoreStreamsIncrementally() {
+        var parser = InlineParser()
+        for _ in 0..<4 {
+            #expect(parser.append("word_").map(\.text).joined() == "word_")
+        }
+        #expect(parser.finish().isEmpty)
+        var opener = InlineParser()
+        #expect(opener.append("say _").isEmpty, "an underscore that may still open emphasis waits")
+        #expect(coalesceRuns((opener.append("hi_ there") + opener.finish()).map(InlineRunShape.init))
+                == [plain("say "), InlineRunShape(text: "hi", style: [.italic]), plain(" there")])
+    }
+
+    @Test("Pending bracket text survives a trailing backslash at the end of input",
+          arguments: [["[a]", "\\"], ["![diagram]", "\\"], ["text [a]", "\\"], ["[a]", "\\", "x"]])
+    func bracketTextSurvivesTrailingBackslash(chunks: [String]) {
+        var parser = InlineParser()
+        var runs = chunks.flatMap { parser.append($0) }
+        runs += parser.finish()
+        let source = chunks.joined()
+        #expect(runs.map(\.text).joined() == source)
+        #expect(InlineParser.parseAll(source).map(\.text).joined() == source)
+    }
+
     @Test("Inline math command delimiters survive opener and command chunk splits")
     func inlineMathCommandDelimitersAcrossChunks() async {
         let tokenizer = MarkdownTokenizer()

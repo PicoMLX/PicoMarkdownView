@@ -1032,7 +1032,9 @@ struct InlineParser {
                 let nextIndex = text.index(after: index)
                 if nextIndex >= text.endIndex {
                     if includeUnterminated {
-                        plainStart = index
+                        // A trailing backslash is plain text, together with
+                        // whatever plain text is still pending before it
+                        // (such as a `[label]` that waited for a `(`).
                         index = nextIndex
                         continue parsing
                     } else {
@@ -1101,8 +1103,12 @@ struct InlineParser {
                 let nextIndex = text.index(after: index)
                 let isDouble = nextIndex < text.endIndex && text[nextIndex] == delimiter
                 let markerLength = isDouble ? 2 : 1
+                // A trailing `_` waits for the next character only when it
+                // could still open emphasis; after a letter or digit it
+                // never can (intraword), so `word_` streams as text.
                 if delimiter == "_", !includeUnterminated,
-                   character(after: index, offset: markerLength) == nil {
+                   character(after: index, offset: markerLength) == nil,
+                   !(character(before: index).map(isAlphanumeric) ?? false) {
                     consumedAll = false
                     break parsing
                 }
