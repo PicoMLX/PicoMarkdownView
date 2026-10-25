@@ -1306,9 +1306,11 @@ struct InlineParser {
 
         if consumedEnd > text.startIndex {
             let consumedBytes = text.utf8.distance(from: text.utf8.startIndex, to: consumedEnd)
-            // `consumedEnd` may sit inside a grapheme (math resumes at scalar
-            // boundaries), so take the last scalar rather than a Character.
-            lastConsumedCharacter = text.unicodeScalars[..<consumedEnd].last.map(Character.init)
+            // The whole preceding grapheme (`❤️`, not its trailing variation
+            // selector, which would read as alphanumeric). `consumedEnd` may
+            // sit inside a grapheme when math resumes at a scalar boundary;
+            // slicing then yields the scalars before it as the last Character.
+            lastConsumedCharacter = text[..<consumedEnd].last
             pending = String(text[consumedEnd...])
             if var state = mathState {
                 state.contentUTF8Offset = max(0, state.contentUTF8Offset - consumedBytes)
