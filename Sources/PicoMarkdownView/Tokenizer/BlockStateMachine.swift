@@ -146,6 +146,11 @@ struct StreamingParser {
     /// Characters the look-behind budget has removed from the front of the
     /// current line; nonzero means the line's structure is settled.
     private var lineBufferTrimmed: Int = 0
+    /// Set when the current line can only be classified once it is complete
+    /// (`$$`, `\[`, `|`, `:::` prefixes): until the newline arrives, further
+    /// characters are buffered without re-analysis, so a long streamed line
+    /// costs O(chunk) per feed rather than O(line).
+    private var lineDeferredUntilComplete = false
     /// Characters at the start of `lineBuffer` that are the enclosing
     /// blockquote's `>` markers (with their optional space). Resolved once
     /// per line by `analyzeQuotedLine`; everything after it is the line as
@@ -182,6 +187,7 @@ struct StreamingParser {
     private mutating func process(_ text: String, isFinal: Bool) {
         for character in text {
             if character == "\n" {
+                lineDeferredUntilComplete = false
                 lineAnalyzed = false   // force re-analysis now that line is complete
                 analyzeLineIfNeeded(isLineComplete: true)
                 let includeNewline = shouldIncludeTerminatingNewline()
@@ -189,7 +195,7 @@ struct StreamingParser {
                 finalizeLine(terminated: true, force: false)
             } else {
                 lineBuffer.append(character)
-                lineAnalyzed = false
+                if !lineDeferredUntilComplete { lineAnalyzed = false }
             }
         }
 
@@ -197,6 +203,7 @@ struct StreamingParser {
         appendDeltaIfNeeded()
 
         if isFinal {
+            lineDeferredUntilComplete = false
             lineAnalyzed = false
             analyzeLineIfNeeded(isLineComplete: true)
             appendDeltaIfNeeded(isLineComplete: true)
@@ -237,7 +244,11 @@ struct StreamingParser {
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
         lineIsLinkDefinition = false
-        if isLineComplete, let linkDefinition = detectLinkDefinition(lineBuffer) {
+        // An unmarked line inside a quote is the quote's business first: it
+        // ends quoted code (and is then a definition at the outer level) or
+        // continues a quoted paragraph, which a definition cannot interrupt.
+        let unmarkedInsideQuote = contextStack.contains(where: { $0.kind == .blockquote }) && detectBlockquote(lineBuffer) == nil
+        if isLineComplete, !unmarkedInsideQuote, let linkDefinition = detectLinkDefinition(lineBuffer) {
             linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
             lineIsLinkDefinition = true
             if let ctx = currentBlock, case .paragraph = ctx.kind {
@@ -356,6 +367,7 @@ struct StreamingParser {
             }
 
             if !isLineComplete, shouldDeferParagraphFallback(for: lineBuffer) {
+                lineDeferredUntilComplete = isDeferredUntilLineEnd(lineBuffer)
                 lineAnalyzed = true
                 return
             }
@@ -674,6 +686,7 @@ struct StreamingParser {
             // already closed, or a line that starts a new block — ends the
             // quote.
             if !isLineComplete, shouldDeferParagraphFallback(for: lineBuffer) {
+                lineDeferredUntilComplete = isDeferredUntilLineEnd(lineBuffer)
                 lineAnalyzed = true
                 return true
             }
@@ -732,6 +745,7 @@ struct StreamingParser {
         switch current.kind {
         case .blockquote, .paragraph, .footnoteDefinition:
             if !isLineComplete, shouldDeferParagraphFallback(for: String(content)) || listMarkerIsPending(String(content)) {
+                lineDeferredUntilComplete = isDeferredUntilLineEnd(String(content))
                 lineAnalyzed = true
                 return true
             }
@@ -876,6 +890,7 @@ struct StreamingParser {
 
     private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false, isLineComplete: Bool = false) {
         guard let ctx = currentBlock else { return }
+        if lineDeferredUntilComplete, !isLineComplete { return }
         if ctx.kind == .table {
             emittedCount = lineBuffer.count
             return
@@ -1087,6 +1102,7 @@ struct StreamingParser {
         lineQuotePrefix = 0
         lineConsumedByRule = false
         lineBufferTrimmed = 0
+        lineDeferredUntilComplete = false
     }
 
     private mutating func closePendingSameLineBlocks() {
@@ -1971,6 +1987,20 @@ struct StreamingParser {
             if trimmed[after] == ":", trimmed.index(after: after) == trimmed.endIndex { return true }
         }
 
+        if trimmed.hasPrefix("[") {
+            // `[label]:` is a reference definition; until the bracket closes
+            // and the next character is known, the line is ambiguous. A label
+            // holds at most 999 characters (CommonMark), which also bounds
+            // the rescan while the line is still ambiguous.
+            let window = trimmed.prefix(1001)
+            guard let close = window.firstIndex(of: "]") else { return window.count <= 1000 }
+            let after = trimmed.index(after: close)
+            if after == trimmed.endIndex { return true }
+            // `[label]: /url` is a definition only if nothing but an optional
+            // title follows, so the whole line decides.
+            if trimmed[after] == ":" { return true }
+        }
+
         if trimmed.allSatisfy({ $0 == "#" || $0 == " " }) {
             return true // heading marker may be split before text arrives
         }
@@ -1999,6 +2029,21 @@ struct StreamingParser {
             return true // could still become horizontal rule on newline
         }
         return false
+    }
+
+    /// Lines whose classification cannot change before the newline: display
+    /// math (`$$x$$` vs `$$x$$y`), table candidates and `:::` blocks. Other
+    /// deferrals resolve as characters arrive.
+    private func isDeferredUntilLineEnd(_ line: String) -> Bool {
+        let trimmed = line.drop(while: { $0 == " " || $0 == "\t" })
+        if trimmed.hasPrefix("$$") || trimmed.hasPrefix("\\[") || trimmed.first == "|" || trimmed.hasPrefix(":::") {
+            return true
+        }
+        // `[label]:` with its destination still streaming: a definition only
+        // if nothing but an optional title follows on the line.
+        guard trimmed.first == "[", let close = trimmed.prefix(1001).firstIndex(of: "]") else { return false }
+        let after = trimmed.index(after: close)
+        return after < trimmed.endIndex && trimmed[after] == ":"
     }
 
     /// A partial line of one rule character (`-`, `*` or `_`) and spaces,
