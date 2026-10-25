@@ -20,6 +20,9 @@ final class MarkdownStreamingViewModel {
     private var activeInputID: String?
     private var lastReplacementValue: String?
     private let theme: MarkdownRenderTheme
+    /// Body size of the theme the pipelines render with; the view scales
+    /// against this, not against a theme a parent may rebuild later.
+    var themeBodySize: CGFloat { theme.bodyFont.pointSize }
     private let imageProvider: MarkdownImageProvider?
     private let tagPrefixes: Set<TagPrefix>
 

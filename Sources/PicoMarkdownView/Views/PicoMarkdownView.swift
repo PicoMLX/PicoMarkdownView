@@ -28,7 +28,6 @@ public struct PicoMarkdownView: View {
     /// only the change since first appearance is applied, as a ratio.
     @ScaledMetric(relativeTo: .body) private var dynamicBodySize: CGFloat = 17
     @State private var initialDynamicBodySize: CGFloat?
-    private let themeBodySize: CGFloat
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -37,7 +36,6 @@ public struct PicoMarkdownView: View {
                  configuration: PicoTextKitConfiguration) {
         self.input = input
         self.configuration = configuration
-        self.themeBodySize = theme.bodyFont.pointSize
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
     }
 
@@ -156,10 +154,13 @@ public struct PicoMarkdownView: View {
             .task(id: textScaleTaskID) {
                 let baseline = initialDynamicBodySize ?? dynamicBodySize
                 if initialDynamicBodySize == nil { initialDynamicBodySize = dynamicBodySize }
+                // The body size comes from the view model's theme, which
+                // lives as long as the view's state; a parent rebuilding the
+                // view with a fresh default theme must not move the base.
                 await viewModel.updateTextScale(Self.textScale(host: hostTextScale,
                                                                dynamicBodySize: dynamicBodySize,
                                                                baseline: baseline,
-                                                               themeBodySize: themeBodySize))
+                                                               themeBodySize: viewModel.themeBodySize))
             }
     }
 
