@@ -342,7 +342,9 @@ struct InlineParser {
                 return .literal
             }
             guard afterBracket < text.endIndex else {
-                return .literal
+                // `[label]` at the end of the buffer may still be followed by
+                // `(url)` in the next chunk; wait unless flushing.
+                return includeUnterminated ? .literal : .incomplete
             }
             if text[afterBracket] != "(" {
                 if let reference = parseReferenceLink(label: label, afterBracket: afterBracket, treatAsImage: treatAsImage) {
