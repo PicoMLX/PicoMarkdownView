@@ -59,7 +59,51 @@ struct QuotedContainerTests {
         "> ```\n> \n> code\n> ```\n\n",
         "> # heading\n> ```\n> code\n\nOutside\n",
         "> ## A\n> ## B\n\n"
-    ] + emptyHeadingDocuments + markerOnlyDocuments
+    ] + emptyHeadingDocuments + markerOnlyDocuments + containerDocuments + emptyMarkerDocuments
+
+    /// Lists, tables, footnotes and extension blocks inside quotes.
+    static let containerDocuments = [
+        "> ## Heading\n> - **first**\n> - second\n> ```swift\n> let x = 1\n>\n> > literal\n> ```\n> after\n\nOutside\n",
+        ">> # Nested heading\n>> 1. item\n>> 2. another\n> # Outer heading\n> after\n\n",
+        "> - first\n>   - nested\n> - final\n>\n> paragraph\n\n",
+        "> | **a** | b |\n> | --- | --- |\n> | one | two |\n\n",
+        "> | not | a table |\n> no separator\n\n",
+        "> - [x] task\n> - [ ] pending\n> 1. [X] ordered\n\n",
+        "> | a | b |",
+        "> | a | b |\n\nOutside\n",
+        "> [^a]: definition\n\n",
+        "> [^a]:**definition**\n\n",
+        "> [^a]: one\n> [^b]: two\n\n",
+        "> [^a]: one\n> after\n\n",
+        "> # heading\n> :::note\n\n",
+        "> :::note\n> body\n> :::\n\n",
+        "> - item\n>   ```swift\n>   code\n>   ```\n> - sibling\n\n",
+        "> 1. item\n>    ```swift\n>    code\n>    ```\n\n",
+        "> - item\n>   # child\n\n",
+        "> - item\n>   ---\n\n",
+        "> - item\n>   ```\n>   code\n>   ```\n>   after\n>   more\n\n",
+        "> - item\n>   # heading\n>   after\n\n",
+        "> | a | b |\n> | --- | --- |\n> # Heading\n\n",
+        "> | a | b |\n> | --- | --- |\n> - item\n\n",
+        "> | a | b |\n> | --- | --- |\n> ```\n> code\n> ```\n\n",
+        "> | a | b |\n> | --- | --- |\n> ---\n\n",
+        "> | a | b |\n> | --- | --- |\n> plain row\n\n",
+        "> paragraph\n> 2. continuation\n\n",
+        "> paragraph\n> 1. item\n\n",
+        "> 2. item\n\n",
+        "> > paragraph\n> 2. continuation\n\n",
+        "> > text\n> [^b]: y\n\n",
+        "> > text\n> | a | b |\n> | --- | --- |\n\n",
+        "> > text\n> :::note\n\n",
+        "> - item\n>   | a | b |\n>   | --- | --- |\n>   | x | y |\n>\n> - sibling\n\n",
+        "> - \n\n", "> 1.\n\n", "> paragraph\n> - [ ] \n\n",
+        "- item\n> quoted after a list\n\n"
+    ]
+
+    /// A quoted list marker with nothing after it, in every spelling.
+    private static let emptyMarkerDocuments: [String] = ["> paragraph\n> ", "> # heading\n> paragraph\n> ", "> > paragraph\n> "].flatMap { prefix in
+        ["- ", "* ", "+ ", "1.", "1. ", "2. ", "1.  \t"].map { prefix + $0 + "\n\n" }
+    }
 
     /// `> #` … `> ######`, with and without a trailing newline.
     private static let emptyHeadingDocuments: [String] = (1...6).flatMap { level in
@@ -237,6 +281,105 @@ struct QuotedContainerTests {
         let result = await parse(chunks: [Self.documents[5]])
         #expect(result.blocks.map(\.kind) == [.fencedCode(language: "text")])
         #expect(result.blocks[0].codeText == "> not a quote\n")
+    }
+
+    // MARK: Lists, tables, footnotes
+
+    @Test("Lists inside a quote are list-item children with their markers stripped")
+    func quotedLists() async throws {
+        let result = await parse(chunks: [Self.containerDocuments[0]])
+        #expect(result.blocks.map(\.kind) == [
+            .blockquote, .heading(level: 2),
+            .listItem(ordered: false, index: nil, task: nil),
+            .listItem(ordered: false, index: nil, task: nil),
+            .fencedCode(language: "swift"), .paragraph, .paragraph
+        ])
+        let quote = try #require(result.blocks.first)
+        for child in result.blocks.dropFirst().dropLast() {
+            #expect(child.parentID == quote.id)
+            #expect(child.depth == 1)
+        }
+        #expect(result.blocks[2].inlineRuns?.contains(where: { $0.text == "first" && $0.style.contains(.bold) }) == true)
+        #expect(result.blocks.first(where: { $0.codeText != nil })?.codeText == "let x = 1\n\n> literal\n")
+
+        let nested = await parse(chunks: [Self.containerDocuments[2]])
+        // The `>` separator ends the quote; the next line opens a fresh one
+        // whose own text stays inline (it has no children).
+        #expect(nested.blocks.map(\.kind) == [
+            .blockquote,
+            .listItem(ordered: false, index: nil, task: nil),
+            .listItem(ordered: false, index: nil, task: nil),
+            .listItem(ordered: false, index: nil, task: nil),
+            .blockquote
+        ])
+        #expect(nested.blocks[2].depth == 2, "the nested item is a child of the first item")
+        #expect(nested.blocks[2].parentID == nested.blocks[1].id)
+        #expect(nested.blocks[3].parentID == nested.blocks[0].id)
+        #expect(nested.blocks.flatMap { $0.inlineRuns ?? [] }.allSatisfy { !$0.text.contains("- ") })
+
+        let tasks = await parse(chunks: ["> - ", "[x] task\n> - [ ] pending\n> 1. [X] ordered\n\n"])
+        #expect(tasks.blocks.map(\.kind) == [
+            .blockquote,
+            .listItem(ordered: false, index: nil, task: .init(checked: true)),
+            .listItem(ordered: false, index: nil, task: .init(checked: false)),
+            .listItem(ordered: true, index: 1, task: .init(checked: true))
+        ])
+
+        let ordered = await parse(chunks: [Self.containerDocuments[1]])
+        #expect(ordered.blocks.map(\.kind) == [
+            .blockquote, .blockquote, .heading(level: 1),
+            .listItem(ordered: true, index: 1, task: nil), .listItem(ordered: true, index: 2, task: nil),
+            .heading(level: 1), .paragraph
+        ])
+        #expect(ordered.blocks[3].parentID == ordered.blocks[1].id, "the list belongs to the inner quote")
+    }
+
+    @Test("Blocks inside a quoted list item belong to the item")
+    func quotedListChildren() async throws {
+        let fenced = await parse(chunks: [Self.containerDocuments[14]])
+        #expect(fenced.blocks.map(\.kind) == [
+            .blockquote, .listItem(ordered: false, index: nil, task: nil), .fencedCode(language: "swift"),
+            .listItem(ordered: false, index: nil, task: nil)
+        ])
+        #expect(fenced.blocks[2].codeText == "code\n")
+
+        let heading = await parse(chunks: [Self.containerDocuments[16]])
+        #expect(heading.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .heading(level: 1)])
+        #expect(heading.blocks[2].parentID == heading.blocks[0].id, "a heading ends the list and joins the quote")
+    }
+
+    @Test("Tables inside a quote are children; a candidate without a separator degrades in place")
+    func quotedTables() async throws {
+        let table = await parse(chunks: [Self.containerDocuments[3]])
+        #expect(table.blocks.map(\.kind) == [.blockquote, .table])
+        #expect(table.blocks[1].parentID == table.blocks[0].id)
+        #expect(table.events.contains { if case .tableAppendRow = $0 { return true }; return false })
+        #expect(table.blocks[1].table?.headerCells?.first?.contains(where: { $0.style.contains(.bold) }) == true)
+
+        let fallback = await parse(chunks: [Self.containerDocuments[4]])
+        #expect(fallback.blocks.map(\.kind) == [.blockquote, .unknown])
+        #expect(text(of: fallback.blocks[1]).contains("| not | a table |"))
+
+        let unterminated = await parse(chunks: [Self.containerDocuments[6]])
+        #expect(unterminated.blocks.map(\.kind) == [.blockquote, .unknown])
+
+        let followedByHeading = await parse(chunks: [Self.containerDocuments[20]])
+        #expect(followedByHeading.blocks.map(\.kind) == [.blockquote, .table, .heading(level: 1)])
+    }
+
+    @Test("Footnote definitions and extension blocks inside a quote")
+    func quotedFootnotesAndExtensions() async throws {
+        let two = await parse(chunks: [Self.containerDocuments[10]])
+        #expect(two.blocks.map(\.kind) == [.blockquote, .footnoteDefinition(id: "a", index: 1), .footnoteDefinition(id: "b", index: 2)])
+        #expect(two.blocks.dropFirst().map { text(of: $0) } == ["one", "two"])
+
+        let bold = await parse(chunks: [Self.containerDocuments[9]])
+        #expect(bold.blocks.map(\.kind) == [.blockquote, .footnoteDefinition(id: "a", index: 1)])
+        #expect(bold.blocks[1].inlineRuns?.contains(where: { $0.text == "definition" && $0.style.contains(.bold) }) == true)
+
+        let unknown = await parse(chunks: Self.containerDocuments[12].map(String.init))
+        #expect(unknown.blocks.map(\.kind) == [.blockquote, .heading(level: 1), .unknown])
+        #expect(text(of: unknown.blocks[2]) == ":::note\n")
     }
 
     // MARK: Streaming invariants
