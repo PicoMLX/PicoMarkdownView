@@ -58,7 +58,15 @@ struct QuotedContainerTests {
         "> # h\n> para\n>\n> # second\n\n",
         "> ```\n> \n> code\n> ```\n\n",
         "> # heading\n> ```\n> code\n\nOutside\n",
-        "> ## A\n> ## B\n\n"
+        "> ## A\n> ## B\n\n",
+        "> # H\nunquoted\n\n",
+        "> ```\n> x\n> ```\nunquoted\n\n",
+        "> ---\nunquoted\n\n",
+        "> > # H\n> unquoted\n\n",
+        "> text\nlazy\n\n",
+        "> ```\n# heading\n\n",
+        "> $$\n# heading\n\n",
+        "> ```\n~~~\n\n"
     ] + emptyHeadingDocuments + markerOnlyDocuments
 
     /// `> #` … `> ######`, with and without a trailing newline.
@@ -230,6 +238,60 @@ struct QuotedContainerTests {
         #expect(result.blocks.flatMap { $0.inlineRuns ?? [] }.allSatisfy { !$0.text.contains(">") })
         let empty = await parse(chunks: ["> # h\n> "])
         #expect(empty.blocks.map(\.kind) == [.blockquote, .heading(level: 1)])
+    }
+
+    @Test("Unmarked text after a quoted heading, code or rule is outside the quote")
+    func lazyContinuationNeedsOpenParagraph() async throws {
+        for index in [44, 45, 46] {
+            let markdown = Self.documents[index]
+            let result = await parse(chunks: [markdown])
+            let last = try #require(result.blocks.last, Comment(rawValue: markdown))
+            #expect(result.blocks.count == 3, Comment(rawValue: markdown))
+            #expect(last.kind == .paragraph, Comment(rawValue: markdown))
+            #expect(last.parentID == nil, Comment(rawValue: markdown))
+            #expect(text(of: last) == "unquoted", Comment(rawValue: markdown))
+            #expect(text(of: result.blocks[0]).contains("unquoted") == false, Comment(rawValue: markdown))
+        }
+        let nested = await parse(chunks: [Self.documents[47]])
+        #expect(nested.blocks.map(\.kind) == [.blockquote, .blockquote, .heading(level: 1), .paragraph])
+        #expect(nested.blocks.last?.parentID == nested.blocks.first?.id, "fewer markers after a child return to the outer quote")
+        let lazy = await parse(chunks: [Self.documents[48]])
+        #expect(lazy.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: lazy.blocks[0]).contains("lazy"), "a quoted paragraph still continues lazily")
+    }
+
+    @Test("An unmarked partial line closes quoted code or math before any of it is emitted")
+    func unmarkedLineClosesVerbatimQuote() async {
+        for (opener, kind) in [("```", BlockKind.fencedCode(language: nil)), ("$$", BlockKind.math(display: true))] {
+            let tokenizer = MarkdownTokenizer()
+            _ = await tokenizer.feed("> \(opener)\n")
+            let partial = await tokenizer.feed("#")
+            #expect(partial.events == [.blockEnd(id: 2), .blockEnd(id: 1)], Comment(rawValue: opener))
+            let result = await parse(chunks: ["> \(opener)\n#", " heading\n\n"])
+            #expect(result.blocks.map(\.kind) == [.blockquote, kind, .heading(level: 1)], Comment(rawValue: opener))
+            #expect((result.blocks[1].codeText ?? "").isEmpty, Comment(rawValue: opener))
+            #expect(result.blocks.last.map(text(of:)) == "heading", Comment(rawValue: opener))
+        }
+        let fence = await parse(chunks: ["> ```\n~~", "~\n\n"])
+        #expect(fence.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil), .fencedCode(language: nil)])
+        #expect((fence.blocks[1].codeText ?? "").isEmpty)
+    }
+
+    @Test("A quoted code line longer than the look-behind budget stays in the code")
+    func quotedCodeBeyondLookBehindBudget() async {
+        let long = String(repeating: "a", count: 2000)
+        let markdown = "> ```\n> " + long + "b\n> ```\n> after\n\n"
+        let baseline = await parse(chunks: [markdown])
+        #expect(baseline.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil), .paragraph])
+        #expect(baseline.blocks[1].codeText == long + "b\n")
+        let characters = Array(markdown)
+        for split in [7, 8, 1000, 1500, 2000, 2006, 2007, 2008, 2009, 2010, 2012] {
+            let chunks = [String(characters[..<split]), String(characters[split...])]
+            let streamed = await parse(chunks: chunks)
+            #expect(streamed.blocks == baseline.blocks, "Split at character \(split)")
+        }
+        let streamed = await parse(chunks: characters.map(String.init))
+        #expect(streamed.blocks == baseline.blocks)
     }
 
     @Test("A fence does not open a quote: `>` lines inside code are code")

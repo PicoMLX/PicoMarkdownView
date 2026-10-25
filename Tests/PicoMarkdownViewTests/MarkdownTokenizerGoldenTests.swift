@@ -2133,22 +2133,43 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // `* ` may still become the rule `* * *`, which outranks a list item,
+        // so nothing is published until the next character settles it.
         let first = await tokenizer.feed("* ")
-        assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.listItem(ordered: false, index: nil, task: nil))
-            ],
-            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
-        ), state: &state)
+        assertChunk(first, matches: .init(events: [], openBlocks: []), state: &state)
 
         let second = await tokenizer.feed("Item\n\n")
         assertChunk(second, matches: .init(
             events: [
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
                 .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("Item"), plain("\n")]),
                 .blockEnd(.listItem(ordered: false, index: nil, task: nil))
             ],
             openBlocks: []
         ), state: &state)
+    }
+
+    @Test("A thematic break split after its first marker is still a rule",
+          arguments: [["* ", "* *\n\n"], ["- ", "- -\n\n"], ["_ ", "_ _\n\n"], ["* *", " *\n\n"], ["para\n* ", "* *\n\n"], ["para\n- ", "- -\n\n"]])
+    func thematicBreakSplitAcrossChunks(chunks: [String]) async {
+        let whole = summarizeBlocks(from: await collectEvents(chunks: [chunks.joined()]))
+        #expect(whole.last == .inline(kind: "horizontalRule", runs: []))
+        #expect(summarizeBlocks(from: await collectEvents(chunks: chunks)) == whole, "Chunks: \(chunks)")
+    }
+
+    @Test("A heading indented as list content stays in its item; one at the marker column leaves the list")
+    func indentedHeadingStaysInListItem() async {
+        let kinds: ([BlockSummary]) -> [String] = { blocks in
+            blocks.map { if case .inline(let kind, _) = $0 { return kind } else { return "other" } }
+        }
+        let indented = summarizeBlocks(from: await collectEvents(chunks: ["- item\n  # heading\n  continuation\n\n"]))
+        #expect(kinds(indented) == ["listItem:unordered:_:plain"])
+        if case .inline(_, let runs)? = indented.first {
+            #expect(runs.map(\.text).joined().contains("heading"))
+            #expect(runs.map(\.text).joined().contains("continuation"))
+        }
+        let outdented = summarizeBlocks(from: await collectEvents(chunks: ["- item\n# heading\n\n"]))
+        #expect(kinds(outdented) == ["listItem:unordered:_:plain", "heading:1"])
     }
 
     @Test("Ordered list marker-only chunk stays in same item")
