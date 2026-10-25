@@ -2009,6 +2009,19 @@ struct MarkdownTokenizerGoldenTests {
         #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "Chunks: \(chunks)")
     }
 
+    @Test("A long run of combining marks arriving one per chunk keeps its context without growing it")
+    func combiningMarkRunKeepsBoundedContext() {
+        for count in [40, 2000] {
+            let chunks = ["a"] + Array(repeating: "\u{301}", count: count) + ["_x_"]
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "count \(count)")
+            #expect(expected == [plain(chunks.joined())], "the underscore after a letter with marks is intraword")
+        }
+    }
+
     @Test("Pending bracket text survives a trailing backslash at the end of input",
           arguments: [["[a]", "\\"], ["![diagram]", "\\"], ["text [a]", "\\"], ["[a", "]", "\\"]])
     func bracketTextSurvivesTrailingBackslash(chunks: [String]) {
