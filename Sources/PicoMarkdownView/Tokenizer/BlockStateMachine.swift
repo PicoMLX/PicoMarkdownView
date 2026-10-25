@@ -756,11 +756,14 @@ struct StreamingParser {
     /// knows plus the ones a top-level paragraph yields to.
     private func startsBlock(_ content: Substring, isLineComplete: Bool) -> Bool {
         let line = String(content)
-        if detectDisplayMathOpening(line) != nil || detectHeading(line) != nil { return true }
+        if detectHeading(line) != nil { return true }
         if detectList(line, isLineComplete: isLineComplete) != nil { return true }
+        // `$$x$$` is display math only if nothing follows on the line
+        // (`$$x$$y` is a paragraph), so math waits for the complete line
+        // like fences, rules and tables.
         guard isLineComplete else { return false }
-        return detectFenceOpening(line) != nil || detectHorizontalRule(line, indent: 0)
-            || detectTableCandidate(line) || line.hasPrefix(":::")
+        return detectDisplayMathOpening(line) != nil || detectFenceOpening(line) != nil
+            || detectHorizontalRule(line, indent: 0) || detectTableCandidate(line) || line.hasPrefix(":::")
     }
 
     private mutating func closeContexts(above index: Int) {
