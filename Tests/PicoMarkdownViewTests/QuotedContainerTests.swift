@@ -118,7 +118,9 @@ struct QuotedContainerTests {
         "> - a\n> * * *\n\n", "> - a\n> - - -\n\n", "- a\n* * *\n\n", "- a\n_ _ _\nafter\n\n",
         "> | a | b |\n> | --- | --- |\n> > nested\n\n",
         "| a | b |\n| --- | --- |\n> quoted\n\n",
-        "> - parent\n>   - child", ">> - item"
+        "> - parent\n>   - child", ">> - item",
+        "- parent\n  - child\n  _ _ _\n  continuation\n\n", "> - parent\n>   - child\n>   * * *\n>   continuation\n\n",
+        "> [^a]: first\n> second\n\n", "[^a]: first\nsecond\n\n"
     ]
 
     /// A quoted list marker with nothing after it, in every spelling.
@@ -581,6 +583,29 @@ struct QuotedContainerTests {
         #expect(after.blocks.map(\.kind) == [.listItem(ordered: false, index: nil, task: nil), .horizontalRule, .paragraph])
         let partial = await parse(chunks: ["> - a\n> * ", "* *\n\n"])
         #expect(partial.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .horizontalRule])
+    }
+
+    @Test("An indented thematic break ends only the items at or past its indentation")
+    func indentedRuleKeepsEnclosingItem() async throws {
+        let top = await parse(chunks: [Self.containerDocuments[45]])
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
+        #expect(top.blocks.map(\.kind) == [item, item, .horizontalRule])
+        #expect(text(of: top.blocks[0]) == "parent\ncontinuation\n", "the continuation stays with the parent item and the rule adds no newline")
+        #expect(top.blocks.last?.parentID == top.blocks.first?.id, "the rule belongs to the enclosing item")
+        let quoted = await parse(chunks: [Self.containerDocuments[46]])
+        #expect(quoted.blocks.map(\.kind) == [.blockquote, item, item, .horizontalRule])
+        #expect(text(of: quoted.blocks[1]) == "parent\ncontinuation\n")
+        #expect(quoted.blocks.last?.parentID == quoted.blocks[1].id)
+    }
+
+    @Test("Footnote definition continuation lines keep their word separator")
+    func footnoteContinuationKeepsSoftBreak() async throws {
+        for index in [47, 48] {
+            let result = await parse(chunks: [Self.containerDocuments[index]])
+            let footnote = try #require(result.blocks.first(where: { if case .footnoteDefinition = $0.kind { return true }; return false }),
+                                        Comment(rawValue: Self.containerDocuments[index]))
+            #expect(text(of: footnote) == "first second", Comment(rawValue: Self.containerDocuments[index]))
+        }
     }
 
     @Test("A quote marker after a table ends the table")

@@ -263,7 +263,9 @@ struct StreamingParser {
         }
 
         if contextStack.isEmpty {
-            if let footnote = detectFootnoteDefinition(lineBuffer) {
+            // `[^a]:` with nothing after it yet may still gain its space; the
+            // prefix is published with the block, so wait one character.
+            if let footnote = detectFootnoteDefinition(lineBuffer), isLineComplete || !lineBuffer.hasSuffix(":") {
                 let index = footnoteRegistry.index(for: footnote.id)
                 openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
                                 prefixToStrip: footnote.prefixLength)
@@ -537,8 +539,12 @@ struct StreamingParser {
         // A thematic break outranks a list item (CommonMark): `* * *` after
         // `- a` is a rule, not another item, and a partial `* ` waits.
         if isLineComplete, detectHorizontalRule(line, indent: 0) {
+            // The rule ends the items at or past its own indentation; an
+            // enclosing item whose marker sits further left stays open, so
+            // `- parent\n  - child\n  _ _ _` keeps the parent.
+            let indent = line.prefix(while: { $0 == " " }).count
             closeCurrentBlock()
-            closeListContexts(deeperThan: -1)
+            closeListContexts(deeperThan: indent - 1)
             emitHorizontalRuleBlock()
             return
         }
@@ -1022,7 +1028,9 @@ struct StreamingParser {
                         parent.sawBlankInSubContext = true
                         setCurrentBlock(parent)
                     }
-                } else {
+                } else if !lineConsumedByRule {
+                    // An indented rule inside the item is its own block, not
+                    // a line of the item's text.
                     appendToCurrent("\n")
                 }
             case .blockquote:
@@ -1127,7 +1135,10 @@ struct StreamingParser {
         case .paragraph, .listItem, .blockquote, .footnoteDefinition:
             if var parser = ctx.inlineParser {
                 var input = text
-                if ctx.kind == .paragraph, ctx.pendingSoftBreak {
+                // A footnote definition continues over lines like a
+                // paragraph; without the soft break `first` + `second`
+                // would run together.
+                if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
                     input = " " + input
                     ctx.pendingSoftBreak = false
                 }
@@ -2265,6 +2276,11 @@ private extension BlockKind {
         case .fencedCode, .math: return true
         default: return false
         }
+    }
+
+    var isFootnoteDefinition: Bool {
+        if case .footnoteDefinition = self { return true }
+        return false
     }
 
     var isHeading: Bool {
