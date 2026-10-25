@@ -353,6 +353,8 @@ struct InlineParser {
                 return .literal
             }
             guard afterBracket < text.endIndex else {
+                // `[label]` at the end of the buffer may still be followed by
+                // `(url)` in the next chunk; wait unless flushing.
                 return includeUnterminated ? .literal : .incomplete
             }
             if text[afterBracket] != "(" {
