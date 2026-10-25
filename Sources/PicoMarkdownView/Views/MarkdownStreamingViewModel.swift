@@ -150,7 +150,7 @@ final class MarkdownStreamingViewModel {
         // replace with identical text must not re-tokenize the document.
         guard value != lastReplacementValue else { return }
         #if DEBUG
-        Self.logger.debug("replace(with:) called, value length=\(value.count)")
+        Self.logger.debug("Replacing Markdown: characters=\(value.count)")
         #endif
         let (freshPipeline, generation) = makeFreshPipeline()
         var latestBlocks: [RenderedBlock] = []
@@ -161,11 +161,11 @@ final class MarkdownStreamingViewModel {
             if let update = await freshPipeline.feed(value) {
                 latestBlocks = update.blocks
                 #if DEBUG
-                Self.logger.debug("feed produced \(latestBlocks.count) blocks")
+                Self.logger.debug("Markdown parsed: blocks=\(latestBlocks.count)")
                 #endif
             } else {
                 #if DEBUG
-                Self.logger.warning("feed returned nil for non-empty value")
+                Self.logger.warning("Markdown parsing produced no update for nonempty input")
                 #endif
             }
         }
@@ -173,18 +173,18 @@ final class MarkdownStreamingViewModel {
         if let update = await freshPipeline.finish() {
             latestBlocks = update.blocks
             #if DEBUG
-            Self.logger.debug("finish produced \(latestBlocks.count) blocks")
+            Self.logger.debug("Markdown parsing finished: blocks=\(latestBlocks.count)")
             #endif
         } else {
             #if DEBUG
-            Self.logger.debug("finish returned nil (blocks from feed: \(latestBlocks.count))")
+            Self.logger.debug("Markdown parsing finished without an update: blocks=\(latestBlocks.count)")
             #endif
         }
 
         guard generation == pipelineGeneration else { return }
         lastReplacementValue = value
         #if DEBUG
-        Self.logger.debug("enqueueUpdate with \(latestBlocks.count) blocks")
+        Self.logger.debug("Queuing Markdown update: blocks=\(latestBlocks.count)")
         #endif
         enqueueUpdate(blocks: latestBlocks, diff: nil)
     }
@@ -230,12 +230,12 @@ final class MarkdownStreamingViewModel {
         updateScheduled = false
         guard let blocks = pendingBlocks else {
             #if DEBUG
-            Self.logger.debug("flushPendingUpdates: no pending blocks")
+            Self.logger.debug("Skipping Markdown update: no pending blocks")
             #endif
             return
         }
         #if DEBUG
-        Self.logger.debug("flushPendingUpdates: \(blocks.count) blocks, replaceToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
+        Self.logger.debug("Applying Markdown update: blocks=\(blocks.count), replacementToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
         #endif
         self.blocks = blocks
         self.diffQueue = pendingDiffs

@@ -61,10 +61,10 @@ public struct PicoMarkdownDebugView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Toggle("Auto-refresh", isOn: $isAutoRefresh)
+                Toggle(String(localized: "Refresh Automatically", bundle: .module), isOn: $isAutoRefresh)
                     .toggleStyle(.switch)
                 Spacer()
-                Button("Refresh Now") {
+                Button(String(localized: "Refresh", bundle: .module)) {
                     Task { await refreshOnce() }
                 }
                 .disabled(isAutoRefresh)

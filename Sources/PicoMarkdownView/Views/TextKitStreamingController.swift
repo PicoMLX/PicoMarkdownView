@@ -124,7 +124,7 @@ final class TextKitStreamingController: ObservableObject {
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
                 configuration: PicoTextKitConfiguration) {
-        Self.logger.debug("update: \(blocks.count) blocks, replaceToken=\(replaceToken), lastApplied=\(self.lastAppliedReplaceToken), storageLen=\(self.backend.length)")
+        Self.logger.debug("Updating text view: blocks=\(blocks.count), replacementToken=\(replaceToken), appliedReplacementToken=\(self.lastAppliedReplaceToken), storageLength=\(self.backend.length)")
         configure(textView, with: configuration)
         let currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
         backend.setPaused(configuration.isPaused)
@@ -132,7 +132,7 @@ final class TextKitStreamingController: ObservableObject {
             lastAppliedReplaceToken = replaceToken
             lastAppliedVersion = 0
             _ = backend.apply(blocks: blocks, selection: currentSelection)
-            Self.logger.debug("applied full replace: storageLen=\(self.backend.length)")
+            Self.logger.debug("Text view content replaced: storageLength=\(self.backend.length)")
             textView.needsDisplay = true
             textView.invalidateIntrinsicContentSize()
             return

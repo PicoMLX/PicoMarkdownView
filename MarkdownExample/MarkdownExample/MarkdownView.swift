@@ -68,12 +68,12 @@ struct MarkdownView: View {
                         }
                     }
                 }
-                Tab("Debug", systemImage: "ladybug") {
+                Tab("Diagnostics", systemImage: "ladybug") {
                     ScrollView {
                         PicoMarkdownDebugView(text: markdown)
                     }
                 }
-                Tab("Text", systemImage: "text.alignleft") {
+                Tab("Plain Text", systemImage: "text.alignleft") {
                     ScrollView {
                         Text(markdown)
                     }
@@ -96,13 +96,13 @@ struct MarkdownView: View {
         VStack(alignment: .leading, spacing: 4) {
             if let tag = lastTappedTag {
                 Label {
-                    Text("Tapped \(Text("\(tag.prefix)\(tag.identifier)").bold())  ·  prefix \(tag.prefix)  ·  id \(tag.identifier)")
+                    Text("Selected Tag: \(Text(verbatim: "\(tag.prefix)\(tag.identifier)").bold())")
                 } icon: {
                     Image(systemName: "hand.tap")
                 }
                 .font(.callout)
             } else {
-                Label("Tap a tag (@mention, #hashtag, [[wiki]], $ticker)", systemImage: "hand.tap")
+                Label("Select a tag to see its details.", systemImage: "hand.tap")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -110,11 +110,11 @@ struct MarkdownView: View {
             HStack(spacing: 16) {
                 #if os(macOS)
                 let hover = tagHoverReadout ?? linkHoverReadout
-                Label(hover ?? "Hover a tag or link", systemImage: "cursorarrow.rays")
+                Label(hover ?? String(localized: "Point to a tag or link."), systemImage: "cursorarrow.rays")
                     .foregroundStyle(hover == nil ? .secondary : .primary)
                 #endif
                 if let contentSize {
-                    Label(String(format: "Content %.0f × %.0f", contentSize.width, contentSize.height),
+                    Label("Content Size: \(Int(contentSize.width.rounded())) × \(Int(contentSize.height.rounded())) pt",
                           systemImage: "arrow.up.left.and.arrow.down.right")
                         .foregroundStyle(.secondary)
                 }
@@ -231,10 +231,13 @@ private struct StreamingMarkdownContent: View, Equatable {
                 onTagTap(tag)
             }
             .onTagHover { [onTagHover] tag, _ in
-                onTagHover(tag.map { "Hovering \($0.prefix)\($0.identifier)  ·  id \($0.identifier)" })
+                onTagHover(tag.map { tag in
+                    let displayTag = "\(tag.prefix)\(tag.identifier)"
+                    return String(localized: "Tag: \(displayTag)")
+                })
             }
             .onLinkHover { [onLinkHover] url, _ in
-                onLinkHover(url.map { "Hovering link \($0.absoluteString)" })
+                onLinkHover(url.map { String(localized: "Link: \($0.absoluteString)") })
             }
             .onContentSize { [onContentSize] size in
                 onContentSize(size)

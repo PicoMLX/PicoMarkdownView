@@ -81,7 +81,7 @@ struct ContentView: View {
             if let selectedExample {
                 MarkdownView(selectedExample)
             } else {
-                Text("Select example")
+                Text("Select an Example")
             }
         }
         .onAppear {

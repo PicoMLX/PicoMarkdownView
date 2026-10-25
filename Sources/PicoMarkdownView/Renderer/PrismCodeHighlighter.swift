@@ -53,7 +53,7 @@ actor PrismTokenizer {
 
     private init?() {
         guard let context = JSContext() else {
-            Self.logger.error("JavaScriptCore is not available.")
+            Self.logger.error("Syntax highlighting unavailable: JavaScriptCore initialization failed")
             return nil
         }
 
@@ -64,7 +64,7 @@ actor PrismTokenizer {
             ),
             let script = try? String(contentsOf: bundleURL, encoding: .utf8)
         else {
-            Self.logger.error("Prism JavaScript bundle is missing.")
+            Self.logger.error("Syntax highlighting unavailable: Prism JavaScript bundle could not be loaded")
             return nil
         }
 
@@ -87,7 +87,7 @@ actor PrismTokenizer {
             let result = tokenizeCode.call(withArguments: [code, language]),
             let array = result.toArray() as? [[String: String]]
         else {
-            Self.logger.error("Tokenization failed for language: \(language)")
+            Self.logger.error("Syntax highlighting failed: language=\(language); using plain text")
             return [PrismToken(content: code, type: .plain)]
         }
 
