@@ -47,7 +47,7 @@ protocol MermaidDiagramProvider: Sendable {
 enum MermaidDiagramProviders {
     static func makeDefaultProvider(theme: MarkdownRenderTheme) -> (any MermaidDiagramProvider)? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
-        return BeautifulMermaidProvider(theme: theme)
+        return PeleDiagramProvider(theme: theme)
     }
 }
 

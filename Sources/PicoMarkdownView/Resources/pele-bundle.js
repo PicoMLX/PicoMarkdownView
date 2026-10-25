@@ -220,14 +220,21 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
 
   // Entry point called from Swift.
   //
-  //   options.fontSize    label font size in CSS pixels (points on Apple platforms)
-  //   options.fontFamily  family Pele measures labels in when no native
-  //                       measurer is installed (see `global.peleMeasureText`)
-  //   options.maxWidth    width available to the diagram; types that can
-  //                       draw narrower do, and wide flowcharts may turn
-  //                       vertical
-  //   options.theme       values for Pele's `--pele-*` variables, keyed
-  //                       without the prefix (`bg`, `fg`, `series-1`, ...)
+  //   options.fontSize        label font size in CSS pixels (points on Apple
+  //                           platforms)
+  //   options.fontFamily      family labels are measured in, and drawn in
+  //                           unless the theme sets `font`
+  //   options.fontFamilyMono  the same for code spans
+  //   options.maxWidth        width available to the diagram; types that can
+  //                           draw narrower do, and wide flowcharts may turn
+  //                           vertical
+  //   options.theme           values for Pele's `--pele-*` variables, keyed
+  //                           without the prefix (`bg`, `fg`, `series-1`, ...)
+  //
+  // When the host installs `global.peleMeasureText(text, size, style,
+  // family, monoFamily)`, labels are measured with it instead of Pele's
+  // built-in Arial metrics. `style` is Pele's bit set: 1 bold, 2 italic,
+  // 4 monospace, 8 subscript, 16 superscript, 32 underline.
   //
   // Returns `{ok:true, svg, width, height, type}` or
   // `{ok:false, code, message}`; it never throws.
@@ -240,9 +247,11 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
       if (typeof options.fontFamilyMono === 'string' && options.fontFamilyMono !== '') { renderOptions.fontFamilyMono = options.fontFamilyMono; }
       if (typeof options.maxWidth === 'number' && options.maxWidth > 0) { renderOptions.maxWidth = options.maxWidth; }
       if (typeof global.peleMeasureText === 'function') {
+        var family = renderOptions.fontFamily || 'sans-serif';
+        var monoFamily = renderOptions.fontFamilyMono || 'monospace';
         renderOptions.measurer = {
           width: function (text, size, style) {
-            return global.peleMeasureText(text, size, style);
+            return global.peleMeasureText(text, size, style, family, monoFamily);
           }
         };
       }
