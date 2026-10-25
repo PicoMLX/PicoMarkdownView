@@ -71,7 +71,11 @@ struct QuotedContainerTests {
         "> $$\n  \n> x\n\n",
         ">> # H",
         "> **before\n>> # H",
-        "> > > deep\n> > # H"
+        "> > > deep\n> > # H",
+        ">> a\n> $$x$$y\n\n",
+        ">> a\n> $$x$$\n\n",
+        ">> a\n> $$\n> x\n> $$\n\n",
+        ">> a\n> \\[x\\]y\n\n"
     ] + emptyHeadingDocuments + markerOnlyDocuments + containerDocuments + emptyMarkerDocuments
 
     /// Lists, tables, footnotes and extension blocks inside quotes.
