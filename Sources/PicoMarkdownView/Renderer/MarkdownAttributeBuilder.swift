@@ -32,10 +32,12 @@ actor MarkdownAttributeBuilder {
 
     init(theme: MarkdownRenderTheme,
          imageProvider: MarkdownImageProvider? = nil,
-         mermaidProvider: (any MermaidDiagramProvider)? = nil) {
+         mermaidProvider: (any MermaidDiagramProvider)? = nil,
+         runtimeMermaidMaxWidth: CGFloat? = nil) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
+        self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
         // Resolve Sendable specs to platform types inside the actor
         self.bodyFont = theme.bodyFont.resolved()

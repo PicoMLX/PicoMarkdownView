@@ -132,6 +132,27 @@ struct TextScalingTests {
         #expect(rescaled.first { $0.id == before.id } == block)
     }
 
+    @Test("Overlapping scale requests leave the renderer at the scale it reports")
+    func overlappingScaleRequestsAgree() async throws {
+        for _ in 0..<10 {
+            let tokenizer = MarkdownTokenizer()
+            let assembler = MarkdownAssembler()
+            let renderer = MarkdownRenderer(theme: .default()) { await assembler.block($0) }
+            _ = await renderer.apply(await assembler.apply(await tokenizer.feed("Hello world.\n\n")))
+            let base = try #require(firstFont(in: await renderer.renderedBlocks()[0])).pointSize
+
+            async let first = renderer.updateTextScale(2)
+            async let second = renderer.updateTextScale(3)
+            _ = await (first, second)
+
+            // Whichever request was overtaken installed nothing, so asking
+            // for 3 again either is a no-op at 3 or moves there; it must
+            // never be refused while the fonts still show 2.
+            _ = await renderer.updateTextScale(3)
+            #expect(try #require(firstFont(in: await renderer.renderedBlocks()[0])).pointSize == base * 3)
+        }
+    }
+
     @Test("Dynamic Type moves the theme body by the points a fresh default theme would use")
     func dynamicTypeScaleMatchesDefaultTheme() {
         // `default()` is the system body size plus two: when the body goes

@@ -154,12 +154,15 @@ actor MarkdownRenderer {
         guard factor != textScale else { return nil }
         textScale = factor
         let scaledTheme = theme.scaled(by: factor)
-        let builder = MarkdownAttributeBuilder(
+        // The scale and its builder are installed in one synchronous step
+        // (the diagram width goes in through the initializer), so two
+        // overlapping requests cannot leave the renderer reporting one scale
+        // while rendering with another.
+        attributeBuilder = MarkdownAttributeBuilder(
             theme: scaledTheme,
             imageProvider: imageProvider,
-            mermaidProvider: injectedMermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme))
-        await builder.setRuntimeMermaidMaxWidth(runtimeMermaidContentWidth)
-        attributeBuilder = builder
+            mermaidProvider: injectedMermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme),
+            runtimeMermaidMaxWidth: runtimeMermaidContentWidth)
         builderGeneration &+= 1
 
         // The stream may append to a block while its scaled render awaits
