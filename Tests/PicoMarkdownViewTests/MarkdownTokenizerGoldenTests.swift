@@ -1997,7 +1997,7 @@ struct MarkdownTokenizerGoldenTests {
     }
 
     @Test("Pending bracket text survives a trailing backslash at the end of input",
-          arguments: [["[a]", "\\"], ["![diagram]", "\\"], ["text [a]", "\\"], ["[a]", "\\", "x"]])
+          arguments: [["[a]", "\\"], ["![diagram]", "\\"], ["text [a]", "\\"], ["[a", "]", "\\"]])
     func bracketTextSurvivesTrailingBackslash(chunks: [String]) {
         var parser = InlineParser()
         var runs = chunks.flatMap { parser.append($0) }
