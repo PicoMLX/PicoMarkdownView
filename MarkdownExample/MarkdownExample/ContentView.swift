@@ -62,6 +62,9 @@ struct MarkdownExample: Identifiable, Hashable {
         MarkdownExample(
             localFilename: "StackEdit",
             webURL: "https://stackedit.io/app#"),
+        MarkdownExample(
+            localFilename: "Diagrams",
+            webURL: "https://pele.run/examples"),
     ]
 }
 
