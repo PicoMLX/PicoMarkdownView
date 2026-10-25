@@ -66,7 +66,12 @@ struct QuotedContainerTests {
         "> text\nlazy\n\n",
         "> ```\n# heading\n\n",
         "> $$\n# heading\n\n",
-        "> ```\n~~~\n\n"
+        "> ```\n~~~\n\n",
+        "> ```\n    a\n\n",
+        "> $$\n  \n> x\n\n",
+        ">> # H",
+        "> **before\n>> # H",
+        "> > > deep\n> > # H"
     ] + emptyHeadingDocuments + markerOnlyDocuments + containerDocuments + emptyMarkerDocuments
 
     /// Lists, tables, footnotes and extension blocks inside quotes.
@@ -319,6 +324,33 @@ struct QuotedContainerTests {
         let fence = await parse(chunks: ["> ```\n~~", "~\n\n"])
         #expect(fence.blocks.map(\.kind) == [.blockquote, .fencedCode(language: nil), .fencedCode(language: nil)])
         #expect((fence.blocks[1].codeText ?? "").isEmpty)
+    }
+
+    @Test("Whitespace of a partial unmarked line never reaches quoted code")
+    func unmarkedWhitespaceStaysOutOfQuotedCode() async {
+        let tokenizer = MarkdownTokenizer()
+        _ = await tokenizer.feed("> ```\n ")
+        let result = await tokenizer.feed("   a\n")
+        // Block 2 is the quoted code; the `a` becomes outside indented code.
+        #expect(!result.events.contains { if case .blockAppendFencedCode(let id, _) = $0 { return id == 2 }; return false })
+        let streamed = await parse(chunks: ["> ```\n ", "   a\n\n"])
+        let whole = await parse(chunks: [Self.documents[52]])
+        #expect(streamed.blocks == whole.blocks)
+        #expect(whole.blocks.first(where: { $0.kind == .fencedCode(language: nil) }).map { $0.codeText ?? "" } == "")
+    }
+
+    @Test("The end of input closes every enclosing quote and flushes their text")
+    func endOfInputDrainsNestedQuotes() async {
+        let tokenizer = MarkdownTokenizer()
+        _ = await tokenizer.feed(">> # H")
+        let finished = await tokenizer.finish()
+        #expect(finished.openBlocks.isEmpty)
+        #expect(finished.events.filter { if case .blockEnd = $0 { return true }; return false }.count == 3)
+
+        let text = await parse(chunks: ["> **before\n>> # H"])
+        #expect(text.blocks.map(\.kind) == [.blockquote, .blockquote, .heading(level: 1)])
+        #expect(self.text(of: text.blocks[0]).contains("**before"), "the outer quote's pending text flushes")
+        #expect(text.blocks.allSatisfy { $0.isClosed })
     }
 
     @Test("A quoted code line longer than the look-behind budget stays in the code")

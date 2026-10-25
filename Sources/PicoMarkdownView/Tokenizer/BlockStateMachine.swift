@@ -201,7 +201,11 @@ struct StreamingParser {
             analyzeLineIfNeeded(isLineComplete: true)
             appendDeltaIfNeeded(isLineComplete: true)
             finalizeLine(terminated: true, force: true)
-            closeCurrentBlock()
+            // Children of nested quotes add contexts, so the end of input
+            // drains the whole stack rather than one block.
+            while currentBlock != nil {
+                closeCurrentBlock()
+            }
         }
     }
 
@@ -881,9 +885,11 @@ struct StreamingParser {
                 if trimmedLine.isEmpty { return }   // leading whitespace of a continuation line
                 if shouldDeferParagraphFallback(for: String(lineContent)) { return }
             case .fencedCode, .math:
-                // Inside a quote, whitespace after a partial marker may
-                // still be part of the prefix (`> ` of `> >`): wait for text.
-                if lineQuotePrefix > 0, trimmedLine.isEmpty { return }
+                // Inside a quote, a partial line of only whitespace is never
+                // code yet: after a marker it may still be part of the prefix
+                // (`> ` of `> >`), and without one it either grows a marker
+                // or ends the quote. Wait for text.
+                if trimmedLine.isEmpty, contextStack.contains(where: { $0.kind == .blockquote }) { return }
                 // A partial line made only of the fence's marker may still
                 // become the closing fence; emitting it now would put stray
                 // backticks in the code. Likewise a partial math closer.
