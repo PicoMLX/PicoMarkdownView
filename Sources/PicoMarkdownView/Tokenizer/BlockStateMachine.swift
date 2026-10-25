@@ -43,6 +43,9 @@ struct StreamingParser {
         /// Later plain text goes into a paragraph child so source order is
         /// kept, instead of being appended to the quote's own inline runs.
         var hasBlockChildren: Bool = false
+        /// Non-whitespace inline text has been appended: for a blockquote
+        /// this means its own text acts as an open paragraph.
+        var hasInlineContent: Bool = false
     }
 
     private struct TableState {
@@ -94,7 +97,9 @@ struct StreamingParser {
         var task: TaskListState?
         var taskMarkerLength: Int
 
-        var prefixLength: Int { indent + markerLength + taskMarkerLength }
+        /// Source characters to strip before the item's text. `indent` counts
+        /// columns (a tab is four) and is only for nesting comparisons.
+        var prefixLength: Int { indentText.count + markerLength + taskMarkerLength }
     }
 
     private struct BlockquoteInfo {
@@ -151,6 +156,12 @@ struct StreamingParser {
     /// characters are buffered without re-analysis, so a long streamed line
     /// costs O(chunk) per feed rather than O(line).
     private var lineDeferredUntilComplete = false
+    /// A child block opener ran on the current line (`openQuotedChild`).
+    private var lineOpenedChild = false
+    /// Some of the current line's content reached a block. Consuming a list
+    /// item's indentation alone does not count, so a later opener on the
+    /// same line is still allowed.
+    private var lineEmittedContent = false
     /// Characters at the start of `lineBuffer` that are the enclosing
     /// blockquote's `>` markers (with their optional space). Resolved once
     /// per line by `analyzeQuotedLine`; everything after it is the line as
@@ -416,7 +427,8 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
+                if let list = detectList(lineBuffer, isLineComplete: isLineComplete),
+                   listCanInterruptParagraph(list, line: lineBuffer) {
                     closeCurrentBlock()
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
@@ -749,10 +761,11 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return true
             }
-            // Openers are decided once per line: after any of its content
-            // has been emitted, a re-analysis (the line grew) must not open
-            // the same block again.
-            if emittedCount <= quote.prefixLength, openQuotedChild(from: content, isLineComplete: isLineComplete) {
+            // Openers are decided once per line: after one ran, or after any
+            // of the line's content has been emitted, a re-analysis (the line
+            // grew) must not open the same block again. Indentation consumed
+            // for a list item is not content, so an opener may still follow.
+            if !lineOpenedChild, !lineEmittedContent, openQuotedChild(from: content, isLineComplete: isLineComplete) {
                 return true
             }
             if current.kind == .blockquote, current.hasBlockChildren,
@@ -782,6 +795,7 @@ struct StreamingParser {
         let prefix = lineQuotePrefix
 
         func beginChild() {
+            lineOpenedChild = true
             if let current = currentBlock {
                 switch current.kind {
                 case .paragraph, .footnoteDefinition: closeCurrentBlock()
@@ -840,6 +854,13 @@ struct StreamingParser {
             return true
         }
         if let list = detectList(line, isLineComplete: isLineComplete) {
+            // A quoted paragraph (a paragraph child, or the quote's own text)
+            // is only interrupted by a list that may interrupt a paragraph.
+            if let current = currentBlock,
+               current.kind == .paragraph || (current.kind == .blockquote && current.hasInlineContent && !current.hasBlockChildren),
+               !listCanInterruptParagraph(list, line: line) {
+                return false
+            }
             beginChild()
             openListItem(list)
             emittedCount = min(lineBuffer.count, prefix + list.prefixLength)
@@ -863,7 +884,9 @@ struct StreamingParser {
     private func startsBlock(_ content: Substring, isLineComplete: Bool) -> Bool {
         let line = String(content)
         if detectHeading(line) != nil { return true }
-        if detectList(line, isLineComplete: isLineComplete) != nil { return true }
+        if let list = detectList(line, isLineComplete: isLineComplete) {
+            return listCanInterruptParagraph(list, line: line)
+        }
         // `$$x$$` is display math only if nothing follows on the line
         // (`$$x$$y` is a paragraph), so math waits for the complete line
         // like fences, rules and tables.
@@ -980,6 +1003,7 @@ struct StreamingParser {
             return
         }
         append(delta, context: &context)
+        lineEmittedContent = true
         setCurrentBlock(context)
         emittedCount = lineBuffer.count
         enforceLineBufferBudget()
@@ -1103,6 +1127,8 @@ struct StreamingParser {
         lineConsumedByRule = false
         lineBufferTrimmed = 0
         lineDeferredUntilComplete = false
+        lineOpenedChild = false
+        lineEmittedContent = false
     }
 
     private mutating func closePendingSameLineBlocks() {
@@ -1147,6 +1173,7 @@ struct StreamingParser {
 
     private mutating func append(_ text: String, context ctx: inout BlockContext, preserveLiteralRuns: Bool = false) {
         guard !text.isEmpty else { return }
+        if text.contains(where: { !$0.isWhitespace }) { ctx.hasInlineContent = true }
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote, .footnoteDefinition:
             if var parser = ctx.inlineParser {
@@ -1356,6 +1383,19 @@ struct StreamingParser {
             table.bufferedLines.append(rawLine)
             table.stage = .separatorPending
         case .separatorPending:
+            if parseAlignment(trimmed) == nil, !detectTableCandidate(rawLine),
+               startsBlock(rawLine[...], isLineComplete: true) || detectBlockquote(rawLine) != nil {
+                // The second line opens another block, so only the header
+                // line was a failed candidate: degrade that one and let the
+                // opener be analyzed, filled and finalized as itself.
+                degradeTableCandidate(context: &ctx, table: table, terminated: true)
+                emittedCount = 0
+                lineAnalyzed = false
+                analyzeLineIfNeeded(isLineComplete: true)
+                appendDeltaIfNeeded(includeTerminatingNewline: shouldIncludeTerminatingNewline(), isLineComplete: true)
+                finalizeLine(terminated: terminated, force: force)
+                return
+            }
             table.bufferedLines.append(rawLine)
             if let alignments = parseAlignment(trimmed) {
                 table.alignments = alignments
@@ -2004,8 +2044,12 @@ struct StreamingParser {
             // `- [x` may still become a task item; its state is published
             // with the item and cannot change later.
             let suffix = line.dropFirst(list.indentText.count + list.markerLength)
+            // The complete `- [ ] ` waits too: with nothing after it the
+            // item is empty, which cannot interrupt a paragraph, and then
+            // its trailing space must stay out of the text until the line
+            // ends and trims it.
             if suffix.hasPrefix("["),
-               ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) && $0 != suffix }) {
+               ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) }) {
                 return true
             }
         }
@@ -2016,6 +2060,13 @@ struct StreamingParser {
             return true // could still become horizontal rule on newline
         }
         return false
+    }
+
+    /// CommonMark: a list interrupts a paragraph only if it is a bullet list
+    /// or starts at 1, and only with a non-empty item.
+    private func listCanInterruptParagraph(_ list: ListInfo, line: String) -> Bool {
+        if list.ordered, list.index != 1 { return false }
+        return !line.dropFirst(list.prefixLength).allSatisfy { $0 == " " || $0 == "\t" }
     }
 
     /// Lines whose classification cannot change before the newline: display

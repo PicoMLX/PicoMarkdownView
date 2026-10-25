@@ -123,7 +123,11 @@ struct QuotedContainerTests {
         "| a | b |\n| --- | --- |\n> quoted\n\n",
         "> - parent\n>   - child", ">> - item",
         "- parent\n  - child\n  _ _ _\n  continuation\n\n", "> - parent\n>   - child\n>   * * *\n>   continuation\n\n",
-        "> [^a]: first\n> second\n\n", "[^a]: first\nsecond\n\n"
+        "> [^a]: first\n> second\n\n", "[^a]: first\nsecond\n\n",
+        ">> - x\n>   ```\n> y\n> ```\n",
+        "> | a | b |\n> ```swift\n> let x=1\n> ```\n\n", "| a | b |\n```swift\nlet x=1\n```\n\n", "| a | b |\n# Heading\n\n",
+        "> - parent\n> \t- child text\n\n", "- parent\n\t- child text\n\n",
+        "paragraph\n2. continuation\n\n", "paragraph\n- \n\n", "> paragraph\n> 1. item\n> 2. two\n\n"
     ]
 
     /// A quoted list marker with nothing after it, in every spelling.
@@ -642,6 +646,60 @@ struct QuotedContainerTests {
             let footnote = try #require(result.blocks.first(where: { if case .footnoteDefinition = $0.kind { return true }; return false }),
                                         Comment(rawValue: Self.containerDocuments[index]))
             #expect(text(of: footnote) == "first second", Comment(rawValue: Self.containerDocuments[index]))
+        }
+    }
+
+    @Test("Only a bullet or a list starting at 1, with content, interrupts a paragraph")
+    func listInterruptionRules() async throws {
+        let ordered = await parse(chunks: [Self.containerDocuments[25]])
+        #expect(ordered.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: ordered.blocks[0]).contains("2. continuation"), "`2.` cannot interrupt a quoted paragraph")
+        let emptyTask = await parse(chunks: [Self.containerDocuments[35]])
+        #expect(emptyTask.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: emptyTask.blocks[0]).contains("- [ ]"), "an empty item cannot interrupt a paragraph")
+        let one = await parse(chunks: [Self.containerDocuments[26]])
+        #expect(one.blocks.map(\.kind) == [.blockquote, .listItem(ordered: true, index: 1, task: nil)])
+        let two = await parse(chunks: [Self.containerDocuments[57]])
+        #expect(two.blocks.map(\.kind) == [.blockquote, .listItem(ordered: true, index: 1, task: nil), .listItem(ordered: true, index: 2, task: nil)],
+                "a second item continues a list that already interrupted")
+        let topOrdered = await parse(chunks: [Self.containerDocuments[55]])
+        #expect(topOrdered.blocks.map(\.kind) == [.paragraph])
+        #expect(text(of: topOrdered.blocks[0]).contains("2. continuation"))
+        let topEmpty = await parse(chunks: [Self.containerDocuments[56]])
+        #expect(topEmpty.blocks.map(\.kind) == [.paragraph])
+    }
+
+    @Test("A fence after a quoted list item's indentation still opens when the quote depth drops")
+    func fenceAfterListIndentation() async {
+        let result = await parse(chunks: [Self.containerDocuments[49]])
+        #expect(result.blocks.map(\.kind) == [.blockquote, .blockquote, .listItem(ordered: false, index: nil, task: nil), .fencedCode(language: nil)])
+        #expect(result.blocks.last?.codeText == "y\n")
+        let split = await parse(chunks: [">> - x\n>   ```", "\n> y\n> ```\n"])
+        #expect(split.blocks == result.blocks)
+    }
+
+    @Test("A table candidate without a separator yields to the block its next line opens")
+    func tableCandidateYieldsToOpener() async {
+        let quoted = await parse(chunks: [Self.containerDocuments[50]])
+        #expect(quoted.blocks.map(\.kind) == [.blockquote, .unknown, .fencedCode(language: "swift")])
+        #expect(quoted.blocks.last?.codeText == "let x=1\n")
+        let top = await parse(chunks: [Self.containerDocuments[51]])
+        #expect(top.blocks.map(\.kind) == [.unknown, .fencedCode(language: "swift")])
+        #expect(top.blocks.last?.codeText == "let x=1\n")
+        let heading = await parse(chunks: [Self.containerDocuments[52]])
+        #expect(heading.blocks.map(\.kind) == [.unknown, .heading(level: 1)])
+        #expect(heading.blocks.last.map(text(of:)) == "Heading")
+    }
+
+    @Test("A tab-indented nested item strips its prefix by characters, not columns")
+    func tabIndentedNestedItem() async {
+        for index in [53, 54] {
+            let result = await parse(chunks: [Self.containerDocuments[index]])
+            let items = result.blocks.filter { if case .listItem = $0.kind { return true }; return false }
+            #expect(items.count == 2, Comment(rawValue: Self.containerDocuments[index]))
+            // Nested items keep their indentation text as a leading run (as
+            // `  child` does); the marker and its space are stripped.
+            #expect(items.last.map(text(of:)) == "\tchild text\n", Comment(rawValue: Self.containerDocuments[index]))
         }
     }
 
