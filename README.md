@@ -87,9 +87,9 @@ var body: some View {
 }
 ```
 
-### Adjusting Font Size (Zoom Controls)
+### Adjusting Font Size (Zoom and Dynamic Type)
 
-You can provide “Actual Size”, “Zoom In”, and “Zoom Out” controls by keeping a zoom factor in state and rebuilding the theme when it changes:
+The view follows the system Dynamic Type setting on its own, including changes made while it is on screen. For your own “Zoom In” / “Zoom Out” controls, set a scale on the environment with `markdownTextScale`; it multiplies with Dynamic Type and applies live — the parse and a stream in progress are kept, only the fonts are rebuilt, and the selection survives:
 
 ```swift
 import PicoMarkdownView
@@ -102,20 +102,6 @@ struct ZoomableMarkdownView: View {
     Inline math: \\(E = mc^2\\)
     """
 
-    private let baseTheme = MarkdownRenderTheme.default()
-
-    private var scaledTheme: MarkdownRenderTheme {
-        var theme = baseTheme
-        theme.bodyFont = theme.bodyFont.withSize(theme.bodyFont.pointSize * zoom)
-        theme.codeFont = theme.codeFont.withSize(theme.codeFont.pointSize * zoom)
-        var headings: [Int: MarkdownFont] = [:]
-        for (level, font) in theme.headingFonts {
-            headings[level] = font.withSize(font.pointSize * zoom)
-        }
-        theme.headingFonts = headings
-        return theme
-    }
-
     var body: some View {
         VStack(spacing: 16) {
             HStack(spacing: 12) {
@@ -123,12 +109,15 @@ struct ZoomableMarkdownView: View {
                 Button("Actual Size") { zoom = 1.0 }
                 Button("Zoom In") { zoom = min(2.0, zoom + 0.1) }
             }
-            PicoMarkdownView(markdown, theme: scaledTheme)
+            PicoMarkdownView(markdown)
+                .markdownTextScale(zoom)
         }
         .padding()
     }
 }
 ```
+
+To bake a scale into a theme instead, `MarkdownRenderTheme.scaled(by:)` returns a copy with every font size multiplied.
 
 ### Code Block Highlighting
 
