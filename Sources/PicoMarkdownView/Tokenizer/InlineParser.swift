@@ -62,6 +62,10 @@ struct InlineParser {
     var replacements = StreamingReplacementEngine()
     private var mathState: InlineMathState?
     private var followsMathGrapheme = false
+    /// The last character already emitted from an earlier chunk, so a marker
+    /// at the start of the pending text keeps its intraword context (`a` then
+    /// `_b_` is the identifier `a_b_`, not `a` and italic `b`).
+    private var lastConsumedCharacter: Character?
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
 
@@ -116,6 +120,7 @@ struct InlineParser {
         replacements.reset()
         mathState = nil
         followsMathGrapheme = false
+        lastConsumedCharacter = nil
         return runs
     }
 
@@ -178,7 +183,7 @@ struct InlineParser {
             if let boundary = mathGraphemeBoundary, index <= boundary {
                 return "$" // Both math closers are punctuation, even with trailing combining scalars.
             }
-            guard index > text.startIndex else { return nil }
+            guard index > text.startIndex else { return lastConsumedCharacter }
             let prior = text.index(before: index)
             return text[prior]
         }
@@ -1301,6 +1306,9 @@ struct InlineParser {
 
         if consumedEnd > text.startIndex {
             let consumedBytes = text.utf8.distance(from: text.utf8.startIndex, to: consumedEnd)
+            // `consumedEnd` may sit inside a grapheme (math resumes at scalar
+            // boundaries), so take the last scalar rather than a Character.
+            lastConsumedCharacter = text.unicodeScalars[..<consumedEnd].last.map(Character.init)
             pending = String(text[consumedEnd...])
             if var state = mathState {
                 state.contentUTF8Offset = max(0, state.contentUTF8Offset - consumedBytes)

@@ -1996,6 +1996,16 @@ struct MarkdownTokenizerGoldenTests {
                 == [plain("say "), InlineRunShape(text: "hi", style: [.italic]), plain(" there")])
     }
 
+    @Test("Emphasis markers at a chunk start keep the context of text already emitted",
+          arguments: [["a", "_", "b", "_"], ["foo", "_bar_"], ["foo_", "bar_ baz"], ["x ", "_y_"], ["snake", "_case_", "_name"], ["word", "*bold*"]])
+    func chunkStartKeepsIntrawordContext(chunks: [String]) {
+        var parser = InlineParser()
+        var runs = chunks.flatMap { parser.append($0) }
+        runs += parser.finish()
+        let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+        #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "Chunks: \(chunks)")
+    }
+
     @Test("Pending bracket text survives a trailing backslash at the end of input",
           arguments: [["[a]", "\\"], ["![diagram]", "\\"], ["text [a]", "\\"], ["[a", "]", "\\"]])
     func bracketTextSurvivesTrailingBackslash(chunks: [String]) {
