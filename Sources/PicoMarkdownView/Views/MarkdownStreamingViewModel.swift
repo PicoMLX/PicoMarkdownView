@@ -33,6 +33,7 @@ final class MarkdownStreamingViewModel {
     private var updateScheduled = false
     private var mermaidContentWidth: CGFloat?
     private var mermaidContentWidthBucket: Int?
+    private var textScale: CGFloat = 1
     private var imageBlockDependencies: [URL: Set<BlockID>] = [:]
     private var requestedRemoteImageURLs: Set<URL> = []
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
@@ -77,6 +78,7 @@ final class MarkdownStreamingViewModel {
             activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
+            _ = await freshPipeline.updateTextScale(textScale)
             enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
             await consume(stream: stream, pipeline: freshPipeline, generation: generation)
@@ -103,6 +105,7 @@ final class MarkdownStreamingViewModel {
         // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
+        _ = await freshPipeline.updateTextScale(textScale)
 
         // The first publish must be a full replace (diff: nil): the view may
         // still show the previous document, and the fresh pipeline's diffs
@@ -156,6 +159,7 @@ final class MarkdownStreamingViewModel {
         var latestBlocks: [RenderedBlock] = []
 
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
+        _ = await freshPipeline.updateTextScale(textScale)
 
         if !value.isEmpty {
             if let update = await freshPipeline.feed(value) {
@@ -187,6 +191,19 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("Queuing Markdown update: blocks=\(latestBlocks.count)")
         #endif
         enqueueUpdate(blocks: latestBlocks, diff: nil)
+    }
+
+    /// Applies a font scale (Dynamic Type × host zoom) to the live document
+    /// without restarting the parse or the stream. Published as a full
+    /// replace, which keeps the selection.
+    func updateTextScale(_ scale: CGFloat) async {
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        guard factor != textScale else { return }
+        textScale = factor
+        let generation = pipelineGeneration
+        if let blocks = await pipeline.updateTextScale(factor), generation == pipelineGeneration {
+            enqueueUpdate(blocks: blocks, diff: nil)
+        }
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async {

@@ -60,6 +60,12 @@ actor MarkdownStreamingPipeline {
         await renderer.updateMermaidContentWidth(width)
     }
 
+    /// Re-renders the presentation at a new font scale; the tokenizer and
+    /// assembler, and therefore any stream in progress, are untouched.
+    func updateTextScale(_ scale: CGFloat) async -> [RenderedBlock]? {
+        await renderer.updateTextScale(scale)
+    }
+
     func snapshot() async -> AttributedString {
         await renderer.currentAttributedString()
     }
