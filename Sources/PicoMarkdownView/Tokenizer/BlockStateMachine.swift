@@ -43,6 +43,9 @@ struct StreamingParser {
         /// Later plain text goes into a paragraph child so source order is
         /// kept, instead of being appended to the quote's own inline runs.
         var hasBlockChildren: Bool = false
+        /// Non-whitespace inline text has been appended: for a blockquote
+        /// this means its own text acts as an open paragraph.
+        var hasInlineContent: Bool = false
     }
 
     private struct TableState {
@@ -94,7 +97,9 @@ struct StreamingParser {
         var task: TaskListState?
         var taskMarkerLength: Int
 
-        var prefixLength: Int { indent + markerLength + taskMarkerLength }
+        /// Source characters to strip before the item's text. `indent` counts
+        /// columns (a tab is four) and is only for nesting comparisons.
+        var prefixLength: Int { indentText.count + markerLength + taskMarkerLength }
     }
 
     private struct BlockquoteInfo {
@@ -151,11 +156,20 @@ struct StreamingParser {
     /// characters are buffered without re-analysis, so a long streamed line
     /// costs O(chunk) per feed rather than O(line).
     private var lineDeferredUntilComplete = false
+    /// A child block opener ran on the current line (`openQuotedChild`).
+    private var lineOpenedChild = false
+    /// Some of the current line's content reached a block. Consuming a list
+    /// item's indentation alone does not count, so a later opener on the
+    /// same line is still allowed.
+    private var lineEmittedContent = false
     /// Characters at the start of `lineBuffer` that are the enclosing
     /// blockquote's `>` markers (with their optional space). Resolved once
     /// per line by `analyzeQuotedLine`; everything after it is the line as
     /// the quote's children see it.
     private var lineQuotePrefix: Int = 0
+    /// Set when the line became a horizontal rule, which pushes no context:
+    /// the enclosing block must not treat the line as its own text.
+    private var lineConsumedByRule = false
     private var events: [BlockEvent] = []
 
     /// The current line without its blockquote prefix.
@@ -271,7 +285,9 @@ struct StreamingParser {
         }
 
         if contextStack.isEmpty {
-            if let footnote = detectFootnoteDefinition(lineBuffer) {
+            // `[^a]:` with nothing after it yet may still gain its space; the
+            // prefix is published with the block, so wait one character.
+            if let footnote = detectFootnoteDefinition(lineBuffer), isLineComplete || !lineBuffer.hasSuffix(":") {
                 let index = footnoteRegistry.index(for: footnote.id)
                 openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
                                 prefixToStrip: footnote.prefixLength)
@@ -411,7 +427,8 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
+                if let list = detectList(lineBuffer, isLineComplete: isLineComplete),
+                   listCanInterruptParagraph(list, line: lineBuffer) {
                     closeCurrentBlock()
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
@@ -449,112 +466,8 @@ struct StreamingParser {
                 // heading handled on first line only
                 break
             case .listItem:
-                if isLineComplete, let mathOpen = detectDisplayMathOpening(lineBuffer) {
-                    closeCurrentBlock()
-                    let closeAfterLine = mathOpen.closesOnSameLine
-                    openDisplayMathBlock(marker: mathOpen.marker,
-                                         closing: mathOpen.closing,
-                                         initialContent: mathOpen.content,
-                                         indent: mathOpen.leadingIndent,
-                                         closeAfterCurrentLine: closeAfterLine)
-                    emittedCount = lineBuffer.count
-                    lineAnalyzed = true
-                    return
-                }
-                // A heading at or before the item's marker column breaks out
-                // of all open list contexts; one indented past the marker is
-                // the item's own content.
-                if let heading = detectHeading(lineBuffer), heading.indent <= ctx.listIndent {
-                    closeCurrentBlock()
-                    closeListContexts(deeperThan: -1)
-                    openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
-                    emittedCount = min(lineBuffer.count, heading.prefixLength)
-                    lineAnalyzed = true
-                    return
-                }
-                // A fenced code block at column 0 breaks out of all open list contexts.
-                if isLineComplete, let fence = detectFenceOpening(lineBuffer) {
-                    closeCurrentBlock()
-                    closeListContexts(deeperThan: -1)
-                    openFencedCode(fence)
-                    emittedCount = lineBuffer.count
-                    lineAnalyzed = true
-                    return
-                }
-                if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
-                    closeListContexts(deeperThan: list.indent)
-
-                    if let current = currentBlock, case .listItem = current.kind {
-                        if list.indent > current.listIndent {
-                            openListItem(list)
-                            emittedCount = min(lineBuffer.count, list.prefixLength)
-                        } else if list.indent == current.listIndent {
-                            if shouldStartNewListItem(currentContext: current, list: list, emittedCount: emittedCount) {
-                                closeCurrentBlock()
-                                openListItem(list)
-                                emittedCount = min(lineBuffer.count, list.prefixLength)
-                            } else {
-                                var updated = current
-                                updated.linePrefixToStrip = list.prefixLength
-                                setCurrentBlock(updated)
-                                if emittedCount < list.prefixLength {
-                                    emittedCount = min(lineBuffer.count, list.prefixLength)
-                                }
-                            }
-                        } else {
-                            closeCurrentBlock()
-                            openListItem(list)
-                            emittedCount = min(lineBuffer.count, list.prefixLength)
-                        }
-                    } else {
-                        openListItem(list)
-                        emittedCount = min(lineBuffer.count, list.prefixLength)
-                    }
-
-                    lineAnalyzed = true
-                    return
-                }
-
-                if var current = currentBlock, case .listItem = current.kind {
-                    let continuation = listContinuationPrefixLength(lineBuffer, currentIndent: current.listIndent)
-                    if isLineComplete, detectTableCandidate(lineBuffer) {
-                        closeCurrentBlock()
-                        openTable(lineBuffer)
-                        emittedCount = lineBuffer.count
-                        lineAnalyzed = true
-                        return
-                    }
-                    if isLineComplete, detectHorizontalRule(lineBuffer, indent: current.listIndent) {
-                        closeCurrentBlock()
-                        closeListContexts(deeperThan: current.listIndent - 1)
-                        emitHorizontalRuleBlock()
-                        return
-                    }
-                    if continuation > 0 {
-                        current.linePrefixToStrip = continuation
-                        current.sawBlankInSubContext = false
-                        setCurrentBlock(current)
-                        if emittedCount < continuation {
-                            emittedCount = min(lineBuffer.count, continuation)
-                        }
-                        lineAnalyzed = true
-                        return
-                    }
-                    // Non-indented text that is not a list marker, heading,
-                    // fence, etc.  If a blank line previously closed a child
-                    // context, this text starts a new paragraph outside the
-                    // list.  Without a prior blank line, it is a lazy
-                    // continuation of the current list item.
-                    if current.sawBlankInSubContext {
-                        closeCurrentBlock()
-                        closeListContexts(deeperThan: -1)
-                        openInlineBlock(kind: .paragraph)
-                        emittedCount = 0
-                        lineAnalyzed = true
-                        return
-                    }
-                    setCurrentBlock(current)
-                }
+                analyzeListItemLine(isLineComplete: isLineComplete)
+                return
             case .blockquote:
                 // Every line inside a quote is handled by `analyzeQuotedLine`.
                 break
@@ -581,12 +494,162 @@ struct StreamingParser {
             case .horizontalRule:
                 break
             case .table:
-                break
+                // GFM: a table ends at a blank line or the start of another
+                // block. Only the line in hand is reconsidered; emitted rows
+                // stay as they are.
+                if isLineComplete, ctx.tableState?.stage == .rows,
+                   startsBlock(lineContent, isLineComplete: true, interruptingParagraph: false) || detectBlockquote(String(lineContent)) != nil,
+                   !detectTableCandidate(String(lineContent)) {
+                    closeCurrentBlock()
+                    // Table lines are consumed whole as they stream; the
+                    // line is now someone else's and is analyzed afresh.
+                    emittedCount = 0
+                    lineAnalyzed = false
+                    analyzeLineIfNeeded(isLineComplete: true)
+                    return
+                }
             case .unknown:
                 break
             }
         }
 
+        lineAnalyzed = true
+    }
+
+    /// The list-item branch of `analyzeLineIfNeeded`, on the line's content
+    /// after any blockquote prefix, so lists inside quotes behave like lists
+    /// at the top level. Emitted counts stay in `lineBuffer` coordinates.
+    private mutating func analyzeListItemLine(isLineComplete: Bool) {
+        let line = String(lineContent)
+        let base = lineQuotePrefix
+        func consumed(_ count: Int) -> Int { min(lineBuffer.count, base + count) }
+
+        if base > 0, !isLineComplete, listMarkerIsPending(line) {
+            lineAnalyzed = true
+            return
+        }
+        if isLineComplete, let mathOpen = detectDisplayMathOpening(line) {
+            closeCurrentBlock()
+            openDisplayMathBlock(marker: mathOpen.marker,
+                                 closing: mathOpen.closing,
+                                 initialContent: mathOpen.content,
+                                 indent: mathOpen.leadingIndent,
+                                 closeAfterCurrentLine: mathOpen.closesOnSameLine)
+            emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return
+        }
+        // A heading at or before the item's marker column breaks out of all
+        // open list contexts; at top level one indented past the marker is
+        // the item's own content. Inside a quote, an indented heading ends
+        // the quoted list and joins the quote (see `quotedListChildren`).
+        if let heading = detectHeading(line), base > 0 || heading.indent <= (currentBlock?.listIndent ?? 0) {
+            closeCurrentBlock()
+            closeListContexts(deeperThan: -1)
+            openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: base + heading.prefixLength)
+            emittedCount = consumed(heading.prefixLength)
+            lineAnalyzed = true
+            return
+        }
+        // A fenced code block at column 0 breaks out of all open list contexts.
+        if isLineComplete, let fence = detectFenceOpening(line) {
+            closeCurrentBlock()
+            closeListContexts(deeperThan: -1)
+            openFencedCode(fence)
+            emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return
+        }
+        // A thematic break outranks a list item (CommonMark): `* * *` after
+        // `- a` is a rule, not another item, and a partial `* ` waits.
+        if isLineComplete, detectHorizontalRule(line, indent: 0) {
+            // The rule ends the items at or past its own indentation; an
+            // enclosing item whose marker sits further left stays open, so
+            // `- parent\n  - child\n  _ _ _` keeps the parent.
+            let indent = line.prefix(while: { $0 == " " }).count
+            closeCurrentBlock()
+            closeListContexts(deeperThan: indent - 1)
+            emitHorizontalRuleBlock()
+            return
+        }
+        if !isLineComplete, isPotentialHorizontalRule(line) {
+            lineAnalyzed = true
+            return
+        }
+        if let list = detectList(line, isLineComplete: isLineComplete) {
+            closeListContexts(deeperThan: list.indent)
+
+            if let current = currentBlock, case .listItem = current.kind {
+                if list.indent > current.listIndent {
+                    openListItem(list)
+                    emittedCount = consumed(list.prefixLength)
+                } else if list.indent == current.listIndent {
+                    if shouldStartNewListItem(currentContext: current, list: list, emittedCount: max(0, emittedCount - base)) {
+                        closeCurrentBlock()
+                        openListItem(list)
+                        emittedCount = consumed(list.prefixLength)
+                    } else {
+                        var updated = current
+                        updated.linePrefixToStrip = list.prefixLength
+                        setCurrentBlock(updated)
+                        if emittedCount < base + list.prefixLength {
+                            emittedCount = consumed(list.prefixLength)
+                        }
+                    }
+                } else {
+                    closeCurrentBlock()
+                    openListItem(list)
+                    emittedCount = consumed(list.prefixLength)
+                }
+            } else {
+                openListItem(list)
+                emittedCount = consumed(list.prefixLength)
+            }
+
+            lineAnalyzed = true
+            return
+        }
+
+        if var current = currentBlock, case .listItem = current.kind {
+            let continuation = listContinuationPrefixLength(line, currentIndent: current.listIndent)
+            if isLineComplete, detectTableCandidate(line) {
+                closeCurrentBlock()
+                openTable(line)
+                emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return
+            }
+            if isLineComplete, detectHorizontalRule(line, indent: current.listIndent) {
+                closeCurrentBlock()
+                closeListContexts(deeperThan: current.listIndent - 1)
+                emitHorizontalRuleBlock()
+                return
+            }
+            if continuation > 0 {
+                current.linePrefixToStrip = continuation
+                current.sawBlankInSubContext = false
+                setCurrentBlock(current)
+                if emittedCount < base + continuation {
+                    emittedCount = consumed(continuation)
+                }
+                lineAnalyzed = true
+                return
+            }
+            // Non-indented text that is not a list marker, heading,
+            // fence, etc.  If a blank line previously closed a child
+            // context, this text starts a new paragraph outside the
+            // list.  Without a prior blank line, it is a lazy
+            // continuation of the current list item.
+            if current.sawBlankInSubContext {
+                closeCurrentBlock()
+                closeListContexts(deeperThan: -1)
+                openInlineBlock(kind: .paragraph)
+                emittedCount = min(lineBuffer.count, base)
+                lineAnalyzed = true
+                return
+            }
+            setCurrentBlock(current)
+        }
         lineAnalyzed = true
     }
 
@@ -692,13 +755,17 @@ struct StreamingParser {
         let content = lineContent
 
         switch current.kind {
-        case .blockquote, .paragraph:
-            if !isLineComplete, shouldDeferParagraphFallback(for: String(content)) {
+        case .blockquote, .paragraph, .footnoteDefinition:
+            if !isLineComplete, shouldDeferParagraphFallback(for: String(content)) || listMarkerIsPending(String(content)) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(String(content))
                 lineAnalyzed = true
                 return true
             }
-            if openQuotedChild(from: content, isLineComplete: isLineComplete) {
+            // Openers are decided once per line: after one ran, or after any
+            // of the line's content has been emitted, a re-analysis (the line
+            // grew) must not open the same block again. Indentation consumed
+            // for a list item is not content, so an opener may still follow.
+            if !lineOpenedChild, !lineEmittedContent, openQuotedChild(from: content, isLineComplete: isLineComplete) {
                 return true
             }
             if current.kind == .blockquote, current.hasBlockChildren,
@@ -706,6 +773,10 @@ struct StreamingParser {
                 openInlineBlock(kind: .paragraph, prefixToStrip: quote.prefixLength)
             }
             lineAnalyzed = true
+            return true
+        case .listItem:
+            // Lists nest, continue and end by their content's indentation.
+            analyzeListItemLine(isLineComplete: isLineComplete)
             return true
         case .heading, .horizontalRule:
             // Single-line blocks close at the end of their line.
@@ -724,8 +795,12 @@ struct StreamingParser {
         let prefix = lineQuotePrefix
 
         func beginChild() {
-            if let current = currentBlock, current.kind == .paragraph {
-                closeCurrentBlock()
+            lineOpenedChild = true
+            if let current = currentBlock {
+                switch current.kind {
+                case .paragraph, .footnoteDefinition: closeCurrentBlock()
+                default: break
+                }
             }
             if let quoteIndex = contextStack.lastIndex(where: { $0.kind == .blockquote }) {
                 contextStack[quoteIndex].hasBlockChildren = true
@@ -762,22 +837,77 @@ struct StreamingParser {
             emitHorizontalRuleBlock()
             return true
         }
+        if let footnote = detectFootnoteDefinition(line) {
+            beginChild()
+            let index = footnoteRegistry.index(for: footnote.id)
+            openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
+                            prefixToStrip: prefix + footnote.prefixLength)
+            emittedCount = min(lineBuffer.count, prefix + footnote.prefixLength)
+            lineAnalyzed = true
+            return true
+        }
+        if isLineComplete, detectTableCandidate(line) {
+            beginChild()
+            openTable(line)
+            emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return true
+        }
+        if let list = detectList(line, isLineComplete: isLineComplete) {
+            // A quoted paragraph (a paragraph child, or the quote's own text)
+            // is only interrupted by a list that may interrupt a paragraph.
+            if let current = currentBlock,
+               current.kind == .paragraph || (current.kind == .blockquote && current.hasInlineContent && !current.hasBlockChildren),
+               !listCanInterruptParagraph(list, line: line) {
+                return false
+            }
+            beginChild()
+            openListItem(list)
+            emittedCount = min(lineBuffer.count, prefix + list.prefixLength)
+            lineAnalyzed = true
+            return true
+        }
+        if isLineComplete, line.hasPrefix(":::") {
+            beginChild()
+            openUnknown()
+            appendUnknownLiteral(line)
+            emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return true
+        }
         return false
     }
 
     /// Whether a line (already stripped of any quote prefix) opens a block
     /// that interrupts a paragraph. Mirrors the openers `openQuotedChild`
     /// knows plus the ones a top-level paragraph yields to.
-    private func startsBlock(_ content: Substring, isLineComplete: Bool) -> Bool {
+    private func startsBlock(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool = true) -> Bool {
         let line = String(content)
         if detectHeading(line) != nil { return true }
-        if detectList(line, isLineComplete: isLineComplete) != nil { return true }
+        if let list = detectList(line, isLineComplete: isLineComplete) {
+            // Ending a table (or another non-paragraph) has no interruption
+            // rule; only a paragraph is picky about which lists may follow.
+            return !interruptingParagraph || listCanInterruptParagraph(list, line: line)
+        }
         // `$$x$$` is display math only if nothing follows on the line
         // (`$$x$$y` is a paragraph), so math waits for the complete line
         // like fences, rules and tables.
         guard isLineComplete else { return false }
         return detectDisplayMathOpening(line) != nil || detectFenceOpening(line) != nil
             || detectHorizontalRule(line, indent: 0) || detectTableCandidate(line) || line.hasPrefix(":::")
+    }
+
+    /// Inside a quote, a list marker with nothing after it yet (`- `) waits
+    /// for one more character: the item's task state is published with the
+    /// item and cannot change later.
+    private func listMarkerIsPending(_ line: String) -> Bool {
+        guard let list = detectList(line, isLineComplete: true) else { return false }
+        let suffix = line.dropFirst(list.indentText.count + list.markerLength)
+        if suffix.isEmpty { return true }
+        // A complete but empty `[x] ` waits too: an empty item cannot
+        // interrupt a paragraph, so where it belongs (which quote, or text)
+        // is only known once content or the newline arrives.
+        return suffix.hasPrefix("[") && ["[ ] ", "[x] ", "[X] "].contains { $0.hasPrefix(suffix) }
     }
 
     private mutating func closeContexts(above index: Int) {
@@ -833,6 +963,11 @@ struct StreamingParser {
                     if let marker = closing.first, trimmedLine.allSatisfy({ $0 == marker }) { return }
                     if case .math = context.kind, closing.hasPrefix(trimmedLine) { return }
                 }
+            case .unknown:
+                // Same as code: inside a quote, whitespace after a partial
+                // marker may still be part of the prefix, or the line may
+                // end the quote. Nothing of it is the block's text yet.
+                if trimmedLine.isEmpty, contextStack.contains(where: { $0.kind == .blockquote }) { return }
             default:
                 break
             }
@@ -878,6 +1013,7 @@ struct StreamingParser {
             return
         }
         append(delta, context: &context)
+        lineEmittedContent = true
         setCurrentBlock(context)
         emittedCount = lineBuffer.count
         enforceLineBufferBudget()
@@ -941,7 +1077,9 @@ struct StreamingParser {
                         parent.sawBlankInSubContext = true
                         setCurrentBlock(parent)
                     }
-                } else {
+                } else if !lineConsumedByRule {
+                    // An indented rule inside the item is its own block, not
+                    // a line of the item's text.
                     appendToCurrent("\n")
                 }
             case .blockquote:
@@ -958,7 +1096,7 @@ struct StreamingParser {
                     // an unquoted line starts a normal paragraph instead of
                     // lazily continuing the old quote.
                     closeBlockquoteContexts()
-                } else {
+                } else if !lineConsumedByRule {
                     appendToCurrent("\n")
                 }
             case .unknown:
@@ -980,7 +1118,7 @@ struct StreamingParser {
             case .horizontalRule:
                 break
             case .table:
-                handleTableLine(rawLine: rawLine, trimmed: trimmed, terminated: terminated, force: force)
+                handleTableLine(rawLine: String(lineContent), trimmed: trimmed, terminated: terminated, force: force)
             }
             if var updated = currentBlock {
                 updated.fenceJustOpened = false
@@ -996,8 +1134,11 @@ struct StreamingParser {
         emittedCount = 0
         lineAnalyzed = false
         lineQuotePrefix = 0
+        lineConsumedByRule = false
         lineBufferTrimmed = 0
         lineDeferredUntilComplete = false
+        lineOpenedChild = false
+        lineEmittedContent = false
     }
 
     private mutating func closePendingSameLineBlocks() {
@@ -1042,11 +1183,15 @@ struct StreamingParser {
 
     private mutating func append(_ text: String, context ctx: inout BlockContext, preserveLiteralRuns: Bool = false) {
         guard !text.isEmpty else { return }
+        if text.contains(where: { !$0.isWhitespace }) { ctx.hasInlineContent = true }
         switch ctx.kind {
         case .paragraph, .listItem, .blockquote, .footnoteDefinition:
             if var parser = ctx.inlineParser {
                 var input = text
-                if ctx.kind == .paragraph, ctx.pendingSoftBreak {
+                // A footnote definition continues over lines like a
+                // paragraph; without the soft break `first` + `second`
+                // would run together.
+                if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
                     input = " " + input
                     ctx.pendingSoftBreak = false
                 }
@@ -1248,6 +1393,19 @@ struct StreamingParser {
             table.bufferedLines.append(rawLine)
             table.stage = .separatorPending
         case .separatorPending:
+            if parseAlignment(trimmed) == nil, !detectTableCandidate(rawLine),
+               startsBlock(rawLine[...], isLineComplete: true) || detectBlockquote(rawLine) != nil {
+                // The second line opens another block, so only the header
+                // line was a failed candidate: degrade that one and let the
+                // opener be analyzed, filled and finalized as itself.
+                degradeTableCandidate(context: &ctx, table: table, terminated: true)
+                emittedCount = 0
+                lineAnalyzed = false
+                analyzeLineIfNeeded(isLineComplete: true)
+                appendDeltaIfNeeded(includeTerminatingNewline: shouldIncludeTerminatingNewline(), isLineComplete: true)
+                finalizeLine(terminated: terminated, force: force)
+                return
+            }
             table.bufferedLines.append(rawLine)
             if let alignments = parseAlignment(trimmed) {
                 table.alignments = alignments
@@ -1323,6 +1481,13 @@ struct StreamingParser {
 
     private mutating func closeCurrentBlock() {
         guard let ctx = currentBlock else { return }
+        if let table = ctx.tableState, table.stage != .rows {
+            // A candidate that never got its separator was never announced;
+            // replay its lines as an unknown block instead of ending it.
+            var candidate = ctx
+            degradeTableCandidate(context: &candidate, table: table, terminated: true)
+            return
+        }
         if var parser = ctx.inlineParser {
             var runs = parser.finish()
             coalesceInlineRuns(&runs)
@@ -1593,6 +1758,7 @@ struct StreamingParser {
         events.append(.blockStart(id: blockID, kind: .horizontalRule))
         events.append(.blockEnd(id: blockID))
         emittedCount = lineBuffer.count
+        lineConsumedByRule = true
         lineAnalyzed = true
     }
 
@@ -1717,6 +1883,16 @@ struct StreamingParser {
         guard markerLength > 0 else { return nil }
 
         let markerEnd = line.index(index, offsetBy: markerLength)
+        if !isLineComplete {
+            // The item's task state is published with the item and cannot
+            // change later: wait while the text after the marker could
+            // still grow into `[ ] ` / `[x] `.
+            let suffix = line[markerEnd...]
+            if suffix.hasPrefix("["),
+               ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) }) {
+                return nil
+            }
+        }
         var task: TaskListState? = nil
         var taskMarkerLength = 0
         if markerEnd < line.endIndex, line[markerEnd] == "[" {
@@ -1784,19 +1960,25 @@ struct StreamingParser {
         return BlockquoteInfo(prefixLength: prefixLength, markerCount: markerCount)
     }
 
+    /// Source characters of indentation to strip from a list continuation
+    /// line, or 0 when the line is not indented enough. The decision uses
+    /// visual columns (a tab is four); the returned count is in characters,
+    /// since callers use it as an offset into the line.
     private func listContinuationPrefixLength(_ line: String, currentIndent: Int) -> Int {
-        var count = 0
+        var columns = 0
+        var characters = 0
         for character in line {
             if character == " " {
-                count += 1
+                columns += 1
             } else if character == "\t" {
-                count += 4
+                columns += 4
             } else {
                 break
             }
+            characters += 1
         }
-        let relative = count - currentIndent
-        return relative >= 2 ? count : 0
+        let relative = columns - currentIndent
+        return relative >= 2 ? characters : 0
     }
 
     private func shouldStartNewListItem(currentContext: BlockContext, list: ListInfo, emittedCount: Int) -> Bool {
@@ -1847,7 +2029,7 @@ struct StreamingParser {
         if trimmed.hasPrefix(":::") { return true }      // unknown block extension fallback
         if trimmed.hasPrefix("$$") || trimmed.hasPrefix("\\[") { return true } // display math
         if trimmed == "$" || trimmed == "\\" { return true } // may become a display-math opener
-
+        if trimmed == ":" || trimmed == "::" { return true } // may become `:::`
         if trimmed.hasPrefix("[") {
             // `[label]:` is a reference definition; until the bracket closes
             // and the next character is known, the line is ambiguous. A label
@@ -1874,6 +2056,19 @@ struct StreamingParser {
         if isPotentialListMarkerOnly(trimmed) {
             return true
         }
+        if let list = detectList(line, isLineComplete: true) {
+            // `- [x` may still become a task item; its state is published
+            // with the item and cannot change later.
+            let suffix = line.dropFirst(list.indentText.count + list.markerLength)
+            // The complete `- [ ] ` waits too: with nothing after it the
+            // item is empty, which cannot interrupt a paragraph, and then
+            // its trailing space must stay out of the text until the line
+            // ends and trims it.
+            if suffix.hasPrefix("["),
+               ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) }) {
+                return true
+            }
+        }
         if isPotentialFencePrefixOnly(trimmed) {
             return true
         }
@@ -1881,6 +2076,13 @@ struct StreamingParser {
             return true // could still become horizontal rule on newline
         }
         return false
+    }
+
+    /// CommonMark: a list interrupts a paragraph only if it is a bullet list
+    /// or starts at 1, and only with a non-empty item.
+    private func listCanInterruptParagraph(_ list: ListInfo, line: String) -> Bool {
+        if list.ordered, list.index != 1 { return false }
+        return !line.dropFirst(list.prefixLength).allSatisfy { $0 == " " || $0 == "\t" }
     }
 
     /// Lines whose classification cannot change before the newline: display
@@ -2173,6 +2375,11 @@ private extension BlockKind {
         case .fencedCode, .math: return true
         default: return false
         }
+    }
+
+    var isFootnoteDefinition: Bool {
+        if case .footnoteDefinition = self { return true }
+        return false
     }
 
     var isHeading: Bool {
