@@ -162,11 +162,21 @@ actor MarkdownRenderer {
         attributeBuilder = builder
         builderGeneration &+= 1
 
-        for index in blocks.indices {
-            let block = blocks[index]
-            let rendered = await render(snapshot: block.snapshot,
-                                        previousBlockKind: index > 0 ? blocks[index - 1].kind : nil)
-            blocks[index].updatePresentation(from: rendered)
+        // The stream may append to a block while its scaled render awaits
+        // an image or diagram, and that refresh lands first. A render whose
+        // snapshot is no longer the block's is redone against the current
+        // one instead of landing older text; a block removed meanwhile is
+        // skipped.
+        for id in blocks.map(\.id) {
+            while let index = indexByID[id] {
+                let snapshot = blocks[index].snapshot
+                let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind(at: index))
+                guard let current = indexByID[id] else { break }
+                if blocks[current].snapshot == snapshot {
+                    blocks[current].updatePresentation(from: rendered)
+                    break
+                }
+            }
         }
         return blocks
     }

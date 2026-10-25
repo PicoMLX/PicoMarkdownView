@@ -105,4 +105,79 @@ struct TextScalingTests {
         _ = await renderer.refreshBlocks([id])
         #expect(try #require(firstFont(in: await renderer.renderedBlocks()[0])).pointSize == base * 1.25)
     }
+
+    @Test("A scale render that overlaps a streamed append keeps the newer text")
+    func scaleRenderKeepsStreamedText() async throws {
+        let provider = GatedImageProvider()
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer(theme: .default(), imageProvider: provider) { await assembler.block($0) }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("![pic](https://example.com/p.png) first")))
+        let before = try #require(await renderer.renderedBlocks().first)
+        let baseSize = try #require(lastFont(in: before)).pointSize
+
+        // The scaled render of the block stops at the image; meanwhile the
+        // stream appends to the same block and that refresh lands.
+        await provider.holdNextCall()
+        let rescale = Task { await renderer.updateTextScale(1.5) }
+        await provider.waitUntilHeld()
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed(" second\n\n")))
+        #expect(String(try #require(await renderer.renderedBlocks().first).content.characters).contains("first second"))
+        await provider.release()
+        let rescaled = try #require(await rescale.value)
+
+        let block = try #require(await renderer.renderedBlocks().first { $0.id == before.id })
+        #expect(String(block.content.characters).contains("first second"), "the older snapshot's render must not land")
+        #expect(try #require(lastFont(in: block)).pointSize == baseSize * 1.5)
+        #expect(rescaled.first { $0.id == before.id } == block)
+    }
+
+    @Test("Dynamic Type moves the theme body by the points a fresh default theme would use")
+    func dynamicTypeScaleMatchesDefaultTheme() {
+        // `default()` is the system body size plus two: when the body goes
+        // from 17 to 21, a theme created now has 23, not 19 * 21 / 17.
+        #expect(PicoMarkdownView.textScale(host: 1, dynamicBodySize: 21, baseline: 17, themeBodySize: 19) == CGFloat(23) / 19)
+        #expect(PicoMarkdownView.textScale(host: 1, dynamicBodySize: 12, baseline: 17, themeBodySize: 19) == CGFloat(14) / 19)
+        #expect(PicoMarkdownView.textScale(host: 2, dynamicBodySize: 17, baseline: 17, themeBodySize: 19) == 2)
+        #expect(PicoMarkdownView.textScale(host: .nan, dynamicBodySize: 17, baseline: 17, themeBodySize: 19) == 1)
+        #expect(PicoMarkdownView.textScale(host: 1, dynamicBodySize: 17, baseline: 0, themeBodySize: 19) == 1)
+    }
+
+    private func lastFont(in block: RenderedBlock) -> MarkdownFont? {
+        let content = NSAttributedString(block.content)
+        guard content.length > 0 else { return nil }
+        return content.attribute(.font, at: content.length - 1, effectiveRange: nil) as? MarkdownFont
+    }
+}
+
+/// Holds one `image(for:)` call at a gate until released; every other call
+/// returns at once (with no image).
+private actor GatedImageProvider: MarkdownImageProvider {
+    private var held = false
+    private var gate: CheckedContinuation<Void, Never>?
+    private var waiting: CheckedContinuation<Void, Never>?
+
+    func holdNextCall() { held = true }
+
+    func image(for url: URL) async -> MarkdownImageResult? {
+        guard held else { return nil }
+        held = false
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            gate = continuation
+            waiting?.resume()
+            waiting = nil
+        }
+        return nil
+    }
+
+    /// Returns once the held call is waiting at the gate.
+    func waitUntilHeld() async {
+        guard gate == nil else { return }
+        await withCheckedContinuation { waiting = $0 }
+    }
+
+    func release() {
+        gate?.resume()
+        gate = nil
+    }
 }
