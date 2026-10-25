@@ -464,4 +464,29 @@ struct QuotedContainerTests {
         let outerHeading = try #require(blocks.last(where: { $0.kind == .heading(level: 1) }))
         #expect(NSAttributedString.picoConverted(from: outerHeading.content).attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int == 1)
     }
+
+    @Test("An unclosed `[` stops waiting for a definition at the label limit")
+    func unclosedLabelDeferralIsBounded() async {
+        let tokenizer = MarkdownTokenizer()
+        _ = await tokenizer.feed("[")
+        var openedAfter: Int?
+        for count in 1...1100 {
+            let result = await tokenizer.feed("a")
+            if result.events.contains(where: { if case .blockStart = $0 { return true }; return false }) {
+                openedAfter = count
+                break
+            }
+        }
+        // A label holds at most 999 characters, so the text is a paragraph
+        // once the bracket cannot close in time; nothing waits on a newline.
+        #expect(openedAfter != nil)
+        if let openedAfter { #expect(openedAfter >= 999 && openedAfter <= 1001) }
+
+        let definition = "[" + String(repeating: "a", count: 999) + "]: https://example.com\n"
+        let labelled = await parse(chunks: [definition + "para\n\n"])
+        #expect(labelled.blocks.map(\.kind) == [.paragraph], "a 999-character label is still a definition")
+        let tooLong = await parse(chunks: ["[" + String(repeating: "a", count: 1000) + "]: https://example.com\n\n"])
+        #expect(tooLong.blocks.map(\.kind) == [.paragraph], "a 1000-character label is paragraph text")
+        #expect(text(of: tooLong.blocks[0]).hasPrefix("[aaa"))
+    }
 }
