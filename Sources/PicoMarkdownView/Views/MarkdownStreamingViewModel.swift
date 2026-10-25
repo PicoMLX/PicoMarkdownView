@@ -23,6 +23,10 @@ final class MarkdownStreamingViewModel {
     /// Body size of the theme the pipelines render with; the view scales
     /// against this, not against a theme a parent may rebuild later.
     var themeBodySize: CGFloat { theme.bodyFont.pointSize }
+    /// Font size of the theme's code block theme, if any; it follows its own
+    /// Dynamic Type ratio because the default one is sized from the system
+    /// body size without the body font's offset.
+    var codeBlockFontSize: CGFloat? { theme.codeBlockTheme?.font.pointSize }
     private let imageProvider: MarkdownImageProvider?
     private let tagPrefixes: Set<TagPrefix>
 
@@ -37,6 +41,7 @@ final class MarkdownStreamingViewModel {
     private var mermaidContentWidth: CGFloat?
     private var mermaidContentWidthBucket: Int?
     private var textScale: CGFloat = 1
+    private var codeBlockTextScale: CGFloat? = nil
     private var imageBlockDependencies: [URL: Set<BlockID>] = [:]
     private var requestedRemoteImageURLs: Set<URL> = []
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
@@ -81,7 +86,7 @@ final class MarkdownStreamingViewModel {
             activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
-            _ = await freshPipeline.updateTextScale(textScale)
+            _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
             enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
             await consume(stream: stream, pipeline: freshPipeline, generation: generation)
@@ -108,7 +113,7 @@ final class MarkdownStreamingViewModel {
         // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
-        _ = await freshPipeline.updateTextScale(textScale)
+        _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
 
         // The first publish must be a full replace (diff: nil): the view may
         // still show the previous document, and the fresh pipeline's diffs
@@ -162,7 +167,7 @@ final class MarkdownStreamingViewModel {
         var latestBlocks: [RenderedBlock] = []
 
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
-        _ = await freshPipeline.updateTextScale(textScale)
+        _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
 
         if !value.isEmpty {
             if let update = await freshPipeline.feed(value) {
@@ -188,23 +193,29 @@ final class MarkdownStreamingViewModel {
             #endif
         }
 
+        // Publish the pipeline's own blocks rather than the ones cached from
+        // `feed`/`finish`: a scale change that landed while the document was
+        // parsing has already been applied there and must not be undone.
+        let blocks = await freshPipeline.blocksSnapshot()
         guard generation == pipelineGeneration else { return }
         lastReplacementValue = value
         #if DEBUG
-        Self.logger.debug("Queuing Markdown update: blocks=\(latestBlocks.count)")
+        Self.logger.debug("Queuing Markdown update: blocks=\(blocks.count) (parsed \(latestBlocks.count))")
         #endif
-        enqueueUpdate(blocks: latestBlocks, diff: nil)
+        enqueueUpdate(blocks: blocks, diff: nil)
     }
 
     /// Applies a font scale (Dynamic Type × host zoom) to the live document
     /// without restarting the parse or the stream. Published as a full
     /// replace, which keeps the selection.
-    func updateTextScale(_ scale: CGFloat) async {
+    func updateTextScale(_ scale: CGFloat, codeBlockScale: CGFloat? = nil) async {
         let factor = scale.isFinite && scale > 0 ? scale : 1
-        guard factor != textScale else { return }
+        let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        guard factor != textScale || codeFactor != codeBlockTextScale else { return }
         textScale = factor
+        codeBlockTextScale = codeFactor
         let generation = pipelineGeneration
-        if let blocks = await pipeline.updateTextScale(factor), generation == pipelineGeneration {
+        if let blocks = await pipeline.updateTextScale(factor, codeBlockScale: codeFactor), generation == pipelineGeneration {
             enqueueUpdate(blocks: blocks, diff: nil)
         }
     }

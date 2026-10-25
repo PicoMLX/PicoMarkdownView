@@ -90,13 +90,17 @@ public struct MarkdownRenderTheme: Sendable {
                             mermaidRenderingMode: mermaidRenderingMode)
     }
 
-    /// A copy with every font size multiplied by `scale`; colors, widths,
-    /// highlighter and diagram settings are unchanged.
-    public func scaled(by scale: CGFloat) -> MarkdownRenderTheme {
+    /// A copy with every font size multiplied by `scale`, except the code
+    /// block theme's font, which uses `codeBlockScale` when given: the
+    /// default code block theme is sized from the system body size without
+    /// the body font's offset, so Dynamic Type moves it by a different ratio.
+    /// Colors, widths, highlighter and diagram settings are unchanged.
+    public func scaled(by scale: CGFloat, codeBlock codeBlockScale: CGFloat? = nil) -> MarkdownRenderTheme {
         let factor = scale.isFinite && scale > 0 ? scale : 1
-        guard factor != 1 else { return self }
+        let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? factor
+        guard factor != 1 || codeFactor != 1 else { return self }
         let scaledCodeTheme = codeBlockTheme.map { code in
-            CodeBlockTheme(font: code.font.withSize(code.font.pointSize * factor),
+            CodeBlockTheme(font: code.font.withSize(code.font.pointSize * codeFactor),
                            foregroundColor: code.foregroundColor,
                            backgroundColor: code.backgroundColor,
                            tokenColors: code.tokenColors)
@@ -128,6 +132,7 @@ actor MarkdownRenderer {
     private var mermaidContentWidthBucket: Int?
     private var runtimeMermaidContentWidth: CGFloat?
     private var textScale: CGFloat = 1
+    private var codeBlockTextScale: CGFloat = 1
     /// Bumped when the builder is replaced, so a render that was in flight
     /// with the old fonts is redone instead of landing in the new document.
     private var builderGeneration: UInt64 = 0
@@ -149,11 +154,13 @@ actor MarkdownRenderer {
     /// Re-renders every block with the theme's fonts scaled by `scale`. The
     /// parse is untouched: block ids, order and snapshots stay as they are.
     /// Returns the re-rendered blocks, or `nil` when the scale is unchanged.
-    func updateTextScale(_ scale: CGFloat) async -> [RenderedBlock]? {
+    func updateTextScale(_ scale: CGFloat, codeBlockScale: CGFloat? = nil) async -> [RenderedBlock]? {
         let factor = scale.isFinite && scale > 0 ? scale : 1
-        guard factor != textScale else { return nil }
+        let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? factor
+        guard factor != textScale || codeFactor != codeBlockTextScale else { return nil }
         textScale = factor
-        let scaledTheme = theme.scaled(by: factor)
+        codeBlockTextScale = codeFactor
+        let scaledTheme = theme.scaled(by: factor, codeBlock: codeFactor)
         // The scale and its builder are installed in one synchronous step
         // (the diagram width goes in through the initializer), so two
         // overlapping requests cannot leave the renderer reporting one scale

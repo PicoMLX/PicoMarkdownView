@@ -153,6 +153,58 @@ struct TextScalingTests {
         }
     }
 
+    @Test("Code block fonts can scale by their own factor, in the theme, the renderer and the view model")
+    func codeBlocksScaleSeparately() async throws {
+        let base = MarkdownRenderTheme.default()
+        let separate = base.scaled(by: 1.5, codeBlock: 1.2)
+        #expect(separate.bodyFont.pointSize == base.bodyFont.pointSize * 1.5)
+        #expect(separate.codeFont.pointSize == base.codeFont.pointSize * 1.5, "inline code follows the body")
+        #expect(separate.codeBlockTheme?.font.pointSize == base.codeBlockTheme!.font.pointSize * 1.2)
+        #expect(base.scaled(by: 1, codeBlock: 1.2).codeBlockTheme?.font.pointSize == base.codeBlockTheme!.font.pointSize * 1.2)
+
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer(theme: base) { await assembler.block($0) }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.feed("Body text.\n\n```swift\nlet x = 1\n```\n\n")))
+        let before = await renderer.renderedBlocks()
+        let baseBody = try #require(firstFont(in: before[0])).pointSize
+        let baseCode = try #require(firstFont(in: before[1])).pointSize
+        let rescaled = try #require(await renderer.updateTextScale(2, codeBlockScale: 1.5))
+        #expect(try #require(firstFont(in: rescaled[0])).pointSize == baseBody * 2)
+        #expect(try #require(firstFont(in: rescaled[1])).pointSize == baseCode * 1.5)
+        #expect(await renderer.updateTextScale(2, codeBlockScale: 1.5) == nil, "unchanged factors are a no-op")
+        #expect(await renderer.updateTextScale(2, codeBlockScale: 1.25) != nil, "a code-only change re-renders")
+
+        let viewModel = await MainActor.run { MarkdownStreamingViewModel(theme: base) }
+        await viewModel.updateTextScale(2, codeBlockScale: 1.5)
+        await viewModel.consume(.text("Body text.\n\n```swift\nlet x = 1\n```\n\n"))
+        await drainMainQueue()
+        let blocks = await MainActor.run { viewModel.blocks }
+        #expect(try #require(firstFont(in: blocks[0])).pointSize == baseBody * 2)
+        #expect(try #require(firstFont(in: blocks[1])).pointSize == baseCode * 1.5)
+    }
+
+    @Test("A scale change during a text replacement is not undone by the replacement")
+    func scaleDuringReplacementWins() async throws {
+        let base = MarkdownRenderTheme.default().bodyFont.pointSize
+        for _ in 0..<10 {
+            let viewModel = await MainActor.run { MarkdownStreamingViewModel() }
+            let consume = Task { await viewModel.consume(.text("Hello.\n\n")) }
+            await viewModel.updateTextScale(2)
+            await consume.value
+            await drainMainQueue()
+            let blocks = await MainActor.run { viewModel.blocks }
+            let block = try #require(blocks.first)
+            #expect(try #require(firstFont(in: block)).pointSize == base * 2)
+        }
+    }
+
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
     @Test("Dynamic Type moves the theme body by the points a fresh default theme would use")
     func dynamicTypeScaleMatchesDefaultTheme() {
         // `default()` is the system body size plus two: when the body goes

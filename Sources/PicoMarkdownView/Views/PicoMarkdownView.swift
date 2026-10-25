@@ -157,10 +157,18 @@ public struct PicoMarkdownView: View {
                 // The body size comes from the view model's theme, which
                 // lives as long as the view's state; a parent rebuilding the
                 // view with a fresh default theme must not move the base.
+                // Code blocks get their own ratio: the default code block
+                // theme is sized from the system body without the body
+                // font's two-point offset, so the same point delta is a
+                // different factor.
+                let codeScale = viewModel.codeBlockFontSize.map {
+                    Self.textScale(host: hostTextScale, dynamicBodySize: dynamicBodySize, baseline: baseline, themeBodySize: $0)
+                }
                 await viewModel.updateTextScale(Self.textScale(host: hostTextScale,
                                                                dynamicBodySize: dynamicBodySize,
                                                                baseline: baseline,
-                                                               themeBodySize: viewModel.themeBodySize))
+                                                               themeBodySize: viewModel.themeBodySize),
+                                                codeBlockScale: codeScale)
             }
     }
 
