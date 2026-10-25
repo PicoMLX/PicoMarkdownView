@@ -1321,9 +1321,14 @@ struct InlineParser {
             // slicing then yields the scalars before it as the last Character.
             // A chunk may extend the grapheme consumed before it (`❤` then
             // U+FE0F), so the remembered Character is the last grapheme of
-            // the previous context joined with the consumed tail.
+            // the previous context joined with the consumed tail. Both sides
+            // are capped at 32 scalars: a run of combining marks arriving one
+            // per chunk keeps its flanking class (marks are alphanumeric) but
+            // must not grow the retained context, or every append would
+            // rebuild it.
+            let previous = lastConsumedCharacter.map { String($0.unicodeScalars.suffix(32)) } ?? ""
             let tail = String(text.unicodeScalars[..<consumedEnd].suffix(32))
-            lastConsumedCharacter = ((lastConsumedCharacter.map(String.init) ?? "") + tail).last
+            lastConsumedCharacter = (previous + tail).last
             pending = String(text[consumedEnd...])
             if var state = mathState {
                 state.contentUTF8Offset = max(0, state.contentUTF8Offset - consumedBytes)
