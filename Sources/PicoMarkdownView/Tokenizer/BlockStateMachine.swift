@@ -1975,19 +1975,6 @@ struct StreamingParser {
         if trimmed == "$" || trimmed == "\\" { return true } // may become a display-math opener
         if trimmed == ":" || trimmed == "::" { return true } // may become `:::`
         if trimmed.hasPrefix("[") {
-            // `[label]:` is a footnote or reference definition; until the
-            // bracket closes and the next character is known, the line is
-            // ambiguous.
-            // A label holds at most 999 characters (CommonMark), which also
-            // bounds the rescan while the line is still ambiguous.
-            let window = trimmed.prefix(1001)
-            guard let close = window.firstIndex(of: "]") else { return window.count <= 1000 }
-            let after = trimmed.index(after: close)
-            if after == trimmed.endIndex { return true }
-            if trimmed[after] == ":", trimmed.index(after: after) == trimmed.endIndex { return true }
-        }
-
-        if trimmed.hasPrefix("[") {
             // `[label]:` is a reference definition; until the bracket closes
             // and the next character is known, the line is ambiguous. A label
             // holds at most 999 characters (CommonMark), which also bounds
