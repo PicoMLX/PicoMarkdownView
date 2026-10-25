@@ -1135,6 +1135,13 @@ struct InlineParser {
                         break parsing
                     }
                 }
+                // A closing `_` at the very end of the pending text may turn
+                // out to be intraword (`_foo_` then `bar`): wait for the next
+                // character, as the opener does.
+                if delimiter == "_", !includeUnterminated, closingRange.upperBound == text.endIndex {
+                    consumedAll = false
+                    break parsing
+                }
                 flushPlain(upTo: index)
                 let innerStart = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
                 let inner = String(text[innerStart..<closingRange.lowerBound])
@@ -1310,7 +1317,11 @@ struct InlineParser {
             // selector, which would read as alphanumeric). `consumedEnd` may
             // sit inside a grapheme when math resumes at a scalar boundary;
             // slicing then yields the scalars before it as the last Character.
-            lastConsumedCharacter = text[..<consumedEnd].last
+            // A chunk may extend the grapheme consumed before it (`❤` then
+            // U+FE0F), so the remembered Character is the last grapheme of
+            // the previous context joined with the consumed tail.
+            let tail = String(text.unicodeScalars[..<consumedEnd].suffix(32))
+            lastConsumedCharacter = ((lastConsumedCharacter.map(String.init) ?? "") + tail).last
             pending = String(text[consumedEnd...])
             if var state = mathState {
                 state.contentUTF8Offset = max(0, state.contentUTF8Offset - consumedBytes)

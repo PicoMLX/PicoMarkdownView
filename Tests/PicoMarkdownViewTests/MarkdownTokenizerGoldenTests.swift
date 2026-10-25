@@ -1998,7 +1998,9 @@ struct MarkdownTokenizerGoldenTests {
 
     @Test("Emphasis markers at a chunk start keep the context of text already emitted",
           arguments: [["a", "_", "b", "_"], ["foo", "_bar_"], ["foo_", "bar_ baz"], ["x ", "_y_"], ["snake", "_case_", "_name"], ["word", "*bold*"],
-                      ["\u{2764}\u{FE0F}", "_hello_"], ["e\u{301}", "_x_"], ["\u{1F469}\u{200D}\u{1F4BB}", "_x_"], ["$a$", "_x_"]])
+                      ["\u{2764}\u{FE0F}", "_hello_"], ["e\u{301}", "_x_"], ["\u{1F469}\u{200D}\u{1F4BB}", "_x_"], ["$a$", "_x_"],
+                      ["\u{2764}", "\u{FE0F}", "_b_"], ["e", "\u{301}", "_x_"],
+                      ["text _", "foo_", "bar"], ["text _", "foo_", " bar"], ["text _", "foo_"], ["_a_", "_b"], ["__a__", "b"]])
     func chunkStartKeepsIntrawordContext(chunks: [String]) {
         var parser = InlineParser()
         var runs = chunks.flatMap { parser.append($0) }
