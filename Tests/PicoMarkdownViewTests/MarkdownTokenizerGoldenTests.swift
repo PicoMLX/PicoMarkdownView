@@ -2002,20 +2002,21 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // A same-line closer ends the block with its line; nothing waits for
+        // the next feed.
         let first = await tokenizer.feed("$$\\int_0^1 x^2 dx$$\n\n")
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx")
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx"),
+                .blockEnd(.math(display: true))
             ],
-            openBlocks: [.math(display: true)]
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("\n")
         assertChunk(second, matches: .init(
-            events: [
-                .blockEnd(.math(display: true))
-            ],
+            events: [],
             openBlocks: []
         ), state: &state)
     }
@@ -2029,16 +2030,15 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(first, matches: .init(
             events: [
                 .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx")
+                .blockAppendMath(.math(display: true), textChunk: "\\int_0^1 x^2 dx"),
+                .blockEnd(.math(display: true))
             ],
-            openBlocks: [.math(display: true)]
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("\n")
         assertChunk(second, matches: .init(
-            events: [
-                .blockEnd(.math(display: true))
-            ],
+            events: [],
             openBlocks: []
         ), state: &state)
     }
@@ -2048,28 +2048,28 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // `\[` could still become `\[x\]y`, a paragraph with inline math,
+        // so the opener waits for the line to complete; nothing is emitted
+        // provisionally.
         let first = await tokenizer.feed("\\[\\frac{a")
         assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.math(display: true)),
-                .blockAppendMath(.math(display: true), textChunk: "\\frac{a")
-            ],
-            openBlocks: [.math(display: true)]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("}{b}\\]\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendMath(.math(display: true), textChunk: "}{b}")
+                .blockStart(.math(display: true)),
+                .blockAppendMath(.math(display: true), textChunk: "\\frac{a}{b}"),
+                .blockEnd(.math(display: true))
             ],
-            openBlocks: [.math(display: true)]
+            openBlocks: []
         ), state: &state)
 
         let third = await tokenizer.feed("\n")
         assertChunk(third, matches: .init(
-            events: [
-                .blockEnd(.math(display: true))
-            ],
+            events: [],
             openBlocks: []
         ), state: &state)
     }
@@ -2133,22 +2133,43 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // `* ` may still become the rule `* * *`, which outranks a list item,
+        // so nothing is published until the next character settles it.
         let first = await tokenizer.feed("* ")
-        assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.listItem(ordered: false, index: nil, task: nil))
-            ],
-            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
-        ), state: &state)
+        assertChunk(first, matches: .init(events: [], openBlocks: []), state: &state)
 
         let second = await tokenizer.feed("Item\n\n")
         assertChunk(second, matches: .init(
             events: [
+                .blockStart(.listItem(ordered: false, index: nil, task: nil)),
                 .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("Item"), plain("\n")]),
                 .blockEnd(.listItem(ordered: false, index: nil, task: nil))
             ],
             openBlocks: []
         ), state: &state)
+    }
+
+    @Test("A thematic break split after its first marker is still a rule",
+          arguments: [["* ", "* *\n\n"], ["- ", "- -\n\n"], ["_ ", "_ _\n\n"], ["* *", " *\n\n"], ["para\n* ", "* *\n\n"], ["para\n- ", "- -\n\n"]])
+    func thematicBreakSplitAcrossChunks(chunks: [String]) async {
+        let whole = summarizeBlocks(from: await collectEvents(chunks: [chunks.joined()]))
+        #expect(whole.last == .inline(kind: "horizontalRule", runs: []))
+        #expect(summarizeBlocks(from: await collectEvents(chunks: chunks)) == whole, "Chunks: \(chunks)")
+    }
+
+    @Test("A heading indented as list content stays in its item; one at the marker column leaves the list")
+    func indentedHeadingStaysInListItem() async {
+        let kinds: ([BlockSummary]) -> [String] = { blocks in
+            blocks.map { if case .inline(let kind, _) = $0 { return kind } else { return "other" } }
+        }
+        let indented = summarizeBlocks(from: await collectEvents(chunks: ["- item\n  # heading\n  continuation\n\n"]))
+        #expect(kinds(indented) == ["listItem:unordered:_:plain"])
+        if case .inline(_, let runs)? = indented.first {
+            #expect(runs.map(\.text).joined().contains("heading"))
+            #expect(runs.map(\.text).joined().contains("continuation"))
+        }
+        let outdented = summarizeBlocks(from: await collectEvents(chunks: ["- item\n# heading\n\n"]))
+        #expect(kinds(outdented) == ["listItem:unordered:_:plain", "heading:1"])
     }
 
     @Test("Ordered list marker-only chunk stays in same item")
@@ -2514,18 +2535,18 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
-        // $$ opens math immediately (unambiguous display math marker)
+        // `$$` alone is ambiguous until its line completes (`$$x$$y` is a
+        // paragraph), so the block opens at the newline.
         let first = await tokenizer.feed("$$")
         assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.math(display: true))
-            ],
-            openBlocks: [.math(display: true)]
+            events: [],
+            openBlocks: []
         ), state: &state)
 
         let second = await tokenizer.feed("\nE=mc^2\n")
         assertChunk(second, matches: .init(
             events: [
+                .blockStart(.math(display: true)),
                 .blockAppendMath(.math(display: true), textChunk: "E=mc^2\n")
             ],
             openBlocks: [.math(display: true)]

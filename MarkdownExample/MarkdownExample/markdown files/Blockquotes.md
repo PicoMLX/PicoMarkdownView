@@ -1,0 +1,60 @@
+# Blockquotes
+
+Quoted text keeps its bar, and blocks inside a quote keep their own styling.
+
+## Headings inside a quote
+
+> ## A quoted heading
+> Body text under the heading, with **bold** and a [link](https://example.com).
+> ### A smaller one
+> More text after it.
+
+## Code inside a quote
+
+> Here is some code:
+> ```swift
+> let answer = 42
+>
+> print(answer)
+> ```
+> And text after the code.
+
+The `>` line inside the fence is a blank code line; it does not end the quote.
+
+## Rules and math
+
+> Above the rule
+> ---
+> Below the rule
+>
+> $$
+> E = mc^2
+> $$
+> And $$x^2$$ on its own line is display math too.
+
+## Nested quotes
+
+> Level one
+>> ## Heading at level two
+>> Text at level two
+> Back at level one
+
+> > A fence at level two:
+> > ```
+> > code
+> > ```
+
+## What ends a quote
+
+> Quoted text
+***
+A rule without a marker ends the quote, and this paragraph is outside it.
+
+> ```
+> code without a closing fence
+>
+> A blank line ends the quote and the code.
+
+```text
+> Inside a code block, markers are just text.
+```
