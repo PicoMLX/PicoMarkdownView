@@ -1960,19 +1960,25 @@ struct StreamingParser {
         return BlockquoteInfo(prefixLength: prefixLength, markerCount: markerCount)
     }
 
+    /// Source characters of indentation to strip from a list continuation
+    /// line, or 0 when the line is not indented enough. The decision uses
+    /// visual columns (a tab is four); the returned count is in characters,
+    /// since callers use it as an offset into the line.
     private func listContinuationPrefixLength(_ line: String, currentIndent: Int) -> Int {
-        var count = 0
+        var columns = 0
+        var characters = 0
         for character in line {
             if character == " " {
-                count += 1
+                columns += 1
             } else if character == "\t" {
-                count += 4
+                columns += 4
             } else {
                 break
             }
+            characters += 1
         }
-        let relative = count - currentIndent
-        return relative >= 2 ? count : 0
+        let relative = columns - currentIndent
+        return relative >= 2 ? characters : 0
     }
 
     private func shouldStartNewListItem(currentContext: BlockContext, list: ListInfo, emittedCount: Int) -> Bool {

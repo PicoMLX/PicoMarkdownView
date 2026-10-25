@@ -130,7 +130,8 @@ struct QuotedContainerTests {
         "paragraph\n2. continuation\n\n", "paragraph\n- \n\n", "> paragraph\n> 1. item\n> 2. two\n\n",
         ">> - item\n> - [x] task\n> after\n\n",
         "> | a | b |\n> | --- | --- |\n> 2. next\n\n", "| a | b |\n| --- | --- |\n2. next\n\n", "| a | b |\n| --- | --- |\n- \n\n",
-        ">> :::note\n>  ```swift\n> x\n> ```\n"
+        ">> :::note\n>  ```swift\n> x\n> ```\n",
+        "> - a\n> \tcontinuation\n\n", "- a\n\tcontinuation\n\n", "- a\n  \tcontinuation\n\n"
     ]
 
     /// A quoted list marker with nothing after it, in every spelling.
@@ -703,6 +704,11 @@ struct QuotedContainerTests {
             // Nested items keep their indentation text as a leading run (as
             // `  child` does); the marker and its space are stripped.
             #expect(items.last.map(text(of:)) == "\tchild text\n", Comment(rawValue: Self.containerDocuments[index]))
+        }
+        for index in [63, 64, 65] {
+            let result = await parse(chunks: [Self.containerDocuments[index]])
+            let item = result.blocks.first { if case .listItem = $0.kind { return true }; return false }
+            #expect(item.map(text(of:)) == "a\ncontinuation\n", Comment(rawValue: Self.containerDocuments[index]))
         }
     }
 
