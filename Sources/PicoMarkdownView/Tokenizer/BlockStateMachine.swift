@@ -1000,9 +1000,6 @@ struct StreamingParser {
                 // (`> ` of `> >`), and without one it either grows a marker
                 // or ends the quote. Wait for text.
                 if trimmedLine.isEmpty, contextStack.contains(where: { $0.kind == .blockquote }) { return }
-                // A blank line of indented code is held until the line ends
-                // (it may still gain text, which would make it a code line).
-                if trimmedLine.isEmpty, isIndentedCodeBlock(context) { return }
                 // A partial line made only of the fence's marker may still
                 // become the closing fence; emitting it now would put stray
                 // backticks in the code. Likewise a partial math closer.
@@ -1060,8 +1057,10 @@ struct StreamingParser {
             return
         }
         if isIndentedCodeBlock(context), lineContent.allSatisfy({ $0 == " " || $0 == "\t" }) {
-            // Blank lines inside indented code wait for the next code line;
-            // trailing ones are not part of the block.
+            // Whitespace of a blank line inside indented code is held, as it
+            // streams, until a code line follows; trailing blank lines are not
+            // part of the block. If this line turns out to carry text, the
+            // held whitespace is its leading indentation and precedes it.
             if pendingCodeBlankLinesBlock != context.id {
                 pendingCodeBlankLines.removeAll(keepingCapacity: true)
                 pendingCodeBlankLinesBlock = context.id
@@ -1071,6 +1070,7 @@ struct StreamingParser {
             emittedLineUTF8Offset = lineBuffer.utf8.count
             emittedLineBlockID = context.id
             emittedCount = lineBuffer.count
+            enforceLineBufferBudget()
             return
         }
         append(delta, context: &context)

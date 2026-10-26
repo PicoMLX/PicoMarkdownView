@@ -103,6 +103,10 @@ struct SpecBlockFixesTests {
         let trailing = await parse([Self.documents[11]])
         #expect(trailing.map(\.kind) == [.fencedCode(language: nil)])
         #expect(trailing.first?.codeText == "foo\n")
+        // Whitespace streamed before a line's text is that line's indentation
+        // beyond the four columns, not a held blank line.
+        let streamed = await parse(["    code\n", "   ", "   ", "x\n", "    y\n\n"])
+        #expect(streamed.first?.codeText == "code\n  x\ny\n")
     }
 
     @Test("A backslash-bracket line is a paragraph unless it is display math alone or closed on its line")
