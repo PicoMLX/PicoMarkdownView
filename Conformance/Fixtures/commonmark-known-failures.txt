@@ -154,8 +154,6 @@
 342 Code spans
 419 Emphasis and strong emphasis
 433 Emphasis and strong emphasis
-473 Emphasis and strong emphasis
-474 Emphasis and strong emphasis
 488 Links
 490 Links
 491 Links
@@ -174,7 +172,6 @@
 518 Links
 519 Links
 520 Links
-521 Links
 524 Links
 525 Links
 526 Links

@@ -1101,6 +1101,24 @@ struct InlineParser {
                     continue
                 }
                 let character = text[cursor]
+                // A link, image or footnote reference is one unit to the
+                // emitter, which shows its label as text: nothing in its label
+                // or destination pairs with a delimiter outside it.
+                if character == "[" || character == "!" {
+                    let image = character == "!"
+                    let open = image ? text.index(after: cursor) : cursor
+                    if !image || (open < text.endIndex && text[open] == "[") {
+                        switch parseBracketSequence(openBracketIndex: open, treatAsImage: image, dryRun: true) {
+                        case .handled(let next):
+                            cursor = next
+                            continue
+                        case .incomplete where !includeUnterminated:
+                            return suspend(at: cursor)
+                        case .incomplete, .literal:
+                            break
+                        }
+                    }
+                }
                 if character == "\\" {
                     let escaped = text.index(after: cursor)
                     if escaped == text.endIndex {
@@ -1262,7 +1280,10 @@ struct InlineParser {
             return (url, title)
         }
 
-        func parseBracketSequence(openBracketIndex: String.Index, treatAsImage: Bool) -> BracketParseResult {
+        /// With `dryRun`, only reports how far the link, image or footnote
+        /// reference reaches, emitting and registering nothing: the emphasis
+        /// lookahead treats it as one unit, as the emitter does.
+        func parseBracketSequence(openBracketIndex: String.Index, treatAsImage: Bool, dryRun: Bool = false) -> BracketParseResult {
             guard let closingBracket = text[text.index(after: openBracketIndex)..<text.endIndex].firstIndex(of: "]") else {
                 return .incomplete
             }
@@ -1272,6 +1293,7 @@ struct InlineParser {
             if !treatAsImage, label.hasPrefix("^") {
                 let id = String(label.dropFirst())
                 if !id.isEmpty, let registry = footnoteRegistry {
+                    if dryRun { return .handled(nextIndex: afterBracket) }
                     let number = registry.index(for: id)
                     let run = InlineRun(text: String(number), style: [.footnote, .superscript])
                     appendStructured(run)
@@ -1287,7 +1309,8 @@ struct InlineParser {
                 return includeUnterminated ? .literal : .incomplete
             }
             if text[afterBracket] != "(" {
-                if let reference = parseReferenceLink(label: label, afterBracket: afterBracket, treatAsImage: treatAsImage) {
+                if let reference = parseReferenceLink(label: label, afterBracket: afterBracket,
+                                                      treatAsImage: treatAsImage, dryRun: dryRun) {
                     return reference
                 }
                 return .literal
@@ -1312,6 +1335,7 @@ struct InlineParser {
             guard let closing = closingParen else {
                 return .incomplete
             }
+            if dryRun { return .handled(nextIndex: text.index(after: closing)) }
             let urlStart = text.index(after: afterBracket)
             let (destination, title) = splitDestinationAndTitle(String(text[urlStart..<closing]))
 
@@ -1329,7 +1353,8 @@ struct InlineParser {
 
         func parseReferenceLink(label: String,
                                 afterBracket: String.Index,
-                                treatAsImage: Bool) -> BracketParseResult? {
+                                treatAsImage: Bool,
+                                dryRun: Bool = false) -> BracketParseResult? {
             guard let store = linkReferences else { return nil }
             var referenceLabel = label
             var nextIndex = afterBracket
@@ -1349,6 +1374,7 @@ struct InlineParser {
             guard let definition = store.resolve(label: referenceLabel), !definition.url.isEmpty else {
                 return .literal
             }
+            if dryRun { return .handled(nextIndex: nextIndex) }
 
             if treatAsImage {
                 appendStructured(InlineRun(text: label, style: [.image], image: InlineImage(source: definition.url, title: definition.title)))

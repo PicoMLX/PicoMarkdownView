@@ -61,6 +61,12 @@ struct SpecInlineFixesTests {
         ("**Press <kbd>`</kbd> to toggle** and `code`\n\n",
          "<b>Press </b><b>`</b><b> to toggle</b> and <code>code</code>"),
         ("**Press <sub>$</sub> to toggle** and $x$\n\n", "<b>Press </b><b>$</b><b> to toggle</b> and x"),
+        // A link or image is one unit, as in the emitter: a `$` or backtick
+        // in its destination opens nothing.
+        ("**[docs](https://example.com/?$filter=x)** and $y$\n\n",
+         "<b><a https://example.com/?$filter=x>docs</a></b> and y"),
+        ("**[docs](https://example.com/`x)** and `code`\n\n",
+         "<b><a https://example.com/`x>docs</a></b> and <code>code</code>"),
         // Emphasis content keeps its context: the delimiters around it, and
         // the whole runs it shares with the opener and closer.
         ("**__!_**\n\n", "<b>__!_</b>"),
