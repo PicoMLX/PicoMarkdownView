@@ -2024,7 +2024,9 @@ struct MarkdownTokenizerGoldenTests {
         // punctuation, so emphasis may open after it, whether the grapheme
         // arrives whole or one mark per chunk.
         for chunks in [["\u{2764}" + String(repeating: "\u{301}", count: 33), "_b_"],
-                       ["\u{2764}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"]] {
+                       ["\u{2764}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
+                       ["a\u{200D}" + String(repeating: "\u{301}", count: 33), "_b_"],
+                       ["a", "\u{200D}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"]] {
             var parser = InlineParser()
             var runs = chunks.flatMap { parser.append($0) }
             runs += parser.finish()

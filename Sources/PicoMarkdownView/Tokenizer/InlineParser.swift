@@ -1326,21 +1326,23 @@ struct InlineParser {
             // per chunk keeps its flanking class (marks are alphanumeric) but
             // must not grow the retained context, or every append would
             // rebuild it.
-            // The bound keeps a grapheme's base scalar, which decides its
-            // flanking class (`❤` plus marks is punctuation; `a` plus marks
-            // is alphanumeric), and its most recent marks.
-            func bounded(_ character: Character) -> String {
-                let scalars = character.unicodeScalars
-                guard scalars.count > 32 else { return String(character) }
-                return String(scalars.prefix(1)) + String(scalars.suffix(31))
+            // Over the bound, the stored context is a stand-in with the same
+            // class under the parser's predicates (all alphanumeric, all
+            // whitespace, or neither), which is all the context is consulted
+            // for; truncating scalars could drop the one that set the class.
+            func bounded(_ character: Character) -> Character {
+                guard character.unicodeScalars.count > 32 else { return character }
+                if isAlphanumeric(character) { return "a" }
+                if isWhitespace(character) { return " " }
+                return "."
             }
             let consumed = text[..<consumedEnd]
             if let last = consumed.last {
-                let previous = lastConsumedCharacter.map(bounded) ?? ""
+                let previous = lastConsumedCharacter.map { String(bounded($0)) } ?? ""
                 // A single consumed grapheme may extend the previous context
                 // (`❤` then U+FE0F); anything longer stands on its own.
                 let joined = consumed.dropFirst().isEmpty ? (previous + String(last)).last : last
-                lastConsumedCharacter = joined.flatMap { bounded($0).last }
+                lastConsumedCharacter = joined.map(bounded)
             }
             pending = String(text[consumedEnd...])
             if var state = mathState {
