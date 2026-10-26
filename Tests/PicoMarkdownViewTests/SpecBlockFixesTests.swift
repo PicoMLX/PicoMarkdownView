@@ -42,7 +42,10 @@ struct SpecBlockFixesTests {
         // Escaped backtick before a real code span; escaped punctuation with a following mark.
         "**\\` text `foo\\\nbar`**\n\n",
         "\\*\u{301}\n\n",
-        "\\#\u{FE0F}\u{20E3}\n\n"
+        "\\#\u{FE0F}\u{20E3}\n\n",
+        // A backtick inside a link destination, then a code span across a backslash line ending.
+        "**[x](u`r) `foo\\\nbar`**\n\n",
+        "`a\nb`\n\n"
     ]
 
     private func parse(_ chunks: [String]) async -> [BlockSnapshot] {
@@ -145,6 +148,9 @@ struct SpecBlockFixesTests {
         #expect(try #require(escapedBacktick.first.map(text(of:))).contains("foo\\ bar"), "an escaped backtick does not open a code span")
         #expect(await parse([Self.documents[24]]).map(text(of:)) == ["*\u{301}"], "the escape applies to the leading scalar")
         #expect(await parse([Self.documents[25]]).map(text(of:)) == ["#\u{FE0F}\u{20E3}"])
+        let destination = await parse([Self.documents[26]])
+        #expect(try #require(destination.first.map(text(of:))).contains("foo\\ bar"), "a code span's line endings are spaces whatever came before it")
+        #expect(await parse([Self.documents[27]]).map(text(of:)) == ["a b"], "line endings inside a code span are spaces")
     }
 
     @Test("Backslash parity survives look-behind trimming of a long run")

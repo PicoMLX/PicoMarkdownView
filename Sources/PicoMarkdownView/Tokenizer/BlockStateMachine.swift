@@ -1267,10 +1267,10 @@ struct StreamingParser {
                 // would run together.
                 if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingHardBreak {
                     // The newline reaches the inline parser right after the
-                    // trailing backslash it kept pending: a hard break. Inside
-                    // an open code span the backslash is literal and the line
-                    // ending is a space, as any soft break.
-                    input = (parser.hasOpenCodeSpan() ? " " : "\n") + input
+                    // trailing backslash it kept pending: a hard break. If it
+                    // turns out to fall inside a code span, the span's content
+                    // keeps the backslash and turns the newline into a space.
+                    input = "\n" + input
                     ctx.pendingHardBreak = false
                 } else if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
                     input = " " + input
