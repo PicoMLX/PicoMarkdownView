@@ -67,6 +67,19 @@ struct SpecInlineFixesTests {
          "<b><a https://example.com/?$filter=x>docs</a></b> and y"),
         ("**[docs](https://example.com/`x)** and `code`\n\n",
          "<b><a https://example.com/`x>docs</a></b> and <code>code</code>"),
+        // A bare URL is one unit too, and trailing `*` is not part of it.
+        ("**See https://example.com/?$filter=x** and $y$\n\n",
+         "<b>See </b><b><a https://example.com/?$filter=x>https://example.com/?$filter=x</a></b> and y"),
+        ("**See https://example.com/`x** and `code`\n\n",
+         "<b>See </b><b><a https://example.com/`x>https://example.com/`x</a></b> and <code>code</code>"),
+        // So is `~~…~~`, whose content is parsed apart.
+        ("**x ~~*y*~~ z**\n\n", "<b>x </b><b><i>y</i></b><b> z</b>"),
+        // The `**` closer pairs first with the nearer `*` opener (as in
+        // `**a *b c**`), then its other delimiter with one of the `**`.
+        ("**a *b ~~c* d~~**\n\n", "*<i>a b </i><i>c* d</i>"),
+        // Only CommonMark whitespace stops emphasis; a zero-width space does not.
+        ("*\u{200B}text*\n\n", "<i>\u{200B}text</i>"),
+        ("*text\u{200B}*\n\n", "<i>text\u{200B}</i>"),
         // Emphasis content keeps its context: the delimiters around it, and
         // the whole runs it shares with the opener and closer.
         ("**__!_**\n\n", "<b>__!_</b>"),
@@ -199,6 +212,18 @@ struct SpecInlineFixesTests {
         // The last star pairs with the nearest star opener; everything else is text.
         #expect(runs.map(\.text).joined() == String(repeating: "*a ", count: count - 1) + "a " + String(repeating: "b_ ", count: count) + "c")
         #expect(runs.last?.style == [.italic])
+    }
+
+    @Test("Deep nesting is styled from the pairs already formed, not parsed again per level")
+    func deepNestingIsFlat() {
+        let count = 1_600
+        let wrapped = InlineParser.parseAll(String(repeating: "*", count: count) + "x" + String(repeating: "*", count: count))
+        #expect(wrapped.map(\.text).joined() == "x")
+        #expect(wrapped.first?.style == [.bold])
+        let depth = 2_000
+        let nested = InlineParser.parseAll(String(repeating: "*a ", count: depth) + String(repeating: "b* ", count: depth))
+        #expect(nested.map(\.text).joined() == String(repeating: "a ", count: depth) + String(repeating: "b ", count: depth))
+        #expect(nested.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }.allSatisfy { $0.style == [.italic] })
     }
 
     @Test("Openers between completed pairs are resolved without rescanning")

@@ -103,10 +103,19 @@ struct InlineParser {
             let canOpen: Bool
             let canClose: Bool
         }
+        /// A pair the algorithm formed: the opener's and the closer's
+        /// delimiters it took, and whether it is emphasis (1) or strong (2).
         struct Pair {
+            var openerStart: Int
+            var openerEnd: Int
             var closerStart: Int
             var closerEnd: Int
             var length: Int
+
+            func shifted(by delta: Int) -> Pair {
+                Pair(openerStart: openerStart + delta, openerEnd: openerEnd + delta,
+                     closerStart: closerStart + delta, closerEnd: closerEnd + delta, length: length)
+            }
         }
         /// The opener's offset in the text the scan was saved from; the scan
         /// is kept only if that text is consumed exactly up to the opener.
@@ -121,10 +130,23 @@ struct InlineParser {
         /// The last (outermost so far) pair that took each opener's delimiters.
         var lastPairs: [Int: Pair]
         var usedUp: Set<Int>
-        /// Every pair's extent, from its opener to the end of its closer.
-        var pairSpans: [(start: Int, end: Int)]
+        /// Every pair formed so far, in the order they formed.
+        var pairs: [Pair]
     }
     private var emphasisScan: EmphasisScan?
+
+    /// What the delimiter algorithm decided for a delimiter of emphasis
+    /// content (see `emphasisPlan`).
+    private enum EmphasisAction {
+        case open(pair: Int, length: Int, style: InlineStyle)
+        case close(pair: Int, length: Int)
+    }
+
+    /// For the nested parse of emphasis content: the pairs the delimiter
+    /// algorithm formed inside it, by UTF-8 offset into the content. The
+    /// content is styled by them instead of matching its delimiters again,
+    /// so nesting costs neither another parse nor another parser per level.
+    private var emphasisPlan: [Int: EmphasisAction]?
 
     /// Where the raw HTML grammar stands after the bytes seen so far. The
     /// grammar is ASCII and is read by bytes, so a mark or Prepend character
@@ -261,6 +283,14 @@ struct InlineParser {
     /// as `£` are not punctuation. Flanking looks at code points, as cmark
     /// does: the last scalar before a delimiter run and the first after it,
     /// neither of which a later chunk can change.
+    /// CommonMark's Unicode whitespace: the Zs category, tab, line feed, form
+    /// feed and carriage return. Zero-width and other format characters are
+    /// not whitespace, so they do not stop emphasis.
+    private static func isWhitespace(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar.properties.generalCategory == .spaceSeparator { return true }
+        return scalar == "\t" || scalar == "\n" || scalar == "\u{0C}" || scalar == "\r"
+    }
+
     private static func isPunctuation(_ scalar: Unicode.Scalar) -> Bool {
         if scalar.isASCII { return asciiPunctuation.contains(scalar) }
         switch scalar.properties.generalCategory {
@@ -303,12 +333,25 @@ struct InlineParser {
         let parserTagPrefixes = self.tagPrefixes
         let parserTagPrefixOpeningFirstChars = self.tagPrefixOpeningFirstChars
 
+        /// Emphasis opened by the plan (`emphasisPlan`) and not yet closed;
+        /// it styles every run appended meanwhile, except code, math and
+        /// images, as an enclosing emphasis span does.
+        var planStyles: [(pair: Int, style: InlineStyle)] = []
+
+        func planStyled(_ run: InlineRun) -> InlineRun {
+            guard !planStyles.isEmpty, run.style.intersection([.code, .math, .image]).isEmpty else { return run }
+            var styled = run
+            for entry in planStyles { styled.style.formUnion(entry.style) }
+            return styled
+        }
+
         func appendProcessed(_ text: String) {
             guard !text.isEmpty else { return }
-            let newRuns = makePlainRuns(from: text)
+            let newRuns = makePlainRuns(from: text).map(planStyled)
             guard !newRuns.isEmpty else { return }
-            if let last = runs.last, last.style.isEmpty, last.linkURL == nil, last.image == nil,
-               let lastPlain = newRuns.first, lastPlain.style.isEmpty, lastPlain.linkURL == nil, lastPlain.image == nil,
+            let plainStyle = planStyled(InlineRun(text: "")).style
+            if let last = runs.last, last.style == plainStyle, last.linkURL == nil, last.image == nil,
+               let lastPlain = newRuns.first, lastPlain.style == plainStyle, lastPlain.linkURL == nil, lastPlain.image == nil,
                !last.text.hasSuffix("\n"), !(lastPlain.text.hasPrefix("\n")) {
                 runs[runs.count - 1].text += lastPlain.text
                 runs.append(contentsOf: newRuns.dropFirst())
@@ -333,7 +376,7 @@ struct InlineParser {
 
         func appendStructured(_ run: InlineRun) {
             settleReplacements()
-            runs.append(run)
+            runs.append(planStyled(run))
         }
 
         func flushPlain(upTo end: String.Index) {
@@ -352,7 +395,7 @@ struct InlineParser {
         /// those of its last scalar (the code point cmark sees), which a later
         /// chunk cannot change.
         func isWhitespace(_ character: Character) -> Bool {
-            character.unicodeScalars.last.map { CharacterSet.whitespacesAndNewlines.contains($0) } ?? false
+            character.unicodeScalars.last.map(Self.isWhitespace) ?? false
         }
 
         func isPunctuation(_ character: Character) -> Bool {
@@ -417,10 +460,13 @@ struct InlineParser {
 
         /// `leading` and `trailing` describe what surrounds `text` in the
         /// enclosing text, for emphasis content; without them its edges read
-        /// as the start and end of a line.
+        /// as the start and end of a line. With a `plan`, the content's
+        /// emphasis was already decided in the enclosing text (see
+        /// `emphasisPlan`), and the complete content is parsed in one pass.
         func parseNestedRuns(from text: String, inheriting style: InlineStyle,
                              leading: ConsumedContext? = nil,
-                             trailing: FollowingContext? = nil) -> [InlineRun] {
+                             trailing: FollowingContext? = nil,
+                             plan: [Int: EmphasisAction]? = nil) -> [InlineRun] {
             guard !text.isEmpty else { return [] }
             // Use the fast-path init: the outer parser already sorted the
             // prefix array and computed the first-char set, so the nested
@@ -429,8 +475,15 @@ struct InlineParser {
                                       tagPrefixOpeningFirstChars: parserTagPrefixOpeningFirstChars)
             nested.lastConsumed = leading
             nested.following = trailing
-            var result = nested.append(text)
-            result += nested.finish()
+            var result: [InlineRun]
+            if let plan {
+                nested.emphasisPlan = plan
+                nested.pending = text
+                result = nested.finish()
+            } else {
+                result = nested.append(text)
+                result += nested.finish()
+            }
             guard !result.isEmpty else { return [] }
             // Tags are styled text (not opaque attachments like code/math/image),
             // so surrounding emphasis SHOULD apply — "**@behlool**" → bold tag.
@@ -443,8 +496,9 @@ struct InlineParser {
             }
         }
 
-        func appendRun(_ run: InlineRun) {
+        func appendRun(_ unstyled: InlineRun) {
             settleReplacements()
+            let run = planStyled(unstyled)
             // Payload-identity check is shared with the assembler and the
             // state machine via `InlineRun.canCoalesce(with:)`; the two
             // line-break guards are local to inline parsing (don't merge
@@ -542,7 +596,7 @@ struct InlineParser {
                 return nil
             }
             let beforeIsSpace = isWhitespace(before)
-            let afterIsSpace = CharacterSet.whitespacesAndNewlines.contains(after)
+            let afterIsSpace = Self.isWhitespace(after)
             let beforeIsPunctuation = isPunctuation(before), afterIsPunctuation = Self.isPunctuation(after)
             return Flanking(
                 left: !afterIsSpace && (!afterIsPunctuation || beforeIsSpace || beforeIsPunctuation),
@@ -973,8 +1027,9 @@ struct InlineParser {
         enum EmphasisMatch {
             /// After `literalPrefix` delimiters that stay text, the opener's
             /// leftmost delimiters pair with `closer`, as emphasis (`length`
-            /// 1) or strong emphasis (2).
-            case matched(closer: Range<String.Index>, length: Int, literalPrefix: Int)
+            /// 1) or strong emphasis (2). `inner` are the pairs formed inside
+            /// it, by UTF-8 offset in this text.
+            case matched(closer: Range<String.Index>, length: Int, literalPrefix: Int, inner: [EmphasisScan.Pair])
             /// No delimiter of the opener pairs: the run is text.
             case none
             case needMore
@@ -989,8 +1044,30 @@ struct InlineParser {
         /// (`*a *a … c*`, `*a _b_ *a _b_ …`). Positions are UTF-8 offsets;
         /// `spans` are the outermost pairs, in order.
         struct EmphasisOutcomes {
+            enum Outcome {
+                case pair(EmphasisScan.Pair, literalPrefix: Int)
+                case none
+            }
             var spans: [(start: Int, end: Int)]
-            var results: [Int: EmphasisMatch]
+            /// Every pair the scan formed, by opener position.
+            var pairs: [EmphasisScan.Pair]
+            var results: [Int: Outcome]
+
+            /// The pairs inside `lower..<upper`. Pairs nest, so they are the
+            /// ones whose opener lies inside.
+            func pairs(inside lower: Int, _ upper: Int) -> [EmphasisScan.Pair] {
+                var low = 0, high = pairs.count
+                while low < high {
+                    let middle = (low + high) / 2
+                    if pairs[middle].openerStart < lower { low = middle + 1 } else { high = middle }
+                }
+                var inside: [EmphasisScan.Pair] = []
+                while low < pairs.count, pairs[low].openerStart < upper {
+                    inside.append(pairs[low])
+                    low += 1
+                }
+                return inside
+            }
 
             func spanned(_ offset: Int) -> Bool {
                 // The last outermost pair that starts before `offset`.
@@ -1023,8 +1100,19 @@ struct InlineParser {
         func matchEmphasis(openerAt index: String.Index, flank: Flanking) -> EmphasisMatch {
             typealias Delimiter = EmphasisScan.Delimiter
             let base = utf8Offset(of: index)
+            func resolved(_ outcome: EmphasisOutcomes.Outcome, in outcomes: EmphasisOutcomes) -> EmphasisMatch {
+                switch outcome {
+                case .none:
+                    return .none
+                case .pair(let pair, let literalPrefix):
+                    let utf8 = text.utf8
+                    return .matched(closer: utf8.index(utf8.startIndex, offsetBy: pair.closerStart)..<utf8.index(utf8.startIndex, offsetBy: pair.closerEnd),
+                                    length: pair.length, literalPrefix: literalPrefix,
+                                    inner: outcomes.pairs(inside: pair.openerEnd, pair.closerStart))
+                }
+            }
             if let outcomes = emphasisOutcomes, let known = outcomes.results[base], !outcomes.spanned(base) {
-                return known
+                return resolved(known, in: outcomes)
             }
             func position(_ offset: Int) -> String.Index {
                 text.utf8.index(text.utf8.startIndex, offsetBy: base + offset)
@@ -1047,7 +1135,7 @@ struct InlineParser {
                 let openerRun = delimiterRun(containing: index)
                 scan = EmphasisScan(targetOffset: base, cursor: offset(openerRun.upperBound), openers: [[], []],
                                     searchFloor: Array(repeating: Int.min, count: 12),
-                                    lastPairs: [:], usedUp: [], pairSpans: [])
+                                    lastPairs: [:], usedUp: [], pairs: [])
                 scan.openers[targetSlot].append(Delimiter(character: delimiter,
                                                           start: 0,
                                                           count: text.distance(from: index, to: openerRun.upperBound),
@@ -1101,6 +1189,29 @@ struct InlineParser {
                     continue
                 }
                 let character = text[cursor]
+                // A bare URL is one unit to the emitter, as is `~~…~~`, whose
+                // content it parses apart: nothing inside pairs with a
+                // delimiter outside.
+                if "hHwW".contains(character), let autolink = parseAutolink(at: cursor) {
+                    switch autolink {
+                    case .handled(let next, _, _):
+                        cursor = next
+                        continue
+                    case .needMore:
+                        return suspend(at: cursor)
+                    }
+                }
+                if character == "~" {
+                    let second = text.index(after: cursor)
+                    if second == text.endIndex, !includeUnterminated { return suspend(at: cursor) }
+                    if second < text.endIndex, text[second] == "~" {
+                        if let closeAfter = findStrikethroughClosing(in: text, from: text.index(after: second)) {
+                            cursor = closeAfter
+                            continue
+                        }
+                        if !includeUnterminated { return suspend(at: cursor) }
+                    }
+                }
                 // A link, image or footnote reference is one unit to the
                 // emitter, which shows its label as text: nothing in its label
                 // or destination pairs with a delimiter outside it.
@@ -1185,17 +1296,25 @@ struct InlineParser {
                                 scan.searchFloor[kind] = closer.start
                                 break
                             }
-                            let used = closer.count >= 2 && scan.openers[own][openerIndex].count >= 2 ? 2 : 1
-                            // Delimiters are ASCII: one UTF-8 byte each.
+                            let entry = scan.openers[own][openerIndex]
+                            let used = closer.count >= 2 && entry.count >= 2 ? 2 : 1
+                            // Delimiters are ASCII: one UTF-8 byte each. An
+                            // opener gives up its rightmost (innermost)
+                            // delimiters first.
                             let closerEnd = closer.start + used
+                            let pair = EmphasisScan.Pair(openerStart: entry.start + entry.count - used,
+                                                         openerEnd: entry.start + entry.count,
+                                                         closerStart: closer.start, closerEnd: closerEnd, length: used)
                             // The opener at `index` pairs here once this match
-                            // takes its leftmost (outermost) delimiters.
-                            if own == targetSlot, openerIndex == 0, scan.openers[own][0].count == used {
-                                return .matched(closer: position(closer.start)..<position(closerEnd), length: used, literalPrefix: 0)
+                            // takes its leftmost (outermost) delimiters; every
+                            // pair formed so far lies inside it.
+                            if own == targetSlot, openerIndex == 0, entry.count == used {
+                                return .matched(closer: position(closer.start)..<position(closerEnd), length: used, literalPrefix: 0,
+                                                inner: scan.pairs.map { $0.shifted(by: base) })
                             }
-                            let openerStart = scan.openers[own][openerIndex].start
-                            scan.lastPairs[openerStart] = EmphasisScan.Pair(closerStart: closer.start, closerEnd: closerEnd, length: used)
-                            scan.pairSpans.append((openerStart, closerEnd))
+                            let openerStart = entry.start
+                            scan.lastPairs[openerStart] = pair
+                            scan.pairs.append(pair)
                             scan.openers[own][openerIndex].count -= used
                             // Openers between the pair, of either character,
                             // can no longer match.
@@ -1221,26 +1340,28 @@ struct InlineParser {
             // The text is final: an opener still on a stack keeps its
             // unpaired delimiters at the left as text; one used up pairs
             // whole. (An opener dropped between a pair is not recorded.)
-            func matched(_ pair: EmphasisScan.Pair, literalPrefix: Int) -> EmphasisMatch {
-                .matched(closer: position(pair.closerStart)..<position(pair.closerEnd), length: pair.length, literalPrefix: literalPrefix)
-            }
-            var results: [Int: EmphasisMatch] = [:]
+            var results: [Int: EmphasisOutcomes.Outcome] = [:]
             for stack in scan.openers {
                 for opener in stack {
-                    results[base + opener.start] = scan.lastPairs[opener.start].map { matched($0, literalPrefix: opener.count) } ?? EmphasisMatch.none
+                    results[base + opener.start] = scan.lastPairs[opener.start].map {
+                        .pair($0.shifted(by: base), literalPrefix: opener.count)
+                    } ?? .none
                 }
             }
             for start in scan.usedUp {
-                if let pair = scan.lastPairs[start] { results[base + start] = matched(pair, literalPrefix: 0) }
+                if let pair = scan.lastPairs[start] { results[base + start] = .pair(pair.shifted(by: base), literalPrefix: 0) }
             }
-            // Pairs nest or follow each other; keep the outermost, in order.
+            // Pairs nest or follow each other; the outermost, in order, tell
+            // which openers a later lookup may reuse.
+            let pairs = scan.pairs.map { $0.shifted(by: base) }.sorted { $0.openerStart < $1.openerStart }
             var spans: [(start: Int, end: Int)] = []
-            for span in scan.pairSpans.sorted(by: { $0.start != $1.start ? $0.start < $1.start : $0.end > $1.end }) {
-                if let last = spans.last, span.start < last.end { continue }
-                spans.append((base + span.start, base + span.end))
+            for pair in pairs {
+                if let last = spans.last, pair.openerStart < last.end { continue }
+                spans.append((pair.openerStart, pair.closerEnd))
             }
-            emphasisOutcomes = EmphasisOutcomes(spans: spans, results: results)
-            return results[base] ?? .none
+            let outcomes = EmphasisOutcomes(spans: spans, pairs: pairs, results: results)
+            emphasisOutcomes = outcomes
+            return results[base].map { resolved($0, in: outcomes) } ?? .none
         }
 
         enum BracketParseResult {
@@ -1447,8 +1568,13 @@ struct InlineParser {
         }
 
         func parseAutolink(at index: String.Index) -> AutolinkParseResult? {
-            guard isAutolinkBoundaryBefore(index), let prefix = isAutolinkPrefix(at: index) else {
-                return nil
+            guard isAutolinkBoundaryBefore(index) else { return nil }
+            guard let prefix = isAutolinkPrefix(at: index) else {
+                // `ht` or `www` at the end of the text may still become a
+                // link's scheme: wait rather than deliver it as text.
+                let rest = text[index...]
+                let couldStillMatch = ["http://", "https://", "www.", "HTTP://", "HTTPS://", "WWW."].contains { $0.hasPrefix(rest) }
+                return couldStillMatch && !includeUnterminated ? .needMore : nil
             }
 
             var cursor = text.index(index, offsetBy: prefix.prefixLength)
@@ -1494,7 +1620,10 @@ struct InlineParser {
             while endIndex > index {
                 let prevIndex = text.index(before: endIndex)
                 let prevChar = text[prevIndex]
-                if ".,:;!?".contains(prevChar) {
+                // Trailing punctuation is not part of the link (GFM's
+                // extended autolinks), including `*`, `_` and `~`, so a link
+                // at the end of emphasis leaves the closer outside it.
+                if ".,:;!?*_~".contains(prevChar) {
                     endIndex = prevIndex
                     continue
                 }
@@ -2094,6 +2223,30 @@ struct InlineParser {
                 }
             case "*", "_":
                 let delimiter = ch
+                if let plan = emphasisPlan {
+                    // Emphasis content: the enclosing text already paired its
+                    // delimiters. Each one opens or closes the style of its
+                    // pair, or is text.
+                    switch plan[utf8Offset(of: index)] {
+                    case .open(let pair, let length, let style)?:
+                        flushPlain(upTo: index)
+                        settleReplacements()
+                        planStyles.append((pair, style))
+                        index = text.utf8.index(index, offsetBy: length)
+                        consumedEnd = index
+                        plainStart = index
+                    case .close(let pair, let length)?:
+                        flushPlain(upTo: index)
+                        settleReplacements()
+                        planStyles.removeAll { $0.pair == pair }
+                        index = text.utf8.index(index, offsetBy: length)
+                        consumedEnd = index
+                        plainStart = index
+                    case nil:
+                        index = text.index(after: index)
+                    }
+                    continue parsing
+                }
                 // Whether the run opens depends on the characters around the
                 // whole run (CommonMark flanking).
                 let run = delimiterRun(containing: index)
@@ -2118,13 +2271,15 @@ struct InlineParser {
                 }
                 let closingRange: Range<String.Index>
                 let markerLength: Int
+                let innerPairs: [EmphasisScan.Pair]
                 switch matchEmphasis(openerAt: index, flank: flank) {
-                case .matched(let closer, let length, let literalPrefix):
+                case .matched(let closer, let length, let literalPrefix, let inner):
                     // Unpaired delimiters at the left of the run are text
                     // (`**foo*` reads `*` then emphasis).
                     index = text.index(index, offsetBy: literalPrefix)
                     closingRange = closer
                     markerLength = length
+                    innerPairs = inner
                 case .none:
                     index = run.upperBound
                     continue parsing
@@ -2161,7 +2316,16 @@ struct InlineParser {
                 }
                 let trailing = FollowingContext(scalar: text[closingRange.lowerBound].unicodeScalars.first!,
                                                 delimiter: delimiter, runLength: closerRunLength, afterRun: afterCloserRun)
-                let nestedRuns = parseNestedRuns(from: inner, inheriting: style, leading: leading, trailing: trailing)
+                // The pairs inside were formed by the same algorithm in this
+                // text; the content is styled by them, not matched again.
+                let innerBase = utf8Offset(of: innerStart)
+                var plan: [Int: EmphasisAction] = [:]
+                for (number, pair) in innerPairs.enumerated() {
+                    plan[pair.openerStart - innerBase] = .open(pair: number, length: pair.openerEnd - pair.openerStart,
+                                                               style: pair.length == 2 ? [.bold] : [.italic])
+                    plan[pair.closerStart - innerBase] = .close(pair: number, length: pair.closerEnd - pair.closerStart)
+                }
+                let nestedRuns = parseNestedRuns(from: inner, inheriting: style, leading: leading, trailing: trailing, plan: plan)
                 if nestedRuns.isEmpty {
                     appendRun(InlineRun(text: inner, style: style))
                 } else {
@@ -2206,6 +2370,12 @@ struct InlineParser {
                         consumedAll = false
                         break parsing
                     }
+                }
+                // A `~` at the end of the text may still become `~~`: wait.
+                if nextIndex == text.endIndex, !includeUnterminated {
+                    flushPlain(upTo: index)
+                    consumedAll = false
+                    break parsing
                 }
                 // No "~~" or still incomplete: treat the first "~" as plain and keep scanning.
                 index = nextIndex
