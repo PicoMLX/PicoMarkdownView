@@ -1065,7 +1065,15 @@ struct InlineParser {
                     }
                 }
                 flushPlain(upTo: index)
-                appendPlain(String(text[nextIndex]))
+                let escaped = text[nextIndex]
+                // Only ASCII punctuation can be escaped (CommonMark); before
+                // anything else the backslash is literal. A backslash before
+                // a newline stays a hard break.
+                if escaped == "\n" || (escaped.isASCII && (escaped.isPunctuation || escaped.isSymbol)) {
+                    appendPlain(String(escaped))
+                } else {
+                    appendPlain("\\" + String(escaped))
+                }
                 let after = text.index(after: nextIndex)
                 consumedEnd = after
                 index = after

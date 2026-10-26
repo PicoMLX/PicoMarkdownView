@@ -32,6 +32,9 @@ struct StreamingParser {
         var eventStartIndex: Int
         var listIndent: Int
         var pendingSoftBreak: Bool = false
+        /// The line ended with an odd run of backslashes: a hard break if
+        /// another line follows, a literal backslash if the block ends.
+        var pendingHardBreak: Bool = false
         var pendingSameLineClose: Bool = false
         var preventNextCoalesce: Bool = false
         var sawBlankInSubContext: Bool = false
@@ -46,6 +49,13 @@ struct StreamingParser {
         /// Non-whitespace inline text has been appended: for a blockquote
         /// this means its own text acts as an open paragraph.
         var hasInlineContent: Bool = false
+        /// A heading has received content other than a possible closing
+        /// sequence; decides whether trailing `#`s alone close an empty heading.
+        var headingHasContent: Bool = false
+        /// Blank lines inside an indented code block are held until a code
+        /// line follows them, since trailing blank lines are not part of the
+        /// block (CommonMark). Dropped when the block closes.
+        var pendingCodeBlankLines: String = ""
     }
 
     private struct TableState {
@@ -281,6 +291,14 @@ struct StreamingParser {
                 ctx.linePrefixToStrip = 0
                 setCurrentBlock(ctx)
             }
+            // A blank line inside indented code loses up to four columns of
+            // indentation like any code line; the rest is content.
+            if let ctx = currentBlock, isIndentedCodeBlock(ctx) {
+                let blankPrefix = min(4, lineBuffer.hasPrefix("\t") ? 1 : lineBuffer.prefix { $0 == " " }.count)
+                if emittedCount < blankPrefix {
+                    emittedCount = min(lineBuffer.count, blankPrefix)
+                }
+            }
             lineAnalyzed = true
             return
         }
@@ -328,7 +346,7 @@ struct StreamingParser {
                 return
             }
 
-            if let heading = detectHeading(lineBuffer) {
+            if let heading = detectHeading(lineBuffer, isLineComplete: isLineComplete) {
                 openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
                 emittedCount = min(lineBuffer.count, heading.prefixLength)
                 lineAnalyzed = true
@@ -417,7 +435,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
-                if let heading = detectHeading(lineBuffer) {
+                if let heading = detectHeading(lineBuffer, isLineComplete: isLineComplete) {
                     closeCurrentBlock()
                     openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
                     emittedCount = min(lineBuffer.count, heading.prefixLength)
@@ -549,7 +567,7 @@ struct StreamingParser {
         // open list contexts; at top level one indented past the marker is
         // the item's own content. Inside a quote, an indented heading ends
         // the quoted list and joins the quote (see `quotedListChildren`).
-        if let heading = detectHeading(line), base > 0 || heading.indent <= (currentBlock?.listIndent ?? 0) {
+        if let heading = detectHeading(line, isLineComplete: isLineComplete), base > 0 || heading.indent <= (currentBlock?.listIndent ?? 0) {
             closeCurrentBlock()
             closeListContexts(deeperThan: -1)
             openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: base + heading.prefixLength)
@@ -831,7 +849,7 @@ struct StreamingParser {
             lineAnalyzed = true
             return true
         }
-        if let heading = detectHeading(line) {
+        if let heading = detectHeading(line, isLineComplete: isLineComplete) {
             beginChild()
             openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: prefix + heading.prefixLength)
             emittedCount = min(lineBuffer.count, prefix + heading.prefixLength)
@@ -889,7 +907,7 @@ struct StreamingParser {
     /// knows plus the ones a top-level paragraph yields to.
     private func startsBlock(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool = true) -> Bool {
         let line = String(content)
-        if detectHeading(line) != nil { return true }
+        if detectHeading(line, isLineComplete: isLineComplete) != nil { return true }
         if let list = detectList(line, isLineComplete: isLineComplete) {
             // Ending a table (or another non-paragraph) has no interruption
             // rule; only a paragraph is picky about which lists may follow.
@@ -968,6 +986,9 @@ struct StreamingParser {
                 // (`> ` of `> >`), and without one it either grows a marker
                 // or ends the quote. Wait for text.
                 if trimmedLine.isEmpty, contextStack.contains(where: { $0.kind == .blockquote }) { return }
+                // A blank line of indented code is held until the line ends
+                // (it may still gain text, which would make it a code line).
+                if trimmedLine.isEmpty, isIndentedCodeBlock(context) { return }
                 // A partial line made only of the fence's marker may still
                 // become the closing fence; emitting it now would put stray
                 // backticks in the code. Likewise a partial math closer.
@@ -1024,6 +1045,16 @@ struct StreamingParser {
             setCurrentBlock(context)
             return
         }
+        if isIndentedCodeBlock(context), lineContent.allSatisfy({ $0 == " " || $0 == "\t" }) {
+            // Blank lines inside indented code wait for the next code line;
+            // trailing ones are not part of the block.
+            context.pendingCodeBlankLines += delta
+            setCurrentBlock(context)
+            emittedLineUTF8Offset = lineBuffer.utf8.count
+            emittedLineBlockID = context.id
+            emittedCount = lineBuffer.count
+            return
+        }
         append(delta, context: &context)
         lineEmittedContent = true
         setCurrentBlock(context)
@@ -1070,7 +1101,16 @@ struct StreamingParser {
                 } else if force {
                     closeCurrentBlock()
                 } else if terminated {
-                    if !rawLine.hasSuffix("  ") {
+                    // Two trailing spaces carry the newline itself as a hard
+                    // break. An odd run of trailing backslashes is a hard break
+                    // only if another line follows (a backslash that ends the
+                    // paragraph is literal), so it is resolved when the next
+                    // line's text arrives. Anything else is a soft break.
+                    let trailingBackslashes = rawLine.reversed().prefix(while: { $0 == "\\" }).count
+                    if trailingBackslashes % 2 == 1 {
+                        ctx.pendingHardBreak = true
+                        setCurrentBlock(ctx)
+                    } else if !rawLine.hasSuffix("  ") {
                         ctx.pendingSoftBreak = true
                         setCurrentBlock(ctx)
                     }
@@ -1207,7 +1247,12 @@ struct StreamingParser {
                 // A footnote definition continues over lines like a
                 // paragraph; without the soft break `first` + `second`
                 // would run together.
-                if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
+                if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingHardBreak {
+                    // The newline reaches the inline parser right after the
+                    // trailing backslash it kept pending: a hard break.
+                    input = "\n" + input
+                    ctx.pendingHardBreak = false
+                } else if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
                     input = " " + input
                     ctx.pendingSoftBreak = false
                 }
@@ -1237,12 +1282,25 @@ struct StreamingParser {
             }
         case .heading:
             if var parser = ctx.inlineParser {
+                // Spaces and `#`s are held back: at the end of the line they are
+                // a closing sequence (dropped) or trailing content. A `#` run
+                // right after a backslash is escaped content.
                 var emitted = ""
                 var pending = ctx.headingPendingSuffix
+                var escapedRun = false
                 for character in text {
-                    if character == " " || character == "#" {
+                    if character == "\n" {
+                        emitted.append(contentsOf: resolvedHeadingSuffix(pending, hasContent: ctx.headingHasContent || !emitted.isEmpty))
+                        pending.removeAll(keepingCapacity: true)
+                        escapedRun = false
+                    } else if character == "#", escapedRun || (pending.isEmpty && emitted.last == "\\") {
+                        escapedRun = true
+                        emitted.append(character)
+                    } else if character == " " || character == "\t" || character == "#" {
+                        escapedRun = false
                         pending.append(character)
                     } else {
+                        escapedRun = false
                         if !pending.isEmpty {
                             emitted.append(contentsOf: pending)
                             pending.removeAll(keepingCapacity: true)
@@ -1251,6 +1309,7 @@ struct StreamingParser {
                     }
                 }
                 ctx.headingPendingSuffix = pending
+                if !emitted.isEmpty { ctx.headingHasContent = true }
                 if !emitted.isEmpty {
                     var runs = parser.append(emitted)
                     coalesceInlineRuns(&runs)
@@ -1271,14 +1330,18 @@ struct StreamingParser {
         case .unknown:
             ctx.literal.append(text)
         case .fencedCode:
+            // Blank lines held inside indented code precede the code that
+            // follows them.
+            let chunk = ctx.pendingCodeBlankLines + text
+            ctx.pendingCodeBlankLines = ""
             if let lastIndex = events.indices.last {
                 if case .blockAppendFencedCode(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
-                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + text)
+                    events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + chunk)
                 } else {
-                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+                    events.append(.blockAppendFencedCode(id: ctx.id, textChunk: chunk))
                 }
             } else {
-                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: chunk))
             }
             ctx.fenceJustOpened = false
         case .math:
@@ -1500,6 +1563,21 @@ struct StreamingParser {
         closeCurrentBlock()
     }
 
+    /// What a heading's held-back tail contributes once the line ends: a
+    /// closing sequence (optional spaces, `#`s, optional spaces, preceded by
+    /// a space or standing alone on an empty heading) contributes nothing;
+    /// anything else is content, minus trailing whitespace.
+    private func resolvedHeadingSuffix(_ pending: String, hasContent: Bool) -> String {
+        let trimmed = pending.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return "" }
+        let isClosingSequence = trimmed.allSatisfy { $0 == "#" }
+            && (pending.first == " " || pending.first == "\t" || !hasContent)
+        if isClosingSequence { return "" }
+        var content = pending
+        while let last = content.last, last == " " || last == "\t" { content.removeLast() }
+        return content
+    }
+
     private mutating func closeCurrentBlock() {
         guard let ctx = currentBlock else { return }
         if let table = ctx.tableState, table.stage != .rows {
@@ -1510,7 +1588,13 @@ struct StreamingParser {
             return
         }
         if var parser = ctx.inlineParser {
-            var runs = parser.finish()
+            var runs: [InlineRun] = []
+            if case .heading = ctx.kind {
+                // The input may end without a newline: settle the tail now.
+                let tail = resolvedHeadingSuffix(ctx.headingPendingSuffix, hasContent: ctx.headingHasContent)
+                if !tail.isEmpty { runs += parser.append(tail) }
+            }
+            runs += parser.finish()
             coalesceInlineRuns(&runs)
             if !runs.isEmpty {
                 if let lastIndex = events.indices.last,
@@ -1718,8 +1802,34 @@ struct StreamingParser {
             index = trimmed.index(after: index)
         }
         guard marker.count >= 3 else { return nil }
-        let info = trimmed[index...].trimmingCharacters(in: .whitespaces)
+        let rawInfo = trimmed[index...].trimmingCharacters(in: .whitespaces)
+        // A backtick fence's info string may not contain backticks (CommonMark);
+        // ``` ``` is a code span, not a fence.
+        if first == "`", rawInfo.contains("`") { return nil }
+        let info = unescapePunctuation(rawInfo)
         return FenceInfo(marker: marker, language: info.isEmpty ? nil : info, closingMarker: marker, leadingIndent: indent)
+    }
+
+    /// Backslash escapes of ASCII punctuation are processed in info strings.
+    private func unescapePunctuation(_ text: String) -> String {
+        guard text.contains("\\") else { return text }
+        var result = ""
+        var escaping = false
+        for character in text {
+            if escaping {
+                if !(character.isASCII && (character.isPunctuation || character.isSymbol)) {
+                    result.append("\\")
+                }
+                result.append(character)
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else {
+                result.append(character)
+            }
+        }
+        if escaping { result.append("\\") }
+        return result
     }
 
     /// Up to the opening fence's indent is removed from a content line.
@@ -1746,12 +1856,12 @@ struct StreamingParser {
         guard indent <= 3, index < line.endIndex else { return nil }
 
         // Helper to build a DisplayMathOpening given an opening/closing marker pair
-        func makeOpening(open: String, close: String) -> DisplayMathOpening? {
+        func makeOpening(open: String, close: String, contentMayFollow: Bool) -> DisplayMathOpening? {
             guard line[index...].hasPrefix(open) else { return nil }
             let contentStart = line.index(index, offsetBy: open.count)
             guard contentStart <= line.endIndex else { return nil }
             let remainder = line[contentStart...]
-            if remainder.isEmpty {
+            if remainder.trimmingCharacters(in: .whitespaces).isEmpty {
                 return DisplayMathOpening(marker: open, closing: close, content: "", closesOnSameLine: false, leadingIndent: indent)
             }
             if let closingRange = remainder.range(of: close) {
@@ -1760,14 +1870,20 @@ struct StreamingParser {
                 guard afterClose.isEmpty else { return nil }
                 let inner = remainder[..<closingRange.lowerBound]
                 return DisplayMathOpening(marker: open, closing: close, content: String(inner), closesOnSameLine: true, leadingIndent: indent)
-            } else {
+            } else if contentMayFollow {
                 return DisplayMathOpening(marker: open, closing: close, content: String(remainder), closesOnSameLine: false, leadingIndent: indent)
+            } else {
+                return nil
             }
         }
 
-        // Try $$...$$ first, then \[...\]
-        if let open = makeOpening(open: "$$", close: "$$") { return open }
-        if let open = makeOpening(open: "\\[", close: "\\]") { return open }
+        // Try $$...$$ first, then \[...\]. A `$$` opener may carry content
+        // on its own line; `\[` opens display math only alone on its line or
+        // closed on the same line, because `\[` is otherwise CommonMark's
+        // escaped bracket (`\[not a link](/foo)` is a paragraph) and an
+        // opener that never closed would swallow the rest of the document.
+        if let open = makeOpening(open: "$$", close: "$$", contentMayFollow: true) { return open }
+        if let open = makeOpening(open: "\\[", close: "\\]", contentMayFollow: false) { return open }
 //        if let open = makeOpening(open: "\\(", close: "\\)") { return open }
 
         return nil
@@ -1830,7 +1946,7 @@ struct StreamingParser {
         return remainder.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    private func detectHeading(_ line: String) -> HeadingInfo? {
+    private func detectHeading(_ line: String, isLineComplete: Bool = false) -> HeadingInfo? {
         var index = line.startIndex
         var indent = 0
         // Up to three spaces of indentation (CommonMark); four is code.
@@ -1844,7 +1960,15 @@ struct StreamingParser {
             level += 1
             index = line.index(after: index)
         }
-        guard level > 0, index < line.endIndex, line[index] == " " else { return nil }
+        guard level > 0 else { return nil }
+        // The markers end at a space or tab, or at the end of a complete line
+        // (`#` alone is an empty heading). A partial line of only `#` waits:
+        // it may still become `#hashtag`.
+        if index == line.endIndex {
+            guard isLineComplete else { return nil }
+            return HeadingInfo(level: level, prefixLength: indent + level, indent: indent)
+        }
+        guard line[index] == " " || line[index] == "\t" else { return nil }
         let prefixLength = indent + level + 1 // indent + heading markers + following space
         return HeadingInfo(level: level, prefixLength: prefixLength, indent: indent)
     }
@@ -2127,7 +2251,7 @@ struct StreamingParser {
         guard line.prefix(while: { $0 == " " }).count <= 3 else { return false }
         let content = line.drop(while: { $0 == " " })
         guard let first = content.first, first == "-" || first == "*" || first == "_" else { return false }
-        return content.allSatisfy { $0 == first || $0 == " " }
+        return content.allSatisfy { $0 == first || $0 == " " || $0 == "\t" }
     }
 
     private func isPotentialListMarkerOnly(_ trimmed: String) -> Bool {
@@ -2176,14 +2300,16 @@ struct StreamingParser {
     private func detectHorizontalRule(_ line: String, indent: Int) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard trimmed.count >= 3 else { return false }
-        let stripped = trimmed.replacingOccurrences(of: " ", with: "")
+        // Spaces and tabs may separate the characters (CommonMark).
+        let stripped = trimmed.filter { $0 != " " && $0 != "\t" }
         guard let first = stripped.first, ["-", "*", "_"].contains(first) else { return false }
         guard stripped.allSatisfy({ $0 == first }) else { return false }
         let leadingSpaces = line.prefix { $0 == " " }.count
         if indent > 0 {
             return leadingSpaces >= indent
         }
-        return true
+        // Four or more spaces is indented code, or a paragraph's continuation.
+        return leadingSpaces <= 3
     }
 
     private func detectLinkDefinition(_ line: String) -> (label: String, url: String, title: String?)? {
