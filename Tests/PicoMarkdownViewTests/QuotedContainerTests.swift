@@ -78,7 +78,27 @@ struct QuotedContainerTests {
         ">> a\n> \\[x\\]y\n\n",
         "> ```\n[x]: /url\n> visible\n\n",
         "> text\n[x]: /url\n\n",
-        "> ```\n[x]: /url\n\n[link][x]\n\n"
+        "> ```\n[x]: /url\n\n[link][x]\n\n",
+        ">\n>  \n> \n",
+        ">\n> foo\n>  \n",
+        "> foo\n>\n> bar\n",
+        ">     foo\n    bar\n",
+        "> foo\n    - bar\n",
+        ">     code\n\n>    not code\n",
+        "> - a\n>\n> - b\n> c\n\n",
+        "> # h\n>     code\n>     more\n>\n>     after\n> text\n\n",
+        "> quoted\n>\nafter\n\n",
+        ">     code\n> text\n\n",
+        "> para\n>     still para\n\n",
+        "> > inner\n>\n> > again\n\n",
+        ">\nfoo\n\n",
+        ">     chunk1\n>       \n>       chunk2\n\n",
+        "> - a\n>   - b\n>\n> # h\n\n",
+        "- a\n  - b\n\n# h\n\n",
+        ">     code\n> > a\n\n",
+        ">     code\n>     > x\n\n",
+        "> - a\n>   - b\n>\nfoo\n\n",
+        ">> - a\n>>   - b\n>>\n> foo\n\n"
     ] + emptyHeadingDocuments + markerOnlyDocuments + containerDocuments + emptyMarkerDocuments
 
     /// Lists, tables, footnotes and extension blocks inside quotes.
@@ -301,13 +321,148 @@ struct QuotedContainerTests {
         }
     }
 
-    @Test("Marker-only lines separate quoted paragraphs and never leak markers")
+    @Test("Marker-only lines separate quoted paragraphs inside one quote and never leak markers")
     func markerOnlyLines() async {
         let result = await parse(chunks: [Self.documents[40]])
-        #expect(result.blocks.map(\.kind) == [.blockquote, .heading(level: 1), .paragraph, .blockquote, .heading(level: 1)])
+        #expect(result.blocks.map(\.kind) == [.blockquote, .heading(level: 1), .paragraph, .heading(level: 1)])
+        #expect(result.blocks.last?.parentID == result.blocks.first?.id, "the quote stays open across the separator")
         #expect(result.blocks.flatMap { $0.inlineRuns ?? [] }.allSatisfy { !$0.text.contains(">") })
         let empty = await parse(chunks: ["> # h\n> "])
         #expect(empty.blocks.map(\.kind) == [.blockquote, .heading(level: 1)])
+    }
+
+    @Test("A marker-only line is a blank line inside the quote: the quote stays open")
+    func markerOnlyLinesKeepTheQuoteOpen() async {
+        let empty = await parse(chunks: [Self.documents[64]])
+        #expect(empty.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: empty.blocks[0]).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+        let leading = await parse(chunks: [Self.documents[65]])
+        #expect(leading.blocks.map(\.kind) == [.blockquote, .paragraph], "text after a leading separator is a paragraph child")
+        #expect(leading.blocks[1].parentID == leading.blocks[0].id)
+        #expect(text(of: leading.blocks[1]) == "foo")
+
+        let emptyThenUnquoted = await parse(chunks: [Self.documents[76]])
+        #expect(emptyThenUnquoted.blocks.map(\.kind) == [.blockquote, .paragraph])
+        #expect(emptyThenUnquoted.blocks[1].parentID == nil, "an empty quote has no paragraph to continue lazily")
+        #expect(text(of: emptyThenUnquoted.blocks[1]) == "foo")
+
+        let paragraphs = await parse(chunks: [Self.documents[66]])
+        #expect(paragraphs.blocks.map(\.kind) == [.blockquote, .paragraph])
+        #expect(text(of: paragraphs.blocks[0]).trimmingCharacters(in: .whitespacesAndNewlines) == "foo")
+        #expect(paragraphs.blocks[1].parentID == paragraphs.blocks[0].id, "text after the separator is a paragraph child")
+        #expect(text(of: paragraphs.blocks[1]) == "bar")
+
+        let nested = await parse(chunks: [Self.documents[37]])
+        #expect(nested.blocks.map(\.kind) == [.blockquote, .blockquote, .paragraph])
+        #expect(nested.blocks[2].parentID == nested.blocks[0].id, "fewer markers after the separator return to the outer quote")
+        let siblings = await parse(chunks: [Self.documents[75]])
+        #expect(siblings.blocks.map(\.kind) == [.blockquote, .blockquote, .blockquote])
+        #expect(siblings.blocks[2].parentID == siblings.blocks[0].id, "a second nested quote is a sibling, not a new outer quote")
+
+        let list = await parse(chunks: [Self.documents[70]])
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
+        #expect(list.blocks.map(\.kind) == [.blockquote, item, item])
+        #expect(list.blocks.dropFirst().allSatisfy { $0.parentID == list.blocks[0].id })
+        #expect(text(of: list.blocks[2]).trimmingCharacters(in: .whitespacesAndNewlines) == "b\nc", "an unindented line continues the item lazily")
+
+        let unquoted = await parse(chunks: [Self.documents[72]])
+        #expect(unquoted.blocks.map(\.kind) == [.blockquote, .paragraph])
+        #expect(unquoted.blocks[1].parentID == nil, "after the separator an unquoted line is outside the quote")
+        #expect(text(of: unquoted.blocks[1]) == "after")
+    }
+
+    @Test("Four columns after the marker open indented code inside the quote")
+    func quotedIndentedCode() async {
+        let code = BlockKind.fencedCode(language: nil)
+        let twoBlocks = await parse(chunks: [Self.documents[67]])
+        #expect(twoBlocks.blocks.map(\.kind) == [.blockquote, code, code])
+        #expect(twoBlocks.blocks[1].parentID == twoBlocks.blocks[0].id)
+        #expect(twoBlocks.blocks[1].codeText == "foo\n")
+        #expect(twoBlocks.blocks[2].parentID == nil, "an unmarked line ends the quoted code; its indentation is new code outside")
+        #expect(twoBlocks.blocks[2].codeText == "bar\n")
+
+        let separated = await parse(chunks: [Self.documents[69]])
+        #expect(separated.blocks.map(\.kind) == [.blockquote, code, .blockquote])
+        #expect(separated.blocks[1].codeText == "code\n")
+        #expect(text(of: separated.blocks[2]).contains("not code"), "three columns after the marker are text")
+
+        let multiLine = await parse(chunks: [Self.documents[71]])
+        #expect(multiLine.blocks.map(\.kind) == [.blockquote, .heading(level: 1), code, .paragraph])
+        #expect(multiLine.blocks[2].codeText == "code\nmore\n\nafter\n", "a `>` line inside quoted code is a blank code line")
+        #expect(multiLine.blocks[3].parentID == multiLine.blocks[0].id)
+        #expect(text(of: multiLine.blocks[3]) == "text")
+
+        let followedByText = await parse(chunks: [Self.documents[73]])
+        #expect(followedByText.blocks.map(\.kind) == [.blockquote, code, .paragraph])
+        #expect(followedByText.blocks[1].codeText == "code\n")
+        #expect(followedByText.blocks[2].parentID == followedByText.blocks[0].id)
+
+        let paragraph = await parse(chunks: [Self.documents[74]])
+        #expect(paragraph.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: paragraph.blocks[0]).contains("still para"), "indented code cannot interrupt a paragraph")
+
+        let blankLine = await parse(chunks: [Self.documents[77]])
+        #expect(blankLine.blocks.map(\.kind) == [.blockquote, code])
+        #expect(blankLine.blocks[1].codeText == "chunk1\n  \n  chunk2\n", "a blank code line loses four columns after the marker, like an unquoted one")
+
+        let nestedMarker = await parse(chunks: [Self.documents[80]])
+        #expect(nestedMarker.blocks.map(\.kind) == [.blockquote, code, .blockquote])
+        #expect(nestedMarker.blocks[1].codeText == "code\n", "a `>` with less than four columns ends the code and nests a quote")
+        #expect(text(of: nestedMarker.blocks[2]).contains("a"))
+        let markerInCode = await parse(chunks: [Self.documents[81]])
+        #expect(markerInCode.blocks.map(\.kind) == [.blockquote, code])
+        #expect(markerInCode.blocks[1].codeText == "code\n> x\n", "a `>` after four columns is code")
+    }
+
+    @Test("The quote's pending text is emitted at the separator, not withheld until the quote closes")
+    func separatorFlushesPendingQuoteText() async {
+        let tokenizer = MarkdownTokenizer()
+        let result = await tokenizer.feed("> *first\n>\n")
+        let emitted = result.events.compactMap { event -> String? in
+            if case .blockAppendInline(_, let runs) = event { return runs.map(\.text).joined() }
+            return nil
+        }.joined()
+        #expect(emitted.contains("*first"), "the unmatched opener's text is visible before the next paragraph")
+        #expect(result.openBlocks.map(\.kind) == [.blockquote])
+        let finished = await tokenizer.feed("> second\n\n")
+        let whole = await parse(chunks: ["> *first\n>\n> second\n\n"])
+        #expect(whole.blocks.map(\.kind) == [.blockquote, .paragraph])
+        #expect(text(of: whole.blocks[0]).contains("*first"))
+        #expect(!finished.events.isEmpty)
+    }
+
+    @Test("A deferred opener after a nested-list separator opens no empty paragraph")
+    func openerAfterListSeparatorOpensNoParagraph() async {
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
+        let quoted = await parse(chunks: ["> - a\n>   - b\n>\n> #", " h\n\n"])
+        #expect(quoted.blocks.map(\.kind) == [.blockquote, item, item, .heading(level: 1)])
+        #expect(quoted.blocks == (await parse(chunks: [Self.documents[78]])).blocks)
+        let top = await parse(chunks: ["- a\n  - b\n\n#", " h\n\n"])
+        #expect(top.blocks.map(\.kind) == [item, item, .heading(level: 1)])
+        #expect(top.blocks == (await parse(chunks: [Self.documents[79]])).blocks)
+    }
+
+    @Test("After a nested-list separator, text with fewer markers continues nothing lazily")
+    func listSeparatorEndsLazyContinuation() async {
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
+        let unmarked = await parse(chunks: [Self.documents[82]])
+        #expect(unmarked.blocks.map(\.kind) == [.blockquote, item, item, .paragraph])
+        #expect(unmarked.blocks[3].parentID == nil, "the unmarked line is outside the quote")
+        #expect(text(of: unmarked.blocks[3]) == "foo")
+        #expect(!text(of: unmarked.blocks[1]).contains("foo"))
+
+        let fewer = await parse(chunks: [Self.documents[83]])
+        #expect(fewer.blocks.map(\.kind) == [.blockquote, .blockquote, item, item, .paragraph])
+        #expect(fewer.blocks[4].parentID == fewer.blocks[0].id, "one marker returns to the outer quote")
+        #expect(text(of: fewer.blocks[4]) == "foo")
+    }
+
+    @Test("An unmarked line indented four columns continues a quoted paragraph lazily")
+    func lazyContinuationKeepsIndentedLine() async {
+        let result = await parse(chunks: [Self.documents[68]])
+        #expect(result.blocks.map(\.kind) == [.blockquote])
+        #expect(text(of: result.blocks[0]).contains("- bar"), "four columns of indentation cannot start a list or code")
     }
 
     @Test("Unmarked text after a quoted heading, code or rule is outside the quote")
@@ -452,18 +607,19 @@ struct QuotedContainerTests {
         #expect(result.blocks.first(where: { $0.codeText != nil })?.codeText == "let x = 1\n\n> literal\n")
 
         let nested = await parse(chunks: [Self.containerDocuments[2]])
-        // The `>` separator ends the quote; the next line opens a fresh one
-        // whose own text stays inline (it has no children).
+        // The `>` separator ends the list; the paragraph after it is another
+        // child of the same quote.
         #expect(nested.blocks.map(\.kind) == [
             .blockquote,
             .listItem(ordered: false, index: nil, task: nil),
             .listItem(ordered: false, index: nil, task: nil),
             .listItem(ordered: false, index: nil, task: nil),
-            .blockquote
+            .paragraph
         ])
         #expect(nested.blocks[2].depth == 2, "the nested item is a child of the first item")
         #expect(nested.blocks[2].parentID == nested.blocks[1].id)
         #expect(nested.blocks[3].parentID == nested.blocks[0].id)
+        #expect(nested.blocks[4].parentID == nested.blocks[0].id)
         #expect(nested.blocks.flatMap { $0.inlineRuns ?? [] }.allSatisfy { !$0.text.contains("- ") })
 
         let tasks = await parse(chunks: ["> - ", "[x] task\n> - [ ] pending\n> 1. [X] ordered\n\n"])

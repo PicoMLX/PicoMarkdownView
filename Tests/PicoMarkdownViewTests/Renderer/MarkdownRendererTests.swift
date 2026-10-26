@@ -788,7 +788,7 @@ struct MarkdownRendererTests {
         }
     }
 
-    @Test("Marker-only separators split quotes and return to the outer level")
+    @Test("Marker-only separators keep one quote: a nested level, then back to the outer level")
     func quoteSeparatorReturnsToOuterLevel() async {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
@@ -796,8 +796,8 @@ struct MarkdownRendererTests {
             await assembler.block(id)
         }
 
-        // The classic Markdown.pl nested-quote sample. GitHub renders:
-        // level 1, a nested level 2, then back to level 1.
+        // The classic Markdown.pl nested-quote sample. GitHub renders one
+        // quote: level 1, a nested level 2, then back to level 1.
         let markdown = "> First level.\n>\n> > Nested.\n>\n> Back to first.\n\n"
         let chunk = await tokenizer.feed(markdown)
         let diff = await assembler.apply(chunk)
@@ -807,22 +807,21 @@ struct MarkdownRendererTests {
         _ = await renderer.apply(finishDiff)
 
         let blocks = await renderer.renderedBlocks()
-        let quotes = blocks.filter { $0.blockquote != nil }
-        let shapes = quotes.map { block -> (depth: Int, level: Int?, text: String) in
+        let shapes = blocks.map { block -> (kind: BlockKind, depth: Int, level: Int?, text: String) in
             let ns = NSAttributedString.picoConverted(from: block.content)
             let level = ns.length > 0
                 ? ns.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int
                 : nil
-            return (block.snapshot.depth, level, ns.string)
+            return (block.kind, block.snapshot.depth, level, ns.string)
         }
 
-        // Document order: first level, the nested quote (its container-only
-        // level-1 parent renders nothing), then a fresh level-1 block.
-        #expect(shapes.count == 3, "expected 3 rendered quote blocks, got \(shapes)")
+        // Document order: the outer quote with its first paragraph, the
+        // nested quote, then a paragraph child back at level 1.
+        #expect(shapes.count == 3, "expected 3 rendered blocks, got \(shapes)")
         guard shapes.count == 3 else { return }
-        #expect(shapes[0].depth == 0 && shapes[0].level == 1 && shapes[0].text.hasPrefix("First level."))
-        #expect(shapes[1].depth == 1 && shapes[1].level == 2 && shapes[1].text.hasPrefix("Nested."))
-        #expect(shapes[2].depth == 0 && shapes[2].level == 1 && shapes[2].text.hasPrefix("Back to first."))
+        #expect(shapes[0].kind == .blockquote && shapes[0].depth == 0 && shapes[0].level == 1 && shapes[0].text.hasPrefix("First level."))
+        #expect(shapes[1].kind == .blockquote && shapes[1].depth == 1 && shapes[1].level == 2 && shapes[1].text.hasPrefix("Nested."))
+        #expect(shapes[2].kind == .paragraph && shapes[2].depth == 1 && shapes[2].level == 1 && shapes[2].text.hasPrefix("Back to first."))
     }
 
     @Test("Image-only quote parents are not suppressed as container-only")
