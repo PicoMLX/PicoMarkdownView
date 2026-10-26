@@ -2040,7 +2040,13 @@ struct MarkdownTokenizerGoldenTests {
                        Array(repeating: "\u{600}", count: 40) + ["a", "_b_"],
                        // A Prepend character followed by a long Hangul jamo run is one grapheme.
                        ["\u{600}" + String(repeating: "\u{1100}", count: 33), "_b_"],
-                       ["\u{600}"] + Array(repeating: "\u{1100}", count: 40) + ["_b_"]] {
+                       ["\u{600}"] + Array(repeating: "\u{1100}", count: 40) + ["_b_"],
+                       // An Indic conjunct: consonant, ZWJ, virama (linker), many marks, then a consonant
+                       // that joins across them; the ZWJ keeps the grapheme non-alphanumeric.
+                       ["\u{915}\u{200D}\u{94D}" + String(repeating: "\u{301}", count: 40), "\u{915}", "_b_"],
+                       ["\u{915}", "\u{200D}", "\u{94D}"] + Array(repeating: "\u{301}", count: 40) + ["\u{915}", "_b_"],
+                       // Alternating marks defeat a run-length cap but not a distinct-scalar one.
+                       ["\u{915}\u{200D}\u{94D}" + String(repeating: "\u{301}\u{302}", count: 40), "\u{915}", "_b_"]] {
             var parser = InlineParser()
             var runs = chunks.flatMap { parser.append($0) }
             runs += parser.finish()

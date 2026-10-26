@@ -1352,18 +1352,38 @@ struct InlineParser {
             // that joins the previous one (`❤` then U+FE0F, a Prepend
             // character then its letter, a mark after a letter) extends the
             // class by AND; anything else starts a fresh one.
+            // The joining tail keeps what grapheme breaking can look back
+            // at: every base scalar, and each distinct extending scalar
+            // (marks, joiners, Indic linkers) once, at its last position. A
+            // run of forty identical marks after a linker collapses to one,
+            // so the linker stays visible to the next consonant, while the
+            // tail stays bounded (at most 64 scalars are kept).
+            func joiningTail(of character: Character) -> String {
+                var kept: [Unicode.Scalar] = []
+                var seenExtending = Set<Unicode.Scalar>()
+                for scalar in character.unicodeScalars.reversed() {
+                    if scalar.properties.isGraphemeExtend {
+                        guard seenExtending.insert(scalar).inserted else { continue }
+                    }
+                    kept.append(scalar)
+                    if kept.count == 64 { break }
+                }
+                var view = String.UnicodeScalarView()
+                view.append(contentsOf: kept.reversed())
+                return String(view)
+            }
             let consumed = text[..<consumedEnd]
             if let last = consumed.last {
                 let alphanumeric = isAlphanumeric(last)
                 let whitespace = isWhitespace(last)
-                let tail = String(last.unicodeScalars.suffix(32))
                 if let previous = lastConsumed, consumed.dropFirst().isEmpty,
+                   let merged = (previous.tail + String(last)).last,
                    (previous.tail + String(last)).count < previous.tail.count + 1 {
-                    lastConsumed = ConsumedContext(tail: tail,
+                    lastConsumed = ConsumedContext(tail: joiningTail(of: merged),
                                                    alphanumeric: previous.alphanumeric && alphanumeric,
                                                    whitespace: previous.whitespace && whitespace)
                 } else {
-                    lastConsumed = ConsumedContext(tail: tail, alphanumeric: alphanumeric, whitespace: whitespace)
+                    lastConsumed = ConsumedContext(tail: joiningTail(of: last), alphanumeric: alphanumeric, whitespace: whitespace)
                 }
             }
             pending = String(text[consumedEnd...])
