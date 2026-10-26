@@ -91,6 +91,8 @@ struct SpecInlineFixesTests {
         // grapheme with a Prepend character or a mark is still syntax.
         ("`a\u{600}` b\n\n", "<code>a\u{600}</code> b"),
         ("<irc:foo>\u{301} x\n\n", "<a irc:foo>irc:foo</a>\u{301} x"),
+        ("*a\u{600}* b\n\n", "<i>a\u{600}</i> b"),
+        ("a \u{600}*b* c\n\n", "a \u{600}<i>b</i> c"),
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.
         ("(`x`)\n\n", "(<code>x</code>)"),

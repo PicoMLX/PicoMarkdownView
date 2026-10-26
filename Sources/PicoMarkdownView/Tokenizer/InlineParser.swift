@@ -405,6 +405,24 @@ struct InlineParser {
         /// A character with the same class as `character` for everything the
         /// parser asks of a preceding character (alphanumeric, whitespace,
         /// punctuation, other); `nil` is the start of the text.
+        /// A Prepend character (U+0600 and the like) joins the next character
+        /// into its grapheme, but CommonMark reads code points: an ASCII
+        /// syntax character inside such a grapheme is still syntax. Its
+        /// position, so the caller handles it there, or `nil`. Whether a chunk
+        /// boundary falls between the two then makes no difference.
+        func syntaxInsideGrapheme(at index: String.Index) -> String.Index? {
+            let scalars = text.unicodeScalars
+            guard index < text.endIndex, !scalars[index].isASCII else { return nil }
+            let graphemeEnd = text.index(after: index)
+            var cursor = scalars.index(after: index)
+            while cursor < graphemeEnd {
+                let scalar = scalars[cursor]
+                if scalar.isASCII, "*_`~<[!$\\".unicodeScalars.contains(scalar) { return cursor }
+                cursor = scalars.index(after: cursor)
+            }
+            return nil
+        }
+
         func standIn(_ character: Character?) -> Character? {
             character.map { character in
                 if isAlphanumeric(character) { return "a" }
@@ -433,8 +451,10 @@ struct InlineParser {
                 if context.whitespace { return " " }
                 return context.punctuation ? "." : "©"
             }
-            let prior = text.index(before: index)
-            return text[prior]
+            // The code point before `index`, which may sit inside a grapheme
+            // (see `syntaxInsideGrapheme`); its class is the one callers ask.
+            let scalars = text.unicodeScalars
+            return Character(scalars[scalars.index(before: index)])
         }
 
         func character(after index: String.Index, offset: Int = 0) -> Character? {
@@ -515,33 +535,41 @@ struct InlineParser {
 
         /// Whether the character at `index` follows an odd run of backslashes.
         func isEscaped(_ index: String.Index) -> Bool {
+            let scalars = text.unicodeScalars
             var backslashes = 0
             var cursor = index
             while cursor > text.startIndex {
-                let previous = text.index(before: cursor)
-                guard text[previous] == "\\" else { break }
+                let previous = scalars.index(before: cursor)
+                guard scalars[previous] == "\\" else { break }
                 backslashes += 1
                 cursor = previous
             }
             return backslashes % 2 == 1
         }
 
-        /// The run of `text[index]` characters around `index`: a delimiter
-        /// run (CommonMark) is judged as a whole. An escaped delimiter is
-        /// text, not part of the run.
+        /// The run of the delimiter at `index` around it: a delimiter run
+        /// (CommonMark) is judged as a whole. An escaped delimiter is text,
+        /// not part of the run. Delimiters are ASCII code points, so the run
+        /// is found by scalars, whatever graphemes they share.
         func delimiterRun(containing index: String.Index) -> Range<String.Index> {
-            let delimiter = text[index]
+            let scalars = text.unicodeScalars
+            let delimiter = scalars[index]
             var start = index
             while start > text.startIndex {
-                let previous = text.index(before: start)
-                guard text[previous] == delimiter, !isEscaped(previous) else { break }
+                let previous = scalars.index(before: start)
+                guard scalars[previous] == delimiter, !isEscaped(previous) else { break }
                 start = previous
             }
             var end = index
-            while end < text.endIndex, text[end] == delimiter {
-                end = text.index(after: end)
+            while end < text.endIndex, scalars[end] == delimiter {
+                end = scalars.index(after: end)
             }
             return start..<end
+        }
+
+        /// Delimiters in a range of a run, one byte each.
+        func delimiterCount(from start: String.Index, to end: String.Index) -> Int {
+            text.utf8.distance(from: start, to: end)
         }
 
         struct Flanking {
@@ -555,7 +583,7 @@ struct InlineParser {
         /// earlier chunk began (`word_` delivered, then `_bar`).
         func characterBefore(run: Range<String.Index>) -> Character? {
             if run.lowerBound == text.startIndex, let trailing = lastConsumed?.trailingRun,
-               trailing.delimiter == text[run.lowerBound] {
+               trailing.delimiter == Character(text.unicodeScalars[run.lowerBound]) {
                 return trailing.before
             }
             return character(before: run.lowerBound)
@@ -564,12 +592,12 @@ struct InlineParser {
         /// The length of a delimiter run, including delimiters of it that an
         /// earlier chunk consumed: the rule of three counts the whole run.
         func runLength(_ run: Range<String.Index>) -> Int {
-            var length = text.distance(from: run.lowerBound, to: run.upperBound)
+            var length = delimiterCount(from: run.lowerBound, to: run.upperBound)
             if run.lowerBound == text.startIndex, let trailing = lastConsumed?.trailingRun,
-               trailing.delimiter == text[run.lowerBound] {
+               trailing.delimiter == Character(text.unicodeScalars[run.lowerBound]) {
                 length += trailing.length
             }
-            if run.upperBound == text.endIndex, let following, following.delimiter == text[run.lowerBound] {
+            if run.upperBound == text.endIndex, let following, following.delimiter == Character(text.unicodeScalars[run.lowerBound]) {
                 length += following.runLength
             }
             return length
@@ -589,7 +617,7 @@ struct InlineParser {
             } else if let following {
                 // Emphasis content: the closer follows, and a run that goes
                 // on into the closer's run is followed by what ends that run.
-                after = following.delimiter == text[run.lowerBound] ? (following.afterRun ?? " ") : following.scalar
+                after = following.delimiter == Character(text.unicodeScalars[run.lowerBound]) ? (following.afterRun ?? " ") : following.scalar
             } else if includeUnterminated {
                 after = " "
             } else {
@@ -1138,7 +1166,7 @@ struct InlineParser {
                                     lastPairs: [:], usedUp: [], pairs: [])
                 scan.openers[targetSlot].append(Delimiter(character: delimiter,
                                                           start: 0,
-                                                          count: text.distance(from: index, to: openerRun.upperBound),
+                                                          count: delimiterCount(from: index, to: openerRun.upperBound),
                                                           originalCount: runLength(openerRun),
                                                           canOpen: true,
                                                           canClose: canClose(delimiter, flank)))
@@ -1156,6 +1184,10 @@ struct InlineParser {
             }
             var cursor = position(scan.cursor)
             while cursor < text.endIndex {
+                if let syntax = syntaxInsideGrapheme(at: cursor) {
+                    cursor = syntax
+                    continue
+                }
                 // A registered tag comes first, as in the emitter (a `$AAPL`
                 // ticker is not math); a tag never holds a delimiter.
                 if let prefix = matchingTagPrefix(at: cursor) {
@@ -1273,7 +1305,7 @@ struct InlineParser {
                 if character == "*" || character == "_" {
                     let run = delimiterRun(containing: cursor)
                     guard let runFlank = flanking(of: run) else { return suspend(at: run.lowerBound) }
-                    let length = text.distance(from: run.lowerBound, to: run.upperBound)
+                    let length = delimiterCount(from: run.lowerBound, to: run.upperBound)
                     var closer = Delimiter(character: character, start: offset(run.lowerBound), count: length,
                                            originalCount: length,
                                            canOpen: canOpen(character, runFlank),
@@ -1884,14 +1916,13 @@ struct InlineParser {
             // delimiters (their multi-char opening already provides a natural
             // boundary; "abc[[wiki]]" still recognises the wiki link).
             if index > text.startIndex, prefix.closing == nil {
-                let prev = text[text.index(before: index)]
+                let prev = Character(text.unicodeScalars[text.unicodeScalars.index(before: index)])
                 if suppressesAdjacentTag(prev) {
                     return .literal
                 }
             }
 
-            let openingLength = prefix.opening.count
-            guard let openEnd = text.index(index, offsetBy: openingLength, limitedBy: text.endIndex) else {
+            guard let openEnd = text.unicodeScalars.index(index, offsetBy: prefix.opening.unicodeScalars.count, limitedBy: text.endIndex) else {
                 return includeUnterminated ? .literal : .needMore
             }
 
@@ -2065,6 +2096,12 @@ struct InlineParser {
                     mathGraphemeBoundary = index
                     continue parsing
                 }
+            }
+            // ASCII syntax that a Prepend character joined into its grapheme
+            // is handled where it stands; what precedes it stays plain text.
+            if let syntax = syntaxInsideGrapheme(at: index) {
+                index = syntax
+                continue parsing
             }
             // Inline tag dispatch — fires before the normal switch so that
             // characters which also have other meanings (e.g. "$" is also a
@@ -2276,7 +2313,7 @@ struct InlineParser {
                 case .matched(let closer, let length, let literalPrefix, let inner):
                     // Unpaired delimiters at the left of the run are text
                     // (`**foo*` reads `*` then emphasis).
-                    index = text.index(index, offsetBy: literalPrefix)
+                    index = text.utf8.index(index, offsetBy: literalPrefix)
                     closingRange = closer
                     markerLength = length
                     innerPairs = inner
@@ -2292,7 +2329,7 @@ struct InlineParser {
                     break parsing
                 }
                 flushPlain(upTo: index)
-                let innerStart = text.index(index, offsetBy: markerLength)
+                let innerStart = text.utf8.index(index, offsetBy: markerLength)
                 let inner = String(text[innerStart..<closingRange.lowerBound])
                 let style: InlineStyle = markerLength == 2 ? [.bold] : [.italic]
                 // The content is parsed apart, but its delimiter runs are
@@ -2306,9 +2343,9 @@ struct InlineParser {
                     trailingRun: ConsumedContext.TrailingRun(
                         delimiter: delimiter,
                         before: standIn(characterBefore(run: openerRun)),
-                        length: runLength(openerRun) - text.distance(from: innerStart, to: openerRun.upperBound)))
+                        length: runLength(openerRun) - delimiterCount(from: innerStart, to: openerRun.upperBound)))
                 let closerRun = delimiterRun(containing: closingRange.lowerBound)
-                var closerRunLength = text.distance(from: closingRange.lowerBound, to: closerRun.upperBound)
+                var closerRunLength = delimiterCount(from: closingRange.lowerBound, to: closerRun.upperBound)
                 var afterCloserRun = closerRun.upperBound < text.endIndex ? text[closerRun.upperBound].unicodeScalars.first : nil
                 if closerRun.upperBound == text.endIndex, let following, following.delimiter == delimiter {
                     closerRunLength += following.runLength
@@ -2579,22 +2616,24 @@ struct InlineParser {
                 // before it, carried over when the run began even earlier.
                 var trailingRun: ConsumedContext.TrailingRun?
                 // `consumedEnd` may sit inside a grapheme (math resumes at a
-                // scalar boundary), so the last character is found within
-                // the consumed slice, and only for a delimiter, which is a
-                // whole grapheme.
-                if last == "*" || last == "_", case let lastIndex = consumed.index(before: consumed.endIndex), !isEscaped(lastIndex) {
+                // scalar boundary, syntax a Prepend character joined is
+                // handled in place), so the run is found by scalars.
+                let consumedScalars = consumed.unicodeScalars
+                if let lastScalar = consumedScalars.last, lastScalar == "*" || lastScalar == "_",
+                   case let lastIndex = consumedScalars.index(before: consumedScalars.endIndex), !isEscaped(lastIndex) {
+                    let scalars = text.unicodeScalars
                     var runStart = lastIndex
                     while runStart > text.startIndex {
-                        let previous = text.index(before: runStart)
-                        guard text[previous] == last, !isEscaped(previous) else { break }
+                        let previous = scalars.index(before: runStart)
+                        guard scalars[previous] == lastScalar, !isEscaped(previous) else { break }
                         runStart = previous
                     }
-                    let consumedLength = text.distance(from: runStart, to: consumedEnd)
-                    if runStart == text.startIndex, var previous = lastConsumed?.trailingRun, previous.delimiter == last {
+                    let consumedLength = delimiterCount(from: runStart, to: consumedEnd)
+                    if runStart == text.startIndex, var previous = lastConsumed?.trailingRun, previous.delimiter == Character(lastScalar) {
                         previous.length += consumedLength
                         trailingRun = previous
                     } else {
-                        trailingRun = ConsumedContext.TrailingRun(delimiter: last, before: standIn(character(before: runStart)),
+                        trailingRun = ConsumedContext.TrailingRun(delimiter: Character(lastScalar), before: standIn(character(before: runStart)),
                                                                   length: consumedLength)
                     }
                 }
