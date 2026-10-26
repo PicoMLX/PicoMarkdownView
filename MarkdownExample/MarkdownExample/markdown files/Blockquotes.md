@@ -21,6 +21,30 @@ Quoted text keeps its bar, and blocks inside a quote keep their own styling.
 
 The `>` line inside the fence is a blank code line; it does not end the quote.
 
+## Lists inside a quote
+
+> Things to do:
+> - [x] a finished task
+> - [ ] an open one
+>   - with a nested item
+> 1. first
+> 2. second
+>
+> Text after the list is a new quote paragraph.
+
+## A table inside a quote
+
+> | Column | Value |
+> | --- | ---: |
+> | **bold** | 1 |
+> | plain | 22 |
+> Text after the table.
+
+## Footnotes inside a quote
+
+> [^q]: A quoted footnote definition.
+> [^r]: Another one.
+
 ## Rules and math
 
 > Above the rule
