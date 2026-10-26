@@ -733,6 +733,18 @@ struct StreamingParser {
         let activeLevel = contextStack[quoteIndex].blockquoteLevel
         let topIsQuote = contextStack.count - 1 == quoteIndex
         let topIsVerbatim = top.kind.isVerbatim || top.kind == .table || top.kind == .unknown
+        // Lazy continuation needs an open paragraph (CommonMark). There is
+        // none in a heading, in a quote whose own text ended at a separator
+        // or that holds child blocks, or in a list item whose nested item a
+        // separator closed.
+        let paragraphEnded: Bool
+        if top.kind.isHeading || (top.kind == .blockquote && top.hasBlockChildren) {
+            paragraphEnded = true
+        } else if case .listItem = top.kind {
+            paragraphEnded = top.sawBlankInSubContext
+        } else {
+            paragraphEnded = false
+        }
 
         // Inside quoted code or math, further `>` markers are content, so
         // only the enclosing quote's own markers are stripped.
@@ -762,8 +774,7 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return true
             }
-            if top.kind.isHeading || (top.kind == .blockquote && top.hasBlockChildren)
-                || startsBlock(lineBuffer[...], isLineComplete: isLineComplete) {
+            if paragraphEnded || startsBlock(lineBuffer[...], isLineComplete: isLineComplete) {
                 closeBlockquoteContexts()
                 lineAnalyzed = false
                 analyzeLineIfNeeded(isLineComplete: isLineComplete)
@@ -799,7 +810,7 @@ struct StreamingParser {
             // level; blank content or a new block closes the inner quotes.
             let content = lineBuffer.dropFirst(quote.prefixLength)
             let blank = content.allSatisfy { $0 == " " || $0 == "\t" }
-            if topIsVerbatim || top.kind.isHeading || (top.kind == .blockquote && top.hasBlockChildren)
+            if topIsVerbatim || paragraphEnded
                 || (blank && isLineComplete) || startsBlock(content, isLineComplete: isLineComplete) {
                 while let current = currentBlock,
                       current.kind != .blockquote || current.blockquoteLevel > quote.markerCount {

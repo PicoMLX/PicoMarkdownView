@@ -96,7 +96,9 @@ struct QuotedContainerTests {
         "> - a\n>   - b\n>\n> # h\n\n",
         "- a\n  - b\n\n# h\n\n",
         ">     code\n> > a\n\n",
-        ">     code\n>     > x\n\n"
+        ">     code\n>     > x\n\n",
+        "> - a\n>   - b\n>\nfoo\n\n",
+        ">> - a\n>>   - b\n>>\n> foo\n\n"
     ] + emptyHeadingDocuments + markerOnlyDocuments + containerDocuments + emptyMarkerDocuments
 
     /// Lists, tables, footnotes and extension blocks inside quotes.
@@ -439,6 +441,21 @@ struct QuotedContainerTests {
         let top = await parse(chunks: ["- a\n  - b\n\n#", " h\n\n"])
         #expect(top.blocks.map(\.kind) == [item, item, .heading(level: 1)])
         #expect(top.blocks == (await parse(chunks: [Self.documents[79]])).blocks)
+    }
+
+    @Test("After a nested-list separator, text with fewer markers continues nothing lazily")
+    func listSeparatorEndsLazyContinuation() async {
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
+        let unmarked = await parse(chunks: [Self.documents[82]])
+        #expect(unmarked.blocks.map(\.kind) == [.blockquote, item, item, .paragraph])
+        #expect(unmarked.blocks[3].parentID == nil, "the unmarked line is outside the quote")
+        #expect(text(of: unmarked.blocks[3]) == "foo")
+        #expect(!text(of: unmarked.blocks[1]).contains("foo"))
+
+        let fewer = await parse(chunks: [Self.documents[83]])
+        #expect(fewer.blocks.map(\.kind) == [.blockquote, .blockquote, item, item, .paragraph])
+        #expect(fewer.blocks[4].parentID == fewer.blocks[0].id, "one marker returns to the outer quote")
+        #expect(text(of: fewer.blocks[4]) == "foo")
     }
 
     @Test("An unmarked line indented four columns continues a quoted paragraph lazily")
