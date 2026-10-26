@@ -90,7 +90,9 @@ struct QuotedContainerTests {
         "> quoted\n>\nafter\n\n",
         ">     code\n> text\n\n",
         "> para\n>     still para\n\n",
-        "> > inner\n>\n> > again\n\n"
+        "> > inner\n>\n> > again\n\n",
+        ">\nfoo\n\n",
+        ">     chunk1\n>       \n>       chunk2\n\n"
     ] + emptyHeadingDocuments + markerOnlyDocuments + containerDocuments + emptyMarkerDocuments
 
     /// Lists, tables, footnotes and extension blocks inside quotes.
@@ -330,8 +332,14 @@ struct QuotedContainerTests {
         #expect(text(of: empty.blocks[0]).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
         let leading = await parse(chunks: [Self.documents[65]])
-        #expect(leading.blocks.map(\.kind) == [.blockquote])
-        #expect(text(of: leading.blocks[0]).trimmingCharacters(in: .whitespacesAndNewlines) == "foo")
+        #expect(leading.blocks.map(\.kind) == [.blockquote, .paragraph], "text after a leading separator is a paragraph child")
+        #expect(leading.blocks[1].parentID == leading.blocks[0].id)
+        #expect(text(of: leading.blocks[1]) == "foo")
+
+        let emptyThenUnquoted = await parse(chunks: [Self.documents[76]])
+        #expect(emptyThenUnquoted.blocks.map(\.kind) == [.blockquote, .paragraph])
+        #expect(emptyThenUnquoted.blocks[1].parentID == nil, "an empty quote has no paragraph to continue lazily")
+        #expect(text(of: emptyThenUnquoted.blocks[1]) == "foo")
 
         let paragraphs = await parse(chunks: [Self.documents[66]])
         #expect(paragraphs.blocks.map(\.kind) == [.blockquote, .paragraph])
@@ -387,6 +395,10 @@ struct QuotedContainerTests {
         let paragraph = await parse(chunks: [Self.documents[74]])
         #expect(paragraph.blocks.map(\.kind) == [.blockquote])
         #expect(text(of: paragraph.blocks[0]).contains("still para"), "indented code cannot interrupt a paragraph")
+
+        let blankLine = await parse(chunks: [Self.documents[77]])
+        #expect(blankLine.blocks.map(\.kind) == [.blockquote, code])
+        #expect(blankLine.blocks[1].codeText == "chunk1\n  \n  chunk2\n", "a blank code line loses four columns after the marker, like an unquoted one")
     }
 
     @Test("An unmarked line indented four columns continues a quoted paragraph lazily")

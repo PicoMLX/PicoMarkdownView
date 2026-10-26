@@ -42,8 +42,8 @@ struct StreamingParser {
         /// `>>` = 2, …); 0 for every other kind. The blockquote analogue of
         /// `listIndent`.
         var blockquoteLevel: Int = 0
-        /// A blockquote that has opened a child block (heading, fence, …), or
-        /// whose own text was ended by a marker-only line. Later plain text
+        /// A blockquote that has opened a child block (heading, fence, …) or
+        /// seen a marker-only line (a paragraph boundary). Later plain text
         /// goes into a paragraph child so source order is kept, instead of
         /// being appended to the quote's own inline runs.
         var hasBlockChildren: Bool = false
@@ -532,6 +532,14 @@ struct StreamingParser {
                         closeCurrentBlock()
                         analyzeLineIfNeeded(isLineComplete: isLineComplete)
                         return
+                    }
+                    // A blank line inside the code loses up to four columns
+                    // of indentation like any code line; the rest is content
+                    // (the unquoted case is handled with other blank lines).
+                    let blankPrefix = min(4, content.hasPrefix("\t") ? 1 : content.prefix { $0 == " " }.count)
+                    let strip = lineQuotePrefix + blankPrefix
+                    if emittedCount < strip {
+                        emittedCount = min(lineBuffer.count, strip)
                     }
                 }
                 break
@@ -1187,11 +1195,12 @@ struct StreamingParser {
                 if force {
                     closeBlockquoteContexts()
                 } else if isBlank {
-                    // A marker-only line ends the quote's own paragraph: text
-                    // that follows is a paragraph child, and an unquoted line
-                    // no longer continues the quote lazily. The quote itself
-                    // stays open.
-                    if ctx.hasInlineContent, !ctx.hasBlockChildren {
+                    // A marker-only line is a paragraph boundary, whether or
+                    // not the quote has text yet: what follows is a paragraph
+                    // child, and an unquoted line no longer continues the
+                    // quote lazily (that needs an open paragraph). The quote
+                    // itself stays open.
+                    if !ctx.hasBlockChildren {
                         ctx.hasBlockChildren = true
                         setCurrentBlock(ctx)
                     }
