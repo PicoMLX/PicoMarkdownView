@@ -89,28 +89,118 @@ public struct MarkdownRenderTheme: Sendable {
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode)
     }
+
+    /// A copy with every font size multiplied by `scale`, except the code
+    /// block theme's font, which uses `codeBlockScale` when given: the
+    /// default code block theme is sized from the system body size without
+    /// the body font's offset, so Dynamic Type moves it by a different ratio.
+    /// Colors, widths, highlighter and diagram settings are unchanged.
+    public func scaled(by scale: CGFloat, codeBlock codeBlockScale: CGFloat? = nil) -> MarkdownRenderTheme {
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? factor
+        guard factor != 1 || codeFactor != 1 else { return self }
+        let scaledCodeTheme = codeBlockTheme.map { code in
+            CodeBlockTheme(font: code.font.withSize(code.font.pointSize * codeFactor),
+                           foregroundColor: code.foregroundColor,
+                           backgroundColor: code.backgroundColor,
+                           tokenColors: code.tokenColors)
+        }
+        return MarkdownRenderTheme(bodyFont: bodyFont.withSize(bodyFont.pointSize * factor),
+                                   codeFont: codeFont.withSize(codeFont.pointSize * factor),
+                                   blockquoteColor: blockquoteColor,
+                                   linkColor: linkColor,
+                                   headingFonts: headingFonts.mapValues { $0.withSize($0.pointSize * factor) },
+                                   imageMaxWidth: imageMaxWidth,
+                                   codeBlockTheme: scaledCodeTheme,
+                                   codeHighlighter: codeHighlighter,
+                                   mermaidRenderingMode: mermaidRenderingMode)
+    }
 }
 
 actor MarkdownRenderer {
     typealias SnapshotProvider = @Sendable (BlockID) async -> BlockSnapshot
 
+    /// The theme as given; `attributeBuilder` renders with it scaled by
+    /// `textScale`.
     private let theme: MarkdownRenderTheme
-    private let attributeBuilder: MarkdownAttributeBuilder
+    private var attributeBuilder: MarkdownAttributeBuilder
+    private let imageProvider: MarkdownImageProvider?
+    private let injectedMermaidProvider: (any MermaidDiagramProvider)?
     private let snapshotProvider: SnapshotProvider
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
     private var mermaidContentWidthBucket: Int?
+    private var runtimeMermaidContentWidth: CGFloat?
+    private var textScale: CGFloat = 1
+    private var codeBlockTextScale: CGFloat = 1
+    /// Bumped when the builder is replaced, so a render that was in flight
+    /// with the old fonts is redone instead of landing in the new document.
+    private var builderGeneration: UInt64 = 0
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
+        self.imageProvider = imageProvider
+        self.injectedMermaidProvider = mermaidProvider
         let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
         self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
                                                          imageProvider: imageProvider,
                                                          mermaidProvider: resolvedMermaidProvider)
         self.snapshotProvider = snapshotProvider
+    }
+
+    /// Re-renders every block with the theme's fonts scaled by `scale`. The
+    /// parse is untouched: block ids, order and snapshots stay as they are.
+    /// Returns the re-rendered blocks, or `nil` when the scale is unchanged.
+    func updateTextScale(_ scale: CGFloat, codeBlockScale: CGFloat? = nil) async -> [RenderedBlock]? {
+        let factor = scale.isFinite && scale > 0 ? scale : 1
+        let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? factor
+        guard factor != textScale || codeFactor != codeBlockTextScale else { return nil }
+        textScale = factor
+        codeBlockTextScale = codeFactor
+        let scaledTheme = theme.scaled(by: factor, codeBlock: codeFactor)
+        // The scale and its builder are installed in one synchronous step
+        // (the diagram width goes in through the initializer), so two
+        // overlapping requests cannot leave the renderer reporting one scale
+        // while rendering with another.
+        attributeBuilder = MarkdownAttributeBuilder(
+            theme: scaledTheme,
+            imageProvider: imageProvider,
+            mermaidProvider: injectedMermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme),
+            runtimeMermaidMaxWidth: runtimeMermaidContentWidth)
+        builderGeneration &+= 1
+
+        // The stream may append to a block while its scaled render awaits
+        // an image or diagram, and that refresh lands first. A render whose
+        // snapshot is no longer the block's is redone against the current
+        // one instead of landing older text; a block removed meanwhile is
+        // skipped.
+        for id in blocks.map(\.id) {
+            while let index = indexByID[id] {
+                let snapshot = blocks[index].snapshot
+                let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind(at: index),
+                                            blockquoteLevel: blocks[index].blockquoteLevel)
+                guard let current = indexByID[id] else { break }
+                if blocks[current].snapshot == snapshot {
+                    blocks[current].updatePresentation(from: rendered)
+                    break
+                }
+            }
+        }
+        return blocks
+    }
+
+    /// Renders with the current builder, again if the builder changed while
+    /// an image or diagram was awaited, so old fonts never land.
+    private func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind?, blockquoteLevel: Int) async -> RenderedContentResult {
+        while true {
+            let generation = builderGeneration
+            let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                                         blockquoteLevel: blockquoteLevel)
+            if generation == builderGeneration { return rendered }
+        }
     }
 
     /// Applies a diff to the per-block render cache. Returns whether anything
@@ -195,6 +285,7 @@ actor MarkdownRenderer {
         let bucket = mermaidWidthBucket(for: effectiveWidth)
         guard bucket != mermaidContentWidthBucket else { return nil }
         mermaidContentWidthBucket = bucket
+        runtimeMermaidContentWidth = width
 
         await attributeBuilder.setRuntimeMermaidMaxWidth(width)
 
@@ -223,8 +314,7 @@ actor MarkdownRenderer {
         let snapshot = await snapshotProvider(id)
         let previousKind = previousBlockKind(at: index)
         let quoteLevel = blockquoteLevel(for: snapshot)
-        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousKind,
-                                                     blockquoteLevel: quoteLevel)
+        let rendered = await render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel)
 
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
@@ -234,14 +324,7 @@ actor MarkdownRenderer {
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
         blocks[index].blockquoteLevel = quoteLevel
-        blocks[index].content = rendered.attributed
-        blocks[index].table = rendered.table
-        blocks[index].listItem = rendered.listItem
-        blocks[index].blockquote = rendered.blockquote
-        blocks[index].math = rendered.math
-        blocks[index].images = rendered.images
-        blocks[index].codeBlock = rendered.codeBlock
-        blocks[index].mermaidDiagram = rendered.mermaidDiagram
+        blocks[index].updatePresentation(from: rendered)
         return didMutate
     }
 
@@ -317,8 +400,7 @@ actor MarkdownRenderer {
 
     private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {
         let quoteLevel = blockquoteLevel(for: snapshot)
-        let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind,
-                                                     blockquoteLevel: quoteLevel)
+        let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
@@ -365,6 +447,19 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
 }
 
 extension RenderedBlock {
+    /// Replaces everything derived from rendering; id, kind and snapshot
+    /// stay.
+    mutating func updatePresentation(from rendered: RenderedContentResult) {
+        content = rendered.attributed
+        table = rendered.table
+        listItem = rendered.listItem
+        blockquote = rendered.blockquote
+        math = rendered.math
+        images = rendered.images
+        codeBlock = rendered.codeBlock
+        mermaidDiagram = rendered.mermaidDiagram
+    }
+
     static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
         lhs.id == rhs.id &&
         lhs.kind == rhs.kind &&

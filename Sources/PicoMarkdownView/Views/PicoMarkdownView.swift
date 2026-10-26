@@ -22,6 +22,12 @@ public struct PicoMarkdownView: View {
     @Environment(\.picoOnTagHover) private var onTagHover
     @Environment(\.picoOnLinkHover) private var onLinkHover
     @Environment(\.picoOnContentSize) private var onContentSize
+    @Environment(\.picoTextScale) private var hostTextScale
+    /// Follows the Dynamic Type setting while the view is on screen. The
+    /// theme already reflects the setting in force when it was created, so
+    /// only the change since first appearance is applied, as a ratio.
+    @ScaledMetric(relativeTo: .body) private var dynamicBodySize: CGFloat = 17
+    @State private var initialDynamicBodySize: CGFloat?
 
     private init(input: MarkdownStreamingInput,
                  theme: MarkdownRenderTheme,
@@ -145,6 +151,43 @@ public struct PicoMarkdownView: View {
             .task(id: consumeTaskID) {
                 await viewModel.consume(input)
             }
+            .task(id: textScaleTaskID) {
+                let baseline = initialDynamicBodySize ?? dynamicBodySize
+                if initialDynamicBodySize == nil { initialDynamicBodySize = dynamicBodySize }
+                // The body size comes from the view model's theme, which
+                // lives as long as the view's state; a parent rebuilding the
+                // view with a fresh default theme must not move the base.
+                // Code blocks get their own ratio: the default code block
+                // theme is sized from the system body without the body
+                // font's two-point offset, so the same point delta is a
+                // different factor.
+                let codeScale = viewModel.codeBlockFontSize.map {
+                    Self.textScale(host: hostTextScale, dynamicBodySize: dynamicBodySize, baseline: baseline, themeBodySize: $0)
+                }
+                await viewModel.updateTextScale(Self.textScale(host: hostTextScale,
+                                                               dynamicBodySize: dynamicBodySize,
+                                                               baseline: baseline,
+                                                               themeBodySize: viewModel.themeBodySize),
+                                                codeBlockScale: codeScale)
+            }
+    }
+
+    private var textScaleTaskID: String {
+        "\(hostTextScale)/\(dynamicBodySize)"
+    }
+
+    /// The scale that moves the theme's body size by the same number of
+    /// points Dynamic Type moved the system body size (`dynamicBodySize`
+    /// against `baseline`, its value when the view appeared), times the
+    /// host's zoom. `MarkdownRenderTheme.default()` sets the body to the
+    /// system size plus two points, so a message already on screen lands on
+    /// the same size as one whose theme is created after the change.
+    static func textScale(host: CGFloat, dynamicBodySize: CGFloat, baseline: CGFloat, themeBodySize: CGFloat) -> CGFloat {
+        let hostScale = host.isFinite && host > 0 ? host : 1
+        guard themeBodySize > 0, baseline > 0, dynamicBodySize.isFinite else { return hostScale }
+        let target = themeBodySize + (dynamicBodySize - baseline)
+        guard target > 0 else { return hostScale }
+        return hostScale * target / themeBodySize
     }
 
     /// Builds the hover closure for the text views (macOS). It receives the
