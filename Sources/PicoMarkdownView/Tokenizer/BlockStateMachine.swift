@@ -693,6 +693,14 @@ struct StreamingParser {
             // list.  Without a prior blank line, it is a lazy
             // continuation of the current list item.
             if current.sawBlankInSubContext {
+                // The text leaves the list, but a partial `#`, `- ` or fence
+                // may still open a block of its own: wait rather than open a
+                // paragraph that would close empty when the opener resolves.
+                if !isLineComplete, shouldDeferParagraphFallback(for: line) {
+                    lineDeferredUntilComplete = isDeferredUntilLineEnd(line)
+                    lineAnalyzed = true
+                    return
+                }
                 closeCurrentBlock()
                 closeListContexts(deeperThan: -1)
                 openInlineBlock(kind: .paragraph)
@@ -767,8 +775,12 @@ struct StreamingParser {
 
         // A partial line of only markers may still grow deeper (`>` then
         // `> `): keep the markers seen so far out of the content and wait.
+        // Inside quoted indented code a further `>` is content whose
+        // indentation decides (four columns: a code line; fewer: the code
+        // ends), so the code's own line handling judges it at once.
         if !isLineComplete, lineBuffer.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
-           quote.markerCount <= activeLevel {
+           quote.markerCount <= activeLevel,
+           !(isIndentedCodeBlock(top) && lineBuffer.dropFirst(quote.prefixLength).contains(">")) {
             lineQuotePrefix = quote.prefixLength
             if emittedCount < quote.prefixLength {
                 emittedCount = min(lineBuffer.count, quote.prefixLength)
@@ -1202,6 +1214,12 @@ struct StreamingParser {
                     // itself stays open.
                     if !ctx.hasBlockChildren {
                         ctx.hasBlockChildren = true
+                        // The quote's own paragraph is complete: settle its
+                        // inline parser now, so text it still holds (an
+                        // unmatched opener) is not withheld until the quote
+                        // closes. Children never feed it again.
+                        emitFinishedInlineRuns(&ctx)
+                        ctx.inlineParser = makeInlineParser()
                         setCurrentBlock(ctx)
                     }
                 } else if !lineConsumedByRule {
@@ -1661,27 +1679,8 @@ struct StreamingParser {
             degradeTableCandidate(context: &candidate, table: table, terminated: true)
             return
         }
-        if var parser = ctx.inlineParser {
-            var runs: [InlineRun] = []
-            if case .heading = ctx.kind {
-                // The input may end without a newline: settle the tail now.
-                let tail = resolvedHeadingSuffix(ctx.headingPendingSuffix, hasContent: ctx.headingHasContent)
-                if !tail.isEmpty { runs += parser.append(tail) }
-            }
-            runs += parser.finish()
-            coalesceInlineRuns(&runs)
-            if !runs.isEmpty {
-                if let lastIndex = events.indices.last,
-                   case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
-                   existingID == ctx.id {
-                    existingRuns.append(contentsOf: runs)
-                    coalesceInlineRuns(&existingRuns)
-                    events[lastIndex] = .blockAppendInline(id: existingID, runs: existingRuns)
-                } else {
-                    events.append(.blockAppendInline(id: ctx.id, runs: runs))
-                }
-            }
-        }
+        var finished = ctx
+        emitFinishedInlineRuns(&finished)
         if !ctx.literal.isEmpty {
             var literalRuns = [InlineRun(text: ctx.literal)]
             coalesceInlineRuns(&literalRuns)
@@ -1689,6 +1688,32 @@ struct StreamingParser {
         }
         events.append(.blockEnd(id: ctx.id))
         _ = popBlock()
+    }
+
+    /// Settles the block's inline parser: everything it still holds (an
+    /// unmatched opener's text, a pending tail) is emitted as runs.
+    private mutating func emitFinishedInlineRuns(_ ctx: inout BlockContext) {
+        guard var parser = ctx.inlineParser else { return }
+        var runs: [InlineRun] = []
+        if case .heading = ctx.kind {
+            // The input may end without a newline: settle the tail now.
+            let tail = resolvedHeadingSuffix(ctx.headingPendingSuffix, hasContent: ctx.headingHasContent)
+            if !tail.isEmpty { runs += parser.append(tail) }
+        }
+        runs += parser.finish()
+        coalesceInlineRuns(&runs)
+        if !runs.isEmpty {
+            if let lastIndex = events.indices.last,
+               case .blockAppendInline(let existingID, var existingRuns) = events[lastIndex],
+               existingID == ctx.id {
+                existingRuns.append(contentsOf: runs)
+                coalesceInlineRuns(&existingRuns)
+                events[lastIndex] = .blockAppendInline(id: existingID, runs: existingRuns)
+            } else {
+                events.append(.blockAppendInline(id: ctx.id, runs: runs))
+            }
+        }
+        ctx.inlineParser = parser
     }
 
     /// Opens nested blockquote contexts from `currentLevel` (exclusive)
