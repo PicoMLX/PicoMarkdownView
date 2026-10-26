@@ -56,6 +56,13 @@ struct SpecInlineFixesTests {
         // Flanking reads code points: a mark joining the space after a run
         // does not change that the run is followed by whitespace.
         ("a * \u{301}* b\n\n", "a * \u{301}* b"),
+        // `<!-->` and `<!--->` are complete comments: what follows is Markdown.
+        ("foo <!--> *bar* -->\n\n", "foo <!--> <i>bar</i> -->"),
+        ("foo <!---> *bar* -->\n\n", "foo <!---> <i>bar</i> -->"),
+        // ASCII syntax counts by bytes: a backtick or `>` that shares a
+        // grapheme with a Prepend character or a mark is still syntax.
+        ("`a\u{600}` b\n\n", "<code>a\u{600}</code> b"),
+        ("<irc:foo>\u{301} x\n\n", "<a irc:foo>irc:foo</a>\u{301} x"),
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.
         ("(`x`)\n\n", "(<code>x</code>)"),
@@ -104,6 +111,36 @@ struct SpecInlineFixesTests {
             #expect(streamed == baseline, "Split at character \(split)")
         }
         #expect(await parse(characters.map(String.init)) == baseline)
+    }
+
+    @Test("Each fixed construct parses the same when split between any two scalars", arguments: documents)
+    func everyScalarSplit(markdown: String) async {
+        let baseline = await parse([markdown])
+        let scalars = Array(markdown.unicodeScalars)
+        for split in 0...scalars.count {
+            var head = String.UnicodeScalarView(), tail = String.UnicodeScalarView()
+            head.append(contentsOf: scalars[..<split])
+            tail.append(contentsOf: scalars[split...])
+            #expect(await parse([String(head), String(tail)]) == baseline, "Split at scalar \(split)")
+        }
+    }
+
+    @Test("A registered tag takes precedence over math in the emphasis lookahead, as in the emitter")
+    func tickerInsideEmphasis() {
+        let prefixes: Set<TagPrefix> = [.mention, .hashtag, .ticker]
+        let runs = InlineParser.parseAll("*$AAPL* plus $MSFT", tagPrefixes: prefixes)
+        let ticker = runs.first { $0.tag != nil }
+        #expect(ticker?.text == "$AAPL")
+        #expect(ticker?.style.contains(.italic) == true)
+        #expect(runs.map(\.text).joined() == "$AAPL plus $MSFT")
+    }
+
+    @Test("Unclosed command math is searched once, not once per opener")
+    func unclosedCommandMathIsLinear() {
+        let count = 4_000
+        let runs = InlineParser.parseAll("**" + String(repeating: "\\(x ", count: count) + "end**")
+        #expect(runs.map(\.text).joined() == String(repeating: "\\(x ", count: count) + "end")
+        #expect(runs.allSatisfy { $0.style.contains(.bold) })
     }
 
     @Test("Each fixed construct has the CommonMark styles")

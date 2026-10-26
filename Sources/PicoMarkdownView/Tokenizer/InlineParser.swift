@@ -126,11 +126,15 @@ struct InlineParser {
     }
     private var emphasisScan: EmphasisScan?
 
-    /// Where the raw HTML grammar stands after the characters seen so far.
+    /// Where the raw HTML grammar stands after the bytes seen so far. The
+    /// grammar is ASCII and is read by bytes, so a mark or Prepend character
+    /// that shares a grapheme with a `>` or quote does not hide it.
     private enum HTMLState: Equatable {
         case begin
         case bang
-        case terminator(String)
+        /// Right after `<!--`: `>` or `->` already ends the comment.
+        case commentStart
+        case terminator([UInt8])
         case closingStart
         case closingName
         case closingSpace
@@ -139,7 +143,7 @@ struct InlineParser {
         case attributeName
         case afterAttributeName
         case beforeValue
-        case quoted(Character)
+        case quoted(UInt8)
         case unquoted
         case slash
         case notHTML
@@ -517,15 +521,18 @@ struct InlineParser {
         }
 
         /// The closing backtick run of exactly `delimiterLength` backticks
-        /// after `start`: a longer or shorter run is code content.
+        /// after `start`: a longer or shorter run is code content. Read by
+        /// bytes, so a backtick that shares a grapheme with a Prepend
+        /// character or a mark still counts.
         func findCodeClosing(delimiterLength: Int, from start: String.Index) -> Range<String.Index>? {
+            let bytes = text.utf8
             var search = start
-            while let tick = text[search...].firstIndex(of: "`") {
+            while let tick = bytes[search...].firstIndex(of: 0x60) {
                 var end = tick
                 var length = 0
-                while end < text.endIndex, text[end] == "`" {
+                while end < bytes.endIndex, bytes[end] == 0x60 {
                     length += 1
-                    end = text.index(after: end)
+                    end = bytes.index(after: end)
                 }
                 if length == delimiterLength { return tick..<end }
                 search = end
@@ -553,11 +560,12 @@ struct InlineParser {
         /// the end of the text may still grow into a longer run, so it waits.
         /// While waiting, the search resumes where it stopped.
         func codeSpan(at index: String.Index) -> CodeSpan {
+            let bytes = text.utf8
             var contentStart = index
             var length = 0
-            while contentStart < text.endIndex, text[contentStart] == "`" {
+            while contentStart < bytes.endIndex, bytes[contentStart] == 0x60 {
                 length += 1
-                contentStart = text.index(after: contentStart)
+                contentStart = bytes.index(after: contentStart)
             }
             var from = contentStart
             if case .codeSpan(let resume)? = savedProgress(start: index) {
@@ -573,23 +581,21 @@ struct InlineParser {
             if includeUnterminated { return .unclosed(runEnd: contentStart) }
             // An opening run at the end may still grow; anything else resumes
             // at a trailing backtick run, which may still become the closer.
-            if contentStart < text.endIndex {
-                var resume = text.endIndex
-                while resume > from, text[text.index(before: resume)] == "`" {
-                    resume = text.index(before: resume)
+            if contentStart < bytes.endIndex {
+                var resume = bytes.endIndex
+                while resume > from, bytes[bytes.index(before: resume)] == 0x60 {
+                    resume = bytes.index(before: resume)
                 }
                 saveProgress(start: index, .codeSpan(resume: utf8Offset(of: resume)))
             }
             return .needMore
         }
 
-        func codeSpanScan(at index: String.Index) -> SpanScan {
-            switch codeSpan(at: index) {
-            case .closed(_, let end): return .end(end)
-            case .unclosed: return .none
-            case .needMore: return .needMore
-            }
-        }
+        /// For `\(` and `\[` math in the final text: the earliest content
+        /// start from which a search found no closer. A later opener of the
+        /// same kind finds none either, since its search covers a suffix of
+        /// that one, so it is resolved without searching again.
+        var commandMathUnclosedFrom: [UInt8: String.Index] = [:]
 
         /// Inline math starting at `index`, opened and closed exactly as the
         /// emitter does (`$…$`, `$$…$$`, `\(…\)`, `\[…\]`, by bytes), or `nil`
@@ -616,6 +622,10 @@ struct InlineParser {
                 contentStart = bytes.index(after: next)
             } else {
                 return nil
+            }
+            if dollars == 0, includeUnterminated, let unclosedFrom = commandMathUnclosedFrom[commandClosing],
+               contentStart >= unclosedFrom {
+                return SpanScan.none
             }
             var cursor = contentStart
             if case .math(let resume)? = savedProgress(start: index) {
@@ -652,7 +662,11 @@ struct InlineParser {
                 }
                 cursor = following
             }
-            return includeUnterminated ? SpanScan.none : wait(at: bytes.endIndex)
+            guard includeUnterminated else { return wait(at: bytes.endIndex) }
+            if dollars == 0 {
+                commandMathUnclosedFrom[commandClosing] = min(commandMathUnclosedFrom[commandClosing] ?? contentStart, contentStart)
+            }
+            return SpanScan.none
         }
 
         enum AngleSpan {
@@ -675,25 +689,27 @@ struct InlineParser {
                 htmlState = state
                 htmlCursor = position(ofUTF8: resume)
             }
-            while cursor < text.endIndex {
-                let character = text[cursor]
-                if character == ">" || character == "<" || character.isWhitespace
-                    || character.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
-                    break
-                }
-                cursor = text.index(after: cursor)
+            // An autolink ends at the first `>` and holds no `<`, space or
+            // ASCII control character (CommonMark), read by bytes so a mark
+            // or Prepend character sharing a grapheme with the `>` does not
+            // hide it.
+            let bytes = text.utf8
+            while cursor < bytes.endIndex {
+                let byte = bytes[cursor]
+                if byte == 0x3E || byte == 0x3C || byte == 0x20 || byte < 0x20 || byte == 0x7F { break }
+                cursor = bytes.index(after: cursor)
             }
             var autolinkPending = false
-            if cursor < text.endIndex, text[cursor] == ">" {
+            if cursor < bytes.endIndex, bytes[cursor] == 0x3E {
                 let candidate = String(text[start..<cursor])
-                let end = text.index(after: cursor)
+                let end = bytes.index(after: cursor)
                 if isURIAutolink(candidate) {
                     return .autolink(end: end, display: candidate, url: candidate)
                 }
                 if isEmailAutolink(candidate) {
                     return .autolink(end: end, display: candidate, url: "mailto:" + candidate)
                 }
-            } else if cursor == text.endIndex {
+            } else if cursor == bytes.endIndex {
                 autolinkPending = !includeUnterminated
             }
             let (scan, state, stop) = htmlScan(from: htmlState, at: htmlCursor)
@@ -734,103 +750,136 @@ struct InlineParser {
         /// the state and position to resume from when the text ran out.
         func htmlScan(from initial: HTMLState, at start: String.Index) -> (SpanScan, HTMLState, String.Index) {
             let pending: SpanScan = includeUnterminated ? .none : .needMore
+            let bytes = text.utf8
             var state = initial
             var cursor = start
-            func isLetter(_ c: Character) -> Bool { c.isASCII && c.isLetter }
-            func isTagNameCharacter(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c.isNumber || c == "-") }
-            func isAttributeNameStart(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c == "_" || c == ":") }
-            func isAttributeNameCharacter(_ c: Character) -> Bool {
-                c.isASCII && (c.isLetter || c.isNumber || "_.:-".contains(c))
+            func isLetter(_ b: UInt8) -> Bool { (0x41...0x5A).contains(b) || (0x61...0x7A).contains(b) }
+            func isDigit(_ b: UInt8) -> Bool { (0x30...0x39).contains(b) }
+            func isSpace(_ b: UInt8) -> Bool { b == 0x20 || b == 0x09 || b == 0x0A || b == 0x0C || b == 0x0D }
+            func isTagNameByte(_ b: UInt8) -> Bool { isLetter(b) || isDigit(b) || b == 0x2D }
+            func isAttributeNameStart(_ b: UInt8) -> Bool { isLetter(b) || b == 0x5F || b == 0x3A }
+            func isAttributeNameByte(_ b: UInt8) -> Bool {
+                isLetter(b) || isDigit(b) || b == 0x5F || b == 0x2E || b == 0x3A || b == 0x2D
             }
+            /// How `pattern` relates to the bytes at `position`: all present,
+            /// a prefix of it up to the end of the text, or a mismatch.
+            func compare(_ pattern: [UInt8], at position: String.Index) -> (matches: Bool, partial: Bool) {
+                var index = position
+                for byte in pattern {
+                    guard index < bytes.endIndex else { return (false, true) }
+                    guard bytes[index] == byte else { return (false, false) }
+                    index = bytes.index(after: index)
+                }
+                return (true, false)
+            }
+            let dashDash: [UInt8] = Array("--".utf8)
+            let cdata: [UInt8] = Array("[CDATA[".utf8)
             while true {
                 switch state {
                 case .notHTML:
                     return (.none, state, cursor)
                 case .terminator(let terminator):
-                    if let range = text[cursor...].range(of: terminator) { return (.end(range.upperBound), state, cursor) }
-                    // A terminator split by the end of the text is searched again.
-                    let resume = text.index(text.endIndex, offsetBy: -(terminator.count - 1), limitedBy: cursor) ?? cursor
-                    return (pending, state, resume)
+                    var search = cursor
+                    while search < bytes.endIndex {
+                        if bytes[search] == terminator[0] {
+                            let (matches, partial) = compare(terminator, at: search)
+                            if matches { return (.end(bytes.index(search, offsetBy: terminator.count)), state, cursor) }
+                            // A terminator split by the end of the text is searched again.
+                            if partial { return (pending, state, search) }
+                        }
+                        search = bytes.index(after: search)
+                    }
+                    return (pending, state, bytes.endIndex)
                 case .quoted(let quote):
-                    guard let close = text[cursor...].firstIndex(of: quote) else { return (pending, state, text.endIndex) }
-                    cursor = text.index(after: close)
+                    guard let close = bytes[cursor...].firstIndex(of: quote) else { return (pending, state, bytes.endIndex) }
+                    cursor = bytes.index(after: close)
                     state = .attributes(spaced: false)
                     continue
                 case .bang:
-                    let rest = text[cursor...]
-                    if rest.hasPrefix("--") {
-                        cursor = text.index(cursor, offsetBy: 2)
-                        state = .terminator("-->")
-                    } else if rest.hasPrefix("[CDATA[") {
-                        cursor = text.index(cursor, offsetBy: 7)
-                        state = .terminator("]]>")
-                    } else if "--".hasPrefix(rest) || "[CDATA[".hasPrefix(rest) {
+                    let comment = compare(dashDash, at: cursor), section = compare(cdata, at: cursor)
+                    if comment.matches {
+                        cursor = bytes.index(cursor, offsetBy: 2)
+                        state = .commentStart
+                    } else if section.matches {
+                        cursor = bytes.index(cursor, offsetBy: cdata.count)
+                        state = .terminator(Array("]]>".utf8))
+                    } else if comment.partial || section.partial {
                         return (pending, state, cursor)
-                    } else if isLetter(text[cursor]) {
-                        state = .terminator(">")
+                    } else if isLetter(bytes[cursor]) {
+                        state = .terminator([0x3E])
                     } else {
                         return (.none, .notHTML, cursor)
                     }
                     continue
+                case .commentStart:
+                    // `<!-->` and `<!--->` are complete comments (CommonMark).
+                    guard cursor < bytes.endIndex else { return (pending, state, cursor) }
+                    if bytes[cursor] == 0x3E { return (.end(bytes.index(after: cursor)), state, cursor) }
+                    let empty = compare(Array("->".utf8), at: cursor)
+                    if empty.matches { return (.end(bytes.index(cursor, offsetBy: 2)), state, cursor) }
+                    if empty.partial { return (pending, state, cursor) }
+                    state = .terminator(Array("-->".utf8))
+                    continue
                 default:
                     break
                 }
-                guard cursor < text.endIndex else { return (pending, state, cursor) }
-                let c = text[cursor]
+                guard cursor < bytes.endIndex else { return (pending, state, cursor) }
+                let b = bytes[cursor]
                 var next: HTMLState?
                 var closes = false
                 switch state {
                 case .begin:
-                    if c == "!" { next = .bang }
-                    else if c == "?" { next = .terminator("?>") }
-                    else if c == "/" { next = .closingStart }
-                    else if isLetter(c) { next = .tagName }
+                    if b == 0x21 { next = .bang }
+                    else if b == 0x3F { next = .terminator(Array("?>".utf8)) }
+                    else if b == 0x2F { next = .closingStart }
+                    else if isLetter(b) { next = .tagName }
                 case .closingStart:
-                    if isLetter(c) { next = .closingName }
+                    if isLetter(b) { next = .closingName }
                 case .closingName:
-                    if isTagNameCharacter(c) { next = .closingName }
-                    else if c.isWhitespace { next = .closingSpace }
-                    else if c == ">" { closes = true }
+                    if isTagNameByte(b) { next = .closingName }
+                    else if isSpace(b) { next = .closingSpace }
+                    else if b == 0x3E { closes = true }
                 case .closingSpace:
-                    if c.isWhitespace { next = .closingSpace }
-                    else if c == ">" { closes = true }
+                    if isSpace(b) { next = .closingSpace }
+                    else if b == 0x3E { closes = true }
                 case .tagName:
-                    if isTagNameCharacter(c) { next = .tagName }
-                    else if c.isWhitespace { next = .attributes(spaced: true) }
-                    else if c == ">" { closes = true }
-                    else if c == "/" { next = .slash }
+                    if isTagNameByte(b) { next = .tagName }
+                    else if isSpace(b) { next = .attributes(spaced: true) }
+                    else if b == 0x3E { closes = true }
+                    else if b == 0x2F { next = .slash }
                 case .attributes(let spaced):
                     // An attribute needs whitespace before it.
-                    if c.isWhitespace { next = .attributes(spaced: true) }
-                    else if c == ">" { closes = true }
-                    else if c == "/" { next = .slash }
-                    else if spaced, isAttributeNameStart(c) { next = .attributeName }
+                    if isSpace(b) { next = .attributes(spaced: true) }
+                    else if b == 0x3E { closes = true }
+                    else if b == 0x2F { next = .slash }
+                    else if spaced, isAttributeNameStart(b) { next = .attributeName }
                 case .attributeName:
-                    if isAttributeNameCharacter(c) { next = .attributeName }
-                    else if c.isWhitespace { next = .afterAttributeName }
-                    else if c == "=" { next = .beforeValue }
-                    else if c == ">" { closes = true }
-                    else if c == "/" { next = .slash }
+                    if isAttributeNameByte(b) { next = .attributeName }
+                    else if isSpace(b) { next = .afterAttributeName }
+                    else if b == 0x3D { next = .beforeValue }
+                    else if b == 0x3E { closes = true }
+                    else if b == 0x2F { next = .slash }
                 case .afterAttributeName:
-                    if c.isWhitespace { next = .afterAttributeName }
-                    else if c == "=" { next = .beforeValue }
-                    else if c == ">" { closes = true }
-                    else if c == "/" { next = .slash }
-                    else if isAttributeNameStart(c) { next = .attributeName }
+                    if isSpace(b) { next = .afterAttributeName }
+                    else if b == 0x3D { next = .beforeValue }
+                    else if b == 0x3E { closes = true }
+                    else if b == 0x2F { next = .slash }
+                    else if isAttributeNameStart(b) { next = .attributeName }
                 case .beforeValue:
-                    if c.isWhitespace { next = .beforeValue }
-                    else if c == "\"" || c == "'" { next = .quoted(c) }
-                    else if !"=<>`".contains(c) { next = .unquoted }
+                    // Unquoted values exclude `"`, `'`, `=`, `<`, `>` and `` ` ``.
+                    if isSpace(b) { next = .beforeValue }
+                    else if b == 0x22 || b == 0x27 { next = .quoted(b) }
+                    else if ![0x3D, 0x3C, 0x3E, 0x60].contains(b) { next = .unquoted }
                 case .unquoted:
-                    if c.isWhitespace { next = .attributes(spaced: true) }
-                    else if c == ">" { closes = true }
-                    else if !"\"'=<`".contains(c) { next = .unquoted }
+                    if isSpace(b) { next = .attributes(spaced: true) }
+                    else if b == 0x3E { closes = true }
+                    else if ![0x22, 0x27, 0x3D, 0x3C, 0x60].contains(b) { next = .unquoted }
                 case .slash:
-                    if c == ">" { closes = true }
-                case .bang, .terminator, .quoted, .notHTML:
+                    if b == 0x3E { closes = true }
+                case .bang, .commentStart, .terminator, .quoted, .notHTML:
                     break
                 }
-                cursor = text.index(after: cursor)
+                cursor = bytes.index(after: cursor)
                 if closes { return (.end(cursor), state, cursor) }
                 guard let next else { return (.none, .notHTML, cursor) }
                 state = next
@@ -935,6 +984,19 @@ struct InlineParser {
             }
             var cursor = position(scan.cursor)
             while cursor < text.endIndex {
+                // A registered tag comes first, as in the emitter (a `$AAPL`
+                // ticker is not math); a tag never holds a delimiter.
+                if let prefix = matchingTagPrefix(at: cursor) {
+                    switch parseTag(at: cursor, prefix: prefix, dryRun: true) {
+                    case .handled(let next):
+                        cursor = next
+                        continue
+                    case .needMore:
+                        return suspend(at: cursor)
+                    case .literal:
+                        break
+                    }
+                }
                 // Math opens on a `$` byte or `\(` / `\[`, before escapes, as
                 // in the emitter; nothing inside it is a delimiter.
                 if let math = mathScan(at: cursor) {
@@ -968,10 +1030,10 @@ struct InlineParser {
                     continue
                 }
                 if character == "`" {
-                    switch codeSpanScan(at: cursor) {
-                    case .end(let end): cursor = end
+                    switch codeSpan(at: cursor) {
+                    case .closed(_, let end): cursor = end
                     case .needMore: return suspend(at: cursor)
-                    case .none: cursor = delimiterRun(containing: cursor).upperBound
+                    case .unclosed(let runEnd): cursor = runEnd
                     }
                     continue
                 }
@@ -1478,7 +1540,8 @@ struct InlineParser {
         /// back to the bare-tag scan.
         func parseMarkdownLinkTagForm(openerStart: String.Index,
                                       prefix: TagPrefix,
-                                      bracketStart: String.Index) -> TagParseResult? {
+                                      bracketStart: String.Index,
+                                      dryRun: Bool = false) -> TagParseResult? {
             let labelStart = text.index(after: bracketStart)
             guard labelStart <= text.endIndex else {
                 return includeUnterminated ? nil : .needMore
@@ -1527,6 +1590,7 @@ struct InlineParser {
 
             let displayText = prefix.opening + label
             let nextIndex = text.index(after: close)
+            if dryRun { return .handled(nextIndex: nextIndex) }
             let raw = String(text[openerStart..<nextIndex])
             let tagPayload = Tag(prefix: prefix.opening,
                                  identifier: identifier,
@@ -1561,7 +1625,9 @@ struct InlineParser {
         /// Parse a tag starting at ``index`` using ``prefix``. Routes between
         /// the paired form (``[[wiki]]``), the markdown-link form
         /// (``@[John](id)``), and the bare form (``@behlool``).
-        func parseTag(at index: String.Index, prefix: TagPrefix) -> TagParseResult {
+        /// With `dryRun`, only reports where the tag ends, emitting nothing:
+        /// the emphasis lookahead gives tags the emitter's precedence.
+        func parseTag(at index: String.Index, prefix: TagPrefix, dryRun: Bool = false) -> TagParseResult {
             // Left-boundary check — see suppressesAdjacentTag above.
             // Skip for beginning-of-buffer (no preceding char) and for paired
             // delimiters (their multi-char opening already provides a natural
@@ -1592,6 +1658,7 @@ struct InlineParser {
                 if inner.contains(prefix.opening) { return .literal }
 
                 let nextIndex = closeRange.upperBound
+                if dryRun { return .handled(nextIndex: nextIndex) }
                 let raw = String(text[index..<nextIndex])
                 let displayText = raw
                 let tagPayload = Tag(prefix: prefix.opening,
@@ -1614,7 +1681,8 @@ struct InlineParser {
             if openEnd < text.endIndex, text[openEnd] == "[" {
                 if let result = parseMarkdownLinkTagForm(openerStart: index,
                                                          prefix: prefix,
-                                                         bracketStart: openEnd) {
+                                                         bracketStart: openEnd,
+                                                         dryRun: dryRun) {
                     return result
                 }
                 // nil → not the markdown-link form; fall through to bare scan.
@@ -1656,6 +1724,7 @@ struct InlineParser {
             }
             // Reject tags consisting entirely of trailing-strip chars (e.g. "@.").
             if endIndex == openEnd { return .literal }
+            if dryRun { return .handled(nextIndex: endIndex) }
 
             let identifier = String(text[openEnd..<endIndex])
             let displayText = String(text[index..<endIndex])
