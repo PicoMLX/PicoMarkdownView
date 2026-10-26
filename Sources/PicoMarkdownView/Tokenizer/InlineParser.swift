@@ -78,6 +78,8 @@ struct InlineParser {
         struct TrailingRun {
             var delimiter: Character
             var before: Character?
+            /// Delimiters of the run consumed so far.
+            var length: Int
         }
         var tail: String
         var alphanumeric: Bool
@@ -86,6 +88,42 @@ struct InlineParser {
         var trailingRun: TrailingRun?
     }
     private var lastConsumed: ConsumedContext?
+
+    /// The emphasis algorithm's scan for an opener that is waiting for more
+    /// text (see `matchEmphasis`). The next chunk resumes it where it
+    /// stopped instead of rescanning everything after the opener, which is
+    /// then the start of `pending`. Positions are UTF-8 offsets from the
+    /// opener.
+    private struct EmphasisScan {
+        struct Delimiter {
+            var character: Character
+            var start: Int
+            var count: Int
+            let originalCount: Int
+            let canOpen: Bool
+            let canClose: Bool
+        }
+        struct Pair {
+            var closerStart: Int
+            var closerEnd: Int
+            var length: Int
+        }
+        /// The opener's offset in the text the scan was saved from; the scan
+        /// is kept only if that text is consumed exactly up to the opener.
+        var targetOffset: Int
+        var cursor: Int
+        /// One stack per delimiter character (`*`, `_`), each ordered by
+        /// position. The opener is the bottom of its stack.
+        var openers: [[Delimiter]]
+        /// cmark's `openers_bottom`: per closer kind, the position below
+        /// which no opener can pair with it.
+        var searchFloor: [Int]
+        /// The last (outermost so far) pair that took each opener's delimiters.
+        var lastPairs: [Int: Pair]
+        var usedUp: Set<Int>
+        var earliestPairedOpener: Int?
+    }
+    private var emphasisScan: EmphasisScan?
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
 
@@ -159,6 +197,7 @@ struct InlineParser {
         mathState = nil
         followsMathGrapheme = false
         lastConsumed = nil
+        emphasisScan = nil
         return runs
     }
 
@@ -350,6 +389,17 @@ struct InlineParser {
                 return trailing.before
             }
             return character(before: run.lowerBound)
+        }
+
+        /// The length of a delimiter run, including delimiters of it that an
+        /// earlier chunk consumed: the rule of three counts the whole run.
+        func runLength(_ run: Range<String.Index>) -> Int {
+            var length = text.distance(from: run.lowerBound, to: run.upperBound)
+            if run.lowerBound == text.startIndex, let trailing = lastConsumed?.trailingRun,
+               trailing.delimiter == text[run.lowerBound] {
+                length += trailing.length
+            }
+            return length
         }
 
         /// CommonMark flanking of a delimiter run. The start and end of the
@@ -579,13 +629,20 @@ struct InlineParser {
             case needMore
         }
 
-        struct Delimiter {
-            var character: Character
-            var start: String.Index
-            var count: Int
-            let originalCount: Int
-            let canOpen: Bool
-            let canClose: Bool
+        /// What a scan that reached the end of the final text found for every
+        /// opener it saw. A later scan from one of those openers would find
+        /// the same, provided no pair in the scan used an opener before it:
+        /// the runs before it were then inert and the processing from it on
+        /// is identical. Openers that never pair are thus resolved once, not
+        /// rescanned each (`*a *a … c*`). Positions are UTF-8 offsets.
+        struct EmphasisOutcomes {
+            var earliestPairedOpener: Int?
+            var results: [Int: EmphasisMatch]
+        }
+        var emphasisOutcomes: EmphasisOutcomes?
+
+        func utf8Offset(of position: String.Index) -> Int {
+            text.utf8.distance(from: text.utf8.startIndex, to: position)
         }
 
         /// CommonMark's emphasis algorithm over the delimiter runs from the
@@ -600,33 +657,76 @@ struct InlineParser {
         /// unpaired at the left of the run are known only once the text is
         /// final; the last pair that took any of the opener's delimiters is
         /// then the outermost, and the run is resolved in one scan.
+        ///
+        /// While the text may still grow, a scan that cannot decide yet is
+        /// saved (`emphasisScan`) and the next chunk resumes it from where it
+        /// stopped, so a waiting opener costs only the new text.
         func matchEmphasis(openerAt index: String.Index, flank: Flanking) -> EmphasisMatch {
-            let openerRun = delimiterRun(containing: index)
+            typealias Delimiter = EmphasisScan.Delimiter
+            let base = utf8Offset(of: index)
+            if let outcomes = emphasisOutcomes, let known = outcomes.results[base],
+               outcomes.earliestPairedOpener.map({ $0 >= base }) ?? true {
+                return known
+            }
+            func position(_ offset: Int) -> String.Index {
+                text.utf8.index(text.utf8.startIndex, offsetBy: base + offset)
+            }
+            func offset(_ position: String.Index) -> Int { utf8Offset(of: position) - base }
+            // One stack per delimiter character (`*`, `_`): a closer only ever
+            // looks at its own character's openers.
+            func slot(_ character: Character) -> Int { character == "*" ? 0 : 1 }
             let delimiter = text[index]
-            var openers = [Delimiter(character: delimiter,
-                                     start: index,
-                                     count: text.distance(from: index, to: openerRun.upperBound),
-                                     originalCount: text.distance(from: openerRun.lowerBound, to: openerRun.upperBound),
-                                     canOpen: true,
-                                     canClose: canClose(delimiter, flank))]
+            let targetSlot = slot(delimiter)
+            // A scan saved by an earlier chunk resumes when its opener is this
+            // one, now at the start of the text (see the end of `consume`).
+            var resumed = base == 0 ? emphasisScan : nil
+            emphasisScan = nil
+            var scan: EmphasisScan
+            if resumed != nil {
+                scan = resumed!
+                resumed = nil
+            } else {
+                let openerRun = delimiterRun(containing: index)
+                scan = EmphasisScan(targetOffset: base, cursor: offset(openerRun.upperBound), openers: [[], []],
+                                    searchFloor: Array(repeating: Int.min, count: 12),
+                                    lastPairs: [:], usedUp: [], earliestPairedOpener: nil)
+                scan.openers[targetSlot].append(Delimiter(character: delimiter,
+                                                          start: 0,
+                                                          count: text.distance(from: index, to: openerRun.upperBound),
+                                                          originalCount: runLength(openerRun),
+                                                          canOpen: true,
+                                                          canClose: canClose(delimiter, flank)))
+            }
+            func suspend(at stop: String.Index) -> EmphasisMatch {
+                scan.cursor = offset(stop)
+                scan.targetOffset = base
+                emphasisScan = scan
+                return .needMore
+            }
             func ruleOfThreeForbids(_ opener: Delimiter, _ closer: Delimiter) -> Bool {
                 (opener.canClose || closer.canOpen)
                     && (opener.originalCount + closer.originalCount) % 3 == 0
                     && !(opener.originalCount % 3 == 0 && closer.originalCount % 3 == 0)
             }
-            var lastPair: (closer: Range<String.Index>, length: Int)?
-            var cursor = openerRun.upperBound
+            var cursor = position(scan.cursor)
             while cursor < text.endIndex {
                 let character = text[cursor]
                 if character == "\\" {
                     let escaped = text.index(after: cursor)
-                    cursor = escaped < text.endIndex ? text.index(after: escaped) : escaped
+                    if escaped == text.endIndex {
+                        // What the backslash escapes has not arrived: a resumed
+                        // scan must see the pair together.
+                        if !includeUnterminated { return suspend(at: cursor) }
+                        cursor = escaped
+                        continue
+                    }
+                    cursor = text.index(after: escaped)
                     continue
                 }
                 if character == "`" {
                     switch codeSpanScan(at: cursor) {
                     case .end(let end): cursor = end
-                    case .needMore: return .needMore
+                    case .needMore: return suspend(at: cursor)
                     case .none: cursor = delimiterRun(containing: cursor).upperBound
                     }
                     continue
@@ -634,50 +734,87 @@ struct InlineParser {
                 if character == "<" {
                     switch angleSpan(at: cursor) {
                     case .autolink(let end, _, _), .html(let end): cursor = end
-                    case .needMore: return .needMore
+                    case .needMore: return suspend(at: cursor)
                     case .none: cursor = text.index(after: cursor)
                     }
                     continue
                 }
                 if character == "*" || character == "_" {
                     let run = delimiterRun(containing: cursor)
-                    guard let runFlank = flanking(of: run) else { return .needMore }
+                    guard let runFlank = flanking(of: run) else { return suspend(at: run.lowerBound) }
                     let length = text.distance(from: run.lowerBound, to: run.upperBound)
-                    var closer = Delimiter(character: character, start: run.lowerBound, count: length,
+                    var closer = Delimiter(character: character, start: offset(run.lowerBound), count: length,
                                            originalCount: length,
                                            canOpen: canOpen(character, runFlank),
                                            canClose: canClose(character, runFlank))
+                    let own = slot(character)
                     if closer.canClose {
-                        while closer.count > 0,
-                              let openerIndex = openers.lastIndex(where: { $0.character == closer.character && !ruleOfThreeForbids($0, closer) }) {
-                            let used = closer.count >= 2 && openers[openerIndex].count >= 2 ? 2 : 1
-                            let closerCharacters = closer.start..<text.index(closer.start, offsetBy: used)
-                            // The opener at `index` is at the bottom of the
-                            // stack; it pairs here once this match takes its
-                            // leftmost (outermost) delimiters.
-                            if openerIndex == 0 {
-                                if openers[0].count == used {
-                                    return .matched(closer: closerCharacters, length: used, literalPrefix: 0)
-                                }
-                                lastPair = (closerCharacters, used)
+                        // Whether an opener can pair with a closer depends only on
+                        // the closer's character, whether it can open, and its
+                        // length mod 3. After a search for such a closer fails,
+                        // every opener then on the stack is known not to pair with
+                        // any closer of that kind (cmark's `openers_bottom`).
+                        let kind = own * 6 + (closer.canOpen ? 3 : 0) + closer.originalCount % 3
+                        while closer.count > 0 {
+                            var openerIndex = scan.openers[own].count - 1
+                            while openerIndex >= 0, scan.openers[own][openerIndex].start >= scan.searchFloor[kind],
+                                  ruleOfThreeForbids(scan.openers[own][openerIndex], closer) {
+                                openerIndex -= 1
                             }
-                            openers[openerIndex].count -= used
-                            // Openers between the pair can no longer match.
-                            openers.removeSubrange((openerIndex + 1)...)
-                            if openers[openerIndex].count == 0 { openers.remove(at: openerIndex) }
-                            closer.start = closerCharacters.upperBound
+                            guard openerIndex >= 0, scan.openers[own][openerIndex].start >= scan.searchFloor[kind] else {
+                                scan.searchFloor[kind] = closer.start
+                                break
+                            }
+                            let used = closer.count >= 2 && scan.openers[own][openerIndex].count >= 2 ? 2 : 1
+                            // Delimiters are ASCII: one UTF-8 byte each.
+                            let closerEnd = closer.start + used
+                            // The opener at `index` pairs here once this match
+                            // takes its leftmost (outermost) delimiters.
+                            if own == targetSlot, openerIndex == 0, scan.openers[own][0].count == used {
+                                return .matched(closer: position(closer.start)..<position(closerEnd), length: used, literalPrefix: 0)
+                            }
+                            let openerStart = scan.openers[own][openerIndex].start
+                            scan.lastPairs[openerStart] = EmphasisScan.Pair(closerStart: closer.start, closerEnd: closerEnd, length: used)
+                            scan.earliestPairedOpener = min(scan.earliestPairedOpener ?? openerStart, openerStart)
+                            scan.openers[own][openerIndex].count -= used
+                            // Openers between the pair, of either character,
+                            // can no longer match.
+                            scan.openers[own].removeSubrange((openerIndex + 1)...)
+                            while let top = scan.openers[1 - own].last, top.start > openerStart {
+                                scan.openers[1 - own].removeLast()
+                            }
+                            if scan.openers[own][openerIndex].count == 0 {
+                                scan.openers[own].remove(at: openerIndex)
+                                scan.usedUp.insert(openerStart)
+                            }
+                            closer.start = closerEnd
                             closer.count -= used
                         }
                     }
-                    if closer.count > 0, closer.canOpen { openers.append(closer) }
+                    if closer.count > 0, closer.canOpen { scan.openers[own].append(closer) }
                     cursor = run.upperBound
                     continue
                 }
                 cursor = text.index(after: cursor)
             }
-            guard includeUnterminated else { return .needMore }
-            guard let lastPair else { return .none }
-            return .matched(closer: lastPair.closer, length: lastPair.length, literalPrefix: openers[0].count)
+            guard includeUnterminated else { return suspend(at: text.endIndex) }
+            // The text is final: an opener still on a stack keeps its
+            // unpaired delimiters at the left as text; one used up pairs
+            // whole. (An opener dropped between a pair is not recorded.)
+            func matched(_ pair: EmphasisScan.Pair, literalPrefix: Int) -> EmphasisMatch {
+                .matched(closer: position(pair.closerStart)..<position(pair.closerEnd), length: pair.length, literalPrefix: literalPrefix)
+            }
+            var results: [Int: EmphasisMatch] = [:]
+            for stack in scan.openers {
+                for opener in stack {
+                    results[base + opener.start] = scan.lastPairs[opener.start].map { matched($0, literalPrefix: opener.count) } ?? EmphasisMatch.none
+                }
+            }
+            for start in scan.usedUp {
+                if let pair = scan.lastPairs[start] { results[base + start] = matched(pair, literalPrefix: 0) }
+            }
+            emphasisOutcomes = EmphasisOutcomes(earliestPairedOpener: scan.earliestPairedOpener.map { base + $0 }, results: results)
+            return results[base] ?? .none
         }
 
         enum BracketParseResult {
@@ -1538,6 +1675,10 @@ struct InlineParser {
                     index = run.upperBound
                     continue parsing
                 case .needMore:
+                    // Text before the opener is settled and is delivered now.
+                    // The opener then starts the pending text, where the next
+                    // chunk resumes its saved scan.
+                    flushPlain(upTo: index)
                     consumedAll = false
                     break parsing
                 }
@@ -1743,6 +1884,12 @@ struct InlineParser {
 
         followsMathGrapheme = mathState == nil && index == mathGraphemeBoundary
 
+        // A saved emphasis scan resumes only if the pending text will start
+        // exactly at its opener.
+        if let scan = emphasisScan, scan.targetOffset != utf8Offset(of: consumedEnd) {
+            emphasisScan = nil
+        }
+
         if consumedEnd > text.startIndex {
             let consumedBytes = text.utf8.distance(from: text.utf8.startIndex, to: consumedEnd)
             // The whole preceding grapheme (`❤️`, not its trailing variation
@@ -1801,7 +1948,9 @@ struct InlineParser {
                         guard text[previous] == last, !isEscaped(previous) else { break }
                         runStart = previous
                     }
-                    if runStart == text.startIndex, let previous = lastConsumed?.trailingRun, previous.delimiter == last {
+                    let consumedLength = text.distance(from: runStart, to: consumedEnd)
+                    if runStart == text.startIndex, var previous = lastConsumed?.trailingRun, previous.delimiter == last {
+                        previous.length += consumedLength
                         trailingRun = previous
                     } else {
                         let before = character(before: runStart)
@@ -1810,7 +1959,7 @@ struct InlineParser {
                             if isWhitespace(character) { return " " }
                             return Self.isPunctuation(character) ? "." : "©"
                         }
-                        trailingRun = ConsumedContext.TrailingRun(delimiter: last, before: standIn)
+                        trailingRun = ConsumedContext.TrailingRun(delimiter: last, before: standIn, length: consumedLength)
                     }
                 }
                 if let previous = lastConsumed, consumed.dropFirst().isEmpty,

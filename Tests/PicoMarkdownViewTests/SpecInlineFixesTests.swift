@@ -40,6 +40,12 @@ struct SpecInlineFixesTests {
         ("***foo***\n\n", "<b><i>foo</i></b>"),
         ("**foo*\n\n", "*<i>foo</i>"),
         ("****foo*\n\n", "***<i>foo</i>"),
+        // A run that closes one span and opens the next: the rule of three
+        // counts the whole run, also when a chunk boundary follows the first span.
+        ("**a***b** c\n\n", "<b>a</b><i>b</i>* c"),
+        // A waiting opener's scan resumes at every split, past a code span,
+        // raw HTML and an escaped delimiter.
+        ("*a `b*` <x y=\"*\"> c\\* d*\n\n", "<i>a </i><code>b*</code><i> <x y=\"*\"> c* d</i>"),
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.
         ("(`x`)\n\n", "(<code>x</code>)"),
@@ -114,6 +120,33 @@ struct SpecInlineFixesTests {
         #expect(runs.last?.style == [.italic])
         let unpaired = InlineParser.parseAll(String(repeating: "*", count: count) + "foo")
         #expect(unpaired.map(\.text).joined() == String(repeating: "*", count: count) + "foo")
+    }
+
+    @Test("A run's delimiters consumed by an earlier chunk still count for the rule of three")
+    func ruleOfThreeAcrossChunks() async {
+        let whole = await parse(["**a***b** c\n\n"])
+        #expect(await parse(["**a***b", "** c\n\n"]) == whole)
+        #expect(styled(whole) == "<b>a</b><i>b</i>* c")
+    }
+
+    @Test("Unpaired closers of one character do not search the other character's openers")
+    func unpairedClosersStayLinear() {
+        let count = 800
+        let markdown = String(repeating: "*a ", count: count) + String(repeating: "b_ ", count: count) + "c*"
+        let runs = InlineParser.parseAll(markdown)
+        // The last star pairs with the nearest star opener; everything else is text.
+        #expect(runs.map(\.text).joined() == String(repeating: "*a ", count: count - 1) + "a " + String(repeating: "b_ ", count: count) + "c")
+        #expect(runs.last?.style == [.italic])
+    }
+
+    @Test("Streaming the unpaired-closer input in small chunks matches the whole parse")
+    func unpairedClosersStream() async {
+        let markdown = String(repeating: "*a ", count: 300) + String(repeating: "b_ ", count: 300) + "c*\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 4).map {
+            String(characters[$0..<min($0 + 4, characters.count)])
+        }
+        #expect(await parse(chunks) == (await parse([markdown])))
     }
 
     @Test("Text before an emphasis run whose flanking is still open is delivered at once")
