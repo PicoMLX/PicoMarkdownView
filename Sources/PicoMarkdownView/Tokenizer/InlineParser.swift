@@ -124,6 +124,9 @@ struct InlineParser {
         return consume(includeUnterminated: false)
     }
 
+    /// The ASCII punctuation characters a backslash can escape (CommonMark).
+    private static let asciiPunctuation = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".unicodeScalars)
+
     mutating func finish() -> [InlineRun] {
         let runs = consume(includeUnterminated: true)
         pending.removeAll(keepingCapacity: true)
@@ -1065,7 +1068,19 @@ struct InlineParser {
                     }
                 }
                 flushPlain(upTo: index)
-                appendPlain(String(text[nextIndex]))
+                let escaped = text[nextIndex]
+                // Only ASCII punctuation can be escaped (CommonMark); before
+                // anything else the backslash is literal. A backslash before
+                // a newline stays a hard break. The decision is made on the
+                // leading scalar: a combining mark or variation selector may
+                // make the Character non-ASCII while the punctuation stays
+                // escapable (`\*` + U+0301, an escaped keycap `\#️⃣`).
+                let leading = escaped.unicodeScalars.first!
+                if escaped == "\n" || (leading.isASCII && Self.asciiPunctuation.contains(leading)) {
+                    appendPlain(String(escaped))
+                } else {
+                    appendPlain("\\" + String(escaped))
+                }
                 let after = text.index(after: nextIndex)
                 consumedEnd = after
                 index = after
@@ -1234,7 +1249,10 @@ struct InlineParser {
                     }
                 }
                 flushPlain(upTo: index)
-                let inner = String(text[contentStart..<closingRange.lowerBound])
+                // Line endings inside a code span are spaces (CommonMark); this
+                // also covers a hard-break newline the block layer inserted
+                // before it could know the line ended inside a span.
+                let inner = String(text[contentStart..<closingRange.lowerBound]).replacingOccurrences(of: "\n", with: " ")
                 runs.append(InlineRun(text: inner, style: [.code]))
                 let afterClose = closingRange.upperBound
                 consumedEnd = afterClose

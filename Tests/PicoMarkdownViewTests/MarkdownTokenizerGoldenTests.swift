@@ -2361,11 +2361,14 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // The blank line after the code is held back: trailing blank lines are
+        // not part of an indented code block (CommonMark), so it is dropped
+        // when nothing follows.
         let result = await tokenizer.feed("    This is a code block.\n\n")
         assertChunk(result, matches: .init(
             events: [
                 .blockStart(.fencedCode(language: nil)),
-                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "This is a code block.\n\n")
+                .blockAppendFencedCode(.fencedCode(language: nil), textChunk: "This is a code block.\n")
             ],
             openBlocks: [.fencedCode(language: nil)]
         ), state: &state)
