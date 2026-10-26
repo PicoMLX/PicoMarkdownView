@@ -42,9 +42,10 @@ struct StreamingParser {
         /// `>>` = 2, …); 0 for every other kind. The blockquote analogue of
         /// `listIndent`.
         var blockquoteLevel: Int = 0
-        /// A blockquote that has opened a child block (heading, fence, …).
-        /// Later plain text goes into a paragraph child so source order is
-        /// kept, instead of being appended to the quote's own inline runs.
+        /// A blockquote that has opened a child block (heading, fence, …), or
+        /// whose own text was ended by a marker-only line. Later plain text
+        /// goes into a paragraph child so source order is kept, instead of
+        /// being appended to the quote's own inline runs.
         var hasBlockChildren: Bool = false
         /// Non-whitespace inline text has been appended: for a blockquote
         /// this means its own text acts as an open paragraph.
@@ -513,16 +514,21 @@ struct StreamingParser {
                 break
             case .fencedCode:
                 if isIndentedCodeBlock(ctx) {
-                    if let prefixLength = detectIndentedCodePrefix(lineBuffer) {
-                        ctx.linePrefixToStrip = prefixLength
+                    // Inside a quote the code sees the line after the `>`
+                    // prefix: `>` alone is a blank code line, and the code's
+                    // own four columns follow the prefix.
+                    let content = String(lineContent)
+                    if let prefixLength = detectIndentedCodePrefix(content) {
+                        let strip = lineQuotePrefix + prefixLength
+                        ctx.linePrefixToStrip = strip
                         setCurrentBlock(ctx)
-                        if emittedCount < prefixLength {
-                            emittedCount = min(lineBuffer.count, prefixLength)
+                        if emittedCount < strip {
+                            emittedCount = min(lineBuffer.count, strip)
                         }
                         lineAnalyzed = true
                         return
                     }
-                    if !trimmed.isEmpty {
+                    if !content.allSatisfy({ $0 == " " || $0 == "\t" }) {
                         closeCurrentBlock()
                         analyzeLineIfNeeded(isLineComplete: isLineComplete)
                         return
@@ -831,6 +837,15 @@ struct StreamingParser {
     private mutating func openQuotedChild(from content: Substring, isLineComplete: Bool) -> Bool {
         let line = String(content)
         let prefix = lineQuotePrefix
+        // A quoted paragraph is open (a paragraph child, or the quote's own
+        // text): only a block that may interrupt a paragraph starts here.
+        let paragraphIsOpen: Bool
+        if let current = currentBlock {
+            paragraphIsOpen = current.kind == .paragraph
+                || (current.kind == .blockquote && current.hasInlineContent && !current.hasBlockChildren)
+        } else {
+            paragraphIsOpen = false
+        }
 
         func beginChild() {
             lineOpenedChild = true
@@ -860,6 +875,15 @@ struct StreamingParser {
             beginChild()
             openFencedCode(fence)
             emittedCount = lineBuffer.count
+            lineAnalyzed = true
+            return true
+        }
+        // Four columns after the marker are indented code (CommonMark), which
+        // cannot interrupt a paragraph: there the line is paragraph text.
+        if !paragraphIsOpen, let codePrefix = detectIndentedCodePrefix(line) {
+            beginChild()
+            openIndentedCode(prefixLength: prefix + codePrefix)
+            emittedCount = min(lineBuffer.count, prefix + codePrefix)
             lineAnalyzed = true
             return true
         }
@@ -894,9 +918,7 @@ struct StreamingParser {
         if let list = detectList(line, isLineComplete: isLineComplete) {
             // A quoted paragraph (a paragraph child, or the quote's own text)
             // is only interrupted by a list that may interrupt a paragraph.
-            if let current = currentBlock,
-               current.kind == .paragraph || (current.kind == .blockquote && current.hasInlineContent && !current.hasBlockChildren),
-               !listCanInterruptParagraph(list, line: line) {
+            if paragraphIsOpen, !listCanInterruptParagraph(list, line: line) {
                 return false
             }
             beginChild()
@@ -921,6 +943,9 @@ struct StreamingParser {
     /// knows plus the ones a top-level paragraph yields to.
     private func startsBlock(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool = true) -> Bool {
         let line = String(content)
+        // Four columns of indentation make the line indented code, which
+        // cannot interrupt a paragraph: it is a lazy continuation line.
+        if interruptingParagraph, detectIndentedCodePrefix(line) != nil { return false }
         if detectHeading(line, isLineComplete: isLineComplete) != nil { return true }
         if let list = detectList(line, isLineComplete: isLineComplete) {
             // Ending a table (or another non-paragraph) has no interruption
@@ -975,15 +1000,18 @@ struct StreamingParser {
             start = sourceLine.index(sourceLine.startIndex, offsetBy: min(emittedCount, sourceLine.count))
         }
         guard start < sourceLine.endIndex else { return }
+        let trimmedLine = lineContent.trimmingCharacters(in: .whitespaces)
         // Marker-only quote lines (`>`, `>  `) are paragraph separators, not
         // content: never emit their leftover whitespace (or a hard-break
-        // newline from trailing spaces). While the line may still grow this
-        // only defers — if text follows, the full delta is emitted then.
-        if case .blockquote = context.kind,
-           isQuoteMarkerOnlyLine(lineBuffer.trimmingCharacters(in: .whitespaces)) {
-            return
+        // newline from trailing spaces) into the quote or its inline child.
+        // While the line may still grow this only defers — if text follows,
+        // the full delta is emitted then.
+        if lineQuotePrefix > 0, trimmedLine.isEmpty {
+            switch context.kind {
+            case .blockquote, .paragraph, .listItem, .footnoteDefinition, .heading: return
+            default: break
+            }
         }
-        let trimmedLine = lineContent.trimmingCharacters(in: .whitespaces)
         if !isLineComplete {
             // When the line buffer still looks like an incomplete block-level
             // construct (list marker, heading, fence, etc.), defer emission so
@@ -1094,17 +1122,15 @@ struct StreamingParser {
         let trimmed = lineContent.trimmingCharacters(in: .whitespaces)
         let isBlank = trimmed.isEmpty
 
-        if isBlank, !force, let top = currentBlock,
+        if isBlank, !force, lineQuotePrefix == 0,
            contextStack.contains(where: { $0.kind == .blockquote }) {
-            // A blank or marker-only line ends the quote and everything in
-            // it — except inside quoted code, where `>` alone is a blank
-            // code line (its newline was already appended).
-            let blankCodeLine = lineQuotePrefix > 0 && top.kind.isVerbatim
-            if !blankCodeLine {
-                closeBlockquoteContexts()
-                resetLineState()
-                return
-            }
+            // An unmarked blank line ends the quote and everything in it. A
+            // marker-only line (`>`, `>  `) is a blank line *inside* the
+            // quote: it ends the open child below, as a blank line would at
+            // the top level, and the quote stays open (CommonMark).
+            closeBlockquoteContexts()
+            resetLineState()
+            return
         }
 
         if var ctx = currentBlock {
@@ -1158,15 +1184,17 @@ struct StreamingParser {
                     trimTrailingSpace(for: &ctx)
                     setCurrentBlock(ctx)
                 }
-                if isBlank || force || isQuoteMarkerOnlyLine(trimmed) {
-                    // A `>` line with no content is a blank line inside the
-                    // quote: it ends the paragraph, so close the quote stack
-                    // now. The next quote line reopens at its own marker
-                    // depth (that is how `> back to level one` exits a nested
-                    // quote and how `>` separators split quote paragraphs);
-                    // an unquoted line starts a normal paragraph instead of
-                    // lazily continuing the old quote.
+                if force {
                     closeBlockquoteContexts()
+                } else if isBlank {
+                    // A marker-only line ends the quote's own paragraph: text
+                    // that follows is a paragraph child, and an unquoted line
+                    // no longer continues the quote lazily. The quote itself
+                    // stays open.
+                    if ctx.hasInlineContent, !ctx.hasBlockChildren {
+                        ctx.hasBlockChildren = true
+                        setCurrentBlock(ctx)
+                    }
                 } else if !lineConsumedByRule {
                     appendToCurrent("\n")
                 }
@@ -1680,13 +1708,6 @@ struct StreamingParser {
         while contextStack.count > outermost {
             closeCurrentBlock()
         }
-    }
-
-    /// True for lines that consist only of `>` markers and whitespace —
-    /// a blank line *inside* a blockquote (paragraph separator).
-    private func isQuoteMarkerOnlyLine(_ trimmed: String) -> Bool {
-        guard trimmed.contains(">") else { return false }
-        return trimmed.allSatisfy { $0 == ">" || $0 == " " || $0 == "\t" }
     }
 
     private mutating func openInlineBlock(kind: BlockKind, prefixToStrip: Int = 0) {
