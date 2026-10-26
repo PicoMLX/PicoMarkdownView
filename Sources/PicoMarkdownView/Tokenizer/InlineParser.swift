@@ -1326,9 +1326,22 @@ struct InlineParser {
             // per chunk keeps its flanking class (marks are alphanumeric) but
             // must not grow the retained context, or every append would
             // rebuild it.
-            let previous = lastConsumedCharacter.map { String($0.unicodeScalars.suffix(32)) } ?? ""
-            let tail = String(text.unicodeScalars[..<consumedEnd].suffix(32))
-            lastConsumedCharacter = (previous + tail).last
+            // The bound keeps a grapheme's base scalar, which decides its
+            // flanking class (`❤` plus marks is punctuation; `a` plus marks
+            // is alphanumeric), and its most recent marks.
+            func bounded(_ character: Character) -> String {
+                let scalars = character.unicodeScalars
+                guard scalars.count > 32 else { return String(character) }
+                return String(scalars.prefix(1)) + String(scalars.suffix(31))
+            }
+            let consumed = text[..<consumedEnd]
+            if let last = consumed.last {
+                let previous = lastConsumedCharacter.map(bounded) ?? ""
+                // A single consumed grapheme may extend the previous context
+                // (`❤` then U+FE0F); anything longer stands on its own.
+                let joined = consumed.dropFirst().isEmpty ? (previous + String(last)).last : last
+                lastConsumedCharacter = joined.flatMap { bounded($0).last }
+            }
             pending = String(text[consumedEnd...])
             if var state = mathState {
                 state.contentUTF8Offset = max(0, state.contentUTF8Offset - consumedBytes)

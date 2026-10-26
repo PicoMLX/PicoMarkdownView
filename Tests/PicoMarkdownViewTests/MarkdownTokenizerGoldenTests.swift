@@ -2020,6 +2020,18 @@ struct MarkdownTokenizerGoldenTests {
             #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "count \(count)")
             #expect(expected == [plain(chunks.joined())], "the underscore after a letter with marks is intraword")
         }
+        // The base scalar decides the class: a heart with many marks is
+        // punctuation, so emphasis may open after it, whether the grapheme
+        // arrives whole or one mark per chunk.
+        for chunks in [["\u{2764}" + String(repeating: "\u{301}", count: 33), "_b_"],
+                       ["\u{2764}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"]] {
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
+            #expect(expected.last == InlineRunShape(text: "b", style: [.italic]))
+        }
     }
 
     @Test("Pending bracket text survives a trailing backslash at the end of input",
