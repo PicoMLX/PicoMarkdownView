@@ -1990,10 +1990,18 @@ struct MarkdownTokenizerGoldenTests {
             #expect(parser.append("word_").map(\.text).joined() == "word_")
         }
         #expect(parser.finish().isEmpty)
+        // Only the ambiguous marker waits; the settled text before it is
+        // delivered at once, so repeated ` _` chunks stream as text.
+        var spaced = InlineParser()
+        #expect(spaced.append(" _").map(\.text).joined() == " ", "the space is delivered, the underscore waits")
+        for _ in 0..<3 {
+            #expect(spaced.append(" _").map(\.text).joined() == "_ ", "the previous underscore is literal once a space follows")
+        }
+        #expect(spaced.finish().map(\.text).joined() == "_")
         var opener = InlineParser()
-        #expect(opener.append("say _").isEmpty, "an underscore that may still open emphasis waits")
+        #expect(opener.append("say _").map(\.text).joined() == "say ", "an underscore that may still open emphasis waits")
         #expect(coalesceRuns((opener.append("hi_ there") + opener.finish()).map(InlineRunShape.init))
-                == [plain("say "), InlineRunShape(text: "hi", style: [.italic]), plain(" there")])
+                == [InlineRunShape(text: "hi", style: [.italic]), plain(" there")])
     }
 
     @Test("Emphasis markers at a chunk start keep the context of text already emitted",
@@ -2026,7 +2034,10 @@ struct MarkdownTokenizerGoldenTests {
         for chunks in [["\u{2764}" + String(repeating: "\u{301}", count: 33), "_b_"],
                        ["\u{2764}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
                        ["a\u{200D}" + String(repeating: "\u{301}", count: 33), "_b_"],
-                       ["a", "\u{200D}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"]] {
+                       ["a", "\u{200D}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
+                       // U+0600 is a Prepend character: it joins the `a` that follows into one grapheme.
+                       [String(repeating: "\u{600}", count: 33), "a", "_b_"],
+                       Array(repeating: "\u{600}", count: 40) + ["a", "_b_"]] {
             var parser = InlineParser()
             var runs = chunks.flatMap { parser.append($0) }
             runs += parser.finish()
