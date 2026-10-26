@@ -71,9 +71,19 @@ struct InlineParser {
     /// character); `tail` holds its last scalars, bounded, and serves only to
     /// tell whether the next chunk's first grapheme joins it.
     private struct ConsumedContext {
+        /// The consumed text ended with a run of `*` or `_` that the next
+        /// chunk may continue. A delimiter run is judged by the character
+        /// before the whole run, so that character's class is kept (as a
+        /// stand-in; `nil` is the start of the text).
+        struct TrailingRun {
+            var delimiter: Character
+            var before: Character?
+        }
         var tail: String
         var alphanumeric: Bool
         var whitespace: Bool
+        var punctuation: Bool
+        var trailingRun: TrailingRun?
     }
     private var lastConsumed: ConsumedContext?
     var linkReferences: LinkReferenceStore?
@@ -127,6 +137,21 @@ struct InlineParser {
     /// The ASCII punctuation characters a backslash can escape (CommonMark).
     private static let asciiPunctuation = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".unicodeScalars)
 
+    /// Punctuation for emphasis flanking: ASCII punctuation or a Unicode
+    /// punctuation (P) category, decided on the leading scalar. This is
+    /// cmark-gfm's definition; symbols such as `£` are not punctuation.
+    private static func isPunctuation(_ character: Character) -> Bool {
+        guard let scalar = character.unicodeScalars.first else { return false }
+        if scalar.isASCII { return asciiPunctuation.contains(scalar) }
+        switch scalar.properties.generalCategory {
+        case .connectorPunctuation, .dashPunctuation, .openPunctuation, .closePunctuation,
+             .initialPunctuation, .finalPunctuation, .otherPunctuation:
+            return true
+        default:
+            return false
+        }
+    }
+
     mutating func finish() -> [InlineRun] {
         let runs = consume(includeUnterminated: true)
         pending.removeAll(keepingCapacity: true)
@@ -176,6 +201,19 @@ struct InlineParser {
             appendProcessed(transformed)
         }
 
+        /// Text the replacement engine still holds (a possible `(c)` or
+        /// `:smile:`) comes before a run that is not plain text, so it is
+        /// released first; otherwise the run would overtake it. No
+        /// replacement spans such a run.
+        func settleReplacements() {
+            appendProcessed(replacements.finish())
+        }
+
+        func appendStructured(_ run: InlineRun) {
+            settleReplacements()
+            runs.append(run)
+        }
+
         func flushPlain(upTo end: String.Index) {
             guard plainStart < end else { return }
             let substring = String(text[plainStart..<end])
@@ -200,7 +238,9 @@ struct InlineParser {
                 // A stand-in with the exact class of the grapheme consumed
                 // before this text; the class is all the callers ask of it.
                 guard let context = lastConsumed else { return nil }
-                return context.alphanumeric ? "a" : (context.whitespace ? " " : ".")
+                if context.alphanumeric { return "a" }
+                if context.whitespace { return " " }
+                return context.punctuation ? "." : "©"
             }
             let prior = text.index(before: index)
             return text[prior]
@@ -224,7 +264,7 @@ struct InlineParser {
             let run = InlineRun(text: tex,
                                  style: [.math],
                                  math: MathInlinePayload(tex: tex, display: display))
-            runs.append(run)
+            appendStructured(run)
         }
 
         func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
@@ -249,6 +289,7 @@ struct InlineParser {
         }
 
         func appendRun(_ run: InlineRun) {
+            settleReplacements()
             // Payload-identity check is shared with the assembler and the
             // state machine via `InlineRun.canCoalesce(with:)`; the two
             // line-break guards are local to inline parsing (don't merge
@@ -263,55 +304,380 @@ struct InlineParser {
             }
         }
 
-        func canOpenEmphasis(at index: String.Index, delimiter: Character, length: Int) -> Bool {
-            guard delimiter == "_" else { return true }
-            if let prev = character(before: index), isAlphanumeric(prev) {
-                return false
+        /// Whether the character at `index` follows an odd run of backslashes.
+        func isEscaped(_ index: String.Index) -> Bool {
+            var backslashes = 0
+            var cursor = index
+            while cursor > text.startIndex {
+                let previous = text.index(before: cursor)
+                guard text[previous] == "\\" else { break }
+                backslashes += 1
+                cursor = previous
             }
-            guard let next = character(after: index, offset: length) else {
-                return false
-            }
-            return !isWhitespace(next)
+            return backslashes % 2 == 1
         }
 
-        func canCloseEmphasis(at index: String.Index, delimiter: Character, length: Int) -> Bool {
-            guard delimiter == "_" else { return true }
-            guard let before = character(before: index), !isWhitespace(before) else {
-                return false
+        /// The run of `text[index]` characters around `index`: a delimiter
+        /// run (CommonMark) is judged as a whole. An escaped delimiter is
+        /// text, not part of the run.
+        func delimiterRun(containing index: String.Index) -> Range<String.Index> {
+            let delimiter = text[index]
+            var start = index
+            while start > text.startIndex {
+                let previous = text.index(before: start)
+                guard text[previous] == delimiter, !isEscaped(previous) else { break }
+                start = previous
             }
-            if let after = character(after: index, offset: length) {
-                if isAlphanumeric(after) {
-                    return false
-                }
+            var end = index
+            while end < text.endIndex, text[end] == delimiter {
+                end = text.index(after: end)
             }
-            return true
+            return start..<end
         }
 
-        func findClosingDelimiter(delimiter: Character, length: Int, from start: String.Index) -> Range<String.Index>? {
-            let token = String(repeating: delimiter, count: length)
+        struct Flanking {
+            var left: Bool
+            var right: Bool
+            var punctuationBefore: Bool
+            var punctuationAfter: Bool
+        }
+
+        /// The character before a delimiter run, including a run that an
+        /// earlier chunk began (`word_` delivered, then `_bar`).
+        func characterBefore(run: Range<String.Index>) -> Character? {
+            if run.lowerBound == text.startIndex, let trailing = lastConsumed?.trailingRun,
+               trailing.delimiter == text[run.lowerBound] {
+                return trailing.before
+            }
+            return character(before: run.lowerBound)
+        }
+
+        /// CommonMark flanking of a delimiter run. The start and end of the
+        /// text count as whitespace; `nil` while the character after the run
+        /// has not arrived yet.
+        func flanking(of run: Range<String.Index>) -> Flanking? {
+            let before = characterBefore(run: run) ?? " "
+            let after: Character
+            if run.upperBound < text.endIndex {
+                after = text[run.upperBound]
+            } else if includeUnterminated {
+                after = " "
+            } else {
+                return nil
+            }
+            let beforeIsSpace = isWhitespace(before), afterIsSpace = isWhitespace(after)
+            let beforeIsPunctuation = Self.isPunctuation(before), afterIsPunctuation = Self.isPunctuation(after)
+            return Flanking(
+                left: !afterIsSpace && (!afterIsPunctuation || beforeIsSpace || beforeIsPunctuation),
+                right: !beforeIsSpace && (!beforeIsPunctuation || afterIsSpace || afterIsPunctuation),
+                punctuationBefore: beforeIsPunctuation,
+                punctuationAfter: afterIsPunctuation
+            )
+        }
+
+        func canOpen(_ delimiter: Character, _ flank: Flanking) -> Bool {
+            delimiter == "*" ? flank.left : flank.left && (!flank.right || flank.punctuationBefore)
+        }
+
+        func canClose(_ delimiter: Character, _ flank: Flanking) -> Bool {
+            delimiter == "*" ? flank.right : flank.right && (!flank.left || flank.punctuationAfter)
+        }
+
+        /// How far a construct that binds tighter than emphasis reaches.
+        enum SpanScan {
+            case end(String.Index)
+            case none
+            case needMore
+        }
+
+        /// The closing backtick run of exactly `delimiterLength` backticks
+        /// after `start`: a longer or shorter run is code content.
+        func findCodeClosing(delimiterLength: Int, from start: String.Index) -> Range<String.Index>? {
             var search = start
-            while search < text.endIndex {
-                guard let range = text[search...].range(of: token) else { return nil }
-                if canCloseEmphasis(at: range.lowerBound, delimiter: delimiter, length: length) {
-                    return range
+            while let tick = text[search...].firstIndex(of: "`") {
+                var end = tick
+                var length = 0
+                while end < text.endIndex, text[end] == "`" {
+                    length += 1
+                    end = text.index(after: end)
                 }
-                search = text.index(after: range.lowerBound)
+                if length == delimiterLength { return tick..<end }
+                search = end
             }
             return nil
         }
 
-        func findCodeClosing(delimiterLength: Int, from start: String.Index) -> Range<String.Index>? {
-            let token = String(repeating: "`", count: delimiterLength)
-            var search = start
-            while search < text.endIndex {
-                guard let range = text[search...].range(of: token) else { return nil }
-                if range.upperBound < text.endIndex, text[range.upperBound] == "`" {
-                    search = range.upperBound
+        /// A code span opening at the backtick run at `index`. A closer at
+        /// the end of the text may still grow into a longer run, so it waits.
+        func codeSpanScan(at index: String.Index) -> SpanScan {
+            var contentStart = index
+            var length = 0
+            while contentStart < text.endIndex, text[contentStart] == "`" {
+                length += 1
+                contentStart = text.index(after: contentStart)
+            }
+            guard let closing = findCodeClosing(delimiterLength: length, from: contentStart) else {
+                return includeUnterminated ? .none : .needMore
+            }
+            if closing.upperBound == text.endIndex, !includeUnterminated { return .needMore }
+            return .end(closing.upperBound)
+        }
+
+        enum AngleSpan {
+            case autolink(end: String.Index, display: String, url: String)
+            case html(end: String.Index)
+            case none
+            case needMore
+        }
+
+        /// A CommonMark autolink (`<scheme:…>`, `<user@host>`) or raw HTML
+        /// construct starting at the `<` at `index`.
+        func angleSpan(at index: String.Index) -> AngleSpan {
+            let start = text.index(after: index)
+            var cursor = start
+            while cursor < text.endIndex {
+                let character = text[cursor]
+                if character == ">" || character == "<" || character.isWhitespace
+                    || character.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F }) {
+                    break
+                }
+                cursor = text.index(after: cursor)
+            }
+            var autolinkPending = false
+            if cursor < text.endIndex, text[cursor] == ">" {
+                let candidate = String(text[start..<cursor])
+                let end = text.index(after: cursor)
+                if isURIAutolink(candidate) {
+                    return .autolink(end: end, display: candidate, url: candidate)
+                }
+                if isEmailAutolink(candidate) {
+                    return .autolink(end: end, display: candidate, url: "mailto:" + candidate)
+                }
+            } else if cursor == text.endIndex {
+                autolinkPending = !includeUnterminated
+            }
+            switch htmlScan(at: index) {
+            case .end(let end): return .html(end: end)
+            case .needMore: return .needMore
+            case .none: return autolinkPending ? .needMore : .none
+            }
+        }
+
+        func isURIAutolink(_ candidate: String) -> Bool {
+            guard let colon = candidate.firstIndex(of: ":") else { return false }
+            let scheme = candidate[..<colon]
+            guard (2...32).contains(scheme.count), let first = scheme.first, first.isASCII, first.isLetter else { return false }
+            return scheme.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "+" || $0 == "." || $0 == "-") }
+        }
+
+        func isEmailAutolink(_ candidate: String) -> Bool {
+            let parts = candidate.split(separator: "@", omittingEmptySubsequences: false)
+            guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return false }
+            let localAllowed = Set(".!#$%&'*+/=?^_`{|}~-")
+            guard parts[0].allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || localAllowed.contains($0)) }) else { return false }
+            return parts[1].split(separator: ".", omittingEmptySubsequences: false).allSatisfy { label in
+                guard (1...63).contains(label.count), let first = label.first, let last = label.last else { return false }
+                let alphanumeric: (Character) -> Bool = { $0.isASCII && ($0.isLetter || $0.isNumber) }
+                return alphanumeric(first) && alphanumeric(last) && label.allSatisfy { alphanumeric($0) || $0 == "-" }
+            }
+        }
+
+        /// Raw HTML (CommonMark): an open or closing tag, a comment, a
+        /// processing instruction, a declaration or a CDATA section.
+        func htmlScan(at index: String.Index) -> SpanScan {
+            let pending: SpanScan = includeUnterminated ? .none : .needMore
+            var cursor = text.index(after: index)
+            func atEnd() -> Bool { cursor >= text.endIndex }
+            func advance() { cursor = text.index(after: cursor) }
+            func isTagNameCharacter(_ c: Character) -> Bool { c.isASCII && (c.isLetter || c.isNumber || c == "-") }
+            func skipWhitespace() -> Bool {
+                let before = cursor
+                while !atEnd(), text[cursor].isWhitespace { advance() }
+                return cursor > before
+            }
+            /// The end of the first `terminator` at or after the cursor.
+            func scan(through terminator: String) -> SpanScan {
+                guard let range = text[cursor...].range(of: terminator) else { return pending }
+                return .end(range.upperBound)
+            }
+            guard !atEnd() else { return pending }
+            let first = text[cursor]
+            if first == "!" {
+                advance()
+                if text[cursor...].hasPrefix("--") {
+                    cursor = text.index(cursor, offsetBy: 2)
+                    return scan(through: "-->")
+                }
+                if text[cursor...].hasPrefix("[CDATA[") {
+                    return scan(through: "]]>")
+                }
+                if "--".hasPrefix(text[cursor...]) || "[CDATA[".hasPrefix(text[cursor...]) { return pending }
+                guard text[cursor].isASCII, text[cursor].isLetter else { return .none }
+                return scan(through: ">")
+            }
+            if first == "?" {
+                advance()
+                return scan(through: "?>")
+            }
+            if first == "/" {
+                advance()
+                guard !atEnd() else { return pending }
+                guard text[cursor].isASCII, text[cursor].isLetter else { return .none }
+                while !atEnd(), isTagNameCharacter(text[cursor]) { advance() }
+                _ = skipWhitespace()
+                guard !atEnd() else { return pending }
+                return text[cursor] == ">" ? .end(text.index(after: cursor)) : .none
+            }
+            guard first.isASCII, first.isLetter else { return .none }
+            while !atEnd(), isTagNameCharacter(text[cursor]) { advance() }
+            while true {
+                let spaced = skipWhitespace()
+                guard !atEnd() else { return pending }
+                let character = text[cursor]
+                if character == ">" { return .end(text.index(after: cursor)) }
+                if character == "/" {
+                    advance()
+                    guard !atEnd() else { return pending }
+                    return text[cursor] == ">" ? .end(text.index(after: cursor)) : .none
+                }
+                // An attribute needs whitespace before it.
+                guard spaced, character.isASCII, character.isLetter || character == "_" || character == ":" else { return .none }
+                while !atEnd(), text[cursor].isASCII,
+                      text[cursor].isLetter || text[cursor].isNumber || "_.:-".contains(text[cursor]) {
+                    advance()
+                }
+                let beforeValue = cursor
+                _ = skipWhitespace()
+                guard !atEnd() else { return pending }
+                guard text[cursor] == "=" else {
+                    cursor = beforeValue
                     continue
                 }
-                return range
+                advance()
+                _ = skipWhitespace()
+                guard !atEnd() else { return pending }
+                let quote = text[cursor]
+                if quote == "\"" || quote == "'" {
+                    advance()
+                    guard let close = text[cursor...].firstIndex(of: quote) else { return pending }
+                    cursor = text.index(after: close)
+                } else {
+                    let valueStart = cursor
+                    while !atEnd(), !text[cursor].isWhitespace, !"\"'=<>`".contains(text[cursor]) { advance() }
+                    guard cursor > valueStart else { return .none }
+                }
             }
-            return nil
+        }
+
+        enum EmphasisMatch {
+            /// After `literalPrefix` delimiters that stay text, the opener's
+            /// leftmost delimiters pair with `closer`, as emphasis (`length`
+            /// 1) or strong emphasis (2).
+            case matched(closer: Range<String.Index>, length: Int, literalPrefix: Int)
+            /// No delimiter of the opener pairs: the run is text.
+            case none
+            case needMore
+        }
+
+        struct Delimiter {
+            var character: Character
+            var start: String.Index
+            var count: Int
+            let originalCount: Int
+            let canOpen: Bool
+            let canClose: Bool
+        }
+
+        /// CommonMark's emphasis algorithm over the delimiter runs from the
+        /// opener at `index` on: closers are processed left to right, each
+        /// pairing with the nearest eligible opener (rule of three, two
+        /// delimiters when both sides have them), and the answer is the pair
+        /// that consumes the opener's leftmost delimiter. Code spans,
+        /// autolinks and raw HTML bind tighter, and an escaped delimiter is
+        /// text, so none of them holds a delimiter. Every decision depends
+        /// only on the text before the deciding closer, so a match that
+        /// takes the leftmost delimiter is final once found. Delimiters left
+        /// unpaired at the left of the run are known only once the text is
+        /// final; the last pair that took any of the opener's delimiters is
+        /// then the outermost, and the run is resolved in one scan.
+        func matchEmphasis(openerAt index: String.Index, flank: Flanking) -> EmphasisMatch {
+            let openerRun = delimiterRun(containing: index)
+            let delimiter = text[index]
+            var openers = [Delimiter(character: delimiter,
+                                     start: index,
+                                     count: text.distance(from: index, to: openerRun.upperBound),
+                                     originalCount: text.distance(from: openerRun.lowerBound, to: openerRun.upperBound),
+                                     canOpen: true,
+                                     canClose: canClose(delimiter, flank))]
+            func ruleOfThreeForbids(_ opener: Delimiter, _ closer: Delimiter) -> Bool {
+                (opener.canClose || closer.canOpen)
+                    && (opener.originalCount + closer.originalCount) % 3 == 0
+                    && !(opener.originalCount % 3 == 0 && closer.originalCount % 3 == 0)
+            }
+            var lastPair: (closer: Range<String.Index>, length: Int)?
+            var cursor = openerRun.upperBound
+            while cursor < text.endIndex {
+                let character = text[cursor]
+                if character == "\\" {
+                    let escaped = text.index(after: cursor)
+                    cursor = escaped < text.endIndex ? text.index(after: escaped) : escaped
+                    continue
+                }
+                if character == "`" {
+                    switch codeSpanScan(at: cursor) {
+                    case .end(let end): cursor = end
+                    case .needMore: return .needMore
+                    case .none: cursor = delimiterRun(containing: cursor).upperBound
+                    }
+                    continue
+                }
+                if character == "<" {
+                    switch angleSpan(at: cursor) {
+                    case .autolink(let end, _, _), .html(let end): cursor = end
+                    case .needMore: return .needMore
+                    case .none: cursor = text.index(after: cursor)
+                    }
+                    continue
+                }
+                if character == "*" || character == "_" {
+                    let run = delimiterRun(containing: cursor)
+                    guard let runFlank = flanking(of: run) else { return .needMore }
+                    let length = text.distance(from: run.lowerBound, to: run.upperBound)
+                    var closer = Delimiter(character: character, start: run.lowerBound, count: length,
+                                           originalCount: length,
+                                           canOpen: canOpen(character, runFlank),
+                                           canClose: canClose(character, runFlank))
+                    if closer.canClose {
+                        while closer.count > 0,
+                              let openerIndex = openers.lastIndex(where: { $0.character == closer.character && !ruleOfThreeForbids($0, closer) }) {
+                            let used = closer.count >= 2 && openers[openerIndex].count >= 2 ? 2 : 1
+                            let closerCharacters = closer.start..<text.index(closer.start, offsetBy: used)
+                            // The opener at `index` is at the bottom of the
+                            // stack; it pairs here once this match takes its
+                            // leftmost (outermost) delimiters.
+                            if openerIndex == 0 {
+                                if openers[0].count == used {
+                                    return .matched(closer: closerCharacters, length: used, literalPrefix: 0)
+                                }
+                                lastPair = (closerCharacters, used)
+                            }
+                            openers[openerIndex].count -= used
+                            // Openers between the pair can no longer match.
+                            openers.removeSubrange((openerIndex + 1)...)
+                            if openers[openerIndex].count == 0 { openers.remove(at: openerIndex) }
+                            closer.start = closerCharacters.upperBound
+                            closer.count -= used
+                        }
+                    }
+                    if closer.count > 0, closer.canOpen { openers.append(closer) }
+                    cursor = run.upperBound
+                    continue
+                }
+                cursor = text.index(after: cursor)
+            }
+            guard includeUnterminated else { return .needMore }
+            guard let lastPair else { return .none }
+            return .matched(closer: lastPair.closer, length: lastPair.length, literalPrefix: openers[0].count)
         }
 
         enum BracketParseResult {
@@ -363,7 +729,7 @@ struct InlineParser {
                 if !id.isEmpty, let registry = footnoteRegistry {
                     let number = registry.index(for: id)
                     let run = InlineRun(text: String(number), style: [.footnote, .superscript])
-                    runs.append(run)
+                    appendStructured(run)
                     consumedEnd = afterBracket
                     plainStart = afterBracket
                     return .handled(nextIndex: afterBracket)
@@ -405,9 +771,9 @@ struct InlineParser {
             let (destination, title) = splitDestinationAndTitle(String(text[urlStart..<closing]))
 
             if treatAsImage {
-                runs.append(InlineRun(text: label, style: [.image], image: InlineImage(source: destination, title: title)))
+                appendStructured(InlineRun(text: label, style: [.image], image: InlineImage(source: destination, title: title)))
             } else {
-                runs.append(InlineRun(text: label, style: [.link], linkURL: destination))
+                appendStructured(InlineRun(text: label, style: [.link], linkURL: destination))
             }
 
             let afterClose = text.index(after: closing)
@@ -440,9 +806,9 @@ struct InlineParser {
             }
 
             if treatAsImage {
-                runs.append(InlineRun(text: label, style: [.image], image: InlineImage(source: definition.url, title: definition.title)))
+                appendStructured(InlineRun(text: label, style: [.image], image: InlineImage(source: definition.url, title: definition.title)))
             } else {
-                runs.append(InlineRun(text: label, style: [.link], linkURL: definition.url))
+                appendStructured(InlineRun(text: label, style: [.link], linkURL: definition.url))
             }
             consumedEnd = nextIndex
             plainStart = nextIndex
@@ -1137,52 +1503,48 @@ struct InlineParser {
                 }
             case "*", "_":
                 let delimiter = ch
-                let nextIndex = text.index(after: index)
-                let isDouble = nextIndex < text.endIndex && text[nextIndex] == delimiter
-                let markerLength = isDouble ? 2 : 1
-                // A trailing `_` waits for the next character only when it
-                // could still open emphasis; after a letter or digit it
-                // never can (intraword), so `word_` streams as text.
-                if delimiter == "_", !includeUnterminated,
-                   character(after: index, offset: markerLength) == nil,
-                   !(character(before: index).map(isAlphanumeric) ?? false) {
-                    // Everything before the marker is settled: deliver it
-                    // now and keep only the marker pending, so repeated
-                    // ambiguous chunks neither delay text nor rescan it.
+                // Whether the run opens depends on the characters around the
+                // whole run (CommonMark flanking).
+                let run = delimiterRun(containing: index)
+                guard let flank = flanking(of: run) else {
+                    // The character after the run has not arrived. A `_`
+                    // after a letter or digit never opens (intraword), so
+                    // `word_` streams as text; anything else waits. Text
+                    // before the run is settled and is delivered now, so
+                    // repeated ambiguous chunks neither delay it nor rescan it.
+                    if delimiter == "_", characterBefore(run: run).map(isAlphanumeric) ?? false {
+                        index = run.upperBound
+                        continue parsing
+                    }
                     flushPlain(upTo: index)
                     consumedAll = false
                     break parsing
                 }
-                if !canOpenEmphasis(at: index, delimiter: delimiter, length: markerLength) {
-                    index = text.index(after: index)
+                if !canOpen(delimiter, flank) {
+                    // No delimiter of the run can open: it is text.
+                    index = run.upperBound
                     continue parsing
                 }
-                let searchStart = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
-                guard searchStart <= text.endIndex else {
-                    index = text.index(after: index)
+                let closingRange: Range<String.Index>
+                let markerLength: Int
+                switch matchEmphasis(openerAt: index, flank: flank) {
+                case .matched(let closer, let length, let literalPrefix):
+                    // Unpaired delimiters at the left of the run are text
+                    // (`**foo*` reads `*` then emphasis).
+                    index = text.index(index, offsetBy: literalPrefix)
+                    closingRange = closer
+                    markerLength = length
+                case .none:
+                    index = run.upperBound
                     continue parsing
-                }
-                guard let closingRange = findClosingDelimiter(delimiter: delimiter, length: markerLength, from: searchStart) else {
-                    if includeUnterminated {
-                        index = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
-                        continue parsing
-                    } else {
-                        consumedAll = false
-                        break parsing
-                    }
-                }
-                // A closing `_` at the very end of the pending text may turn
-                // out to be intraword (`_foo_` then `bar`): wait for the next
-                // character, as the opener does.
-                if delimiter == "_", !includeUnterminated, closingRange.upperBound == text.endIndex {
-                    flushPlain(upTo: index)
+                case .needMore:
                     consumedAll = false
                     break parsing
                 }
                 flushPlain(upTo: index)
-                let innerStart = markerLength == 2 ? text.index(after: nextIndex) : text.index(after: index)
+                let innerStart = text.index(index, offsetBy: markerLength)
                 let inner = String(text[innerStart..<closingRange.lowerBound])
-                let style: InlineStyle = isDouble ? [.bold] : [.italic]
+                let style: InlineStyle = markerLength == 2 ? [.bold] : [.italic]
                 let nestedRuns = parseNestedRuns(from: inner, inheriting: style)
                 if nestedRuns.isEmpty {
                     appendRun(InlineRun(text: inner, style: style))
@@ -1248,12 +1610,23 @@ struct InlineParser {
                         break parsing
                     }
                 }
+                // A closing run at the end of the text may still grow into a
+                // longer run, which would be content (`` `a` `` then `` ` ``).
+                if closingRange.upperBound == text.endIndex, !includeUnterminated {
+                    consumedAll = false
+                    break parsing
+                }
                 flushPlain(upTo: index)
                 // Line endings inside a code span are spaces (CommonMark); this
                 // also covers a hard-break newline the block layer inserted
                 // before it could know the line ended inside a span.
-                let inner = String(text[contentStart..<closingRange.lowerBound]).replacingOccurrences(of: "\n", with: " ")
-                runs.append(InlineRun(text: inner, style: [.code]))
+                var inner = String(text[contentStart..<closingRange.lowerBound]).replacingOccurrences(of: "\n", with: " ")
+                // One space is stripped from each side when both are spaces and
+                // the content is not only spaces (`` ` `` `` ` `` reads ``` `` ```).
+                if inner.count >= 2, inner.first == " ", inner.last == " ", inner.contains(where: { $0 != " " }) {
+                    inner = String(inner.dropFirst().dropLast())
+                }
+                appendStructured(InlineRun(text: inner, style: [.code]))
                 let afterClose = closingRange.upperBound
                 consumedEnd = afterClose
                 index = afterClose
@@ -1263,7 +1636,7 @@ struct InlineParser {
                     switch result {
                     case .handled(let nextIndex, let display, let url):
                         flushPlain(upTo: index)
-                        runs.append(InlineRun(text: display, style: [.link], linkURL: url))
+                        appendStructured(InlineRun(text: display, style: [.link], linkURL: url))
                         consumedEnd = nextIndex
                         index = nextIndex
                         plainStart = nextIndex
@@ -1280,7 +1653,7 @@ struct InlineParser {
                     switch breakResult {
                     case .handled(let nextIndex):
                         flushPlain(upTo: index)
-                        runs.append(InlineRun(text: "\n"))
+                        appendStructured(InlineRun(text: "\n"))
                         consumedEnd = nextIndex
                         index = nextIndex
                         plainStart = nextIndex
@@ -1306,7 +1679,7 @@ struct InlineParser {
                     switch result {
                     case .handled(let nextIndex, let display, let url):
                         flushPlain(upTo: index)
-                        runs.append(InlineRun(text: display, style: [.link], linkURL: url))
+                        appendStructured(InlineRun(text: display, style: [.link], linkURL: url))
                         consumedEnd = nextIndex
                         index = nextIndex
                         plainStart = nextIndex
@@ -1315,6 +1688,25 @@ struct InlineParser {
                         consumedAll = false
                         break parsing
                     }
+                }
+                switch angleSpan(at: index) {
+                case .autolink(let end, let display, let url):
+                    flushPlain(upTo: index)
+                    appendStructured(InlineRun(text: display, style: [.link], linkURL: url))
+                    consumedEnd = end
+                    index = end
+                    plainStart = end
+                    continue parsing
+                case .html(let end):
+                    // Raw HTML stays text, but nothing inside it is markup:
+                    // a backtick or `*` in an attribute opens nothing.
+                    index = end
+                    continue parsing
+                case .needMore:
+                    consumedAll = false
+                    break parsing
+                case .none:
+                    break
                 }
                 index = text.index(after: index)
             default:
@@ -1394,14 +1786,47 @@ struct InlineParser {
             if let last = consumed.last {
                 let alphanumeric = isAlphanumeric(last)
                 let whitespace = isWhitespace(last)
+                let punctuation = Self.isPunctuation(last)
+                // A trailing delimiter run keeps the class of the character
+                // before it, carried over when the run began even earlier.
+                var trailingRun: ConsumedContext.TrailingRun?
+                // `consumedEnd` may sit inside a grapheme (math resumes at a
+                // scalar boundary), so the last character is found within
+                // the consumed slice, and only for a delimiter, which is a
+                // whole grapheme.
+                if last == "*" || last == "_", case let lastIndex = consumed.index(before: consumed.endIndex), !isEscaped(lastIndex) {
+                    var runStart = lastIndex
+                    while runStart > text.startIndex {
+                        let previous = text.index(before: runStart)
+                        guard text[previous] == last, !isEscaped(previous) else { break }
+                        runStart = previous
+                    }
+                    if runStart == text.startIndex, let previous = lastConsumed?.trailingRun, previous.delimiter == last {
+                        trailingRun = previous
+                    } else {
+                        let before = character(before: runStart)
+                        let standIn: Character? = before.map { character in
+                            if isAlphanumeric(character) { return "a" }
+                            if isWhitespace(character) { return " " }
+                            return Self.isPunctuation(character) ? "." : "©"
+                        }
+                        trailingRun = ConsumedContext.TrailingRun(delimiter: last, before: standIn)
+                    }
+                }
                 if let previous = lastConsumed, consumed.dropFirst().isEmpty,
                    let merged = (previous.tail + String(last)).last,
                    (previous.tail + String(last)).count < previous.tail.count + 1 {
+                    // A joined grapheme keeps the class of its leading scalar
+                    // for punctuation, as `isPunctuation` decides.
                     lastConsumed = ConsumedContext(tail: joiningTail(of: merged),
                                                    alphanumeric: previous.alphanumeric && alphanumeric,
-                                                   whitespace: previous.whitespace && whitespace)
+                                                   whitespace: previous.whitespace && whitespace,
+                                                   punctuation: previous.punctuation,
+                                                   trailingRun: trailingRun)
                 } else {
-                    lastConsumed = ConsumedContext(tail: joiningTail(of: last), alphanumeric: alphanumeric, whitespace: whitespace)
+                    lastConsumed = ConsumedContext(tail: joiningTail(of: last), alphanumeric: alphanumeric,
+                                                   whitespace: whitespace, punctuation: punctuation,
+                                                   trailingRun: trailingRun)
                 }
             }
             pending = String(text[consumedEnd...])

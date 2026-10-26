@@ -2041,9 +2041,12 @@ struct MarkdownTokenizerGoldenTests {
             #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "count \(count)")
             #expect(expected == [plain(chunks.joined())], "the underscore after a letter with marks is intraword")
         }
-        // The base scalar decides the class: a heart with many marks is
-        // punctuation, so emphasis may open after it, whether the grapheme
-        // arrives whole or one mark per chunk.
+        // The class of the whole grapheme survives chunking, whether it
+        // arrives whole or one mark per chunk. None of these graphemes is
+        // whitespace or punctuation (a heart is a symbol), so the `_` after
+        // it is both-flanking and cannot open emphasis (CommonMark): the text
+        // stays plain. Were the context lost at a chunk boundary, the start of
+        // the chunk would read as whitespace and the streamed `_b_` would open.
         for chunks in [["\u{2764}" + String(repeating: "\u{301}", count: 33), "_b_"],
                        ["\u{2764}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
                        ["a\u{200D}" + String(repeating: "\u{301}", count: 33), "_b_"],
@@ -2060,6 +2063,17 @@ struct MarkdownTokenizerGoldenTests {
                        ["\u{915}", "\u{200D}", "\u{94D}"] + Array(repeating: "\u{301}", count: 40) + ["\u{915}", "_b_"],
                        // Alternating marks defeat a run-length cap but not a distinct-scalar one.
                        ["\u{915}\u{200D}\u{94D}" + String(repeating: "\u{301}\u{302}", count: 40), "\u{915}", "_b_"]] {
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
+            #expect(expected == [plain(chunks.joined())])
+        }
+        // Punctuation decides on the leading scalar: `!` with many marks is
+        // punctuation, so emphasis opens after it, whole or one mark per chunk.
+        for chunks in [["!" + String(repeating: "\u{301}", count: 33), "_b_"],
+                       ["!"] + Array(repeating: "\u{301}", count: 40) + ["_b_"]] {
             var parser = InlineParser()
             var runs = chunks.flatMap { parser.append($0) }
             runs += parser.finish()
