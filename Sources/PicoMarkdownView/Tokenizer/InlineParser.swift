@@ -147,7 +147,19 @@ struct InlineParser {
         }
         var index = bytes.index(bytes.startIndex, offsetBy: scan.scannedBytes)
         while index < bytes.endIndex {
-            if bytes[index] == UInt8(ascii: "`") { scan.run += 1 } else { endRun() }
+            let byte = bytes[index]
+            if byte == UInt8(ascii: "`") {
+                // Outside a code span a backtick after an odd run of
+                // backslashes is escaped text, not a delimiter.
+                if scan.openLength == nil, scan.escaped {
+                    scan.escaped = false
+                } else {
+                    scan.run += 1
+                }
+            } else {
+                endRun()
+                scan.escaped = scan.openLength == nil && byte == UInt8(ascii: "\\") && !scan.escaped
+            }
             index = bytes.index(after: index)
         }
         scan.scannedBytes = bytes.count
@@ -157,10 +169,15 @@ struct InlineParser {
         return scan.openLength != nil || (scan.run > 0 && scan.openLength == nil)
     }
 
+    /// The ASCII punctuation characters a backslash can escape (CommonMark).
+    private static let asciiPunctuation = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".unicodeScalars)
+
     private struct CodeSpanScan {
         var scannedBytes = 0
         var openLength: Int?
         var run = 0
+        /// The previous byte was an unescaped backslash outside a code span.
+        var escaped = false
     }
     private var codeSpanScan = CodeSpanScan()
 
@@ -1109,8 +1126,12 @@ struct InlineParser {
                 let escaped = text[nextIndex]
                 // Only ASCII punctuation can be escaped (CommonMark); before
                 // anything else the backslash is literal. A backslash before
-                // a newline stays a hard break.
-                if escaped == "\n" || (escaped.isASCII && (escaped.isPunctuation || escaped.isSymbol)) {
+                // a newline stays a hard break. The decision is made on the
+                // leading scalar: a combining mark or variation selector may
+                // make the Character non-ASCII while the punctuation stays
+                // escapable (`\*` + U+0301, an escaped keycap `\#️⃣`).
+                let leading = escaped.unicodeScalars.first!
+                if escaped == "\n" || (leading.isASCII && Self.asciiPunctuation.contains(leading)) {
                     appendPlain(String(escaped))
                 } else {
                     appendPlain("\\" + String(escaped))
