@@ -56,6 +56,15 @@ struct SpecInlineFixesTests {
         // Flanking reads code points: a mark joining the space after a run
         // does not change that the run is followed by whitespace.
         ("a * \u{301}* b\n\n", "a * \u{301}* b"),
+        // A `<kbd>`, `<sup>` or `<sub>` element is parsed apart up to its
+        // closing tag: a backtick or `$` inside it pairs with nothing outside.
+        ("**Press <kbd>`</kbd> to toggle** and `code`\n\n",
+         "<b>Press </b><b>`</b><b> to toggle</b> and <code>code</code>"),
+        ("**Press <sub>$</sub> to toggle** and $x$\n\n", "<b>Press </b><b>$</b><b> to toggle</b> and x"),
+        // Emphasis content keeps its context: the delimiters around it, and
+        // the whole runs it shares with the opener and closer.
+        ("**__!_**\n\n", "<b>__!_</b>"),
+        ("*__a_*\n\n", "<i>_a</i>"),
         // `<!-->` and `<!--->` are complete comments: what follows is Markdown.
         ("foo <!--> *bar* -->\n\n", "foo <!--> <i>bar</i> -->"),
         ("foo <!---> *bar* -->\n\n", "foo <!---> <i>bar</i> -->"),

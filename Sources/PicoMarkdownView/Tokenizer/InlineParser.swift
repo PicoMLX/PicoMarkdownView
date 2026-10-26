@@ -162,6 +162,9 @@ struct InlineParser {
             case angle(autolinkCursor: Int, html: HTMLState, htmlCursor: Int)
             case codeSpan(resume: Int)
             case math(resume: Int)
+            /// A `<kbd>`, `<sup>` or `<sub>` element's closing tag is
+            /// searched from `resume`.
+            case element(resume: Int)
         }
         var start: Int
         var kind: Kind
@@ -178,11 +181,30 @@ struct InlineParser {
                 kind = .codeSpan(resume: resume - delta)
             case .math(let resume):
                 kind = .math(resume: resume - delta)
+            case .element(let resume):
+                kind = .element(resume: resume - delta)
             }
             return ConstructProgress(start: start - delta, kind: kind)
         }
     }
     private var constructProgress: ConstructProgress?
+
+    /// For the nested parse of emphasis content: what follows the content in
+    /// the enclosing text, which is the closer. Flanking at the content's end
+    /// reads it instead of the end of the text, and a delimiter run there
+    /// that continues into the closer's run is judged as that whole run, as
+    /// the delimiter algorithm sees it in the enclosing text. (What precedes
+    /// the content arrives the same way, as `lastConsumed`.)
+    private struct FollowingContext {
+        /// The first code point after the content: the closer's delimiter.
+        var scalar: Unicode.Scalar
+        var delimiter: Character
+        /// Delimiters of the closer's run from the content's end on.
+        var runLength: Int
+        /// The first code point after the closer's run; `nil` is the end.
+        var afterRun: Unicode.Scalar?
+    }
+    private var following: FollowingContext?
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
 
@@ -337,6 +359,17 @@ struct InlineParser {
             character.unicodeScalars.last.map(Self.isPunctuation) ?? false
         }
 
+        /// A character with the same class as `character` for everything the
+        /// parser asks of a preceding character (alphanumeric, whitespace,
+        /// punctuation, other); `nil` is the start of the text.
+        func standIn(_ character: Character?) -> Character? {
+            character.map { character in
+                if isAlphanumeric(character) { return "a" }
+                if isWhitespace(character) { return " " }
+                return isPunctuation(character) ? "." : "©"
+            }
+        }
+
         func utf8Offset(of position: String.Index) -> Int {
             text.utf8.distance(from: text.utf8.startIndex, to: position)
         }
@@ -382,13 +415,20 @@ struct InlineParser {
             appendStructured(run)
         }
 
-        func parseNestedRuns(from text: String, inheriting style: InlineStyle) -> [InlineRun] {
+        /// `leading` and `trailing` describe what surrounds `text` in the
+        /// enclosing text, for emphasis content; without them its edges read
+        /// as the start and end of a line.
+        func parseNestedRuns(from text: String, inheriting style: InlineStyle,
+                             leading: ConsumedContext? = nil,
+                             trailing: FollowingContext? = nil) -> [InlineRun] {
             guard !text.isEmpty else { return [] }
             // Use the fast-path init: the outer parser already sorted the
             // prefix array and computed the first-char set, so the nested
             // parser doesn't need to redo either on every emphasis span.
             var nested = InlineParser(sortedTagPrefixes: parserTagPrefixes,
                                       tagPrefixOpeningFirstChars: parserTagPrefixOpeningFirstChars)
+            nested.lastConsumed = leading
+            nested.following = trailing
             var result = nested.append(text)
             result += nested.finish()
             guard !result.isEmpty else { return [] }
@@ -475,6 +515,9 @@ struct InlineParser {
                trailing.delimiter == text[run.lowerBound] {
                 length += trailing.length
             }
+            if run.upperBound == text.endIndex, let following, following.delimiter == text[run.lowerBound] {
+                length += following.runLength
+            }
             return length
         }
 
@@ -489,6 +532,10 @@ struct InlineParser {
             let after: Unicode.Scalar
             if run.upperBound < text.endIndex, let first = text[run.upperBound].unicodeScalars.first {
                 after = first
+            } else if let following {
+                // Emphasis content: the closer follows, and a run that goes
+                // on into the closer's run is followed by what ends that run.
+                after = following.delimiter == text[run.lowerBound] ? (following.afterRun ?? " ") : following.scalar
             } else if includeUnterminated {
                 after = " "
             } else {
@@ -722,6 +769,43 @@ struct InlineParser {
                 guard autolinkPending else { return .none }
             }
             saveProgress(start: index, .angle(autolinkCursor: utf8Offset(of: cursor), html: state, htmlCursor: utf8Offset(of: stop)))
+            return .needMore
+        }
+
+        /// A `<kbd>`, `<sup>` or `<sub>` element at `index`, which the
+        /// emitter parses apart up to its closing tag, or `nil` when none
+        /// starts there. `.none` once the text is final and the element never
+        /// closed: the opening tag is then ordinary raw HTML. While waiting,
+        /// the search for the closing tag resumes where it stopped.
+        func elementScan(at index: String.Index) -> SpanScan? {
+            let elements = [("<kbd>", "</kbd>"), ("<sup>", "</sup>"), ("<sub>", "</sub>")]
+            guard let (open, close) = elements.first(where: { text[index...].hasPrefix($0.0) }) else { return nil }
+            let bytes = text.utf8
+            let closing = Array(close.utf8)
+            var search = bytes.index(index, offsetBy: open.utf8.count)
+            if case .element(let resume)? = savedProgress(start: index) {
+                search = max(search, position(ofUTF8: resume))
+            }
+            while search < bytes.endIndex {
+                if bytes[search] == closing[0] {
+                    var probe = search
+                    var matched = 0
+                    while matched < closing.count, probe < bytes.endIndex, bytes[probe] == closing[matched] {
+                        matched += 1
+                        probe = bytes.index(after: probe)
+                    }
+                    if matched == closing.count { return .end(probe) }
+                    if probe == bytes.endIndex {
+                        // A closing tag split by the end of the text is searched again.
+                        guard !includeUnterminated else { return SpanScan.none }
+                        saveProgress(start: index, .element(resume: utf8Offset(of: search)))
+                        return .needMore
+                    }
+                }
+                search = bytes.index(after: search)
+            }
+            guard !includeUnterminated else { return SpanScan.none }
+            saveProgress(start: index, .element(resume: utf8Offset(of: bytes.endIndex)))
             return .needMore
         }
 
@@ -1038,6 +1122,18 @@ struct InlineParser {
                     continue
                 }
                 if character == "<" {
+                    // A `<kbd>`, `<sup>` or `<sub>` element is parsed apart
+                    // by the emitter up to its closing tag, so nothing inside
+                    // it pairs with a delimiter outside.
+                    switch elementScan(at: cursor) {
+                    case .end(let end)?:
+                        cursor = end
+                        continue
+                    case .needMore?:
+                        return suspend(at: cursor)
+                    case .none?, nil:
+                        break
+                    }
                     switch angleSpan(at: cursor) {
                     case .autolink(let end, _, _), .html(let end): cursor = end
                     case .needMore: return suspend(at: cursor)
@@ -2018,7 +2114,28 @@ struct InlineParser {
                 let innerStart = text.index(index, offsetBy: markerLength)
                 let inner = String(text[innerStart..<closingRange.lowerBound])
                 let style: InlineStyle = markerLength == 2 ? [.bold] : [.italic]
-                let nestedRuns = parseNestedRuns(from: inner, inheriting: style)
+                // The content is parsed apart, but its delimiter runs are
+                // judged as in this text: the opener's delimiter precedes it
+                // (and a run it starts with continues the opener's run), and
+                // the closer follows it (and a run it ends with continues into
+                // the closer's run).
+                let openerRun = delimiterRun(containing: index)
+                let leading = ConsumedContext(
+                    tail: String(delimiter), alphanumeric: false, whitespace: false, punctuation: true,
+                    trailingRun: ConsumedContext.TrailingRun(
+                        delimiter: delimiter,
+                        before: standIn(characterBefore(run: openerRun)),
+                        length: runLength(openerRun) - text.distance(from: innerStart, to: openerRun.upperBound)))
+                let closerRun = delimiterRun(containing: closingRange.lowerBound)
+                var closerRunLength = text.distance(from: closingRange.lowerBound, to: closerRun.upperBound)
+                var afterCloserRun = closerRun.upperBound < text.endIndex ? text[closerRun.upperBound].unicodeScalars.first : nil
+                if closerRun.upperBound == text.endIndex, let following, following.delimiter == delimiter {
+                    closerRunLength += following.runLength
+                    afterCloserRun = following.afterRun
+                }
+                let trailing = FollowingContext(scalar: text[closingRange.lowerBound].unicodeScalars.first!,
+                                                delimiter: delimiter, runLength: closerRunLength, afterRun: afterCloserRun)
+                let nestedRuns = parseNestedRuns(from: inner, inheriting: style, leading: leading, trailing: trailing)
                 if nestedRuns.isEmpty {
                     appendRun(InlineRun(text: inner, style: style))
                 } else {
@@ -2281,13 +2398,8 @@ struct InlineParser {
                         previous.length += consumedLength
                         trailingRun = previous
                     } else {
-                        let before = character(before: runStart)
-                        let standIn: Character? = before.map { character in
-                            if isAlphanumeric(character) { return "a" }
-                            if isWhitespace(character) { return " " }
-                            return isPunctuation(character) ? "." : "©"
-                        }
-                        trailingRun = ConsumedContext.TrailingRun(delimiter: last, before: standIn, length: consumedLength)
+                        trailingRun = ConsumedContext.TrailingRun(delimiter: last, before: standIn(character(before: runStart)),
+                                                                  length: consumedLength)
                     }
                 }
                 if let previous = lastConsumed, consumed.dropFirst().isEmpty,
