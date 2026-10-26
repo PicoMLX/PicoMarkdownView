@@ -18,7 +18,10 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3"))
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3")),
+        // Test-only: cmark-gfm through Apple's wrapper, the reference parser
+        // the conformance suite compares against. Not linked by the library.
+        .package(url: "https://github.com/swiftlang/swift-markdown.git", branch: "release/6.2")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -35,6 +38,23 @@ let package = Package(
         .testTarget(
             name: "PicoMarkdownViewTests",
             dependencies: ["PicoMarkdownView"]
+        ),
+        // CommonMark conformance: every spec example parsed by PicoMarkdownView
+        // and by cmark-gfm (swift-markdown), compared as block structure, with
+        // a ratchet of known deviations. Its own target so the reference
+        // parser and the vendored spec stay out of the unit-test target.
+        .testTarget(
+            name: "PicoMarkdownViewConformance",
+            dependencies: [
+                "PicoMarkdownView",
+                .product(name: "Markdown", package: "swift-markdown")
+            ],
+            path: "Conformance",
+            resources: [
+                // Copied as a directory. Not named `Resources`: a bundle with a
+                // top-level folder of that name fails codesign on the simulator.
+                .copy("Fixtures")
+            ]
         ),
         .testTarget(
             name: "PicoMarkdownViewBenchmarks",

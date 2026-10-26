@@ -337,3 +337,24 @@ Run the bundled tests to exercise streaming and table rendering:
 ```bash
 swift test
 ```
+
+### CommonMark conformance
+
+The `PicoMarkdownViewConformance` test target parses every example of the
+[CommonMark 0.31.2 spec](https://spec.commonmark.org/0.31.2/) twice, with
+PicoMarkdownView and with cmark-gfm (through
+[swift-markdown](https://github.com/swiftlang/swift-markdown), a test-only
+dependency), and compares the block structure: kinds, nesting, heading levels,
+code languages and plain text. The spec examples live in
+`Conformance/Fixtures/commonmark-spec-0.31.2.json` (CC-BY-SA 4.0, see the
+license file beside it).
+
+```bash
+swift test --filter PicoMarkdownViewConformance
+```
+
+The suite prints the score per spec section and acts as a ratchet:
+`Conformance/Fixtures/commonmark-known-failures.txt` lists the examples that
+currently differ. An example that stops matching fails the suite; so does one
+that starts matching, until it is removed from the list. Deliberate deviations
+(raw HTML, entity decoding, setext headings) are listed there like any other.
