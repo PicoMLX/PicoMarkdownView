@@ -128,28 +128,46 @@ struct InlineParser {
     /// with no later run of the same length. The block layer asks before
     /// deciding what a line ending means, since inside a code span a trailing
     /// backslash is literal and the ending is a space.
-    var hasOpenCodeSpan: Bool {
+    ///
+    /// The scan resumes where the previous call stopped, so repeated calls
+    /// while the pending text grows (an open math span across many lines)
+    /// cost only the new bytes; consuming text from the front restarts it.
+    mutating func hasOpenCodeSpan() -> Bool {
+        let bytes = pending.utf8
+        var scan = codeSpanScan
+        if scan.scannedBytes > bytes.count { scan = CodeSpanScan() }
+        func endRun() {
+            guard scan.run > 0 else { return }
+            if let open = scan.openLength {
+                if scan.run == open { scan.openLength = nil }
+            } else {
+                scan.openLength = scan.run
+            }
+            scan.run = 0
+        }
+        var index = bytes.index(bytes.startIndex, offsetBy: scan.scannedBytes)
+        while index < bytes.endIndex {
+            if bytes[index] == UInt8(ascii: "`") { scan.run += 1 } else { endRun() }
+            index = bytes.index(after: index)
+        }
+        scan.scannedBytes = bytes.count
+        codeSpanScan = scan
+        // A run still open at the end may continue in the next chunk; count
+        // it as a delimiter either way for the purpose of this question.
+        return scan.openLength != nil || (scan.run > 0 && scan.openLength == nil)
+    }
+
+    private struct CodeSpanScan {
+        var scannedBytes = 0
         var openLength: Int?
         var run = 0
-        func endRun() {
-            guard run > 0 else { return }
-            if let open = openLength {
-                if run == open { openLength = nil }
-            } else {
-                openLength = run
-            }
-            run = 0
-        }
-        for scalar in pending.unicodeScalars {
-            if scalar == "`" { run += 1 } else { endRun() }
-        }
-        endRun()
-        return openLength != nil
     }
+    private var codeSpanScan = CodeSpanScan()
 
     mutating func finish() -> [InlineRun] {
         let runs = consume(includeUnterminated: true)
         pending.removeAll(keepingCapacity: true)
+        codeSpanScan = CodeSpanScan()
         replacements.reset()
         mathState = nil
         followsMathGrapheme = false
@@ -1418,6 +1436,7 @@ struct InlineParser {
                 }
             }
             pending = String(text[consumedEnd...])
+            codeSpanScan = CodeSpanScan()
             if var state = mathState {
                 state.contentUTF8Offset = max(0, state.contentUTF8Offset - consumedBytes)
                 state.resumeUTF8Offset = max(0, state.resumeUTF8Offset - consumedBytes)

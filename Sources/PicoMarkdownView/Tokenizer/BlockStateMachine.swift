@@ -179,6 +179,10 @@ struct StreamingParser {
     /// block context, so appending never copies the accumulated text.
     private var pendingCodeBlankLines = ""
     private var pendingCodeBlankLinesBlock: BlockID?
+    /// Length of the run of backslashes the current line ends with, kept as
+    /// characters arrive so it survives look-behind trimming; its parity
+    /// decides whether the line ending is a hard break.
+    private var lineTrailingBackslashes = 0
     /// A child block opener ran on the current line (`openQuotedChild`).
     private var lineOpenedChild = false
     /// Some of the current line's content reached a block. Consuming a list
@@ -229,6 +233,9 @@ struct StreamingParser {
                 finalizeLine(terminated: true, force: false)
             } else {
                 lineBuffer.append(character)
+                // Counted as characters arrive: the line buffer may be trimmed
+                // by the look-behind budget, so it cannot be counted later.
+                lineTrailingBackslashes = character == "\\" ? lineTrailingBackslashes + 1 : 0
                 if !lineDeferredUntilComplete { lineAnalyzed = false }
             }
         }
@@ -1117,8 +1124,7 @@ struct StreamingParser {
                     // only if another line follows (a backslash that ends the
                     // paragraph is literal), so it is resolved when the next
                     // line's text arrives. Anything else is a soft break.
-                    let trailingBackslashes = rawLine.reversed().prefix(while: { $0 == "\\" }).count
-                    if trailingBackslashes % 2 == 1 {
+                    if lineTrailingBackslashes % 2 == 1 {
                         ctx.pendingHardBreak = true
                         setCurrentBlock(ctx)
                     } else if !rawLine.hasSuffix("  ") {
@@ -1196,6 +1202,7 @@ struct StreamingParser {
 
     private mutating func resetLineState() {
         lineBuffer.removeAll(keepingCapacity: true)
+        lineTrailingBackslashes = 0
         emittedCount = 0
         emittedLineUTF8Offset = nil
         emittedLineBlockID = nil
@@ -1263,7 +1270,7 @@ struct StreamingParser {
                     // trailing backslash it kept pending: a hard break. Inside
                     // an open code span the backslash is literal and the line
                     // ending is a space, as any soft break.
-                    input = (parser.hasOpenCodeSpan ? " " : "\n") + input
+                    input = (parser.hasOpenCodeSpan() ? " " : "\n") + input
                     ctx.pendingHardBreak = false
                 } else if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
                     input = " " + input

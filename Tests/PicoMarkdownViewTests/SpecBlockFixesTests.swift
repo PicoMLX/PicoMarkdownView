@@ -134,4 +134,19 @@ struct SpecBlockFixesTests {
         #expect(twoMarkers.map(\.kind) == [.paragraph], "two rule characters are not a rule, whatever separates them")
         #expect(await parse([Self.documents[22]]).map(\.kind) == [.paragraph])
     }
+
+    @Test("Backslash parity survives look-behind trimming of a long run")
+    func backslashParityBeyondTheBuffer() async {
+        for count in [1538, 1539] {
+            let markdown = "a" + String(repeating: "\\", count: count) + "\nb\n\n"
+            let whole = await parse([markdown])
+            let characters = Array(markdown)
+            for split in [1024, 1536, 1537, 1538, 1539, 1540] {
+                let streamed = await parse([String(characters[..<split]), String(characters[split...])])
+                #expect(streamed == whole, "count \(count), split \(split)")
+            }
+            let joined = whole.map(text(of:)).joined()
+            #expect(joined.contains(count % 2 == 1 ? "\nb" : " b"), "odd runs break hard, even runs soft (count \(count))")
+        }
+    }
 }
