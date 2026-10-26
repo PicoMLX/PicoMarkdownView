@@ -1933,6 +1933,140 @@ struct MarkdownTokenizerGoldenTests {
         ), state: &state)
     }
 
+    @Test("Closed inline math retains plain suffixes before unfinished delimiters",
+          arguments: ["$[$", "\\([\\)"], ["a*", "a_", "a`", "\u{e9}*", "e\u{301}*"])
+    func inlineMathBufferedSuffix(mathSpan: String, suffix: String) async {
+        let source = mathSpan + suffix
+        let expected = [mathInline("["), plain(suffix)]
+        #expect(coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init)) == expected)
+        let scalars = Array(source.unicodeScalars).map(String.init)
+        for split in 0...scalars.count {
+            let chunks = [scalars[..<split].joined(), scalars[split...].joined()]
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
+            let documentChunks = chunks + ["\n\n"]
+            let events = await collectEvents(chunks: documentChunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: expected)])
+            #expect(events == (await collectEvents(chunks: documentChunks)))
+        }
+        #expect(summarizeBlocks(from: await collectEvents(chunks: scalars + ["\n\n"])) == [.inline(kind: "paragraph", runs: expected)])
+    }
+
+    @Test("Post-math grapheme context is independent of chunk boundaries",
+          arguments: ["$z$", "$$z$$", "\\(z\\)", "\\[z\\]"],
+          ["\u{301}_foo_", "\u{fe0f}_foo_", "\u{200d}_foo_", "\u{903}_foo_",
+           "\u{301}\u{fe0f}\u{200d}_foo_", "_foo_", "__foo__", "\u{301}*foo*", "\u{301}`foo`", "\u{301}a*"])
+    func inlineMathGraphemeHandoff(mathSpan: String, suffix: String) async {
+        let source = "p" + mathSpan + suffix
+        let expected = coalesceRuns(InlineParser.parseAll(source).map(InlineRunShape.init))
+        let display = mathSpan.hasPrefix("$$") || mathSpan.hasPrefix("\\[")
+        #expect(Array(expected.prefix(2)) == [plain("p"), mathInline("z", display: display)])
+        if suffix.hasSuffix("_foo_"), suffix != "__foo__" {
+            #expect(expected.last == InlineRunShape(text: "foo", style: [.italic]))
+        }
+        let scalars = Array(source.unicodeScalars).map(String.init)
+        var chunkSequences: [[String]] = [scalars, Array(source).map(String.init)]
+        for split in 0...scalars.count {
+            chunkSequences.append([scalars[..<split].joined(), scalars[split...].joined()])
+        }
+        for chunks in chunkSequences {
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "Chunks: \(chunks)")
+            let documentChunks = chunks + ["\n\n"]
+            let events = await collectEvents(chunks: documentChunks)
+            #expect(summarizeBlocks(from: events) == [.inline(kind: "paragraph", runs: expected)], "Chunks: \(chunks)")
+            #expect(events == (await collectEvents(chunks: documentChunks)))
+        }
+    }
+
+    @Test("Intraword underscores stream as text instead of waiting for the next chunk")
+    func intrawordUnderscoreStreamsIncrementally() {
+        var parser = InlineParser()
+        for _ in 0..<4 {
+            #expect(parser.append("word_").map(\.text).joined() == "word_")
+        }
+        #expect(parser.finish().isEmpty)
+        // Only the ambiguous marker waits; the settled text before it is
+        // delivered at once, so repeated ` _` chunks stream as text.
+        var spaced = InlineParser()
+        #expect(spaced.append(" _").map(\.text).joined() == " ", "the space is delivered, the underscore waits")
+        for _ in 0..<3 {
+            #expect(spaced.append(" _").map(\.text).joined() == "_ ", "the previous underscore is literal once a space follows")
+        }
+        #expect(spaced.finish().map(\.text).joined() == "_")
+        var opener = InlineParser()
+        #expect(opener.append("say _").map(\.text).joined() == "say ", "an underscore that may still open emphasis waits")
+        #expect(coalesceRuns((opener.append("hi_ there") + opener.finish()).map(InlineRunShape.init))
+                == [InlineRunShape(text: "hi", style: [.italic]), plain(" there")])
+    }
+
+    @Test("Emphasis markers at a chunk start keep the context of text already emitted",
+          arguments: [["a", "_", "b", "_"], ["foo", "_bar_"], ["foo_", "bar_ baz"], ["x ", "_y_"], ["snake", "_case_", "_name"], ["word", "*bold*"],
+                      ["\u{2764}\u{FE0F}", "_hello_"], ["e\u{301}", "_x_"], ["\u{1F469}\u{200D}\u{1F4BB}", "_x_"], ["$a$", "_x_"],
+                      ["\u{2764}", "\u{FE0F}", "_b_"], ["e", "\u{301}", "_x_"],
+                      ["text _", "foo_", "bar"], ["text _", "foo_", " bar"], ["text _", "foo_"], ["_a_", "_b"], ["__a__", "b"]])
+    func chunkStartKeepsIntrawordContext(chunks: [String]) {
+        var parser = InlineParser()
+        var runs = chunks.flatMap { parser.append($0) }
+        runs += parser.finish()
+        let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+        #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "Chunks: \(chunks)")
+    }
+
+    @Test("A long run of combining marks arriving one per chunk keeps its context without growing it")
+    func combiningMarkRunKeepsBoundedContext() {
+        for count in [40, 2000] {
+            let chunks = ["a"] + Array(repeating: "\u{301}", count: count) + ["_x_"]
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "count \(count)")
+            #expect(expected == [plain(chunks.joined())], "the underscore after a letter with marks is intraword")
+        }
+        // The base scalar decides the class: a heart with many marks is
+        // punctuation, so emphasis may open after it, whether the grapheme
+        // arrives whole or one mark per chunk.
+        for chunks in [["\u{2764}" + String(repeating: "\u{301}", count: 33), "_b_"],
+                       ["\u{2764}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
+                       ["a\u{200D}" + String(repeating: "\u{301}", count: 33), "_b_"],
+                       ["a", "\u{200D}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
+                       // U+0600 is a Prepend character: it joins the `a` that follows into one grapheme.
+                       [String(repeating: "\u{600}", count: 33), "a", "_b_"],
+                       Array(repeating: "\u{600}", count: 40) + ["a", "_b_"],
+                       // A Prepend character followed by a long Hangul jamo run is one grapheme.
+                       ["\u{600}" + String(repeating: "\u{1100}", count: 33), "_b_"],
+                       ["\u{600}"] + Array(repeating: "\u{1100}", count: 40) + ["_b_"],
+                       // An Indic conjunct: consonant, ZWJ, virama (linker), many marks, then a consonant
+                       // that joins across them; the ZWJ keeps the grapheme non-alphanumeric.
+                       ["\u{915}\u{200D}\u{94D}" + String(repeating: "\u{301}", count: 40), "\u{915}", "_b_"],
+                       ["\u{915}", "\u{200D}", "\u{94D}"] + Array(repeating: "\u{301}", count: 40) + ["\u{915}", "_b_"],
+                       // Alternating marks defeat a run-length cap but not a distinct-scalar one.
+                       ["\u{915}\u{200D}\u{94D}" + String(repeating: "\u{301}\u{302}", count: 40), "\u{915}", "_b_"]] {
+            var parser = InlineParser()
+            var runs = chunks.flatMap { parser.append($0) }
+            runs += parser.finish()
+            let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
+            #expect(expected.last == InlineRunShape(text: "b", style: [.italic]))
+        }
+    }
+
+    @Test("Pending bracket text survives a trailing backslash at the end of input",
+          arguments: [["[a]", "\\"], ["![diagram]", "\\"], ["text [a]", "\\"], ["[a", "]", "\\"]])
+    func bracketTextSurvivesTrailingBackslash(chunks: [String]) {
+        var parser = InlineParser()
+        var runs = chunks.flatMap { parser.append($0) }
+        runs += parser.finish()
+        let source = chunks.joined()
+        #expect(runs.map(\.text).joined() == source)
+        #expect(InlineParser.parseAll(source).map(\.text).joined() == source)
+    }
+
     @Test("Inline math command delimiters survive opener and command chunk splits")
     func inlineMathCommandDelimitersAcrossChunks() async {
         let tokenizer = MarkdownTokenizer()
