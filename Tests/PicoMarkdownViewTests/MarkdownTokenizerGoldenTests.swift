@@ -2070,16 +2070,22 @@ struct MarkdownTokenizerGoldenTests {
             #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
             #expect(expected == [plain(chunks.joined())])
         }
-        // Punctuation decides on the leading scalar: `!` with many marks is
-        // punctuation, so emphasis opens after it, whole or one mark per chunk.
-        for chunks in [["!" + String(repeating: "\u{301}", count: 33), "_b_"],
-                       ["!"] + Array(repeating: "\u{301}", count: 40) + ["_b_"]] {
+        // Flanking reads the code point before the run, the grapheme's last
+        // scalar: after `(` emphasis opens, but a mark that a later chunk adds
+        // to the `(` is what precedes the run then, and it does not open.
+        for (chunks, opens) in [(["(", "_b_"], true),
+                                (["(", "\u{301}", "_b_"], false),
+                                (["(" + String(repeating: "\u{301}", count: 40), "_b_"], false)] {
             var parser = InlineParser()
             var runs = chunks.flatMap { parser.append($0) }
             runs += parser.finish()
             let expected = coalesceRuns(InlineParser.parseAll(chunks.joined()).map(InlineRunShape.init))
-            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected)
-            #expect(expected.last == InlineRunShape(text: "b", style: [.italic]))
+            #expect(coalesceRuns(runs.map(InlineRunShape.init)) == expected, "Chunks: \(chunks)")
+            if opens {
+                #expect(expected.last == InlineRunShape(text: "b", style: [.italic]))
+            } else {
+                #expect(expected == [plain(chunks.joined())], "Chunks: \(chunks)")
+            }
         }
     }
 

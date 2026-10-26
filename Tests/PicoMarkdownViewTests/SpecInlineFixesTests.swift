@@ -46,6 +46,16 @@ struct SpecInlineFixesTests {
         // A waiting opener's scan resumes at every split, past a code span,
         // raw HTML and an escaped delimiter.
         ("*a `b*` <x y=\"*\"> c\\* d*\n\n", "<i>a </i><code>b*</code><i> <x y=\"*\"> c* d</i>"),
+        ("x <span title=\"a*b\">*c*</span>\n\n", "x <span title=\"a*b\"><i>c</i></span>"),
+        ("<!-- *a* --> *b*\n\n", "<!-- *a* --> <i>b</i>"),
+        // Math is opaque to the emphasis lookahead, as to the emitter.
+        ("**The expression $\\text{`x'}$ is valid** and `code`\n\n",
+         "<b>The expression </b>\\text{`x'}<b> is valid</b> and <code>code</code>"),
+        ("*a $b*c$ d*\n\n", "<i>a </i>b*c<i> d</i>"),
+        ("**Price: $5 per unit** and more\n\n", "<b>Price: $5 per unit</b> and more"),
+        // Flanking reads code points: a mark joining the space after a run
+        // does not change that the run is followed by whitespace.
+        ("a * \u{301}* b\n\n", "a * \u{301}* b"),
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.
         ("(`x`)\n\n", "(<code>x</code>)"),
@@ -137,6 +147,26 @@ struct SpecInlineFixesTests {
         // The last star pairs with the nearest star opener; everything else is text.
         #expect(runs.map(\.text).joined() == String(repeating: "*a ", count: count - 1) + "a " + String(repeating: "b_ ", count: count) + "c")
         #expect(runs.last?.style == [.italic])
+    }
+
+    @Test("Openers between completed pairs are resolved without rescanning")
+    func openersBetweenPairs() {
+        let count = 800
+        let runs = InlineParser.parseAll(String(repeating: "*a _b_ ", count: count))
+        #expect(runs.map(\.text).joined() == String(repeating: "*a b ", count: count))
+        #expect(runs.filter { $0.style == [.italic] }.count == count)
+    }
+
+    @Test("A long quoted HTML attribute streams in small chunks like the whole text")
+    func longHTMLAttributeStreams() async {
+        let markdown = "text <span title=\"" + String(repeating: "a", count: 16_000) + "\">*end*\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 16).map {
+            String(characters[$0..<min($0 + 16, characters.count)])
+        }
+        let whole = await parse([markdown])
+        #expect(await parse(chunks) == whole)
+        #expect(styled(whole).hasSuffix("\"><i>end</i>"))
     }
 
     @Test("Streaming the unpaired-closer input in small chunks matches the whole parse")
