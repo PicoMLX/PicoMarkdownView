@@ -2037,7 +2037,10 @@ struct MarkdownTokenizerGoldenTests {
                        ["a", "\u{200D}"] + Array(repeating: "\u{301}", count: 40) + ["_b_"],
                        // U+0600 is a Prepend character: it joins the `a` that follows into one grapheme.
                        [String(repeating: "\u{600}", count: 33), "a", "_b_"],
-                       Array(repeating: "\u{600}", count: 40) + ["a", "_b_"]] {
+                       Array(repeating: "\u{600}", count: 40) + ["a", "_b_"],
+                       // A Prepend character followed by a long Hangul jamo run is one grapheme.
+                       ["\u{600}" + String(repeating: "\u{1100}", count: 33), "_b_"],
+                       ["\u{600}"] + Array(repeating: "\u{1100}", count: 40) + ["_b_"]] {
             var parser = InlineParser()
             var runs = chunks.flatMap { parser.append($0) }
             runs += parser.finish()

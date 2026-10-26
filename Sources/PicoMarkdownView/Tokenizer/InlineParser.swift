@@ -65,7 +65,17 @@ struct InlineParser {
     /// The last character already emitted from an earlier chunk, so a marker
     /// at the start of the pending text keeps its intraword context (`a` then
     /// `_b_` is the identifier `a_b_`, not `a` and italic `b`).
-    private var lastConsumedContext: String = ""
+    /// What the parser knows about the grapheme that ended the text consumed
+    /// so far. `alphanumeric` and `whitespace` are exact for the whole
+    /// grapheme (the only two things the parser asks of a preceding
+    /// character); `tail` holds its last scalars, bounded, and serves only to
+    /// tell whether the next chunk's first grapheme joins it.
+    private struct ConsumedContext {
+        var tail: String
+        var alphanumeric: Bool
+        var whitespace: Bool
+    }
+    private var lastConsumed: ConsumedContext?
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
 
@@ -120,7 +130,7 @@ struct InlineParser {
         replacements.reset()
         mathState = nil
         followsMathGrapheme = false
-        lastConsumedContext = ""
+        lastConsumed = nil
         return runs
     }
 
@@ -183,7 +193,12 @@ struct InlineParser {
             if let boundary = mathGraphemeBoundary, index <= boundary {
                 return "$" // Both math closers are punctuation, even with trailing combining scalars.
             }
-            guard index > text.startIndex else { return lastConsumedContext.last }
+            guard index > text.startIndex else {
+                // A stand-in with the exact class of the grapheme consumed
+                // before this text; the class is all the callers ask of it.
+                guard let context = lastConsumed else { return nil }
+                return context.alphanumeric ? "a" : (context.whitespace ? " " : ".")
+            }
             let prior = text.index(before: index)
             return text[prior]
         }
@@ -1331,24 +1346,25 @@ struct InlineParser {
             // per chunk keeps its flanking class (marks are alphanumeric) but
             // must not grow the retained context, or every append would
             // rebuild it.
-            // Over the bound, the stored context is a stand-in: a character
-            // with the grapheme's class under the parser's predicates (all
-            // alphanumeric, all whitespace, or neither), followed by the
-            // grapheme's last scalars so that joining behaviour survives
-            // (marks, ZWJ and Prepend characters still attach what follows).
-            // Truncating alone could drop the scalar that set the class.
-            func bounded(_ character: Character) -> String {
-                let scalars = character.unicodeScalars
-                guard scalars.count > 32 else { return String(character) }
-                let representative = isAlphanumeric(character) ? "a" : (isWhitespace(character) ? " " : ".")
-                return representative + String(scalars.suffix(31))
-            }
+            // The class of the last consumed grapheme is tracked exactly and
+            // separately from the scalars kept for joining, so no bound on
+            // the retained text can change it. A single consumed grapheme
+            // that joins the previous one (`❤` then U+FE0F, a Prepend
+            // character then its letter, a mark after a letter) extends the
+            // class by AND; anything else starts a fresh one.
             let consumed = text[..<consumedEnd]
             if let last = consumed.last {
-                // A single consumed grapheme may extend the previous context
-                // (`❤` then U+FE0F); anything longer stands on its own.
-                let joined = consumed.dropFirst().isEmpty ? (lastConsumedContext + String(last)).last : last
-                lastConsumedContext = joined.map(bounded) ?? ""
+                let alphanumeric = isAlphanumeric(last)
+                let whitespace = isWhitespace(last)
+                let tail = String(last.unicodeScalars.suffix(32))
+                if let previous = lastConsumed, consumed.dropFirst().isEmpty,
+                   (previous.tail + String(last)).count < previous.tail.count + 1 {
+                    lastConsumed = ConsumedContext(tail: tail,
+                                                   alphanumeric: previous.alphanumeric && alphanumeric,
+                                                   whitespace: previous.whitespace && whitespace)
+                } else {
+                    lastConsumed = ConsumedContext(tail: tail, alphanumeric: alphanumeric, whitespace: whitespace)
+                }
             }
             pending = String(text[consumedEnd...])
             if var state = mathState {
