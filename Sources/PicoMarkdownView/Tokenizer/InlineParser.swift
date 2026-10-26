@@ -124,6 +124,29 @@ struct InlineParser {
         return consume(includeUnterminated: false)
     }
 
+    /// Whether the pending text has an unclosed code span: a backtick run
+    /// with no later run of the same length. The block layer asks before
+    /// deciding what a line ending means, since inside a code span a trailing
+    /// backslash is literal and the ending is a space.
+    var hasOpenCodeSpan: Bool {
+        var openLength: Int?
+        var run = 0
+        func endRun() {
+            guard run > 0 else { return }
+            if let open = openLength {
+                if run == open { openLength = nil }
+            } else {
+                openLength = run
+            }
+            run = 0
+        }
+        for scalar in pending.unicodeScalars {
+            if scalar == "`" { run += 1 } else { endRun() }
+        }
+        endRun()
+        return openLength != nil
+    }
+
     mutating func finish() -> [InlineRun] {
         let runs = consume(includeUnterminated: true)
         pending.removeAll(keepingCapacity: true)

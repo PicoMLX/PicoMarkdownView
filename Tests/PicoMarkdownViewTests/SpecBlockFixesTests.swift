@@ -33,7 +33,12 @@ struct SpecBlockFixesTests {
         "\\\t\\A\\a\\ \\3\\φ\\«\n\n",
         "foo\\\nbar\n\n",
         "foo\\\n\n",
-        "foo\\\\\nbar\n\n"
+        "foo\\\\\nbar\n\n",
+        // Review round: escape state across chunks, code spans, two-marker rules.
+        "# foo \\# #\n\n",
+        "`foo\\\nbar`\n\n",
+        "foo\n*\t*\n\n",
+        "-\t-\n\n"
     ]
 
     private func parse(_ chunks: [String]) async -> [BlockSnapshot] {
@@ -116,5 +121,17 @@ struct SpecBlockFixesTests {
         #expect(await parse([Self.documents[16]]).map(text(of:)) == ["foo\nbar"])
         #expect(await parse([Self.documents[17]]).map(text(of:)) == ["foo\\"], "a backslash ending the paragraph is literal")
         #expect(await parse([Self.documents[18]]).map(text(of:)) == ["foo\\ bar"], "an escaped backslash is not a break")
+    }
+
+    @Test("Review round: escapes across chunks, code spans, two-marker lines")
+    func reviewRound() async throws {
+        #expect(await parse([Self.documents[19]]).map(text(of:)) == ["foo #"])
+        #expect(await parse(["# foo \\", "# #\n\n"]).map(text(of:)) == ["foo #"], "the backslash may end a chunk")
+        let codeSpan = await parse([Self.documents[20]])
+        #expect(codeSpan.map(\.kind) == [.paragraph])
+        #expect(codeSpan.map(text(of:)) == ["foo\\ bar"], "inside a code span the line ending is a space and the backslash literal")
+        let twoMarkers = await parse([Self.documents[21]])
+        #expect(twoMarkers.map(\.kind) == [.paragraph], "two rule characters are not a rule, whatever separates them")
+        #expect(await parse([Self.documents[22]]).map(\.kind) == [.paragraph])
     }
 }

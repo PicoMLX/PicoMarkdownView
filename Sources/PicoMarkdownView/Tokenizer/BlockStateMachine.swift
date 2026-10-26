@@ -52,10 +52,11 @@ struct StreamingParser {
         /// A heading has received content other than a possible closing
         /// sequence; decides whether trailing `#`s alone close an empty heading.
         var headingHasContent: Bool = false
-        /// Blank lines inside an indented code block are held until a code
-        /// line follows them, since trailing blank lines are not part of the
-        /// block (CommonMark). Dropped when the block closes.
-        var pendingCodeBlankLines: String = ""
+        /// Escape state of a heading's text at a chunk boundary: the last
+        /// emitted character was a backslash, or a `#` run that a backslash
+        /// started as content is still running.
+        var headingAfterBackslash: Bool = false
+        var headingEscapedRun: Bool = false
     }
 
     private struct TableState {
@@ -172,6 +173,12 @@ struct StreamingParser {
     /// characters are buffered without re-analysis, so a long streamed line
     /// costs O(chunk) per feed rather than O(line).
     private var lineDeferredUntilComplete = false
+    /// Blank lines inside an indented code block are held until a code line
+    /// follows them, since trailing blank lines are not part of the block
+    /// (CommonMark); dropped when the block closes. Kept here, not in the
+    /// block context, so appending never copies the accumulated text.
+    private var pendingCodeBlankLines = ""
+    private var pendingCodeBlankLinesBlock: BlockID?
     /// A child block opener ran on the current line (`openQuotedChild`).
     private var lineOpenedChild = false
     /// Some of the current line's content reached a block. Consuming a list
@@ -1048,7 +1055,11 @@ struct StreamingParser {
         if isIndentedCodeBlock(context), lineContent.allSatisfy({ $0 == " " || $0 == "\t" }) {
             // Blank lines inside indented code wait for the next code line;
             // trailing ones are not part of the block.
-            context.pendingCodeBlankLines += delta
+            if pendingCodeBlankLinesBlock != context.id {
+                pendingCodeBlankLines.removeAll(keepingCapacity: true)
+                pendingCodeBlankLinesBlock = context.id
+            }
+            pendingCodeBlankLines.append(delta)
             setCurrentBlock(context)
             emittedLineUTF8Offset = lineBuffer.utf8.count
             emittedLineBlockID = context.id
@@ -1249,8 +1260,10 @@ struct StreamingParser {
                 // would run together.
                 if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingHardBreak {
                     // The newline reaches the inline parser right after the
-                    // trailing backslash it kept pending: a hard break.
-                    input = "\n" + input
+                    // trailing backslash it kept pending: a hard break. Inside
+                    // an open code span the backslash is literal and the line
+                    // ending is a space, as any soft break.
+                    input = (parser.hasOpenCodeSpan ? " " : "\n") + input
                     ctx.pendingHardBreak = false
                 } else if ctx.kind == .paragraph || ctx.kind.isFootnoteDefinition, ctx.pendingSoftBreak {
                     input = " " + input
@@ -1287,17 +1300,23 @@ struct StreamingParser {
                 // right after a backslash is escaped content.
                 var emitted = ""
                 var pending = ctx.headingPendingSuffix
-                var escapedRun = false
+                // Escape state survives chunk boundaries: the backslash may
+                // have arrived in the previous chunk.
+                var escapedRun = ctx.headingEscapedRun
+                var afterBackslash = ctx.headingAfterBackslash
                 for character in text {
                     if character == "\n" {
                         emitted.append(contentsOf: resolvedHeadingSuffix(pending, hasContent: ctx.headingHasContent || !emitted.isEmpty))
                         pending.removeAll(keepingCapacity: true)
                         escapedRun = false
-                    } else if character == "#", escapedRun || (pending.isEmpty && emitted.last == "\\") {
+                        afterBackslash = false
+                    } else if character == "#", escapedRun || (pending.isEmpty && afterBackslash) {
                         escapedRun = true
+                        afterBackslash = false
                         emitted.append(character)
                     } else if character == " " || character == "\t" || character == "#" {
                         escapedRun = false
+                        afterBackslash = false
                         pending.append(character)
                     } else {
                         escapedRun = false
@@ -1306,9 +1325,12 @@ struct StreamingParser {
                             pending.removeAll(keepingCapacity: true)
                         }
                         emitted.append(character)
+                        afterBackslash = character == "\\"
                     }
                 }
                 ctx.headingPendingSuffix = pending
+                ctx.headingEscapedRun = escapedRun
+                ctx.headingAfterBackslash = afterBackslash
                 if !emitted.isEmpty { ctx.headingHasContent = true }
                 if !emitted.isEmpty {
                     var runs = parser.append(emitted)
@@ -1332,8 +1354,11 @@ struct StreamingParser {
         case .fencedCode:
             // Blank lines held inside indented code precede the code that
             // follows them.
-            let chunk = ctx.pendingCodeBlankLines + text
-            ctx.pendingCodeBlankLines = ""
+            var chunk = text
+            if pendingCodeBlankLinesBlock == ctx.id, !pendingCodeBlankLines.isEmpty {
+                chunk = pendingCodeBlankLines + text
+                pendingCodeBlankLines.removeAll(keepingCapacity: true)
+            }
             if let lastIndex = events.indices.last {
                 if case .blockAppendFencedCode(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
                     events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + chunk)
@@ -1580,6 +1605,11 @@ struct StreamingParser {
 
     private mutating func closeCurrentBlock() {
         guard let ctx = currentBlock else { return }
+        if pendingCodeBlankLinesBlock == ctx.id {
+            // Trailing blank lines of indented code are not part of it.
+            pendingCodeBlankLines.removeAll(keepingCapacity: true)
+            pendingCodeBlankLinesBlock = nil
+        }
         if let table = ctx.tableState, table.stage != .rows {
             // A candidate that never got its separator was never announced;
             // replay its lines as an unknown block instead of ending it.
@@ -2299,9 +2329,10 @@ struct StreamingParser {
 
     private func detectHorizontalRule(_ line: String, indent: Int) -> Bool {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
-        guard trimmed.count >= 3 else { return false }
-        // Spaces and tabs may separate the characters (CommonMark).
+        // Spaces and tabs may separate the characters (CommonMark); at least
+        // three of the characters themselves are needed.
         let stripped = trimmed.filter { $0 != " " && $0 != "\t" }
+        guard stripped.count >= 3 else { return false }
         guard let first = stripped.first, ["-", "*", "_"].contains(first) else { return false }
         guard stripped.allSatisfy({ $0 == first }) else { return false }
         let leadingSpaces = line.prefix { $0 == " " }.count
