@@ -79,7 +79,23 @@ struct SpecListsTests {
         ("- a\n  1. b\n  \t- c\n\n", #"[ul[[p("a"), ol[[p("b")]], ul[[p("c")]]]]]"#),
         ("- a\n  1. b\n  \t```\n  x\n  ```\n\n", #"[ul[[p("a"), ol[[p("b")]], code(-, "x")]]]"#),
         ("- a\n  1. b\n  \tc\n\n", #"[ul[[p("a"), ol[[p("b c")]]]]]"#),
-        ("  \tfoo\n\n", #"[code(-, "foo")]"#)
+        ("  \tfoo\n\n", #"[code(-, "foo")]"#),
+        // Quotes inside items: markers after the item's indentation, lazy
+        // lines, quoted children, and the quote ending at a blank line, an
+        // unmarked block, or a line its item does not keep.
+        ("- > q\n\n", #"[ul[[quote[p("q")]]]]"#),
+        ("1. > # H\n   > text\n\n", #"[ol[[quote[h1("H"), p("text")]]]]"#),
+        ("- a\n  > b\n  c\n\n", #"[ul[[p("a"), quote[p("b c")]]]]"#),
+        ("- a\n  > b\nc\n\n", #"[ul[[p("a"), quote[p("b c")]]]]"#),
+        ("- a\n  > b\n> c\n\n", #"[ul[[p("a"), quote[p("b")]]], quote[p("c")]]"#),
+        ("- a\n  > b\n\n  > c\n\n", #"[ul[[p("a"), quote[p("b")], quote[p("c")]]]]"#),
+        ("- a\n  > b\n  # h\n\n", #"[ul[[p("a"), quote[p("b")], h1("h")]]]"#),
+        ("- a\n  >\n  > b\n\n", #"[ul[[p("a"), quote[p("b")]]]]"#),
+        ("- a\n  > > b\n  > c\n\n", #"[ul[[p("a"), quote[quote[p("b c")]]]]]"#),
+        ("- a\n  > ```\n  > x\n  > ```\n  y\n\n", #"[ul[[p("a"), quote[code(-, "x")], p("y")]]]"#),
+        ("- a\n  >     code\n  > x\n\n", #"[ul[[p("a"), quote[code(-, "code"), p("x")]]]]"#),
+        ("- a\n  - b\n    > c\n  d\n\n", #"[ul[[p("a"), ul[[p("b"), quote[p("c d")]]]]]]"#),
+        ("* a\n  > b\n  >\n* c\n\n", #"[ul[[p("a"), quote[p("b")]], [p("c")]]]"#)
     ]
 
     static let documents = cases.map(\.markdown)
@@ -174,20 +190,18 @@ struct SpecListsTests {
         }
     }
 
-    /// Items cannot hold a block quote yet: a line in an item that would
-    /// start one at the top level ends the items and starts it there, as
-    /// before items held blocks. (cmark-gfm keeps the quote in the item.)
+    /// A quote line in an item opens a quote inside the item, as in
+    /// cmark-gfm, also in a nested item at four columns.
     static let quoteCases: [(markdown: String, shape: String)] = [
-        ("- a\n\n  > # H\n\n", #"[ul[[p("a")]], quote[h1("H")]]"#),
-        ("- a\n\n  > q\n  > r\n\n", #"[ul[[p("a")]], quote[p("q r")]]"#),
-        ("- a\n\n  > q\n\n  b\n\n", #"[ul[[p("a")]], quote[p("q")], p("b")]"#),
-        ("- a\n  > b\n- c\n\n", #"[ul[[p("a")]], quote[p("b")], ul[[p("c")]]]"#),
-        // Four columns are code at the top level, so the line stays text.
-        ("- a\n  - b\n\n    > q\n\n", #"[ul[[p("a"), ul[[p("b"), p("> q")]]]]]"#)
+        ("- a\n\n  > # H\n\n", #"[ul[[p("a"), quote[h1("H")]]]]"#),
+        ("- a\n\n  > q\n  > r\n\n", #"[ul[[p("a"), quote[p("q r")]]]]"#),
+        ("- a\n\n  > q\n\n  b\n\n", #"[ul[[p("a"), quote[p("q")], p("b")]]]"#),
+        ("- a\n  > b\n- c\n\n", #"[ul[[p("a"), quote[p("b")]], [p("c")]]]"#),
+        ("- a\n  - b\n\n    > q\n\n", #"[ul[[p("a"), ul[[p("b"), quote[p("q")]]]]]]"#)
     ]
 
-    @Test("A quote line in an item starts a quote after the items, at every chunk split")
-    func quoteLineEndsItems() async {
+    @Test("A quote line in an item opens a quote inside it, at every chunk split")
+    func quoteLineInItem() async {
         for (markdown, expected) in Self.quoteCases {
             let baseline = await parse([markdown])
             let actual = shape(baseline)
@@ -257,6 +271,50 @@ struct SpecListsTests {
         #expect(String(blocks[2].content.characters).hasPrefix("• Bar"))
         #expect(String(blocks[3].content.characters).hasPrefix("more"))
         #expect(try style(blocks[3]).firstLineHeadIndent == blocks[2].listItem?.textIndent)
+    }
+
+    @Test("A lazy line in a quote in an item loses the item's indentation")
+    func lazyQuoteLineLosesItemIndent() async {
+        let markdown = "- x\n  > a\n  b\n\n"
+        let characters = Array(markdown)
+        for split in 0...characters.count {
+            let blocks = await parse([String(characters[..<split]), String(characters[split...])])
+            let quote = blocks.first { $0.kind == .blockquote }
+            #expect((quote?.inlineRuns ?? []).map(\.text).joined() == "a\nb\n", "Split at \(split)")
+        }
+    }
+
+    @Test("A quote in an item renders at the item's text column, bars included")
+    func quoteRendersInsideTheItem() async throws {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { await assembler.block($0) }
+        for character in "- a\n  > quoted\n  >\n  > # H\n\n> outside\n" {
+            _ = await renderer.apply(await assembler.apply(await tokenizer.feed(String(character))))
+        }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.finish()))
+        let blocks = await renderer.renderedBlocks()
+        #expect(blocks.map(\.kind) == [.listItem(ordered: false, index: nil, task: nil), .blockquote, .heading(level: 1),
+                                       .blockquote])
+        func attribute(_ key: NSAttributedString.Key, of block: RenderedBlock) -> Any? {
+            NSAttributedString.picoConverted(from: block.content).attribute(key, at: 0, effectiveRange: nil)
+        }
+        func headIndent(_ block: RenderedBlock) throws -> CGFloat {
+            try #require(attribute(.paragraphStyle, of: block) as? NSParagraphStyle).headIndent
+        }
+        let textIndent = try #require(blocks[0].listItem?.textIndent)
+        #expect(textIndent > 0)
+        let gutter = BlockquoteBarMetrics.textIndent(level: 1)
+        // The quote's own text and its heading child: bars at the item's
+        // text column, text past them.
+        for block in blocks[1...2] {
+            #expect(attribute(.picoBlockquoteBarInset, of: block) as? CGFloat == textIndent)
+            #expect(attribute(.picoBlockquoteLevel, of: block) as? Int == 1)
+            #expect(try headIndent(block) == textIndent + gutter)
+        }
+        // A quote outside the list keeps its bars at the edge.
+        #expect(attribute(.picoBlockquoteBarInset, of: blocks[3]) == nil)
+        #expect(try headIndent(blocks[3]) == gutter)
     }
 
     @Test("An item's text streams as it arrives, and a blank line keeps the item open")

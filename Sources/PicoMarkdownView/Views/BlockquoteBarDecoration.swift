@@ -16,6 +16,10 @@ extension NSAttributedString.Key {
     /// Platform color for the drawn blockquote bars. Dynamic colors adapt
     /// to light/dark automatically at draw time.
     static let picoBlockquoteBarColor = NSAttributedString.Key("picoBlockquoteBarColor")
+
+    /// Distance from the leading edge to the first bar, for a quote inside
+    /// a list item, whose bars start at the item's text column.
+    static let picoBlockquoteBarInset = NSAttributedString.Key("picoBlockquoteBarInset")
 }
 
 /// Shared geometry for drawn blockquote bars. The renderer reserves a text
@@ -83,6 +87,7 @@ final class BlockquoteBarLayoutManager: NSLayoutManager {
     private struct BarSegment {
         var level: Int
         var color: MarkdownColor?
+        var inset: CGFloat
         var range: NSRange
         var rect: CGRect
     }
@@ -110,18 +115,23 @@ final class BlockquoteBarLayoutManager: NSLayoutManager {
 
         var segments: [BarSegment] = []
         let scanRange = NSRange(location: scanStart, length: scanEnd - scanStart)
-        storage.enumerateAttribute(.picoBlockquoteLevel, in: scanRange, options: []) { value, range, _ in
-            guard let level = value as? Int, level > 0, range.length > 0 else { return }
-            let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            guard glyphs.length > 0,
-                  let container = textContainer(forGlyphAt: glyphs.location, effectiveRange: nil) else { return }
-            var rect = boundingRect(forGlyphRange: glyphs, in: container)
-            rect.origin.x = origin.x
-            rect.origin.y += origin.y
-            let color = storage.attribute(.picoBlockquoteBarColor,
-                                          at: range.location,
-                                          effectiveRange: nil) as? MarkdownColor
-            segments.append(BarSegment(level: level, color: color, range: range, rect: rect))
+        storage.enumerateAttribute(.picoBlockquoteLevel, in: scanRange, options: []) { value, levelRange, _ in
+            guard let level = value as? Int, level > 0, levelRange.length > 0 else { return }
+            // Adjacent quotes of one level may sit at different insets (one
+            // in a list item, one outside), so each inset is its own segment.
+            storage.enumerateAttribute(.picoBlockquoteBarInset, in: levelRange, options: []) { insetValue, range, _ in
+                let glyphs = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                guard glyphs.length > 0,
+                      let container = textContainer(forGlyphAt: glyphs.location, effectiveRange: nil) else { return }
+                let inset = insetValue as? CGFloat ?? 0
+                var rect = boundingRect(forGlyphRange: glyphs, in: container)
+                rect.origin.x = origin.x + inset
+                rect.origin.y += origin.y
+                let color = storage.attribute(.picoBlockquoteBarColor,
+                                              at: range.location,
+                                              effectiveRange: nil) as? MarkdownColor
+                segments.append(BarSegment(level: level, color: color, inset: inset, range: range, rect: rect))
+            }
         }
 
         // Draw each segment's bars, extending a bar down to the next segment
@@ -130,7 +140,7 @@ final class BlockquoteBarLayoutManager: NSLayoutManager {
         // (GitHub-style) instead of breaking at every block boundary.
         for (index, segment) in segments.enumerated() {
             let next = index + 1 < segments.count ? segments[index + 1] : nil
-            let joinsNext = next.map { segment.range.upperBound == $0.range.location } ?? false
+            let joinsNext = next.map { segment.range.upperBound == $0.range.location && segment.inset == $0.inset } ?? false
             for barIndex in 0..<segment.level {
                 var bottom = segment.rect.maxY
                 if let next, joinsNext, next.level > barIndex {
@@ -163,6 +173,12 @@ final class BlockquoteBarTextLayoutFragment: NSTextLayoutFragment {
         return level
     }
 
+    private var barInset: CGFloat {
+        guard let paragraph = textElement as? NSTextParagraph,
+              paragraph.attributedString.length > 0 else { return 0 }
+        return paragraph.attributedString.attribute(.picoBlockquoteBarInset, at: 0, effectiveRange: nil) as? CGFloat ?? 0
+    }
+
     private var barColor: MarkdownColor {
         guard let paragraph = textElement as? NSTextParagraph,
               paragraph.attributedString.length > 0,
@@ -180,7 +196,7 @@ final class BlockquoteBarTextLayoutFragment: NSTextLayoutFragment {
         // live (text is indented past it, so the default surface may exclude it).
         let gutter = CGRect(x: 0,
                             y: 0,
-                            width: BlockquoteBarMetrics.textIndent(level: level),
+                            width: barInset + BlockquoteBarMetrics.textIndent(level: level),
                             height: layoutFragmentFrame.height)
         return super.renderingSurfaceBounds.union(gutter)
     }
@@ -190,7 +206,7 @@ final class BlockquoteBarTextLayoutFragment: NSTextLayoutFragment {
         if level > 0 {
             context.saveGState()
             UIGraphicsPushContext(context)
-            let barRect = CGRect(x: point.x,
+            let barRect = CGRect(x: point.x + barInset,
                                  y: point.y,
                                  width: BlockquoteBarMetrics.textIndent(level: level),
                                  height: layoutFragmentFrame.height)
