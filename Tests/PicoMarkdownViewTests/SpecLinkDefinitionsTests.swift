@@ -108,6 +108,18 @@ struct SpecLinkDefinitionsTests {
         #expect(streamed == "Some text")
     }
 
+    @Test("A long definition with an escaped bracket in its label streams in small chunks")
+    func escapedLabelStreams() async {
+        let markdown = "[a\\]b]: /" + String(repeating: "x", count: 16_000) + "\n\n[a\\]b]\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 16).map {
+            String(characters[$0..<min($0 + 16, characters.count)])
+        }
+        let whole = await parse([markdown])
+        #expect(await parse(chunks) == whole)
+        #expect(whole.flatMap { $0.inlineRuns ?? [] }.compactMap(\.linkURL).first?.count == 16_001)
+    }
+
     @Test("A line that may still hold a title waits for its end")
     func titleLineWaits() async {
         let tokenizer = MarkdownTokenizer()

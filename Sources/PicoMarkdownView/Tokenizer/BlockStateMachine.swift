@@ -2391,30 +2391,13 @@ struct StreamingParser {
         if trimmed.hasPrefix("[") {
             // `[label]:` is a reference definition; until the label closes
             // and the next character is known, the line is ambiguous (the
-            // label may also go on to the next line). A label holds at most
-            // 999 characters and no unescaped `[` (CommonMark), which also
-            // bounds the rescan while the line is still ambiguous.
-            var count = 0
-            var cursor = trimmed.index(after: trimmed.startIndex)
-            while cursor < trimmed.endIndex {
-                let character = trimmed[cursor]
-                if character == "]" {
-                    // `[label]: /url` is a definition only if nothing but an
-                    // optional title follows, so the whole line decides.
-                    let after = trimmed.index(after: cursor)
-                    return after == trimmed.endIndex || trimmed[after] == ":"
-                }
-                if character == "[" { return false }
-                if character == "\\" {
-                    cursor = trimmed.index(after: cursor)
-                    count += 1
-                    if cursor == trimmed.endIndex { return true }
-                }
-                count += 1
-                if count > 999 { return false }
-                cursor = trimmed.index(after: cursor)
+            // label may also go on to the next line). `[label]: /url` is a
+            // definition only if nothing but an optional title follows, so
+            // then the whole line decides.
+            switch definitionLabel(trimmed[...]) {
+            case .open, .closedAtEnd, .colon: return true
+            case .notDefinition: return false
             }
-            return true
         }
 
         if trimmed.allSatisfy({ $0 == "#" || $0 == " " }) {
@@ -2468,9 +2451,45 @@ struct StreamingParser {
         }
         // `[label]:` with its destination still streaming: a definition only
         // if nothing but an optional title follows on the line.
-        guard trimmed.first == "[", let close = trimmed.prefix(1001).firstIndex(of: "]") else { return false }
-        let after = trimmed.index(after: close)
-        return after < trimmed.endIndex && trimmed[after] == ":"
+        guard trimmed.first == "[" else { return false }
+        if case .colon = definitionLabel(trimmed) { return true }
+        return false
+    }
+
+    private enum DefinitionLabel {
+        /// The label has not closed yet.
+        case open
+        /// `[label]` ends the line so far.
+        case closedAtEnd
+        /// `[label]:`
+        case colon
+        case notDefinition
+    }
+
+    /// How far a line starting with `[` is a definition's label. A label
+    /// holds at most 999 characters and no unescaped `[` (CommonMark), which
+    /// also bounds the scan while the line is still ambiguous.
+    private func definitionLabel(_ trimmed: Substring) -> DefinitionLabel {
+        var count = 0
+        var cursor = trimmed.index(after: trimmed.startIndex)
+        while cursor < trimmed.endIndex {
+            let character = trimmed[cursor]
+            if character == "]" {
+                let after = trimmed.index(after: cursor)
+                if after == trimmed.endIndex { return .closedAtEnd }
+                return trimmed[after] == ":" ? .colon : .notDefinition
+            }
+            if character == "[" { return .notDefinition }
+            if character == "\\" {
+                cursor = trimmed.index(after: cursor)
+                count += 1
+                if cursor == trimmed.endIndex { return .open }
+            }
+            count += 1
+            if count > 999 { return .notDefinition }
+            cursor = trimmed.index(after: cursor)
+        }
+        return .open
     }
 
     /// A partial line of one rule character (`-`, `*` or `_`) and spaces,
