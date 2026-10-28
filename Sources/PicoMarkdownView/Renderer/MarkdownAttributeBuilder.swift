@@ -76,22 +76,28 @@ actor MarkdownAttributeBuilder {
         if listIndent > 0 || listMarker != nil {
             result.attributed = placeInListItem(result.attributed, indent: listIndent, marker: listMarker)
         }
-        guard blockquoteLevel > 0, snapshot.kind != .blockquote else { return result }
+        guard blockquoteLevel > 0 else { return result }
 
-        let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel)
         let content = NSMutableAttributedString(attributedString: .picoConverted(from: result.attributed))
         let range = NSRange(location: 0, length: content.length)
         guard range.length > 0 else { return result }
-        content.enumerateAttribute(.paragraphStyle, in: range) { value, paragraphRange, _ in
-            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            paragraph.firstLineHeadIndent += gutter
-            paragraph.headIndent += gutter
-            content.addAttribute(.paragraphStyle, value: paragraph, range: paragraphRange)
+        if snapshot.kind != .blockquote {
+            let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel)
+            content.enumerateAttribute(.paragraphStyle, in: range) { value, paragraphRange, _ in
+                let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                paragraph.firstLineHeadIndent += gutter
+                paragraph.headIndent += gutter
+                content.addAttribute(.paragraphStyle, value: paragraph, range: paragraphRange)
+            }
+            content.addAttributes([
+                .picoBlockquoteLevel: blockquoteLevel,
+                .picoBlockquoteBarColor: blockquoteColor.withAlphaComponent(0.6)
+            ], range: range)
         }
-        content.addAttributes([
-            .picoBlockquoteLevel: blockquoteLevel,
-            .picoBlockquoteBarColor: blockquoteColor.withAlphaComponent(0.6)
-        ], range: range)
+        // A quote inside a list item draws its bars at the item's text column.
+        if listIndent > 0 {
+            content.addAttribute(.picoBlockquoteBarInset, value: listIndent, range: range)
+        }
         result.attributed = .picoConverted(from: content)
         return result
     }

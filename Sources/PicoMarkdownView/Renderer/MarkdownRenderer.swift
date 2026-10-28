@@ -440,7 +440,8 @@ actor MarkdownRenderer {
     }
 
     /// Where a block sits in a list item, from its parent in the rendered
-    /// list: a child block starts at the item's text column, and the first
+    /// list: a child block starts at the item's text column (so do the
+    /// blocks of a quote inside the item), and the first
     /// child of an item without text of its own carries the item's marker
     /// when it is a paragraph or heading. The item then renders nothing.
     private func listPlacement(for snapshot: BlockSnapshot) -> ListPlacement {
@@ -457,7 +458,12 @@ actor MarkdownRenderer {
             // A closed parent can be evicted before its retained children.
             return indexByID[snapshot.id].map { blocks[$0].listPlacement } ?? ListPlacement()
         }
-        guard let item = blocks[parent].listItem else { return ListPlacement() }
+        guard let item = blocks[parent].listItem else {
+            // A quote inside a list item keeps its blocks at the item's
+            // text column.
+            if blocks[parent].kind == .blockquote { return ListPlacement(indent: blocks[parent].listPlacement.indent) }
+            return ListPlacement()
+        }
         // The parent's stored snapshot may not list a child that just started.
         let isFirst = (blocks[parent].snapshot.childIDs.first ?? snapshot.id) == snapshot.id
         let marker = isFirst && item.content.characters.isEmpty && carriesMarker(snapshot.kind) ? item.bullet : nil

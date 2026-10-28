@@ -44,6 +44,21 @@ enum PicoBlockquoteBarColorAttribute: ObjectiveCConvertibleAttributedStringKey {
     }
 }
 
+/// Leading inset of the blockquote bars, for a quote inside a list item.
+enum PicoBlockquoteBarInsetAttribute: ObjectiveCConvertibleAttributedStringKey {
+    typealias Value = CGFloat
+    typealias ObjectiveCValue = NSNumber
+    static let name = NSAttributedString.Key.picoBlockquoteBarInset.rawValue
+
+    static func objectiveCValue(for value: CGFloat) throws -> NSNumber {
+        NSNumber(value: Double(value))
+    }
+
+    static func value(for object: NSNumber) throws -> CGFloat {
+        CGFloat(object.doubleValue)
+    }
+}
+
 extension AttributeScopes {
     /// PicoMarkdownView's attribute scope: the custom keys plus the platform
     /// and Foundation scopes, so scoped conversions keep standard attributes
@@ -51,6 +66,7 @@ extension AttributeScopes {
     struct PicoMarkdownAttributes: AttributeScope {
         let blockquoteLevel: PicoBlockquoteLevelAttribute
         let blockquoteBarColor: PicoBlockquoteBarColorAttribute
+        let blockquoteBarInset: PicoBlockquoteBarInsetAttribute
         #if canImport(UIKit)
         let uiKit: UIKitAttributes
         #elseif canImport(AppKit)

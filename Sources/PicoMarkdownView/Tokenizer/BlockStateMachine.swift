@@ -157,6 +157,18 @@ struct StreamingParser {
         contextStack.last
     }
 
+    /// Index of the outermost open quote, or the end of the stack. List
+    /// items below it are containers (`analyzeListContainers`); items above
+    /// it are quoted lists.
+    private var outermostQuoteIndex: Int {
+        contextStack.firstIndex { $0.kind == .blockquote } ?? contextStack.count
+    }
+
+    /// Index of the deepest list item outside any quote.
+    private var lastContainerItemIndex: Int? {
+        contextStack[..<outermostQuoteIndex].lastIndex(where: \.kind.isListItem)
+    }
+
     private mutating func pushBlock(_ context: BlockContext) {
         // Whatever path opens a block inside a quote, the quote now has
         // children, so later plain text becomes a paragraph child.
@@ -229,6 +241,12 @@ struct StreamingParser {
     /// per line by `analyzeQuotedLine`; everything after it is the line as
     /// the quote's children see it.
     private var lineQuotePrefix: Int = 0
+    /// Characters at the start of `lineBuffer` that are the indentation of
+    /// the list items around the open quote; its markers follow them.
+    private var lineContainerBase = 0
+    /// The line carries the open quote's `>` markers. Without them, a blank
+    /// line ends the quote and quoted code cannot continue.
+    private var lineQuoteMarked = false
     /// Set when the line became a horizontal rule, which pushes no context:
     /// the enclosing block must not treat the line as its own text.
     private var lineConsumedByRule = false
@@ -329,7 +347,7 @@ struct StreamingParser {
         case .fencedCode, .math:
             // An unmarked blank line inside a quote ends the quote and its
             // code; it is not a blank code line.
-            if lineQuotePrefix == 0, contextStack.contains(where: { $0.kind == .blockquote }),
+            if !lineQuoteMarked, contextStack.contains(where: { $0.kind == .blockquote }),
                lineBuffer.allSatisfy({ $0 == " " || $0 == "\t" }) {
                 return false
             }
@@ -339,7 +357,7 @@ struct StreamingParser {
             // the block (or, unmarked, the quote around it).
             let blank = htmlLineIsBlank
             if blank, ctx.htmlEnd == .blankLine { return false }
-            if blank, lineQuotePrefix == 0, contextStack.contains(where: { $0.kind == .blockquote }) { return false }
+            if blank, !lineQuoteMarked, contextStack.contains(where: { $0.kind == .blockquote }) { return false }
             return true
         case .horizontalRule:
             return false
@@ -373,10 +391,11 @@ struct StreamingParser {
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
         let insideQuote = contextStack.contains(where: { $0.kind == .blockquote })
 
-        // Outside quotes, open list items judge a line by its indentation
-        // before anything else: a line they do not keep ends them first, so
-        // a definition after them is a top-level one.
-        if !trimmed.isEmpty, !insideQuote, contextStack.contains(where: \.kind.isListItem),
+        // List items outside quotes judge a line by its indentation before
+        // anything else: a line they do not keep ends them first, so a
+        // definition after them is a top-level one. A quote inside the
+        // deepest of them reads its markers after their indentation.
+        if !trimmed.isEmpty, lastContainerItemIndex != nil,
            analyzeListContainers(isLineComplete: isLineComplete) {
             return
         }
@@ -384,7 +403,7 @@ struct StreamingParser {
         // An unmarked line inside a quote is the quote's business first: it
         // ends quoted code (and is then a definition at the outer level) or
         // continues a quoted paragraph, which a definition cannot interrupt.
-        let unmarkedInsideQuote = insideQuote && detectBlockquote(lineBuffer) == nil
+        let unmarkedInsideQuote = insideQuote && detectBlockquote(String(lineBuffer.dropFirst(lineContainerBase))) == nil
         // A definition cannot interrupt a paragraph; at the top level it may
         // span lines, so its lines are held until they decide.
         if isLineComplete, !unmarkedInsideQuote, contextStack.isEmpty, !suppressDefinitionHold,
@@ -406,11 +425,11 @@ struct StreamingParser {
                 ctx.linePrefixToStrip = 0
                 setCurrentBlock(ctx)
             }
-            // Outside quotes a blank line stays in the open list items, so
-            // it loses their indentation, up to the deepest content column,
+            // A blank line stays in the list items outside quotes, so it
+            // loses their indentation, up to the deepest content column,
             // before a code block inside sees it.
-            if !insideQuote, let item = contextStack.last(where: \.kind.isListItem) {
-                lineQuotePrefix = characters(covering: item.listContentColumn, in: lineBuffer).count
+            if let itemIndex = lastContainerItemIndex {
+                lineQuotePrefix = characters(covering: contextStack[itemIndex].listContentColumn, in: lineBuffer).count
             }
             // A blank line inside indented code loses up to four columns of
             // indentation like any code line; the rest is content.
@@ -834,9 +853,16 @@ struct StreamingParser {
     /// Returns `false` when no item keeps the line: it is then a top-level
     /// line, analyzed as one. (Blank lines are handled in `finalizeLine`.)
     private mutating func analyzeListContainers(isLineComplete: Bool) -> Bool {
+        if lineListLazy {
+            lineAnalyzed = true
+            return true
+        }
+        // A quote inside the deepest item reads the rest of the line itself,
+        // each time the line grows (`analyzeQuotedLine`).
+        if lineListResolved, outermostQuoteIndex < contextStack.count { return false }
         // Once the line's container is known and some of its content has
         // gone out, a re-analysis as the line grows has nothing to decide.
-        if lineListLazy || (lineListResolved && lineEmittedContent) {
+        if lineListResolved && lineEmittedContent {
             lineAnalyzed = true
             return true
         }
@@ -851,7 +877,7 @@ struct StreamingParser {
         }
         var deepest: Int?
         var firstUnkept: Int?
-        for index in contextStack.indices where contextStack[index].kind.isListItem {
+        for index in 0..<outermostQuoteIndex where contextStack[index].kind.isListItem {
             if indent.columns >= contextStack[index].listContentColumn {
                 deepest = index
             } else {
@@ -894,20 +920,25 @@ struct StreamingParser {
         return analyzeListContent(isLineComplete: isLineComplete)
     }
 
-    /// The current line as content of the deepest open list item: it
-    /// continues the item's open child block (code, a paragraph) or its own
-    /// text, or starts a block of its own.
+    /// The current line as content of the deepest list item outside quotes:
+    /// it continues the item's open child block (code, a paragraph, a quote)
+    /// or its own text, or starts a block of its own. Returns `false` when
+    /// a quote in the item reads the rest of the line.
     private mutating func analyzeListContent(isLineComplete: Bool) -> Bool {
         // An item opened on this line has content of its own after its
         // marker, which may open a further item: a loop, not recursion,
         // since a line may nest many.
         while true {
-            guard let itemIndex = contextStack.lastIndex(where: \.kind.isListItem) else { return false }
+            guard let itemIndex = lastContainerItemIndex else { return false }
             let item = contextStack[itemIndex]
             // A tab may reach past the content column; the content then starts
             // at the column the tab reaches.
             let (prefix, contentColumn) = characters(covering: item.listContentColumn, in: lineBuffer)
             lineQuotePrefix = prefix
+            if outermostQuoteIndex < contextStack.count {
+                lineContainerBase = prefix
+                return false
+            }
             let content = String(lineContent)
             if itemIndex < contextStack.count - 1, var child = currentBlock {
                 switch child.kind {
@@ -949,15 +980,6 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return true
             }
-            // Items cannot hold a block quote yet, so a line that would start
-            // one at the top level ends the items and is analyzed there.
-            if lineOpenedListItems == 0, !lineOpenedChild, !lineEmittedContent,
-               detectBlockquote(content) != nil, leadingColumns(lineBuffer).columns < 4,
-               let firstItem = contextStack.firstIndex(where: \.kind.isListItem) {
-                closeContexts(above: firstItem - 1)
-                lineQuotePrefix = 0
-                return false
-            }
             if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
                 lineAnalyzed = true
@@ -965,7 +987,8 @@ struct StreamingParser {
             }
             if !lineOpenedChild, !lineEmittedContent,
                openContainerChild(from: lineContent, columnBase: contentColumn, isLineComplete: isLineComplete) {
-                if let opened = currentBlock, opened.kind.isListItem, opened.id != item.id {
+                if outermostQuoteIndex == contextStack.count, let opened = currentBlock,
+                   opened.kind.isListItem, opened.id != item.id {
                     lineOpenedChild = false
                     continue
                 }
@@ -984,11 +1007,12 @@ struct StreamingParser {
         }
     }
 
-    /// A paragraph is open at `context`: a paragraph, or a list item whose
-    /// own text has not ended.
+    /// A paragraph is open at `context`: a paragraph, or a list item or
+    /// quote whose own text has not ended.
     private func paragraphIsOpen(_ context: BlockContext) -> Bool {
         if context.kind == .paragraph { return true }
-        return context.kind.isListItem && context.hasInlineContent && !context.hasBlockChildren
+        return (context.kind.isListItem || context.kind == .blockquote)
+            && context.hasInlineContent && !context.hasBlockChildren
     }
 
     /// Leading whitespace of `line`: its width in columns (a tab advances
@@ -1044,6 +1068,9 @@ struct StreamingParser {
         let activeLevel = contextStack[quoteIndex].blockquoteLevel
         let topIsQuote = contextStack.count - 1 == quoteIndex
         let topIsVerbatim = top.kind.isVerbatim || top.kind == .table || top.kind == .unknown
+        // Inside a list item the markers follow the item's indentation.
+        let base = lineContainerBase
+        let line = String(lineBuffer.dropFirst(base))
         // Lazy continuation needs an open paragraph (CommonMark). There is
         // none in a heading, in a quote whose own text ended at a separator
         // or that holds child blocks, or in a list item whose nested item a
@@ -1059,13 +1086,13 @@ struct StreamingParser {
 
         // Inside quoted code or math, further `>` markers are content, so
         // only the enclosing quote's own markers are stripped.
-        guard let quote = detectBlockquote(lineBuffer, maxMarkers: topIsVerbatim ? activeLevel : nil) else {
+        guard let quote = detectBlockquote(line, maxMarkers: topIsVerbatim ? activeLevel : nil) else {
             // A partial line of only whitespace may still grow a marker.
-            if !isLineComplete, lineBuffer.allSatisfy({ $0 == " " || $0 == "\t" }) {
+            if !isLineComplete, line.allSatisfy({ $0 == " " || $0 == "\t" }) {
                 lineAnalyzed = true
                 return true
             }
-            lineQuotePrefix = 0
+            lineQuotePrefix = base
             // Quoted code, math and tables cannot continue without the
             // marker: the quote ends as soon as the line is known not to
             // carry one, before any of the line could reach the verbatim
@@ -1080,17 +1107,19 @@ struct StreamingParser {
             // (CommonMark); anything else — a heading, code or rule that
             // already closed, or a line that starts a new block — ends the
             // quote.
-            if !isLineComplete, shouldDeferParagraphFallback(for: lineBuffer) {
-                lineDeferredUntilComplete = isDeferredUntilLineEnd(lineBuffer)
+            if !isLineComplete, shouldDeferParagraphFallback(for: line) {
+                lineDeferredUntilComplete = isDeferredUntilLineEnd(line)
                 lineAnalyzed = true
                 return true
             }
-            if paragraphEnded || startsBlock(lineBuffer[...], isLineComplete: isLineComplete) {
+            if paragraphEnded || startsBlock(line[...], isLineComplete: isLineComplete) {
                 closeBlockquoteContexts()
                 lineAnalyzed = false
                 analyzeLineIfNeeded(isLineComplete: isLineComplete)
                 return true
             }
+            // The enclosing items' indentation is not the paragraph's text.
+            if emittedCount < base { emittedCount = min(lineBuffer.count, base) }
             lineAnalyzed = true
             return true
         }
@@ -1100,12 +1129,13 @@ struct StreamingParser {
         // Inside quoted indented code a further `>` is content whose
         // indentation decides (four columns: a code line; fewer: the code
         // ends), so the code's own line handling judges it at once.
-        if !isLineComplete, lineBuffer.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
+        if !isLineComplete, line.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
            quote.markerCount <= activeLevel,
-           !(isIndentedCodeBlock(top) && lineBuffer.dropFirst(quote.prefixLength).contains(">")) {
-            lineQuotePrefix = quote.prefixLength
-            if emittedCount < quote.prefixLength {
-                emittedCount = min(lineBuffer.count, quote.prefixLength)
+           !(isIndentedCodeBlock(top) && line.dropFirst(quote.prefixLength).contains(">")) {
+            lineQuotePrefix = base + quote.prefixLength
+            lineQuoteMarked = true
+            if emittedCount < lineQuotePrefix {
+                emittedCount = min(lineBuffer.count, lineQuotePrefix)
             }
             lineAnalyzed = true
             return true
@@ -1115,11 +1145,11 @@ struct StreamingParser {
             // Deeper markers open nested quotes. They are children of the
             // enclosing quote, so an open child block of it ends first.
             if !topIsQuote { closeContexts(above: quoteIndex) }
-            openBlockquotes(from: activeLevel, to: quote.markerCount, prefixLength: quote.prefixLength)
+            openBlockquotes(from: activeLevel, to: quote.markerCount, prefixLength: base + quote.prefixLength)
         } else if quote.markerCount < activeLevel {
             // Fewer markers: a paragraph continues lazily at the deeper
             // level; blank content or a new block closes the inner quotes.
-            let content = lineBuffer.dropFirst(quote.prefixLength)
+            let content = line.dropFirst(quote.prefixLength)
             let blank = content.allSatisfy { $0 == " " || $0 == "\t" }
             if topIsVerbatim || paragraphEnded
                 || (blank && isLineComplete) || startsBlock(content, isLineComplete: isLineComplete) {
@@ -1133,9 +1163,10 @@ struct StreamingParser {
             }
         }
 
-        lineQuotePrefix = quote.prefixLength
-        if emittedCount < quote.prefixLength {
-            emittedCount = min(lineBuffer.count, quote.prefixLength)
+        lineQuotePrefix = base + quote.prefixLength
+        lineQuoteMarked = true
+        if emittedCount < lineQuotePrefix {
+            emittedCount = min(lineBuffer.count, lineQuotePrefix)
         }
         guard let current = currentBlock else { return false }
         let content = lineContent
@@ -1156,7 +1187,7 @@ struct StreamingParser {
             }
             if current.kind == .blockquote, current.hasBlockChildren,
                !content.allSatisfy({ $0 == " " || $0 == "\t" }) {
-                openInlineBlock(kind: .paragraph, prefixToStrip: quote.prefixLength)
+                openInlineBlock(kind: .paragraph, prefixToStrip: base + quote.prefixLength)
             }
             lineAnalyzed = true
             return true
@@ -1185,14 +1216,7 @@ struct StreamingParser {
         let (opener, dropped) = droppingTabbedIndent(line, columnBase: columnBase)
         // A paragraph is open (a paragraph child, or the container's own
         // text): only a block that may interrupt a paragraph starts here.
-        let paragraphIsOpen: Bool
-        if let current = currentBlock {
-            paragraphIsOpen = current.kind == .paragraph
-                || (current.kind == .blockquote && current.hasInlineContent && !current.hasBlockChildren)
-                || self.paragraphIsOpen(current)
-        } else {
-            paragraphIsOpen = false
-        }
+        let paragraphIsOpen = currentBlock.map(self.paragraphIsOpen) ?? false
 
         func beginChild() {
             lineOpenedChild = true
@@ -1240,6 +1264,20 @@ struct StreamingParser {
             openIndentedCode(prefixLength: prefix + codePrefix)
             emittedCount = min(lineBuffer.count, prefix + codePrefix)
             lineAnalyzed = true
+            return true
+        }
+        // A quote inside a list item outside quotes: its markers are read
+        // after the item's indentation, by the quote's own line handling,
+        // which then opens its first child. (Inside a quote, deeper markers
+        // nest instead.)
+        if outermostQuoteIndex == contextStack.count, lastContainerItemIndex != nil,
+           leadingColumns(line, startColumn: columnBase).columns < 4, let quote = detectBlockquote(opener) {
+            beginChild()
+            openBlockquotes(from: 0, to: quote.markerCount, prefixLength: prefix + dropped + quote.prefixLength)
+            lineContainerBase = prefix
+            lineOpenedChild = false
+            lineAnalyzed = false
+            analyzeLineIfNeeded(isLineComplete: isLineComplete)
             return true
         }
         if let heading = detectHeading(opener, isLineComplete: isLineComplete) {
@@ -1377,8 +1415,7 @@ struct StreamingParser {
         // it is content: the leading whitespace may still be the item's.
         if !isLineComplete, !lineListResolved, !lineListLazy,
            lineBuffer.allSatisfy({ $0 == " " || $0 == "\t" }),
-           !contextStack.contains(where: { $0.kind == .blockquote }),
-           contextStack.contains(where: \.kind.isListItem) {
+           lastContainerItemIndex != nil {
             return
         }
         if ctx.kind == .table {
@@ -1395,7 +1432,7 @@ struct StreamingParser {
             // all, but a blank line that ends the block is not.
             if emittedCount < lineQuotePrefix { emittedCount = min(lineBuffer.count, lineQuotePrefix) }
             if isLineComplete, htmlLineIsBlank, ctx.htmlEnd == .blankLine
-                || (lineQuotePrefix == 0 && contextStack.contains(where: { $0.kind == .blockquote })) {
+                || (!lineQuoteMarked && contextStack.contains(where: { $0.kind == .blockquote })) {
                 return
             }
         }
@@ -1538,7 +1575,7 @@ struct StreamingParser {
         // all of it but trailing whitespace.
         let isBlank = trimmed.isEmpty && lineOpenedListItems == 0 && !(lineEmittedContent && lineBufferTrimmed > 0)
 
-        if isBlank, !force, lineQuotePrefix == 0,
+        if isBlank, !force, !lineQuoteMarked,
            contextStack.contains(where: { $0.kind == .blockquote }) {
             // An unmarked blank line ends the quote and everything in it. A
             // marker-only line (`>`, `>  `) is a blank line *inside* the
@@ -1679,6 +1716,8 @@ struct StreamingParser {
         emittedLineBlockID = nil
         lineAnalyzed = false
         lineQuotePrefix = 0
+        lineContainerBase = 0
+        lineQuoteMarked = false
         lineConsumedByRule = false
         lineBufferTrimmed = 0
         lineDeferredUntilComplete = false

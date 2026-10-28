@@ -2,6 +2,19 @@
 
 Quoted text keeps its bar, and blocks inside a quote keep their own styling.
 
+## Quotes in list items
+
+1. A step with a note:
+
+   > Quoted inside the item, with its bar at the item's text column.
+   > ### And a heading
+2. A nested item holds one too:
+   - Inner item
+     > Quoted in the inner item,
+     continued lazily on an unmarked line.
+
+> A quote outside the list keeps its bar at the edge.
+
 ## Headings inside a quote
 
 > ## A quoted heading
