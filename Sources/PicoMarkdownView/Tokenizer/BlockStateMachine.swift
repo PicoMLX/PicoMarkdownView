@@ -125,6 +125,15 @@ struct StreamingParser {
     private let linkReferenceStore = LinkReferenceStore()
     private let footnoteRegistry = FootnoteRegistry()
     private var lineIsLinkDefinition: Bool = false
+    /// Top-level lines that may still be link reference definitions, which
+    /// can span lines (`[foo]:`, then the destination, then the title). They
+    /// are held, not shown, until the lines decide (`resolveDefinitionHold`).
+    private var definitionHold = ""
+    /// A line joined the hold; it is resolved once the line is finalized.
+    private var definitionHoldPending = false
+    /// The next line is held text being replayed as what it turned out to
+    /// be, which is not a definition.
+    private var suppressDefinitionHold = false
 
     private var currentBlock: BlockContext? {
         contextStack.last
@@ -232,6 +241,11 @@ struct StreamingParser {
                 let includeNewline = shouldIncludeTerminatingNewline()
                 appendDeltaIfNeeded(includeTerminatingNewline: includeNewline, isLineComplete: true)
                 finalizeLine(terminated: true, force: false)
+                suppressDefinitionHold = false
+                if definitionHoldPending {
+                    definitionHoldPending = false
+                    resolveDefinitionHold(isFinal: false)
+                }
             } else {
                 lineBuffer.append(character)
                 // Counted as characters arrive: the line buffer may be trimmed
@@ -250,6 +264,11 @@ struct StreamingParser {
             analyzeLineIfNeeded(isLineComplete: true)
             appendDeltaIfNeeded(isLineComplete: true)
             finalizeLine(terminated: true, force: true)
+            suppressDefinitionHold = false
+            definitionHoldPending = false
+            if !definitionHold.isEmpty {
+                resolveDefinitionHold(isFinal: true)
+            }
             // Children of nested quotes add contexts, so the end of input
             // drains the whole stack rather than one block.
             while currentBlock != nil {
@@ -283,19 +302,26 @@ struct StreamingParser {
     private mutating func analyzeLineIfNeeded(isLineComplete: Bool) {
         if lineAnalyzed { return }
 
+        lineIsLinkDefinition = false
+        if !definitionHold.isEmpty, analyzeLineAfterDefinitionHold(isLineComplete: isLineComplete) { return }
+
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
-        lineIsLinkDefinition = false
         // An unmarked line inside a quote is the quote's business first: it
         // ends quoted code (and is then a definition at the outer level) or
         // continues a quoted paragraph, which a definition cannot interrupt.
         let unmarkedInsideQuote = contextStack.contains(where: { $0.kind == .blockquote }) && detectBlockquote(lineBuffer) == nil
-        if isLineComplete, !unmarkedInsideQuote, let linkDefinition = detectLinkDefinition(lineBuffer) {
+        // A definition cannot interrupt a paragraph; at the top level it may
+        // span lines, so its lines are held until they decide.
+        if isLineComplete, !unmarkedInsideQuote, contextStack.isEmpty, !suppressDefinitionHold,
+           startsLinkDefinition(lineBuffer) {
+            holdDefinitionLine()
+            return
+        }
+        if isLineComplete, !unmarkedInsideQuote, let ctx = currentBlock, case .listItem = ctx.kind,
+           let linkDefinition = detectLinkDefinition(lineBuffer) {
             linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
             lineIsLinkDefinition = true
-            if let ctx = currentBlock, case .paragraph = ctx.kind {
-                closeCurrentBlock()
-            }
             emittedCount = lineBuffer.count
             lineAnalyzed = true
             return
@@ -1279,6 +1305,90 @@ struct StreamingParser {
         lineDeferredUntilComplete = false
         lineOpenedChild = false
         lineEmittedContent = false
+    }
+
+    /// Whether a line may begin a link reference definition: up to three
+    /// spaces, then `[` (but not a footnote's `[^`).
+    private func startsLinkDefinition(_ line: String) -> Bool {
+        let indent = line.prefix { $0 == " " }.count
+        guard indent <= 3 else { return false }
+        let rest = line.dropFirst(indent)
+        return rest.hasPrefix("[") && !rest.hasPrefix("[^")
+    }
+
+    private mutating func holdDefinitionLine() {
+        definitionHold += lineBuffer + "\n"
+        definitionHoldPending = true
+        lineIsLinkDefinition = true
+        emittedCount = lineBuffer.count
+        lineAnalyzed = true
+    }
+
+    /// The current line while definitions are held. A blank line or one
+    /// that interrupts a paragraph ends them first; any other complete line
+    /// joins them (it may hold the destination or title, or be the
+    /// paragraph text that follows). Until it is complete, a line is held
+    /// too, unless it cannot begin a title and the held lines are complete
+    /// definitions without it: then it streams at once. Returns whether the
+    /// line is handled.
+    private mutating func analyzeLineAfterDefinitionHold(isLineComplete: Bool) -> Bool {
+        if !isLineComplete {
+            guard let first = lineBuffer.unicodeScalars.first(where: { $0 != " " && $0 != "\t" }) else {
+                lineAnalyzed = true
+                return true
+            }
+            if !"\"'(".unicodeScalars.contains(first), definitionHoldIsComplete() {
+                resolveDefinitionHold(isFinal: true)
+                return false
+            }
+            lineDeferredUntilComplete = true
+            lineAnalyzed = true
+            return true
+        }
+        let blank = lineBuffer.allSatisfy { $0 == " " || $0 == "\t" }
+        if blank || startsBlock(lineBuffer[...], isLineComplete: true) || detectBlockquote(lineBuffer) != nil {
+            let line = lineBuffer
+            let backslashes = lineTrailingBackslashes
+            resetLineState()
+            resolveDefinitionHold(isFinal: true)
+            lineBuffer = line
+            lineTrailingBackslashes = backslashes
+            lineAnalyzed = false
+            return false
+        }
+        holdDefinitionLine()
+        return true
+    }
+
+    private func definitionHoldIsComplete() -> Bool {
+        var rest = definitionHold[...]
+        while !rest.isEmpty {
+            guard case .definition(_, _, _, let end) = parseLinkDefinition(rest, isFinal: true) else { return false }
+            rest = rest[end...]
+        }
+        return true
+    }
+
+    /// Defines the held definitions that are complete. Text that turns out
+    /// not to be one is replayed as ordinary lines (a paragraph); a
+    /// definition that may still continue stays held.
+    private mutating func resolveDefinitionHold(isFinal: Bool) {
+        var rest = definitionHold[...]
+        definitionHold = ""
+        while !rest.isEmpty {
+            switch parseLinkDefinition(rest, isFinal: isFinal) {
+            case .definition(let label, let url, let title, let end):
+                linkReferenceStore.define(label: label, url: url, title: title)
+                rest = rest[end...]
+            case .incomplete:
+                definitionHold = String(rest)
+                return
+            case .invalid:
+                suppressDefinitionHold = true
+                process(String(rest), isFinal: false)
+                return
+            }
+        }
     }
 
     private mutating func closePendingSameLineBlocks() {
@@ -2279,17 +2389,32 @@ struct StreamingParser {
         if trimmed == "$" || trimmed == "\\" { return true } // may become a display-math opener
         if trimmed == ":" || trimmed == "::" { return true } // may become `:::`
         if trimmed.hasPrefix("[") {
-            // `[label]:` is a reference definition; until the bracket closes
-            // and the next character is known, the line is ambiguous. A label
-            // holds at most 999 characters (CommonMark), which also bounds
-            // the rescan while the line is still ambiguous.
-            let window = trimmed.prefix(1001)
-            guard let close = window.firstIndex(of: "]") else { return window.count <= 1000 }
-            let after = trimmed.index(after: close)
-            if after == trimmed.endIndex { return true }
-            // `[label]: /url` is a definition only if nothing but an optional
-            // title follows, so the whole line decides.
-            if trimmed[after] == ":" { return true }
+            // `[label]:` is a reference definition; until the label closes
+            // and the next character is known, the line is ambiguous (the
+            // label may also go on to the next line). A label holds at most
+            // 999 characters and no unescaped `[` (CommonMark), which also
+            // bounds the rescan while the line is still ambiguous.
+            var count = 0
+            var cursor = trimmed.index(after: trimmed.startIndex)
+            while cursor < trimmed.endIndex {
+                let character = trimmed[cursor]
+                if character == "]" {
+                    // `[label]: /url` is a definition only if nothing but an
+                    // optional title follows, so the whole line decides.
+                    let after = trimmed.index(after: cursor)
+                    return after == trimmed.endIndex || trimmed[after] == ":"
+                }
+                if character == "[" { return false }
+                if character == "\\" {
+                    cursor = trimmed.index(after: cursor)
+                    count += 1
+                    if cursor == trimmed.endIndex { return true }
+                }
+                count += 1
+                if count > 999 { return false }
+                cursor = trimmed.index(after: cursor)
+            }
+            return true
         }
 
         if trimmed.allSatisfy({ $0 == "#" || $0 == " " }) {
@@ -2637,4 +2762,162 @@ private extension BlockKind {
         if case .heading = self { return true }
         return false
     }
+}
+
+/// One link reference definition at the start of `text`, which holds whole
+/// lines (each ending in a line feed). CommonMark: up to three spaces, a
+/// label of at most 999 characters with no unescaped bracket, a colon,
+/// optional whitespace with at most one line ending, a destination, and an
+/// optional title separated from it by whitespace. Nothing but spaces or tabs
+/// may follow on the title's line; when a title on the next line fails that,
+/// the definition ends with the destination's line instead. Backslash escapes
+/// are resolved in the destination and the title, not in the label.
+enum LinkDefinitionParse: Equatable {
+    case definition(label: String, url: String, title: String?, end: String.Index)
+    /// More lines may still complete it (or decide a title).
+    case incomplete
+    case invalid
+}
+
+func parseLinkDefinition(_ text: Substring, isFinal: Bool) -> LinkDefinitionParse {
+    let scalars = text.unicodeScalars
+    let end = text.endIndex
+    let unfinished: LinkDefinitionParse = isFinal ? .invalid : .incomplete
+    let punctuation = Set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".unicodeScalars)
+    var cursor = text.startIndex
+    func isSpace(_ scalar: Unicode.Scalar) -> Bool { scalar == " " || scalar == "\t" }
+    func advance() { cursor = scalars.index(after: cursor) }
+    func skipSpaces() { while cursor < end, isSpace(scalars[cursor]) { advance() } }
+    /// Spaces and tabs with at most one line ending among them.
+    func skipWhitespace() {
+        skipSpaces()
+        if cursor < end, scalars[cursor] == "\n" {
+            advance()
+            skipSpaces()
+        }
+    }
+    /// The escaped character at a backslash, which `cursor` then passes.
+    func escaped() -> Unicode.Scalar? {
+        let next = scalars.index(after: cursor)
+        guard next < end, punctuation.contains(scalars[next]) else { return nil }
+        cursor = scalars.index(after: next)
+        return scalars[next]
+    }
+
+    var indent = 0
+    while cursor < end, scalars[cursor] == " ", indent < 3 {
+        indent += 1
+        advance()
+    }
+    guard cursor < end else { return unfinished }
+    guard scalars[cursor] == "[" else { return .invalid }
+    advance()
+    let labelStart = cursor
+    var count = 0
+    while true {
+        guard cursor < end else { return unfinished }
+        let scalar = scalars[cursor]
+        if scalar == "]" { break }
+        if scalar == "[" { return .invalid }
+        if scalar == "\\" {
+            advance()
+            count += 1
+            guard cursor < end else { return unfinished }
+        }
+        count += 1
+        if count > 999 { return .invalid }
+        advance()
+    }
+    let label = text[labelStart..<cursor]
+    // `[^id]:` is a footnote definition.
+    guard !label.hasPrefix("^"), label.unicodeScalars.contains(where: { !isSpace($0) && $0 != "\n" }) else { return .invalid }
+    advance()
+    guard cursor < end else { return unfinished }
+    guard scalars[cursor] == ":" else { return .invalid }
+    advance()
+    skipWhitespace()
+    guard cursor < end else { return unfinished }
+
+    var destination = String.UnicodeScalarView()
+    if scalars[cursor] == "<" {
+        advance()
+        while true {
+            guard cursor < end else { return unfinished }
+            let scalar = scalars[cursor]
+            if scalar == ">" { break }
+            if scalar == "\n" || scalar == "<" { return .invalid }
+            if scalar == "\\", let escaped = escaped() {
+                destination.append(escaped)
+                continue
+            }
+            destination.append(scalar)
+            advance()
+        }
+        advance()
+    } else {
+        var depth = 0
+        while cursor < end {
+            let scalar = scalars[cursor]
+            if scalar == "\\", let escaped = escaped() {
+                destination.append(escaped)
+                continue
+            }
+            if scalar.value <= 0x20 || scalar.value == 0x7F { break }
+            if scalar == "(" {
+                depth += 1
+                if depth > 32 { return .invalid }
+            } else if scalar == ")" {
+                if depth == 0 { return .invalid }
+                depth -= 1
+            }
+            destination.append(scalar)
+            advance()
+        }
+        guard !destination.isEmpty, depth == 0 else { return .invalid }
+    }
+    let url = String(destination)
+    let afterDestination = cursor
+
+    // Without a title the definition ends with the destination's line,
+    // provided only spaces or tabs follow it there.
+    skipSpaces()
+    var endWithoutTitle: String.Index?
+    if cursor == end {
+        endWithoutTitle = end
+    } else if scalars[cursor] == "\n" {
+        endWithoutTitle = scalars.index(after: cursor)
+    }
+    func withoutTitle() -> LinkDefinitionParse {
+        guard let endWithoutTitle else { return .invalid }
+        return .definition(label: String(label), url: url, title: nil, end: endWithoutTitle)
+    }
+
+    cursor = afterDestination
+    skipWhitespace()
+    // The next line has not arrived: it may still hold a title.
+    guard cursor < end else { return isFinal ? withoutTitle() : .incomplete }
+    let opening = scalars[cursor]
+    guard cursor > afterDestination, opening == "\"" || opening == "'" || opening == "(" else { return withoutTitle() }
+    let closing: Unicode.Scalar = opening == "(" ? ")" : opening
+    advance()
+    var title = String.UnicodeScalarView()
+    while true {
+        guard cursor < end else { return isFinal ? withoutTitle() : .incomplete }
+        let scalar = scalars[cursor]
+        if scalar == closing { break }
+        if opening == "(", scalar == "(" { return withoutTitle() }
+        if scalar == "\\", let escaped = escaped() {
+            title.append(escaped)
+            continue
+        }
+        title.append(scalar)
+        advance()
+    }
+    advance()
+    skipSpaces()
+    if cursor == end {
+        return isFinal ? .definition(label: String(label), url: url, title: String(title), end: end) : .incomplete
+    }
+    guard scalars[cursor] == "\n" else { return withoutTitle() }
+    return .definition(label: String(label), url: url, title: String(title), end: scalars.index(after: cursor))
 }
