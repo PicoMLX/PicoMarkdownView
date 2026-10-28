@@ -20,6 +20,9 @@ struct SpecEntitiesTests {
         ("&nbsp &x; &#; &#x; &#abcdef0; &ThisIsNotDefined; &hi?; &#12345678;\n\n",
          "&nbsp &x; &#; &#x; &#abcdef0; &ThisIsNotDefined; &hi?; &#12345678;"),
         ("AT&T and R&D\n\n", "AT&T and R&D"),
+        // Digits are ASCII only, in text and in destinations.
+        ("&#１２３; &#xＦＦ;\n\n", "&#１２３; &#xＦＦ;"),
+        ("[a](/&#x４１;)\n\n", "<a /&#x４１;>a</a>"),
         // A reference is text, never markup; an escaped `&` starts none.
         ("&#42;foo&#42; *bar*\n\n", "*foo* bar"),
         ("&#42; foo\n\n", "* foo"),

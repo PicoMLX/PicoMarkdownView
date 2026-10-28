@@ -2191,7 +2191,9 @@ enum HTMLEntities {
             let radix: UInt32 = hex ? 16 : 10
             var value: UInt32 = 0
             var digits = 0
-            while cursor < end, let digit = Character(scalars[cursor]).hexDigitValue, UInt32(digit) < radix {
+            // ASCII digits only: `hexDigitValue` also reads fullwidth ones.
+            while cursor < end, scalars[cursor].isASCII,
+                  let digit = Character(scalars[cursor]).hexDigitValue, UInt32(digit) < radix {
                 digits += 1
                 if digits > (hex ? 6 : 7) { return .none }
                 value = value * radix + UInt32(digit)
