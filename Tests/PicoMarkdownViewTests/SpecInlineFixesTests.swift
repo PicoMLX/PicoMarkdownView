@@ -96,6 +96,9 @@ struct SpecInlineFixesTests {
         // point; it does not hide the syntax.
         ("**a *\u{301}b* c**\n\n", "<b>a </b><b><i>\u{301}b</i></b><b> c</b>"),
         ("\\\u{301}*a*\n\n", "\\\u{301}<i>a</i>"),
+        // A bare URL after an emoji with a variation selector starts a word.
+        ("\u{2764}\u{FE0F}https://example.com x\n\n",
+         "\u{2764}\u{FE0F}<a https://example.com>https://example.com</a> x"),
         // A star pairs only with a star, whatever follows it.
         ("*\u{301}a_\n\n", "*\u{301}a_"),
         ("_\u{301}a*\n\n", "_\u{301}a*"),

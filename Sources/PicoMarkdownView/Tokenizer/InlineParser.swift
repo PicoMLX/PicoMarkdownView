@@ -1568,10 +1568,25 @@ struct InlineParser {
             return nil
         }
 
+        /// A bare URL starts a word: the whole grapheme before it decides, as
+        /// it does at the start of a chunk (`lastConsumed`), so `❤️` with its
+        /// variation selector is not a word character. (Flanking reads the
+        /// code point instead, as CommonMark does.)
         func isAutolinkBoundaryBefore(_ index: String.Index) -> Bool {
+            if index > text.startIndex, index < text.endIndex,
+               text.index(before: text.index(after: index)) == index {
+                let previousIndex = text.index(before: index)
+                let previous = text[previousIndex]
+                // The text's first grapheme may extend the one consumed before
+                // it (`❤` then U+FE0F): the joined grapheme decides.
+                if previousIndex == text.startIndex, let context = lastConsumed,
+                   (context.tail + String(previous)).count < context.tail.count + 1 {
+                    return !(context.alphanumeric && isAlphanumeric(previous))
+                }
+                return !isAlphanumeric(previous)
+            }
             guard let prev = character(before: index) else { return true }
-            if isAlphanumeric(prev) { return false }
-            return true
+            return !isAlphanumeric(prev)
         }
 
         func normalizeAutolink(display: String, prefix: (scheme: String, prefixLength: Int)) -> (display: String, url: String)? {
