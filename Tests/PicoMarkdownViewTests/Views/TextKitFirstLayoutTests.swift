@@ -18,14 +18,7 @@ import AppKit
 /// → a finite, positive height.
 @MainActor
 final class TextKitFirstLayoutTests: XCTestCase {
-    func testTextKit1DefersHeightUntilWidthIsKnown() {
-        let controller = TextKitStreamingController()
-        let config = PicoTextKitConfiguration() // isScrollEnabled == false → intrinsic sizing
-        let view = controller.makeTextKit1View(configuration: config)
-        assertDefersHeightUntilWidthIsKnown(view, controller: controller, configuration: config)
-    }
-
-    func testTextKit2DefersHeightUntilWidthIsKnown() {
+    func testActiveViewDefersHeightUntilWidthIsKnown() {
         let controller = TextKitStreamingController()
         let config = PicoTextKitConfiguration()
         let view = controller.makeTextKit2View(configuration: config)
