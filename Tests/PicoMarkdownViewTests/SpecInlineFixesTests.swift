@@ -92,6 +92,10 @@ struct SpecInlineFixesTests {
         ("`a\u{600}` b\n\n", "<code>a\u{600}</code> b"),
         ("<irc:foo>\u{301} x\n\n", "<a irc:foo>irc:foo</a>\u{301} x"),
         ("*a\u{600}* b\n\n", "<i>a\u{600}</i> b"),
+        // A combining mark after a delimiter or a backslash follows that code
+        // point; it does not hide the syntax.
+        ("**a *\u{301}b* c**\n\n", "<b>a </b><b><i>\u{301}b</i></b><b> c</b>"),
+        ("\\\u{301}*a*\n\n", "\\\u{301}<i>a</i>"),
         ("a \u{600}*b* c\n\n", "a \u{600}<i>b</i> c"),
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.

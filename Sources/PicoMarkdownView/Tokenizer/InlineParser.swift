@@ -423,6 +423,16 @@ struct InlineParser {
             return nil
         }
 
+        /// The character at `index` as syntax sees it: an ASCII syntax
+        /// character followed by combining marks (`*` + U+0301) is that
+        /// syntax character, as CommonMark reads code points, and the marks
+        /// are what follows it. Anything else is the grapheme.
+        func syntaxCharacter(at index: String.Index) -> Character {
+            let leading = text.unicodeScalars[index]
+            if leading.isASCII, "*_`~<[!$\\".unicodeScalars.contains(leading) { return Character(leading) }
+            return text[index]
+        }
+
         func standIn(_ character: Character?) -> Character? {
             character.map { character in
                 if isAlphanumeric(character) { return "a" }
@@ -808,7 +818,7 @@ struct InlineParser {
         /// A CommonMark autolink (`<scheme:…>`, `<user@host>`) or raw HTML
         /// construct starting at the `<` at `index`.
         func angleSpan(at index: String.Index) -> AngleSpan {
-            let start = text.index(after: index)
+            let start = text.unicodeScalars.index(after: index)
             var cursor = start
             var htmlState = HTMLState.begin
             var htmlCursor = start
@@ -1220,7 +1230,7 @@ struct InlineParser {
                     }
                     continue
                 }
-                let character = text[cursor]
+                let character = syntaxCharacter(at: cursor)
                 // A bare URL is one unit to the emitter, as is `~~…~~`, whose
                 // content it parses apart: nothing inside pairs with a
                 // delimiter outside.
@@ -1234,7 +1244,7 @@ struct InlineParser {
                     }
                 }
                 if character == "~" {
-                    let second = text.index(after: cursor)
+                    let second = text.unicodeScalars.index(after: cursor)
                     if second == text.endIndex, !includeUnterminated { return suspend(at: cursor) }
                     if second < text.endIndex, text[second] == "~" {
                         if let closeAfter = findStrikethroughClosing(in: text, from: text.index(after: second)) {
@@ -1249,7 +1259,7 @@ struct InlineParser {
                 // or destination pairs with a delimiter outside it.
                 if character == "[" || character == "!" {
                     let image = character == "!"
-                    let open = image ? text.index(after: cursor) : cursor
+                    let open = image ? text.unicodeScalars.index(after: cursor) : cursor
                     if !image || (open < text.endIndex && text[open] == "[") {
                         switch parseBracketSequence(openBracketIndex: open, treatAsImage: image, dryRun: true) {
                         case .handled(let next):
@@ -1263,7 +1273,7 @@ struct InlineParser {
                     }
                 }
                 if character == "\\" {
-                    let escaped = text.index(after: cursor)
+                    let escaped = text.unicodeScalars.index(after: cursor)
                     if escaped == text.endIndex {
                         // What the backslash escapes has not arrived: a resumed
                         // scan must see the pair together.
@@ -1437,11 +1447,11 @@ struct InlineParser {
         /// reference reaches, emitting and registering nothing: the emphasis
         /// lookahead treats it as one unit, as the emitter does.
         func parseBracketSequence(openBracketIndex: String.Index, treatAsImage: Bool, dryRun: Bool = false) -> BracketParseResult {
-            guard let closingBracket = text[text.index(after: openBracketIndex)..<text.endIndex].firstIndex(of: "]") else {
+            guard let closingBracket = text[text.unicodeScalars.index(after: openBracketIndex)..<text.endIndex].firstIndex(of: "]") else {
                 return .incomplete
             }
             let afterBracket = text.index(after: closingBracket)
-            let labelStart = text.index(after: openBracketIndex)
+            let labelStart = text.unicodeScalars.index(after: openBracketIndex)
             let label = String(text[labelStart..<closingBracket])
             if !treatAsImage, label.hasPrefix("^") {
                 let id = String(label.dropFirst())
@@ -1676,7 +1686,7 @@ struct InlineParser {
         }
 
         func parseAngleAutolink(at index: String.Index) -> AutolinkParseResult? {
-            let start = text.index(after: index)
+            let start = text.unicodeScalars.index(after: index)
             guard start < text.endIndex else { return .needMore }
             // Only `<http://`, `<https://` and `<www.` take this form; anything
             // else is decided from its first characters, without searching
@@ -2174,10 +2184,10 @@ struct InlineParser {
                 }
             }
 
-            let ch = text[index]
+            let ch = syntaxCharacter(at: index)
             switch ch {
             case "\\":
-                let nextIndex = text.index(after: index)
+                let nextIndex = text.unicodeScalars.index(after: index)
                 if nextIndex >= text.endIndex {
                     if includeUnterminated {
                         // A trailing backslash is plain text, together with
@@ -2209,7 +2219,7 @@ struct InlineParser {
                 index = after
                 plainStart = after
             case "!":
-                let nextIndex = text.index(after: index)
+                let nextIndex = text.unicodeScalars.index(after: index)
                 guard nextIndex < text.endIndex else {
                     if includeUnterminated {
                         index = nextIndex
@@ -2374,7 +2384,7 @@ struct InlineParser {
                 plainStart = afterClose
             case "~":
                 // GFM Strikethrough: require a leading "~~" and a matching closing "~~".
-                let nextIndex = text.index(after: index)
+                let nextIndex = text.unicodeScalars.index(after: index)
                 if nextIndex < text.endIndex && text[nextIndex] == "~" {
                     let searchStart = text.index(after: nextIndex)
                     if let closeAfter = findStrikethroughClosing(in: text, from: searchStart) {
