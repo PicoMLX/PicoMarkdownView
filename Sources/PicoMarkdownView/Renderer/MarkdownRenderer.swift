@@ -204,7 +204,8 @@ actor MarkdownRenderer {
                                                          blockquoteLevel: blockquoteLevel,
                                                          listIndent: placement.indent,
                                                          listMarker: placement.marker,
-                                                         markerOnFirstChild: placement.markerOnFirstChild)
+                                                         markerOnFirstChild: placement.markerOnFirstChild,
+                                                         blockquoteBarInset: placement.barInset)
             if generation == builderGeneration { return rendered }
         }
     }
@@ -444,30 +445,39 @@ actor MarkdownRenderer {
     /// blocks of a quote inside the item), and the first
     /// child of an item without text of its own carries the item's marker
     /// when it is a paragraph or heading. The item then renders nothing.
+    /// A quote's bars start at the column the quote starts at, and stay
+    /// there for every block inside it.
     private func listPlacement(for snapshot: BlockSnapshot) -> ListPlacement {
         func carriesMarker(_ kind: BlockKind) -> Bool {
             if case .heading = kind { return true }
             return kind == .paragraph
         }
+        var placement = ListPlacement()
         if case .listItem = snapshot.kind {
             let first = snapshot.childIDs.first.flatMap { indexByID[$0] }
-            return ListPlacement(markerOnFirstChild: first.map { carriesMarker(blocks[$0].kind) } ?? false)
+            placement.markerOnFirstChild = first.map { carriesMarker(blocks[$0].kind) } ?? false
         }
-        guard let parentID = snapshot.parentID else { return ListPlacement() }
+        guard let parentID = snapshot.parentID else { return placement }
         guard let parent = indexByID[parentID] else {
             // A closed parent can be evicted before its retained children.
-            return indexByID[snapshot.id].map { blocks[$0].listPlacement } ?? ListPlacement()
+            guard var retained = indexByID[snapshot.id].map({ blocks[$0].listPlacement }) else { return placement }
+            retained.markerOnFirstChild = placement.markerOnFirstChild
+            return retained
         }
-        guard let item = blocks[parent].listItem else {
+        placement.barInset = blocks[parent].listPlacement.barInset
+        if case .listItem = snapshot.kind { return placement }
+        if let item = blocks[parent].listItem {
+            // The parent's stored snapshot may not list a child that just started.
+            let isFirst = (blocks[parent].snapshot.childIDs.first ?? snapshot.id) == snapshot.id
+            placement.indent = item.textIndent
+            placement.marker = isFirst && item.content.characters.isEmpty && carriesMarker(snapshot.kind) ? item.bullet : nil
+        } else if blocks[parent].kind == .blockquote {
             // A quote inside a list item keeps its blocks at the item's
             // text column.
-            if blocks[parent].kind == .blockquote { return ListPlacement(indent: blocks[parent].listPlacement.indent) }
-            return ListPlacement()
+            placement.indent = blocks[parent].listPlacement.indent
         }
-        // The parent's stored snapshot may not list a child that just started.
-        let isFirst = (blocks[parent].snapshot.childIDs.first ?? snapshot.id) == snapshot.id
-        let marker = isFirst && item.content.characters.isEmpty && carriesMarker(snapshot.kind) ? item.bullet : nil
-        return ListPlacement(indent: item.textIndent, marker: marker)
+        if snapshot.kind == .blockquote { placement.barInset = placement.indent }
+        return placement
     }
 
 }
@@ -496,6 +506,9 @@ struct ListPlacement: Sendable, Equatable {
     var indent: CGFloat = 0
     var marker: String?
     var markerOnFirstChild = false
+    /// Leading inset of the bars of the quotes around the block: the column
+    /// the innermost of them starts at.
+    var barInset: CGFloat = 0
 }
 
 extension RenderedBlock {

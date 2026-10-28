@@ -95,7 +95,22 @@ struct SpecListsTests {
         ("- a\n  > ```\n  > x\n  > ```\n  y\n\n", #"[ul[[p("a"), quote[code(-, "x")], p("y")]]]"#),
         ("- a\n  >     code\n  > x\n\n", #"[ul[[p("a"), quote[code(-, "code"), p("x")]]]]"#),
         ("- a\n  - b\n    > c\n  d\n\n", #"[ul[[p("a"), ul[[p("b"), quote[p("c d")]]]]]]"#),
-        ("* a\n  > b\n  >\n* c\n\n", #"[ul[[p("a"), quote[p("b")]], [p("c")]]]"#)
+        ("* a\n  > b\n  >\n* c\n\n", #"[ul[[p("a"), quote[p("b")]], [p("c")]]]"#),
+        // Lists inside quotes are containers too: indentation after the
+        // markers keeps a line in the item, a marker-only line is a blank
+        // line inside the item, and quotes and items nest either way round.
+        ("> - a\n>\n> b\n\n", #"[quote[ul[[p("a")]], p("b")]]"#),
+        ("> - a\n>\n>   b\n\n", #"[quote[ul[[p("a"), p("b")]]]]"#),
+        ("> - a\nb\n\n", #"[quote[ul[[p("a b")]]]]"#),
+        ("> - a\n>   - b\n>   c\n\n", #"[quote[ul[[p("a"), ul[[p("b c")]]]]]]"#),
+        ("> - a\n>   > b\n>   c\n\n", #"[quote[ul[[p("a"), quote[p("b c")]]]]]"#),
+        ("> - a\n>> b\n\n", #"[quote[ul[[p("a")]], quote[p("b")]]]"#),
+        ("> - a\n\n- b\n\n", #"[quote[ul[[p("a")]]], ul[[p("b")]]]"#),
+        ("- a\n  > - b\n  >   c\n\n", #"[ul[[p("a"), quote[ul[[p("b c")]]]]]]"#),
+        ("> - a\n>   ```\n>   x\n>   ```\n> b\n\n", #"[quote[ul[[p("a"), code(-, "x")]], p("b")]]"#),
+        ("> 1. a\n>\n>    b\n>\n> 2. c\n\n", #"[quote[ol[[p("a"), p("b")], [p("c")]]]]"#),
+        ("> > - a\n> b\n\n", #"[quote[quote[ul[[p("a b")]]]]]"#),
+        ("> 1. > Blockquote\ncontinued here.\n\n", #"[quote[ol[[quote[p("Blockquote continued here.")]]]]]"#)
     ]
 
     static let documents = cases.map(\.markdown)
@@ -227,6 +242,18 @@ struct SpecListsTests {
         #expect(shape(whole).hasPrefix(#"[ul[[p("a"), ul[[p("b"), p("word word"#))
     }
 
+    @Test("A long line in a list in a quote in an item streams in small chunks like the whole text")
+    func longQuotedItemLineStreams() async {
+        let markdown = "- a\n  > - b\n  >\n  >   " + String(repeating: "word ", count: 6_000) + "*end*\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 8).map {
+            String(characters[$0..<min($0 + 8, characters.count)])
+        }
+        let whole = await parse([markdown])
+        #expect(await parse(chunks) == whole)
+        #expect(shape(whole).hasPrefix(#"[ul[[p("a"), quote[ul[[p("b"), p("word word"#))
+    }
+
     @Test("One line opens at most 99 items, as in cmark-gfm; further markers are text")
     func sameLineNestingStops() async {
         let markdown = String(repeating: "- ", count: 1_600) + "x\n\n"
@@ -315,6 +342,29 @@ struct SpecListsTests {
         // A quote outside the list keeps its bars at the edge.
         #expect(attribute(.picoBlockquoteBarInset, of: blocks[3]) == nil)
         #expect(try headIndent(blocks[3]) == gutter)
+    }
+
+    @Test("A list in a quote keeps the quote's bars at the quote's column")
+    func listInQuoteKeepsBarsAtTheQuote() async throws {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { await assembler.block($0) }
+        for character in "> - a\n>\n>   more\n" {
+            _ = await renderer.apply(await assembler.apply(await tokenizer.feed(String(character))))
+        }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.finish()))
+        let blocks = await renderer.renderedBlocks()
+        #expect(blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .paragraph])
+        let item = NSAttributedString.picoConverted(from: blocks[1].content)
+        let paragraph = NSAttributedString.picoConverted(from: blocks[2].content)
+        let textIndent = try #require(blocks[1].listItem?.textIndent)
+        // The item's second paragraph sits at its text column, past the
+        // quote's gutter, with the quote's bar at the edge.
+        #expect(paragraph.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) as? Int == 1)
+        #expect(paragraph.attribute(.picoBlockquoteBarInset, at: 0, effectiveRange: nil) == nil)
+        #expect(item.attribute(.picoBlockquoteBarInset, at: 0, effectiveRange: nil) == nil)
+        let style = try #require(paragraph.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        #expect(style.headIndent == textIndent + BlockquoteBarMetrics.textIndent(level: 1))
     }
 
     @Test("An item's text streams as it arrives, and a blank line keeps the item open")

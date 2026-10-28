@@ -31,9 +31,6 @@
 214 Link reference definitions
 215 Link reference definitions
 218 Link reference definitions
-259 List items
-292 List items
-293 List items
 300 List items
 301 Lists
 302 Lists
