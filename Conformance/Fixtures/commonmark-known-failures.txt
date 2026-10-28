@@ -84,27 +84,21 @@
 189 HTML blocks
 190 HTML blocks
 191 HTML blocks
-192 Link reference definitions
 193 Link reference definitions
 194 Link reference definitions
 195 Link reference definitions
 196 Link reference definitions
 197 Link reference definitions
 198 Link reference definitions
-200 Link reference definitions
 201 Link reference definitions
-202 Link reference definitions
 203 Link reference definitions
 204 Link reference definitions
-205 Link reference definitions
-206 Link reference definitions
 208 Link reference definitions
 209 Link reference definitions
 212 Link reference definitions
 213 Link reference definitions
 214 Link reference definitions
 215 Link reference definitions
-216 Link reference definitions
 217 Link reference definitions
 218 Link reference definitions
 254 List items
@@ -151,30 +145,8 @@
 321 Lists
 324 Lists
 325 Lists
-342 Code spans
-419 Emphasis and strong emphasis
-433 Emphasis and strong emphasis
-488 Links
-490 Links
 491 Links
-492 Links
-493 Links
-494 Links
-498 Links
-499 Links
-500 Links
-508 Links
-512 Links
-514 Links
 515 Links
-516 Links
-517 Links
-518 Links
-519 Links
-520 Links
-524 Links
-525 Links
-526 Links
 527 Links
 528 Links
 529 Links
@@ -191,7 +163,6 @@
 543 Links
 546 Links
 549 Links
-550 Links
 553 Links
 554 Links
 555 Links
@@ -203,7 +174,6 @@
 561 Links
 562 Links
 563 Links
-564 Links
 565 Links
 566 Links
 568 Links
@@ -211,8 +181,6 @@
 570 Links
 571 Links
 573 Images
-574 Images
-575 Images
 576 Images
 577 Images
 582 Images
