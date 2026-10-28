@@ -318,6 +318,15 @@ struct StreamingParser {
         }
     }
 
+    /// GFM: a table ends at a blank line or the start of another block,
+    /// judged on the line's content inside its containers. Only the line in
+    /// hand is reconsidered; emitted rows stay as they are.
+    private func lineEndsTable(_ table: BlockContext, isLineComplete: Bool) -> Bool {
+        isLineComplete && table.tableState?.stage == .rows
+            && (startsBlock(lineContent, isLineComplete: true, interruptingParagraph: false) || detectBlockquote(String(lineContent)) != nil)
+            && !detectTableCandidate(String(lineContent))
+    }
+
     private mutating func analyzeLineIfNeeded(isLineComplete: Bool) {
         if lineAnalyzed { return }
 
@@ -609,12 +618,7 @@ struct StreamingParser {
             case .horizontalRule:
                 break
             case .table:
-                // GFM: a table ends at a blank line or the start of another
-                // block. Only the line in hand is reconsidered; emitted rows
-                // stay as they are.
-                if isLineComplete, ctx.tableState?.stage == .rows,
-                   startsBlock(lineContent, isLineComplete: true, interruptingParagraph: false) || detectBlockquote(String(lineContent)) != nil,
-                   !detectTableCandidate(String(lineContent)) {
+                if lineEndsTable(ctx, isLineComplete: isLineComplete) {
                     closeCurrentBlock()
                     // Table lines are consumed whole as they stream; the
                     // line is now someone else's and is analyzed afresh.
@@ -863,6 +867,11 @@ struct StreamingParser {
             let content = String(lineContent)
             if itemIndex < contextStack.count - 1, var child = currentBlock {
                 switch child.kind {
+                case .table where lineEndsTable(child, isLineComplete: isLineComplete):
+                    // The line is the item's next block. Table lines are
+                    // consumed whole, so none of it has gone out yet.
+                    closeCurrentBlock()
+                    emittedCount = 0
                 case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown:
                     // Their own line handling reads `lineContent`.
                     lineAnalyzed = true

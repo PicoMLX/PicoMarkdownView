@@ -29,6 +29,12 @@ struct SpecListsTests {
         // Blank lines in code lose the item's indentation too.
         ("- ```python\n  value = \"\"\"a\n  \n  b\"\"\"\n  ```\n\n", #"[ul[[code(-, "value = \"\"\"a\n\nb\"\"\"")]]]"#),
         ("- a\n\n      x\n        \n      y\n\n", #"[ul[[p("a"), code(-, "x\n  \ny")]]]"#),
+        // A table in an item ends at the start of another block (GFM); a
+        // plain line is a row. Tables show as `other` here.
+        ("- a\n\n  | x |\n  | --- |\n  # heading\n\n", #"[ul[[p("a"), other, h1("heading")]]]"#),
+        ("- a\n\n  | x |\n  | --- |\n  ```\n  y\n  ```\n\n", #"[ul[[p("a"), other, code(-, "y")]]]"#),
+        ("- a\n\n  | x |\n  | --- |\n  - b\n\n", #"[ul[[p("a"), other, ul[[p("b")]]]]]"#),
+        ("- a\n\n  | x |\n  | --- |\n  y\n\n", #"[ul[[p("a"), other]]]"#),
         // A definition the item does not keep ends it.
         ("- a\n\n[ref]: /url\n  text\n\n", #"[ul[[p("a")]], p("text")]"#),
         ("- a\n\n  [ref]: /url\n  text\n\n", #"[ul[[p("a"), p("text")]]]"#),
