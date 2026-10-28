@@ -129,6 +129,9 @@ struct StreamingParser {
     /// can span lines (`[foo]:`, then the destination, then the title). They
     /// are held, not shown, until the lines decide (`resolveDefinitionHold`).
     private var definitionHold = ""
+    /// The held definition's title, still open: the next line resumes it
+    /// rather than parsing the whole definition again.
+    private var definitionTitleProgress: LinkDefinitionTitleProgress?
     /// A line joined the hold; it is resolved once the line is finalized.
     private var definitionHoldPending = false
     /// The next line is held text being replayed as what it turned out to
@@ -1361,9 +1364,14 @@ struct StreamingParser {
     }
 
     private func definitionHoldIsComplete() -> Bool {
+        // A title still open would end with its lines left over as text.
+        guard definitionTitleProgress == nil else { return false }
         var rest = definitionHold[...]
+        var progress: LinkDefinitionTitleProgress?
         while !rest.isEmpty {
-            guard case .definition(_, _, _, let end) = parseLinkDefinition(rest, isFinal: true) else { return false }
+            guard case .definition(_, _, _, let end) = parseLinkDefinition(rest, isFinal: true, progress: &progress) else {
+                return false
+            }
             rest = rest[end...]
         }
         return true
@@ -1373,15 +1381,18 @@ struct StreamingParser {
     /// not to be one is replayed as ordinary lines (a paragraph); a
     /// definition that may still continue stays held.
     private mutating func resolveDefinitionHold(isFinal: Bool) {
-        var rest = definitionHold[...]
+        let held = definitionHold
+        var rest = held[...]
         definitionHold = ""
         while !rest.isEmpty {
-            switch parseLinkDefinition(rest, isFinal: isFinal) {
+            switch parseLinkDefinition(rest, isFinal: isFinal, progress: &definitionTitleProgress) {
             case .definition(let label, let url, let title, let end):
                 linkReferenceStore.define(label: label, url: url, title: title)
                 rest = rest[end...]
             case .incomplete:
-                definitionHold = String(rest)
+                // Kept without a copy when nothing was defined: a title may
+                // hold many lines, each resolved as it arrives.
+                definitionHold = rest.startIndex == held.startIndex ? held : String(rest)
                 return
             case .invalid:
                 suppressDefinitionHold = true
@@ -2798,7 +2809,23 @@ enum LinkDefinitionParse: Equatable {
     case invalid
 }
 
-func parseLinkDefinition(_ text: Substring, isFinal: Bool) -> LinkDefinitionParse {
+/// A definition whose title was still open when its text ran out. All
+/// before the title is settled, and a title may run over any number of
+/// lines, so the next line resumes the title instead of starting over.
+/// Positions are UTF-8 offsets from the definition's start.
+struct LinkDefinitionTitleProgress {
+    var label: String
+    var url: String
+    var opening: Unicode.Scalar
+    var title: String.UnicodeScalarView
+    var endWithoutTitle: Int?
+    var cursor: Int
+}
+
+/// `progress` resumes a definition at the start of `text` whose title was
+/// open, and receives that state when the title is open again.
+func parseLinkDefinition(_ text: Substring, isFinal: Bool,
+                         progress: inout LinkDefinitionTitleProgress?) -> LinkDefinitionParse {
     let scalars = text.unicodeScalars
     let end = text.endIndex
     let unfinished: LinkDefinitionParse = isFinal ? .invalid : .incomplete
@@ -2823,105 +2850,133 @@ func parseLinkDefinition(_ text: Substring, isFinal: Bool) -> LinkDefinitionPars
         return scalars[next]
     }
 
-    var indent = 0
-    while cursor < end, scalars[cursor] == " ", indent < 3 {
-        indent += 1
-        advance()
-    }
-    guard cursor < end else { return unfinished }
-    guard scalars[cursor] == "[" else { return .invalid }
-    advance()
-    let labelStart = cursor
-    var count = 0
-    while true {
-        guard cursor < end else { return unfinished }
-        let scalar = scalars[cursor]
-        if scalar == "]" { break }
-        if scalar == "[" { return .invalid }
-        if scalar == "\\" {
-            advance()
-            count += 1
-            guard cursor < end else { return unfinished }
-        }
-        count += 1
-        if count > 999 { return .invalid }
-        advance()
-    }
-    let label = text[labelStart..<cursor]
-    // `[^id]:` is a footnote definition.
-    guard !label.hasPrefix("^"), label.unicodeScalars.contains(where: { !isSpace($0) && $0 != "\n" }) else { return .invalid }
-    advance()
-    guard cursor < end else { return unfinished }
-    guard scalars[cursor] == ":" else { return .invalid }
-    advance()
-    skipWhitespace()
-    guard cursor < end else { return unfinished }
+    func offset(_ index: String.Index) -> Int { text.utf8.distance(from: text.startIndex, to: index) }
+    func index(_ offset: Int) -> String.Index { text.utf8.index(text.startIndex, offsetBy: offset) }
 
-    var destination = String.UnicodeScalarView()
-    if scalars[cursor] == "<" {
+    let label: String
+    let url: String
+    let opening: Unicode.Scalar
+    var title = String.UnicodeScalarView()
+    var endWithoutTitle: String.Index?
+    if let saved = progress {
+        progress = nil
+        label = saved.label
+        url = saved.url
+        opening = saved.opening
+        title = saved.title
+        endWithoutTitle = saved.endWithoutTitle.map(index)
+        cursor = index(saved.cursor)
+    } else {
+        var indent = 0
+        while cursor < end, scalars[cursor] == " ", indent < 3 {
+            indent += 1
+            advance()
+        }
+        guard cursor < end else { return unfinished }
+        guard scalars[cursor] == "[" else { return .invalid }
         advance()
+        let labelStart = cursor
+        var count = 0
         while true {
             guard cursor < end else { return unfinished }
             let scalar = scalars[cursor]
-            if scalar == ">" { break }
-            if scalar == "\n" || scalar == "<" { return .invalid }
-            if scalar == "\\", let escaped = escaped() {
-                destination.append(escaped)
-                continue
+            if scalar == "]" { break }
+            if scalar == "[" { return .invalid }
+            if scalar == "\\" {
+                advance()
+                count += 1
+                guard cursor < end else { return unfinished }
             }
-            destination.append(scalar)
+            count += 1
+            if count > 999 { return .invalid }
             advance()
+        }
+        let labelText = text[labelStart..<cursor]
+        // `[^id]:` is a footnote definition.
+        guard !labelText.hasPrefix("^"), labelText.unicodeScalars.contains(where: { !isSpace($0) && $0 != "\n" }) else { return .invalid }
+        label = String(labelText)
+        advance()
+        guard cursor < end else { return unfinished }
+        guard scalars[cursor] == ":" else { return .invalid }
+        advance()
+        skipWhitespace()
+        guard cursor < end else { return unfinished }
+
+        var destination = String.UnicodeScalarView()
+        if scalars[cursor] == "<" {
+            advance()
+            while true {
+                guard cursor < end else { return unfinished }
+                let scalar = scalars[cursor]
+                if scalar == ">" { break }
+                if scalar == "\n" || scalar == "<" { return .invalid }
+                if scalar == "\\", let escaped = escaped() {
+                    destination.append(escaped)
+                    continue
+                }
+                destination.append(scalar)
+                advance()
+            }
+            advance()
+        } else {
+            var depth = 0
+            while cursor < end {
+                let scalar = scalars[cursor]
+                if scalar == "\\", let escaped = escaped() {
+                    destination.append(escaped)
+                    continue
+                }
+                if scalar.value <= 0x20 || scalar.value == 0x7F { break }
+                if scalar == "(" {
+                    depth += 1
+                    if depth > 32 { return .invalid }
+                } else if scalar == ")" {
+                    if depth == 0 { return .invalid }
+                    depth -= 1
+                }
+                destination.append(scalar)
+                advance()
+            }
+            guard !destination.isEmpty, depth == 0 else { return .invalid }
+        }
+        url = String(destination)
+        let afterDestination = cursor
+
+        // Without a title the definition ends with the destination's line,
+        // provided only spaces or tabs follow it there.
+        skipSpaces()
+        if cursor == end {
+            endWithoutTitle = end
+        } else if scalars[cursor] == "\n" {
+            endWithoutTitle = scalars.index(after: cursor)
+        }
+
+        cursor = afterDestination
+        skipWhitespace()
+        // The next line has not arrived: it may still hold a title.
+        guard cursor < end else {
+            guard isFinal, let endWithoutTitle else { return isFinal ? .invalid : .incomplete }
+            return .definition(label: label, url: url, title: nil, end: endWithoutTitle)
+        }
+        opening = scalars[cursor]
+        guard cursor > afterDestination, opening == "\"" || opening == "'" || opening == "(" else {
+            guard let endWithoutTitle else { return .invalid }
+            return .definition(label: label, url: url, title: nil, end: endWithoutTitle)
         }
         advance()
-    } else {
-        var depth = 0
-        while cursor < end {
-            let scalar = scalars[cursor]
-            if scalar == "\\", let escaped = escaped() {
-                destination.append(escaped)
-                continue
-            }
-            if scalar.value <= 0x20 || scalar.value == 0x7F { break }
-            if scalar == "(" {
-                depth += 1
-                if depth > 32 { return .invalid }
-            } else if scalar == ")" {
-                if depth == 0 { return .invalid }
-                depth -= 1
-            }
-            destination.append(scalar)
-            advance()
-        }
-        guard !destination.isEmpty, depth == 0 else { return .invalid }
-    }
-    let url = String(destination)
-    let afterDestination = cursor
-
-    // Without a title the definition ends with the destination's line,
-    // provided only spaces or tabs follow it there.
-    skipSpaces()
-    var endWithoutTitle: String.Index?
-    if cursor == end {
-        endWithoutTitle = end
-    } else if scalars[cursor] == "\n" {
-        endWithoutTitle = scalars.index(after: cursor)
     }
     func withoutTitle() -> LinkDefinitionParse {
         guard let endWithoutTitle else { return .invalid }
-        return .definition(label: String(label), url: url, title: nil, end: endWithoutTitle)
+        return .definition(label: label, url: url, title: nil, end: endWithoutTitle)
     }
-
-    cursor = afterDestination
-    skipWhitespace()
-    // The next line has not arrived: it may still hold a title.
-    guard cursor < end else { return isFinal ? withoutTitle() : .incomplete }
-    let opening = scalars[cursor]
-    guard cursor > afterDestination, opening == "\"" || opening == "'" || opening == "(" else { return withoutTitle() }
     let closing: Unicode.Scalar = opening == "(" ? ")" : opening
-    advance()
-    var title = String.UnicodeScalarView()
     while true {
-        guard cursor < end else { return isFinal ? withoutTitle() : .incomplete }
+        guard cursor < end else {
+            guard !isFinal else { return withoutTitle() }
+            progress = LinkDefinitionTitleProgress(label: label, url: url, opening: opening, title: title,
+                                                   endWithoutTitle: endWithoutTitle.map(offset), cursor: offset(cursor))
+            return .incomplete
+        }
         let scalar = scalars[cursor]
         if scalar == closing { break }
         if opening == "(", scalar == "(" { return withoutTitle() }
@@ -2935,8 +2990,8 @@ func parseLinkDefinition(_ text: Substring, isFinal: Bool) -> LinkDefinitionPars
     advance()
     skipSpaces()
     if cursor == end {
-        return isFinal ? .definition(label: String(label), url: url, title: String(title), end: end) : .incomplete
+        return isFinal ? .definition(label: label, url: url, title: String(title), end: end) : .incomplete
     }
     guard scalars[cursor] == "\n" else { return withoutTitle() }
-    return .definition(label: String(label), url: url, title: String(title), end: scalars.index(after: cursor))
+    return .definition(label: label, url: url, title: String(title), end: scalars.index(after: cursor))
 }

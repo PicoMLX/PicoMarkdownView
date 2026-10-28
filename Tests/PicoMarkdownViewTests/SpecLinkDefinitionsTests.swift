@@ -120,6 +120,24 @@ struct SpecLinkDefinitionsTests {
         #expect(whole.flatMap { $0.inlineRuns ?? [] }.compactMap(\.linkURL).first?.count == 16_001)
     }
 
+    @Test("A title open over many lines resumes with each line, closed or never closed")
+    func longTitleResumes() async {
+        let lines = String(repeating: "more title text\n", count: 3_000)
+        for (markdown, linked) in [
+            ("[a]: /url \"start\n" + lines + "end\"\n\n[a]\n\n", true),
+            // Never closed on the destination's line: no definition at all.
+            ("[a]: /url \"start\n" + lines + "\n[a]\n\n", false),
+            // Never closed on the next line: the definition has no title.
+            ("[a]: /url\n\"start\n" + lines + "\n[a]\n\n", true)
+        ] {
+            let chunks = markdown.split(separator: "\n", omittingEmptySubsequences: false).map { $0 + "\n" }
+            let whole = await parse([markdown])
+            #expect(await parse(chunks.map(String.init)) == whole)
+            let links = whole.flatMap { $0.inlineRuns ?? [] }.compactMap(\.linkURL)
+            #expect(links == (linked ? ["/url"] : []), Comment(rawValue: String(markdown.prefix(12)) + " \(markdown.count): \(links)"))
+        }
+    }
+
     @Test("A line that may still hold a title waits for its end")
     func titleLineWaits() async {
         let tokenizer = MarkdownTokenizer()
