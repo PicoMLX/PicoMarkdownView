@@ -171,4 +171,16 @@ struct SpecBlockFixesTests {
             #expect(joined.contains(count % 2 == 1 ? "\nb" : " b"), "odd runs break hard, even runs soft (count \(count))")
         }
     }
+
+    @Test("A long run of hyphens inside a paragraph streams like the whole text")
+    func hyphenRunBeyondTheBuffer() async {
+        let markdown = "x " + String(repeating: "- ", count: 6400) + "x\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 8).map {
+            String(characters[$0..<min($0 + 8, characters.count)])
+        }
+        let whole = await parse([markdown])
+        #expect(whole.map(text(of:)) == [String(markdown.dropLast(2))])
+        #expect(await parse(chunks) == whole)
+    }
 }
