@@ -217,6 +217,14 @@ struct StreamingParser {
         lineQuotePrefix > 0 ? lineBuffer.dropFirst(lineQuotePrefix) : lineBuffer[...]
     }
 
+    /// The look-behind budget trimmed the front of a line whose content
+    /// already reached a block: the line is classified, and what remains of
+    /// it is that block's text, not the start of a line (`- - -` after a
+    /// trim is no rule or list marker). Its tail streams without re-analysis.
+    private var lineIsSettled: Bool {
+        lineBufferTrimmed > 0 && lineEmittedContent
+    }
+
     mutating func feed(_ chunk: String) -> ChunkResult {
         closePendingSameLineBlocks()
         process(normalizeLineEndings(chunk), isFinal: false)
@@ -307,6 +315,10 @@ struct StreamingParser {
 
         lineIsLinkDefinition = false
         if !definitionHold.isEmpty, analyzeLineAfterDefinitionHold(isLineComplete: isLineComplete) { return }
+        if lineIsSettled {
+            lineAnalyzed = true
+            return
+        }
 
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
 
@@ -1072,7 +1084,7 @@ struct StreamingParser {
             default: break
             }
         }
-        if !isLineComplete {
+        if !isLineComplete, !lineIsSettled {
             // When the line buffer still looks like an incomplete block-level
             // construct (list marker, heading, fence, etc.), defer emission so
             // marker characters don't leak into the current block's content.
