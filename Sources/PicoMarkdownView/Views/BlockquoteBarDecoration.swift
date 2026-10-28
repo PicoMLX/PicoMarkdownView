@@ -76,9 +76,9 @@ enum BlockquoteBarDrawer {
     }
 }
 
-/// TextKit 1 hook: draws blockquote bars behind the text. Used by the iOS
-/// TextKit 1 view and both macOS views (the macOS "TextKit 2" view runs on
-/// an `NSLayoutManager` as well).
+#if canImport(AppKit)
+/// Draws blockquote bars behind the text in the macOS streaming view,
+/// which currently uses an `NSLayoutManager`.
 final class BlockquoteBarLayoutManager: NSLayoutManager {
     private struct BarSegment {
         var level: Int
@@ -145,6 +145,8 @@ final class BlockquoteBarLayoutManager: NSLayoutManager {
         }
     }
 }
+
+#endif
 
 #if canImport(UIKit)
 /// TextKit 2 hook (iOS 16+): a layout fragment that draws blockquote bars
