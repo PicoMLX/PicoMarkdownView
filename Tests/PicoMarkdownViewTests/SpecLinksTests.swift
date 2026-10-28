@@ -50,6 +50,15 @@ struct SpecLinksTests {
         // linked, and strikethrough closes inside.
         ("[see https://x.com](/u)\n\n", "<a /u>see https://x.com</a>"),
         ("[a ~~b](/u)~~\n\n", "<a /u>a ~~b</a>~~"),
+        // Links do not nest: the link's target wins over any link inside
+        // its text, also in emphasis or strikethrough there.
+        ("[*https://evil.com*](https://good.com)\n\n", "<i><a https://good.com>https://evil.com</a></i>"),
+        ("[~~https://evil.com~~](https://good.com)\n\n", "<a https://good.com>https://evil.com</a>"),
+        ("[<https://evil.com>](https://good.com)\n\n", "<a https://good.com>https://evil.com</a>"),
+        // An image inside a link does not deactivate it, at any split.
+        ("[a ![x](u)](v)\n\n", "<a v>a </a><img u>x</img>"),
+        ("x [a ![x](u)](v)\n\n", "x <a v>a </a><img u>x</img>"),
+        ("*x [a ![x](u)](v)*\n\n", "<i>x </i><i><a v>a </a></i><img u>x</img>"),
         // References to labels defined before them.
         ("[foo]: /url\n\n[foo] and [Foo][] and [x][FOO]\n\n",
          "<a /url>foo</a> and <a /url>Foo</a> and <a /url>x</a>"),
@@ -158,5 +167,16 @@ struct SpecLinksTests {
         let runs = InlineParser.parseAll(String(repeating: "[a ", count: count) + "[b](c)" + String(repeating: "](d)", count: count))
         #expect(runs.map(\.text).joined() == String(repeating: "[a ", count: count) + "b" + String(repeating: "](d)", count: count))
         #expect(runs.filter { $0.linkURL != nil }.map(\.text) == ["b"])
+    }
+
+    @Test("Links inside nested images deactivate nothing in constant time each")
+    func linksInsideNestedImagesAreLinear() {
+        let count = 4_000
+        let markdown = String(repeating: "![", count: count) + String(repeating: "[x](u)", count: count)
+            + String(repeating: "](i)", count: count)
+        let runs = InlineParser.parseAll(markdown)
+        #expect(runs.count == 1)
+        #expect(runs.first?.text == String(repeating: "x", count: count))
+        #expect(runs.first?.image?.source == "i")
     }
 }

@@ -219,16 +219,17 @@ struct InlineParser {
         struct Opener {
             var offset: Int
             var image: Bool
-            var active: Bool
         }
         var start: Int
         var openers: [Opener]
+        var deactivatedBelow: Int
         var cursor: Int
 
         func shifted(by delta: Int) -> BracketProgress? {
             guard start >= delta else { return nil }
             return BracketProgress(start: start - delta,
-                                   openers: openers.map { Opener(offset: $0.offset - delta, image: $0.image, active: $0.active) },
+                                   openers: openers.map { Opener(offset: $0.offset - delta, image: $0.image) },
+                                   deactivatedBelow: deactivatedBelow,
                                    cursor: cursor - delta)
         }
     }
@@ -250,6 +251,9 @@ struct InlineParser {
         var afterRun: Unicode.Scalar?
     }
     private var following: FollowingContext?
+    /// This parser reads content inside a link's text (emphasis content
+    /// there), where no bare URL is linked.
+    private var insideLinkText = false
     var linkReferences: LinkReferenceStore?
     var footnoteRegistry: FootnoteRegistry?
 
@@ -390,9 +394,10 @@ struct InlineParser {
             if run.style.intersection([.code, .math, .image]).isEmpty {
                 for entry in planStyles { styled.style.formUnion(entry.style) }
             }
-            // A link's text is the link, code spans included; an autolink or
-            // tag inside it keeps its own target.
-            if let url = contextLinkURL, styled.linkURL == nil, styled.image == nil, styled.math == nil {
+            // A link's text is the link, code spans included. Links do not
+            // nest: the link's own target wins over an autolink or tag
+            // inside it.
+            if let url = contextLinkURL, styled.image == nil, styled.math == nil {
                 styled.style.insert(.link)
                 styled.linkURL = url
             }
@@ -559,6 +564,7 @@ struct InlineParser {
             nested.following = trailing
             nested.linkReferences = linkReferences
             nested.footnoteRegistry = footnoteRegistry
+            nested.insideLinkText = insideLinkText || !contexts.isEmpty
             var result: [InlineRun]
             if let plan {
                 nested.emphasisPlan = plan
@@ -1301,7 +1307,7 @@ struct InlineParser {
                 // A bare URL is one unit to the emitter, as is `~~…~~`, whose
                 // content it parses apart: nothing inside pairs with a
                 // delimiter outside.
-                if limit == nil, "hHwW".contains(character), let autolink = parseAutolink(at: cursor) {
+                if limit == nil, !insideLinkText, "hHwW".contains(character), let autolink = parseAutolink(at: cursor) {
                     switch autolink {
                     case .handled(let next, _, _):
                         cursor = next
@@ -1327,6 +1333,7 @@ struct InlineParser {
                 if character == "[" || character == "!" {
                     let image = character == "!"
                     let open = image ? text.unicodeScalars.index(after: cursor) : cursor
+                    if image, open == text.endIndex, !includeUnterminated, limit == nil { return suspend(at: cursor) }
                     if !image || (open < text.endIndex && text.unicodeScalars[open] == "[") {
                         switch bracket(at: cursor) {
                         case .decided(.link(_, let end, _)), .decided(.image(_, let end, _, _)),
@@ -1668,7 +1675,6 @@ struct InlineParser {
             struct Opener {
                 var position: String.Index
                 var image: Bool
-                var active = true
             }
             func opener(at position: String.Index) -> (Opener, contentStart: String.Index) {
                 let image = scalars[position] == "!"
@@ -1721,10 +1727,14 @@ struct InlineParser {
             }
 
             var stack: [Opener]
+            // A link deactivates every link opener then on the stack, which
+            // are the openers below this index (an image opener stays active).
+            var deactivatedBelow = 0
             var cursor: String.Index
             // A scan saved by an earlier chunk resumes where it stopped.
             if let saved = bracketProgress, saved.start == utf8Offset(of: start) {
-                stack = saved.openers.map { Opener(position: position(ofUTF8: $0.offset), image: $0.image, active: $0.active) }
+                stack = saved.openers.map { Opener(position: position(ofUTF8: $0.offset), image: $0.image) }
+                deactivatedBelow = saved.deactivatedBelow
                 cursor = position(ofUTF8: saved.cursor)
                 bracketProgress = nil
             } else {
@@ -1732,10 +1742,12 @@ struct InlineParser {
                 stack = [first]
                 cursor = content
             }
+            func isActive(_ index: Int) -> Bool { stack[index].image || index >= deactivatedBelow }
             func wait(at stop: String.Index) -> BracketScan {
                 bracketProgress = BracketProgress(
                     start: utf8Offset(of: start),
-                    openers: stack.map { BracketProgress.Opener(offset: utf8Offset(of: $0.position), image: $0.image, active: $0.active) },
+                    openers: stack.map { BracketProgress.Opener(offset: utf8Offset(of: $0.position), image: $0.image) },
+                    deactivatedBelow: deactivatedBelow,
                     cursor: utf8Offset(of: stop))
                 return .needMore
             }
@@ -1799,6 +1811,9 @@ struct InlineParser {
                     }
                     continue
                 }
+                if scalar == "!", scalars.index(after: cursor) == text.endIndex, !includeUnterminated {
+                    return wait(at: cursor) // `![` may still open an image
+                }
                 if scalar == "[" || (scalar == "!" && scalars.index(after: cursor) < text.endIndex
                                      && scalars[scalars.index(after: cursor)] == "[") {
                     let (inner, content) = opener(at: cursor)
@@ -1809,18 +1824,19 @@ struct InlineParser {
                 if scalar == "]" {
                     let top = stack[stack.count - 1]
                     var outcome = BracketOutcome.literal
-                    if top.active {
+                    if isActive(stack.count - 1) {
                         switch closing(top, at: cursor) {
                         case .needMore: return wait(at: cursor)
                         case .decided(let decided): outcome = decided
                         }
                     }
                     stack.removeLast()
+                    deactivatedBelow = min(deactivatedBelow, stack.count)
                     bracketOutcomes[top.position] = outcome
                     if stack.isEmpty { return .decided(outcome) }
                     switch outcome {
                     case .link(_, let end, _):
-                        for index in stack.indices where !stack[index].image { stack[index].active = false }
+                        deactivatedBelow = stack.count
                         cursor = end
                     case .image(_, let end, _, _), .footnote(let end, _):
                         cursor = end
@@ -1829,8 +1845,8 @@ struct InlineParser {
                     }
                     // The first opener can no longer be a link once one forms
                     // inside it; neither can the other inactive openers.
-                    if !stack[0].active {
-                        for opener in stack where !opener.active { bracketOutcomes[opener.position] = .literal }
+                    if !isActive(0) {
+                        for opener in stack[..<deactivatedBelow] where !opener.image { bracketOutcomes[opener.position] = .literal }
                         return .decided(.literal)
                     }
                     continue
@@ -2825,7 +2841,7 @@ struct InlineParser {
                 plainStart = afterClose
             case "h", "H", "w", "W":
                 // No bare URL is linked inside a link's or image's text.
-                if contexts.isEmpty, let result = parseAutolink(at: index) {
+                if contexts.isEmpty, !insideLinkText, let result = parseAutolink(at: index) {
                     switch result {
                     case .handled(let nextIndex, let display, let url):
                         flushPlain(upTo: index)
