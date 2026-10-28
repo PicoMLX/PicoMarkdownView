@@ -877,7 +877,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return true
                 case .fencedCode:
-                    if let codePrefix = detectIndentedCodePrefix(content) {
+                    if let codePrefix = detectIndentedCodePrefix(content, startColumn: contentColumn) {
                         child.linePrefixToStrip = prefix + codePrefix
                         setCurrentBlock(child)
                         if emittedCount < prefix + codePrefix {
@@ -1188,7 +1188,7 @@ struct StreamingParser {
         }
         // Four columns after the marker are indented code (CommonMark), which
         // cannot interrupt a paragraph: there the line is paragraph text.
-        if !paragraphIsOpen, let codePrefix = detectIndentedCodePrefix(line) {
+        if !paragraphIsOpen, let codePrefix = detectIndentedCodePrefix(line, startColumn: columnBase) {
             beginChild()
             openIndentedCode(prefixLength: prefix + codePrefix)
             emittedCount = min(lineBuffer.count, prefix + codePrefix)
@@ -2646,8 +2646,9 @@ struct StreamingParser {
     }
 
     /// Characters of indentation that make up four columns (a tab advances
-    /// to the next multiple of four), or `nil` when the line is less indented.
-    private func detectIndentedCodePrefix(_ line: String) -> Int? {
+    /// to the next multiple of four, counted from `startColumn`, where the
+    /// line starts), or `nil` when the line is less indented.
+    private func detectIndentedCodePrefix(_ line: String, startColumn: Int = 0) -> Int? {
         guard !line.isEmpty else { return nil }
         if line.trimmingCharacters(in: .whitespaces).isEmpty {
             return nil
@@ -2656,7 +2657,7 @@ struct StreamingParser {
         var count = 0
         for character in line {
             guard character == " " || character == "\t" else { break }
-            column += character == "\t" ? 4 - column % 4 : 1
+            column += character == "\t" ? 4 - (startColumn + column) % 4 : 1
             count += 1
             if column >= 4 { return count }
         }

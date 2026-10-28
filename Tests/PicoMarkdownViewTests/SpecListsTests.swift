@@ -66,6 +66,11 @@ struct SpecListsTests {
         // Tabs count to the next multiple of four columns.
         ("- a\n\t- b\n\n", #"[ul[[p("a"), ul[[p("b")]]]]]"#),
         ("- foo\n\n\tbar\n\n", #"[ul[[p("foo"), p("bar")]]]"#),
+        // A tab in an item's content counts from the line's start too.
+        ("- a\n\n  \tfoo\n\n", #"[ul[[p("a"), p("foo")]]]"#),
+        ("- a\n\n  \t  foo\n\n", #"[ul[[p("a"), code(-, "foo")]]]"#),
+        ("- a\n\n      x\n  \ty\n\n", #"[ul[[p("a"), code(-, "x"), p("y")]]]"#),
+        ("- a\n\n      x\n  \t  y\n\n", #"[ul[[p("a"), code(-, "x\ny")]]]"#),
         ("  \tfoo\n\n", #"[code(-, "foo")]"#)
     ]
 
