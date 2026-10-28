@@ -7,10 +7,8 @@
 7 Tabs
 12 Backslash escapes
 14 Backslash escapes
-21 Backslash escapes
 23 Backslash escapes
 28 Entity and numeric character references
-31 Entity and numeric character references
 33 Entity and numeric character references
 59 Thematic breaks
 80 Setext headings
@@ -28,48 +26,6 @@
 103 Setext headings
 115 Indented code blocks
 141 Fenced code blocks
-148 HTML blocks
-149 HTML blocks
-150 HTML blocks
-151 HTML blocks
-152 HTML blocks
-153 HTML blocks
-154 HTML blocks
-155 HTML blocks
-156 HTML blocks
-157 HTML blocks
-158 HTML blocks
-159 HTML blocks
-160 HTML blocks
-161 HTML blocks
-162 HTML blocks
-163 HTML blocks
-164 HTML blocks
-165 HTML blocks
-166 HTML blocks
-167 HTML blocks
-169 HTML blocks
-170 HTML blocks
-171 HTML blocks
-172 HTML blocks
-173 HTML blocks
-174 HTML blocks
-175 HTML blocks
-176 HTML blocks
-177 HTML blocks
-178 HTML blocks
-179 HTML blocks
-180 HTML blocks
-181 HTML blocks
-182 HTML blocks
-183 HTML blocks
-184 HTML blocks
-185 HTML blocks
-186 HTML blocks
-188 HTML blocks
-189 HTML blocks
-190 HTML blocks
-191 HTML blocks
 203 Link reference definitions
 204 Link reference definitions
 214 Link reference definitions
@@ -87,8 +43,6 @@
 300 List items
 301 Lists
 302 Lists
-308 Lists
-309 Lists
 320 Lists
 321 Lists
 491 Links

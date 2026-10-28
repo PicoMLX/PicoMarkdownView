@@ -357,4 +357,11 @@ The suite prints the score per spec section and acts as a ratchet:
 `Conformance/Fixtures/commonmark-known-failures.txt` lists the examples that
 currently differ. An example that stops matching fails the suite; so does one
 that starts matching, until it is removed from the list. Deliberate deviations
-(raw HTML, entity decoding, setext headings) are listed there like any other.
+(setext headings) are listed there like any other.
+
+HTML blocks follow CommonMark: a line that starts with raw HTML (`<div>`,
+`<details>`, a comment, a lone tag, …) begins a `BlockKind.htmlBlock` whose
+lines are kept verbatim, Markdown included, until its end condition (for most
+tags, a blank line). Its text arrives like code, in `BlockSnapshot.codeText`,
+and PicoMarkdownView shows it as plain text in the body font; nothing is
+rendered as HTML.

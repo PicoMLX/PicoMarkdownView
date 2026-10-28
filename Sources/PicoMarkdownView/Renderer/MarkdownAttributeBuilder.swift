@@ -288,6 +288,25 @@ actor MarkdownAttributeBuilder {
                                         math: nil,
                                         images: images,
                                         codeBlock: nil)
+        case .htmlBlock:
+            // Raw HTML is not rendered: its text is shown as typed, in the
+            // body font, line breaks kept.
+            var plain = snapshot
+            let text = snapshot.codeText ?? ""
+            plain.inlineRuns = [InlineRun(text: text.hasSuffix("\n") ? String(text.dropLast()) : text)]
+            let spacing = collapsedSpacing(for: .htmlBlock, previousKind: previousBlockKind)
+            let (ns, _) = await renderInlineBlock(plain,
+                                                  prefix: nil,
+                                                  suffix: "\n",
+                                                  font: bodyFont,
+                                                  spacing: spacing)
+            return RenderedContentResult(attributed: AttributedString(ns),
+                                        table: nil,
+                                        listItem: nil,
+                                        blockquote: nil,
+                                        math: nil,
+                                        images: [],
+                                        codeBlock: nil)
         case .unknown:
             let suffix = "\n"
             let spacing = collapsedSpacing(for: .unknown, previousKind: previousBlockKind)
@@ -613,7 +632,7 @@ actor MarkdownAttributeBuilder {
             return BlockMargins(topMargin: 0, bottomMargin: 0, lineHeightMultiple: 1.24)
         case .footnoteDefinition:
             return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
-        case .unknown:
+        case .htmlBlock, .unknown:
             return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
         }
     }

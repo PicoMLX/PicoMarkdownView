@@ -264,6 +264,10 @@ public enum BlockKind: Sendable, Equatable {
     case footnoteDefinition(id: String, index: Int)
     case table
     case horizontalRule
+    /// A CommonMark HTML block: raw HTML lines taken verbatim, not parsed as
+    /// Markdown. Its text arrives like code, as `blockAppendFencedCode`
+    /// chunks (`BlockSnapshot.codeText`), and is shown as plain text.
+    case htmlBlock
     case unknown
 }
 

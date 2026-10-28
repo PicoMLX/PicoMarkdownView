@@ -62,6 +62,12 @@ struct StreamingParser {
         /// started as content is still running.
         var headingAfterBackslash: Bool = false
         var headingEscapedRun: Bool = false
+        /// For an HTML block: what ends it, whether the current line holds
+        /// its end marker, and the current line's last bytes (ASCII
+        /// lowercased), so a marker split across chunks is still found.
+        var htmlEnd: HTMLBlockEnd?
+        var htmlEndSeen: Bool = false
+        var htmlLineTail: [UInt8] = []
     }
 
     private struct TableState {
@@ -226,7 +232,18 @@ struct StreamingParser {
     /// Set when the line became a horizontal rule, which pushes no context:
     /// the enclosing block must not treat the line as its own text.
     private var lineConsumedByRule = false
+    /// The line may still start an HTML block (`<div` without its next
+    /// character, or a tag that must turn out alone on its line): none of it
+    /// is content until that is decided.
+    private var lineHTMLPending = false
     private var events: [BlockEvent] = []
+
+    /// The current line is blank to an HTML block: only whitespace inside
+    /// its containers. A line some of whose text has gone out is not, even
+    /// once the look-behind budget has trimmed all of it but whitespace.
+    private var htmlLineIsBlank: Bool {
+        !lineEmittedContent && lineContent.allSatisfy { $0 == " " || $0 == "\t" }
+    }
 
     /// The current line without its blockquote prefix.
     private var lineContent: Substring {
@@ -317,6 +334,13 @@ struct StreamingParser {
                 return false
             }
             return !ctx.fenceJustOpened
+        case .htmlBlock:
+            // Every line ends with its newline, except a blank line that ends
+            // the block (or, unmarked, the quote around it).
+            let blank = htmlLineIsBlank
+            if blank, ctx.htmlEnd == .blankLine { return false }
+            if blank, lineQuotePrefix == 0, contextStack.contains(where: { $0.kind == .blockquote }) { return false }
+            return true
         case .horizontalRule:
             return false
         case .unknown:
@@ -339,6 +363,7 @@ struct StreamingParser {
         if lineAnalyzed { return }
 
         lineIsLinkDefinition = false
+        lineHTMLPending = false
         if !definitionHold.isEmpty, analyzeLineAfterDefinitionHold(isLineComplete: isLineComplete) { return }
         if lineIsSettled {
             lineAnalyzed = true
@@ -441,6 +466,9 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return
             }
+            if openHTMLBlockIfStarted(lineBuffer[...], isLineComplete: isLineComplete, interruptingParagraph: false) {
+                return
+            }
 
             if let heading = detectHeading(lineBuffer, isLineComplete: isLineComplete) {
                 openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
@@ -533,6 +561,9 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return
                 }
+                if openHTMLBlockIfStarted(lineBuffer[...], isLineComplete: isLineComplete, interruptingParagraph: true) {
+                    return
+                }
                 if let heading = detectHeading(lineBuffer, isLineComplete: isLineComplete) {
                     closeCurrentBlock()
                     openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: heading.prefixLength)
@@ -594,7 +625,7 @@ struct StreamingParser {
             case .blockquote:
                 // Every line inside a quote is handled by `analyzeQuotedLine`.
                 break
-            case .math:
+            case .math, .htmlBlock:
                 break
             case .fencedCode:
                 if isIndentedCodeBlock(ctx) {
@@ -885,7 +916,7 @@ struct StreamingParser {
                     // consumed whole, so none of it has gone out yet.
                     closeCurrentBlock()
                     emittedCount = 0
-                case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown:
+                case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown, .htmlBlock:
                     // Their own line handling reads `lineContent`.
                     lineAnalyzed = true
                     return true
@@ -1218,6 +1249,20 @@ struct StreamingParser {
             lineAnalyzed = true
             return true
         }
+        switch htmlBlockStart(opener[...], isLineComplete: isLineComplete, interruptingParagraph: paragraphIsOpen) {
+        case .start(let end):
+            beginChild()
+            openHTMLBlock(end)
+            emittedCount = max(emittedCount, min(lineBuffer.count, prefix))
+            lineAnalyzed = true
+            return true
+        case .pending:
+            markHTMLPending()
+            lineAnalyzed = true
+            return true
+        case .none:
+            break
+        }
         if isLineComplete, detectHorizontalRule(opener, indent: 0) {
             beginChild()
             emitHorizontalRuleBlock()
@@ -1293,6 +1338,10 @@ struct StreamingParser {
         }
         let line = droppingTabbedIndent(original, columnBase: columnBase).line
         if detectHeading(line, isLineComplete: isLineComplete) != nil { return true }
+        // A lone tag starts a block but does not interrupt a paragraph.
+        if case .start = htmlBlockStart(line[...], isLineComplete: isLineComplete, interruptingParagraph: interruptingParagraph) {
+            return true
+        }
         // `$$x$$` is display math only if nothing follows on the line
         // (`$$x$$y` is a paragraph), so math waits for the complete line
         // like fences, rules and tables.
@@ -1323,6 +1372,7 @@ struct StreamingParser {
     private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false, isLineComplete: Bool = false) {
         guard let ctx = currentBlock else { return }
         if lineDeferredUntilComplete, !isLineComplete { return }
+        if lineHTMLPending, !isLineComplete { return }
         // Until a list item has judged the line by its indentation, none of
         // it is content: the leading whitespace may still be the item's.
         if !isLineComplete, !lineListResolved, !lineListLazy,
@@ -1339,6 +1389,15 @@ struct StreamingParser {
         if case .fencedCode = ctx.kind {
             let strip = lineQuotePrefix + fenceIndentToStrip(lineContent, fence: ctx.fenceInfo)
             if emittedCount < strip { emittedCount = min(lineBuffer.count, strip) }
+        }
+        if ctx.kind == .htmlBlock {
+            // The line inside its containers is the block's, whitespace and
+            // all, but a blank line that ends the block is not.
+            if emittedCount < lineQuotePrefix { emittedCount = min(lineBuffer.count, lineQuotePrefix) }
+            if isLineComplete, htmlLineIsBlank, ctx.htmlEnd == .blankLine
+                || (lineQuotePrefix == 0 && contextStack.contains(where: { $0.kind == .blockquote })) {
+                return
+            }
         }
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         let start: String.Index
@@ -1390,6 +1449,10 @@ struct StreamingParser {
                 // marker may still be part of the prefix, or the line may
                 // end the quote. Nothing of it is the block's text yet.
                 if trimmedLine.isEmpty, contextStack.contains(where: { $0.kind == .blockquote }) { return }
+            case .htmlBlock:
+                // Whitespace alone may still be a blank line, which ends the
+                // block or its quote; it goes out once text follows it.
+                if trimmedLine.isEmpty, !lineEmittedContent { return }
             default:
                 break
             }
@@ -1470,8 +1533,10 @@ struct StreamingParser {
         // the `>` prefix: a marker-only line is blank to them.
         let trimmed = lineContent.trimmingCharacters(in: .whitespaces)
         // The line that opens a list item is not blank, even when only its
-        // marker, which the container prefix strips, is on it.
-        let isBlank = trimmed.isEmpty && lineOpenedListItems == 0
+        // marker, which the container prefix strips, is on it. Nor is a line
+        // whose text has gone out, when the look-behind budget has trimmed
+        // all of it but trailing whitespace.
+        let isBlank = trimmed.isEmpty && lineOpenedListItems == 0 && !(lineEmittedContent && lineBufferTrimmed > 0)
 
         if isBlank, !force, lineQuotePrefix == 0,
            contextStack.contains(where: { $0.kind == .blockquote }) {
@@ -1580,6 +1645,13 @@ struct StreamingParser {
                 if (!ctx.fenceJustOpened && isClosingFence(String(lineContent), fence: ctx.fenceInfo)) || force {
                     closeCurrentBlock()
                 }
+            case .htmlBlock:
+                if force || ctx.htmlEndSeen || (isBlank && htmlLineIsBlank && ctx.htmlEnd == .blankLine) {
+                    closeCurrentBlock()
+                } else {
+                    ctx.htmlLineTail.removeAll(keepingCapacity: true)
+                    setCurrentBlock(ctx)
+                }
             case .math:
                 // A closer on the opening line ends the block with the line.
                 if ctx.pendingSameLineClose || (!ctx.fenceJustOpened && isClosingFence(String(lineContent), fence: ctx.fenceInfo)) || force {
@@ -1615,6 +1687,7 @@ struct StreamingParser {
         lineListResolved = false
         lineListLazy = false
         lineOpenedListItems = 0
+        lineHTMLPending = false
     }
 
     /// Whether a line may begin a link reference definition: up to three
@@ -1870,6 +1943,22 @@ struct StreamingParser {
                 events.append(.blockAppendFencedCode(id: ctx.id, textChunk: chunk))
             }
             ctx.fenceJustOpened = false
+        case .htmlBlock:
+            // The end marker may come anywhere in a line, also split across
+            // chunks: each chunk is searched with the line's last bytes
+            // before it.
+            if case .markers(let markers) = ctx.htmlEnd, !ctx.htmlEndSeen {
+                var window = ctx.htmlLineTail
+                window.append(contentsOf: text.utf8.map { (0x41...0x5A).contains($0) ? $0 | 0x20 : $0 })
+                ctx.htmlEndSeen = markers.contains { window.firstRange(of: Array($0.utf8)) != nil }
+                ctx.htmlLineTail = Array(window.suffix(HTMLBlockEnd.longestMarker - 1))
+            }
+            if let lastIndex = events.indices.last,
+               case .blockAppendFencedCode(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
+                events[lastIndex] = .blockAppendFencedCode(id: ctx.id, textChunk: existingText + text)
+            } else {
+                events.append(.blockAppendFencedCode(id: ctx.id, textChunk: text))
+            }
         case .math:
             if let lastIndex = events.indices.last {
                 if case .blockAppendMath(let existingID, let existingText) = events[lastIndex], existingID == ctx.id {
@@ -2282,6 +2371,55 @@ struct StreamingParser {
             context.fenceJustOpened = true
             setCurrentBlock(context)
         }
+    }
+
+    /// Opens an HTML block when `content` starts one, first ending the open
+    /// paragraph when `interruptingParagraph`. Returns whether the line is
+    /// handled, which it also is while it may still start one.
+    private mutating func openHTMLBlockIfStarted(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool) -> Bool {
+        switch htmlBlockStart(content, isLineComplete: isLineComplete, interruptingParagraph: interruptingParagraph) {
+        case .start(let end):
+            if interruptingParagraph { closeCurrentBlock() }
+            openHTMLBlock(end)
+            lineAnalyzed = true
+            return true
+        case .pending:
+            markHTMLPending()
+            lineAnalyzed = true
+            return true
+        case .none:
+            return false
+        }
+    }
+
+    /// The line may still start an HTML block. Only a lone tag (kind 7) can
+    /// stay undecided for long, and reading it again with every chunk would
+    /// cost the whole tag each time, so past a few hundred bytes the line
+    /// waits for its end instead, like display math.
+    private mutating func markHTMLPending() {
+        lineHTMLPending = true
+        if lineBuffer.utf8.count > 256 { lineDeferredUntilComplete = true }
+    }
+
+    /// Its whole first line, leading whitespace included, is its text.
+    private mutating func openHTMLBlock(_ end: HTMLBlockEnd) {
+        var context = BlockContext(
+            id: nextID,
+            kind: .htmlBlock,
+            inlineParser: nil,
+            tableState: nil,
+            fenceInfo: nil,
+            literal: "",
+            fenceJustOpened: false,
+            linePrefixToStrip: 0,
+            headingPendingSuffix: "",
+            eventStartIndex: events.count,
+            listIndent: 0
+        )
+        context.htmlEnd = end
+        nextID &+= 1
+        events.append(.blockStart(id: context.id, kind: .htmlBlock))
+        pushBlock(context)
     }
 
     private mutating func openIndentedCode(prefixLength: Int) {
@@ -2699,6 +2837,10 @@ struct StreamingParser {
         guard !trimmed.isEmpty else { return false }
 
         if trimmed.first == "|" { return true }          // table candidate
+        // `<di` may still become `<div>`, which interrupts a paragraph.
+        if trimmed.first == "<", htmlBlockStart(line[...], isLineComplete: false, interruptingParagraph: true) == .pending {
+            return true
+        }
         if trimmed.hasPrefix(":::") { return true }      // unknown block extension fallback
         if trimmed.hasPrefix("$$") || trimmed.hasPrefix("\\[") { return true } // display math
         if trimmed == "$" || trimmed == "\\" { return true } // may become a display-math opener
@@ -3081,7 +3223,7 @@ private extension BlockKind {
     /// Blocks whose lines are taken literally.
     var isVerbatim: Bool {
         switch self {
-        case .fencedCode, .math: return true
+        case .fencedCode, .math, .htmlBlock: return true
         default: return false
         }
     }
@@ -3100,6 +3242,184 @@ private extension BlockKind {
         if case .listItem = self { return true }
         return false
     }
+}
+
+/// How a CommonMark HTML block ends, which the kind of line that started it
+/// decides.
+enum HTMLBlockEnd: Equatable {
+    /// Kinds 1 to 5 (`<script>`, `<pre>`, `<style>`, `<textarea>`, comments,
+    /// processing instructions, declarations, CDATA): the first line holding
+    /// one of these, ASCII case-insensitively, is the block's last. Lowercase.
+    case markers([String])
+    /// Kinds 6 and 7 (a known block tag, any complete tag alone on its line):
+    /// a blank line, which is not part of the block.
+    case blankLine
+
+    static let rawTextMarkers = ["</pre>", "</script>", "</style>", "</textarea>"]
+    static let longestMarker = 11
+}
+
+enum HTMLBlockStart: Equatable {
+    case start(HTMLBlockEnd)
+    /// The line so far may still start one; more of it decides.
+    case pending
+    case none
+}
+
+private let htmlRawTextNames = ["pre", "script", "style", "textarea"]
+/// CommonMark 0.31.2's block-level tag names (kind 6).
+private let htmlBlockTagNames: Set<String> = [
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center", "col",
+    "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption", "figure",
+    "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "hr",
+    "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav", "noframes", "ol",
+    "optgroup", "option", "p", "param", "search", "section", "summary", "table", "tbody", "td", "tfoot",
+    "th", "thead", "title", "tr", "track", "ul"
+]
+
+/// Whether `line`, the line inside its containers, starts an HTML block
+/// (CommonMark 4.6): up to three spaces, then `<` and one of seven start
+/// conditions. All but kind 7 (a complete tag alone on its line) may
+/// interrupt a paragraph, and all but kind 7 are known a few characters
+/// after the `<`; kind 7 needs the whole line.
+func htmlBlockStart(_ line: Substring, isLineComplete: Bool, interruptingParagraph: Bool) -> HTMLBlockStart {
+    let utf8 = line.utf8
+    var index = utf8.startIndex
+    var spaces = 0
+    while index < utf8.endIndex, utf8[index] == 0x20 {
+        spaces += 1
+        index = utf8.index(after: index)
+    }
+    guard spaces < 4, index < utf8.endIndex, utf8[index] == 0x3C else { return .none }
+    // Kinds 1 to 6 are decided within a few bytes of the `<` (the longest
+    // name is ten), so a paragraph's line is not copied whole on every check.
+    let rest = utf8[utf8.index(after: index)...]
+    let bytes = interruptingParagraph ? Array(rest.prefix(16)) : Array(rest)
+    // What running out of text means: the line may still go on.
+    let ranOut: HTMLBlockStart = isLineComplete ? .none : .pending
+    func isLetter(_ b: UInt8) -> Bool { (0x41...0x5A).contains(b) || (0x61...0x7A).contains(b) }
+    func isSpace(_ b: UInt8) -> Bool { b == 0x20 || b == 0x09 }
+    /// `true` when the bytes start with `pattern`, `nil` when they end
+    /// inside it.
+    func starts(with pattern: String) -> Bool? {
+        for (offset, byte) in pattern.utf8.enumerated() {
+            guard offset < bytes.count else { return nil }
+            guard bytes[offset] == byte else { return false }
+        }
+        return true
+    }
+
+    guard let first = bytes.first else { return ranOut }
+    if first == 0x3F { return .start(.markers(["?>"])) }
+    if first == 0x21 {
+        switch starts(with: "!--") {
+        case true: return .start(.markers(["-->"]))
+        case nil: return ranOut
+        default: break
+        }
+        switch starts(with: "![CDATA[") {
+        case true: return .start(.markers(["]]>"]))
+        case nil: return ranOut
+        default: break
+        }
+        return isLetter(bytes[1]) ? .start(.markers([">"])) : .none
+    }
+
+    let closing = first == 0x2F
+    var cursor = closing ? 1 : 0
+    guard cursor < bytes.count else { return ranOut }
+    guard isLetter(bytes[cursor]) else { return .none }
+    let nameStart = cursor
+    while cursor < bytes.count, isLetter(bytes[cursor]) || (0x30...0x39).contains(bytes[cursor]) || bytes[cursor] == 0x2D {
+        cursor += 1
+    }
+    let name = String(decoding: bytes[nameStart..<cursor].map { isLetter($0) ? $0 | 0x20 : $0 }, as: UTF8.self)
+    if cursor == bytes.count, !isLineComplete {
+        // The name may still grow. A lone tag needs the whole line anyway.
+        if !interruptingParagraph { return .pending }
+        let known = htmlBlockTagNames.contains { $0.hasPrefix(name) }
+            || (!closing && htmlRawTextNames.contains { $0.hasPrefix(name) })
+        return known ? .pending : .none
+    }
+    // The byte after the name, `nil` at the end of the line.
+    let next = cursor < bytes.count ? bytes[cursor] : nil
+    let nameEnds = next.map { isSpace($0) || $0 == 0x3E } ?? true
+    if !closing, nameEnds, htmlRawTextNames.contains(name) {
+        return .start(.markers(HTMLBlockEnd.rawTextMarkers))
+    }
+    if htmlBlockTagNames.contains(name) {
+        if nameEnds { return .start(.blankLine) }
+        if next == 0x2F {
+            if cursor + 1 == bytes.count { return ranOut }
+            if bytes[cursor + 1] == 0x3E { return .start(.blankLine) }
+        }
+    }
+    // Kind 1 has already taken `<script>` and the like; any other tag of
+    // those names (`</script>`, `<pre/>`) is a lone tag, as in cmark-gfm.
+    guard !interruptingParagraph else { return .none }
+    switch htmlTagFillsLine(bytes, from: cursor, closing: closing) {
+    case true: return isLineComplete ? .start(.blankLine) : .pending
+    case nil: return ranOut
+    default: return .none
+    }
+}
+
+/// Whether the rest of a tag, after its name at `start`, closes it and
+/// only spaces or tabs follow (kind 7): `true`, `false`, or `nil` when the
+/// bytes end first. CommonMark's open tag: attributes, each after
+/// whitespace, a name with an optional value (unquoted, or in single or
+/// double quotes), then optional whitespace, an optional `/`, and `>`. A
+/// closing tag has only whitespace before its `>`.
+private func htmlTagFillsLine(_ bytes: [UInt8], from start: Int, closing: Bool) -> Bool? {
+    func isLetter(_ b: UInt8) -> Bool { (0x41...0x5A).contains(b) || (0x61...0x7A).contains(b) }
+    func isSpace(_ b: UInt8) -> Bool { b == 0x20 || b == 0x09 }
+    func isNameStart(_ b: UInt8) -> Bool { isLetter(b) || b == 0x5F || b == 0x3A }
+    func isNameByte(_ b: UInt8) -> Bool { isNameStart(b) || (0x30...0x39).contains(b) || b == 0x2E || b == 0x2D }
+    var cursor = start
+    func skipSpaces() -> Int {
+        let from = cursor
+        while cursor < bytes.count, isSpace(bytes[cursor]) { cursor += 1 }
+        return cursor - from
+    }
+    while true {
+        let spaced = skipSpaces() > 0
+        guard cursor < bytes.count else { return nil }
+        let b = bytes[cursor]
+        if b == 0x3E {
+            cursor += 1
+            break
+        }
+        if closing { return false }
+        if b == 0x2F {
+            guard cursor + 1 < bytes.count else { return nil }
+            guard bytes[cursor + 1] == 0x3E else { return false }
+            cursor += 2
+            break
+        }
+        guard spaced, isNameStart(b) else { return false }
+        while cursor < bytes.count, isNameByte(bytes[cursor]) { cursor += 1 }
+        let afterName = cursor
+        _ = skipSpaces()
+        guard cursor < bytes.count else { return nil }
+        guard bytes[cursor] == 0x3D else {
+            // No value: the whitespace read is the next attribute's.
+            cursor = afterName
+            continue
+        }
+        cursor += 1
+        _ = skipSpaces()
+        guard cursor < bytes.count else { return nil }
+        let quote = bytes[cursor]
+        if quote == 0x22 || quote == 0x27 {
+            guard let close = bytes[(cursor + 1)...].firstIndex(of: quote) else { return nil }
+            cursor = close + 1
+        } else {
+            let valueStart = cursor
+            while cursor < bytes.count, !isSpace(bytes[cursor]), !"\"'=<>`".utf8.contains(bytes[cursor]) { cursor += 1 }
+            guard cursor > valueStart else { return false }
+        }
+    }
+    return bytes[cursor...].allSatisfy(isSpace)
 }
 
 /// One link reference definition at the start of `text`, which holds whole

@@ -47,7 +47,9 @@ struct SpecInlineFixesTests {
         // raw HTML and an escaped delimiter.
         ("*a `b*` <x y=\"*\"> c\\* d*\n\n", "<i>a </i><code>b*</code><i> <x y=\"*\"> c* d</i>"),
         ("x <span title=\"a*b\">*c*</span>\n\n", "x <span title=\"a*b\"><i>c</i></span>"),
-        ("<!-- *a* --> *b*\n\n", "<!-- *a* --> <i>b</i>"),
+        // Inside a paragraph: at the start of a line a comment opens an HTML
+        // block (CommonMark), which `SpecHTMLBlocksTests` covers.
+        ("x <!-- *a* --> *b*\n\n", "x <!-- *a* --> <i>b</i>"),
         // Math is opaque to the emphasis lookahead, as to the emitter.
         ("**The expression $\\text{`x'}$ is valid** and `code`\n\n",
          "<b>The expression </b>\\text{`x'}<b> is valid</b> and <code>code</code>"),

@@ -3826,6 +3826,8 @@ private func describe(_ kind: BlockKind) -> String {
         return "table"
     case .horizontalRule:
         return "horizontalRule"
+    case .htmlBlock:
+        return "htmlBlock"
     case .unknown:
         return "unknown"
     }
