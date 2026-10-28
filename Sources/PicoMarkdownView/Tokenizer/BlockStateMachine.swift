@@ -1086,8 +1086,10 @@ struct StreamingParser {
         // Inside quoted indented code a further `>` is content whose
         // indentation decides (four columns: a code line; fewer: the code
         // ends), so the code's own line handling judges it at once. With
-        // items inside the quote, they strip their own indentation first.
-        if !isLineComplete, !itemsInside, line.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
+        // items inside the quote, once all its markers are there, the items
+        // strip their own indentation first.
+        if !isLineComplete, !(itemsInside && quote.markerCount == activeLevel),
+           line.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
            quote.markerCount <= activeLevel,
            !(isIndentedCodeBlock(top) && line.dropFirst(quote.prefixLength).contains(">")) {
             lineQuotePrefix = base + quote.prefixLength

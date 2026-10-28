@@ -116,6 +116,9 @@ struct SpecListsTests {
         // item's open paragraph.
         ("> - ```\n>   > b\n>   ```\n\n", #"[quote[ul[[code(-, "> b")]]]]"#),
         ("> - <div>\n>   > b\n>   </div>\n\n", "[quote[ul[[other]]]]"),
+        // Fewer markers so far than the quotes around the items: the line
+        // may still carry them all, so it waits.
+        ("> > - a\n> >\n> > - b\n\n", #"[quote[quote[ul[[p("a")], [p("b")]]]]]"#),
         ("> - a\n>   [ref]: /url\n>   [ref]\n\n", #"[quote[ul[[p("a [ref]: /url [ref]")]]]]"#),
         ("- a\n  [ref]: /url\n  [ref]\n\n", #"[ul[[p("a [ref]: /url [ref]")]]]"#)
     ]
