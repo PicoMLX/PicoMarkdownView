@@ -66,6 +66,19 @@ struct SpecListsTests {
         // Tabs count to the next multiple of four columns.
         ("- a\n\t- b\n\n", #"[ul[[p("a"), ul[[p("b")]]]]]"#),
         ("- foo\n\n\tbar\n\n", #"[ul[[p("foo"), p("bar")]]]"#),
+        // A tab in an item's content counts from the line's start too.
+        ("- a\n\n  \tfoo\n\n", #"[ul[[p("a"), p("foo")]]]"#),
+        ("- a\n\n  \t  foo\n\n", #"[ul[[p("a"), code(-, "foo")]]]"#),
+        ("- a\n\n      x\n  \ty\n\n", #"[ul[[p("a"), code(-, "x"), p("y")]]]"#),
+        ("- a\n\n      x\n  \t  y\n\n", #"[ul[[p("a"), code(-, "x\ny")]]]"#),
+        // Short of four columns, a tab is indentation a block opener may have,
+        // also where it decides that a line is not lazy.
+        ("- a\n\n  \t# heading\n\n", #"[ul[[p("a"), h1("heading")]]]"#),
+        ("- a\n\n  \t---\n\n", #"[ul[[p("a"), hr]]]"#),
+        ("- a\n  1. b\n  \t# heading\n\n", #"[ul[[p("a"), ol[[p("b")]], h1("heading")]]]"#),
+        ("- a\n  1. b\n  \t- c\n\n", #"[ul[[p("a"), ol[[p("b")]], ul[[p("c")]]]]]"#),
+        ("- a\n  1. b\n  \t```\n  x\n  ```\n\n", #"[ul[[p("a"), ol[[p("b")]], code(-, "x")]]]"#),
+        ("- a\n  1. b\n  \tc\n\n", #"[ul[[p("a"), ol[[p("b c")]]]]]"#),
         ("  \tfoo\n\n", #"[code(-, "foo")]"#)
     ]
 
@@ -116,6 +129,11 @@ struct SpecListsTests {
                     if code.hasSuffix("\n") { code.removeLast() }
                     result.append("code(-, \(code.debugDescription))")
                 case .horizontalRule: result.append("hr")
+                case .blockquote:
+                    var content: [String] = []
+                    if !text(block).isEmpty { content.append("p(\(text(block).debugDescription))") }
+                    content += shapes(children[block.id] ?? [])
+                    result.append("quote[" + content.joined(separator: ", ") + "]")
                 default: result.append("other")
                 }
                 index += 1
@@ -153,6 +171,33 @@ struct SpecListsTests {
         for (markdown, expected) in Self.cases {
             let actual = shape(await parse([markdown]))
             #expect(actual == expected, Comment(rawValue: markdown.debugDescription + " → " + actual))
+        }
+    }
+
+    /// Items cannot hold a block quote yet: a line in an item that would
+    /// start one at the top level ends the items and starts it there, as
+    /// before items held blocks. (cmark-gfm keeps the quote in the item.)
+    static let quoteCases: [(markdown: String, shape: String)] = [
+        ("- a\n\n  > # H\n\n", #"[ul[[p("a")]], quote[h1("H")]]"#),
+        ("- a\n\n  > q\n  > r\n\n", #"[ul[[p("a")]], quote[p("q r")]]"#),
+        ("- a\n\n  > q\n\n  b\n\n", #"[ul[[p("a")]], quote[p("q")], p("b")]"#),
+        ("- a\n  > b\n- c\n\n", #"[ul[[p("a")]], quote[p("b")], ul[[p("c")]]]"#),
+        // Four columns are code at the top level, so the line stays text.
+        ("- a\n  - b\n\n    > q\n\n", #"[ul[[p("a"), ul[[p("b"), p("> q")]]]]]"#)
+    ]
+
+    @Test("A quote line in an item starts a quote after the items, at every chunk split")
+    func quoteLineEndsItems() async {
+        for (markdown, expected) in Self.quoteCases {
+            let baseline = await parse([markdown])
+            let actual = shape(baseline)
+            #expect(actual == expected, Comment(rawValue: markdown.debugDescription + " → " + actual))
+            let characters = Array(markdown)
+            for split in 0...characters.count {
+                let streamed = await parse([String(characters[..<split]), String(characters[split...])])
+                #expect(streamed == baseline, Comment(rawValue: markdown.debugDescription + " split at \(split)"))
+            }
+            #expect(await parse(characters.map(String.init)) == baseline)
         }
     }
 

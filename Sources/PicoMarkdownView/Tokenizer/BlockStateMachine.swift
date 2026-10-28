@@ -855,11 +855,12 @@ struct StreamingParser {
                 // not a paragraph); four columns more are indented code, which
                 // interrupts nothing.
                 let base = deepest.map { contextStack[$0].listContentColumn } ?? 0
-                let local = String(lineBuffer.dropFirst(characters(covering: base, in: lineBuffer).count))
-                let opensBlock = leadingColumns(local).columns < 4
-                    && (detectList(local, isLineComplete: isLineComplete) != nil
+                let (baseCharacters, baseColumn) = characters(covering: base, in: lineBuffer)
+                let local = String(lineBuffer.dropFirst(baseCharacters))
+                let opensBlock = leadingColumns(local, startColumn: baseColumn).columns < 4
+                    && (detectList(local, isLineComplete: isLineComplete, columnBase: baseColumn) != nil
                         || detectBlockquote(local) != nil
-                        || startsBlock(local[...], isLineComplete: isLineComplete))
+                        || startsBlock(local[...], isLineComplete: isLineComplete, columnBase: baseColumn))
                 if !opensBlock {
                     lineListLazy = true
                     if emittedCount < indent.characters { emittedCount = indent.characters }
@@ -901,7 +902,7 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return true
                 case .fencedCode:
-                    if let codePrefix = detectIndentedCodePrefix(content) {
+                    if let codePrefix = detectIndentedCodePrefix(content, startColumn: contentColumn) {
                         child.linePrefixToStrip = prefix + codePrefix
                         setCurrentBlock(child)
                         if emittedCount < prefix + codePrefix {
@@ -928,6 +929,15 @@ struct StreamingParser {
                 emittedCount = lineBuffer.count
                 lineAnalyzed = true
                 return true
+            }
+            // Items cannot hold a block quote yet, so a line that would start
+            // one at the top level ends the items and is analyzed there.
+            if lineOpenedListItems == 0, !lineOpenedChild, !lineEmittedContent,
+               detectBlockquote(content) != nil, leadingColumns(lineBuffer).columns < 4,
+               let firstItem = contextStack.firstIndex(where: \.kind.isListItem) {
+                closeContexts(above: firstItem - 1)
+                lineQuotePrefix = 0
+                return false
             }
             if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
@@ -1151,6 +1161,9 @@ struct StreamingParser {
     private mutating func openContainerChild(from content: Substring, columnBase: Int = 0, isLineComplete: Bool) -> Bool {
         let line = String(content)
         let prefix = lineQuotePrefix
+        // Openers read indentation as spaces; indented code and list items
+        // count its columns themselves.
+        let (opener, dropped) = droppingTabbedIndent(line, columnBase: columnBase)
         // A paragraph is open (a paragraph child, or the container's own
         // text): only a block that may interrupt a paragraph starts here.
         let paragraphIsOpen: Bool
@@ -1183,7 +1196,7 @@ struct StreamingParser {
             }
         }
 
-        if isLineComplete, let mathOpen = detectDisplayMathOpening(line) {
+        if isLineComplete, let mathOpen = detectDisplayMathOpening(opener) {
             beginChild()
             openDisplayMathBlock(marker: mathOpen.marker,
                                  closing: mathOpen.closing,
@@ -1194,7 +1207,7 @@ struct StreamingParser {
             lineAnalyzed = true
             return true
         }
-        if isLineComplete, let fence = detectFenceOpening(line) {
+        if isLineComplete, let fence = detectFenceOpening(opener) {
             beginChild()
             openFencedCode(fence)
             emittedCount = lineBuffer.count
@@ -1203,21 +1216,21 @@ struct StreamingParser {
         }
         // Four columns after the marker are indented code (CommonMark), which
         // cannot interrupt a paragraph: there the line is paragraph text.
-        if !paragraphIsOpen, let codePrefix = detectIndentedCodePrefix(line) {
+        if !paragraphIsOpen, let codePrefix = detectIndentedCodePrefix(line, startColumn: columnBase) {
             beginChild()
             openIndentedCode(prefixLength: prefix + codePrefix)
             emittedCount = min(lineBuffer.count, prefix + codePrefix)
             lineAnalyzed = true
             return true
         }
-        if let heading = detectHeading(line, isLineComplete: isLineComplete) {
+        if let heading = detectHeading(opener, isLineComplete: isLineComplete) {
             beginChild()
-            openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: prefix + heading.prefixLength)
-            emittedCount = min(lineBuffer.count, prefix + heading.prefixLength)
+            openInlineBlock(kind: .heading(level: heading.level), prefixToStrip: prefix + dropped + heading.prefixLength)
+            emittedCount = min(lineBuffer.count, prefix + dropped + heading.prefixLength)
             lineAnalyzed = true
             return true
         }
-        switch htmlBlockStart(content, isLineComplete: isLineComplete, interruptingParagraph: paragraphIsOpen) {
+        switch htmlBlockStart(opener[...], isLineComplete: isLineComplete, interruptingParagraph: paragraphIsOpen) {
         case .start(let end):
             beginChild()
             openHTMLBlock(end)
@@ -1231,23 +1244,23 @@ struct StreamingParser {
         case .none:
             break
         }
-        if isLineComplete, detectHorizontalRule(line, indent: 0) {
+        if isLineComplete, detectHorizontalRule(opener, indent: 0) {
             beginChild()
             emitHorizontalRuleBlock()
             return true
         }
-        if let footnote = detectFootnoteDefinition(line) {
+        if let footnote = detectFootnoteDefinition(opener) {
             beginChild()
             let index = footnoteRegistry.index(for: footnote.id)
             openInlineBlock(kind: .footnoteDefinition(id: footnote.id, index: index),
-                            prefixToStrip: prefix + footnote.prefixLength)
-            emittedCount = min(lineBuffer.count, prefix + footnote.prefixLength)
+                            prefixToStrip: prefix + dropped + footnote.prefixLength)
+            emittedCount = min(lineBuffer.count, prefix + dropped + footnote.prefixLength)
             lineAnalyzed = true
             return true
         }
-        if isLineComplete, detectTableCandidate(line) {
+        if isLineComplete, detectTableCandidate(opener) {
             beginChild()
-            openTable(line)
+            openTable(opener)
             emittedCount = lineBuffer.count
             lineAnalyzed = true
             return true
@@ -1267,7 +1280,7 @@ struct StreamingParser {
             lineAnalyzed = true
             return true
         }
-        if isLineComplete, line.hasPrefix(":::") {
+        if isLineComplete, opener.hasPrefix(":::") {
             beginChild()
             openUnknown()
             appendUnknownLiteral(line)
@@ -1278,22 +1291,36 @@ struct StreamingParser {
         return false
     }
 
+    /// `line`, which starts at column `columnBase`, without its indentation
+    /// when that holds a tab and spans fewer than four columns, and the
+    /// characters dropped. Block openers read indentation as spaces; a tab
+    /// counts from the line's start, so inside an item it may span less
+    /// than the four columns it would at the top level.
+    private func droppingTabbedIndent(_ line: String, columnBase: Int) -> (line: String, dropped: Int) {
+        let indentation = leadingColumns(line, startColumn: columnBase)
+        guard indentation.columns < 4, line.prefix(indentation.characters).contains("\t") else { return (line, 0) }
+        return (String(line.dropFirst(indentation.characters)), indentation.characters)
+    }
+
     /// Whether a line (already stripped of any quote prefix) opens a block
     /// that interrupts a paragraph. Mirrors the openers `openQuotedChild`
-    /// knows plus the ones a top-level paragraph yields to.
-    private func startsBlock(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool = true) -> Bool {
-        let line = String(content)
+    /// knows plus the ones a top-level paragraph yields to. `columnBase` is
+    /// the column the line starts at, from which its tabs count.
+    private func startsBlock(_ content: Substring, isLineComplete: Bool, interruptingParagraph: Bool = true,
+                             columnBase: Int = 0) -> Bool {
+        let original = String(content)
         // Four columns of indentation make the line indented code, which
         // cannot interrupt a paragraph: it is a lazy continuation line.
-        if interruptingParagraph, detectIndentedCodePrefix(line) != nil { return false }
-        if detectHeading(line, isLineComplete: isLineComplete) != nil { return true }
-        // Only the HTML blocks that may interrupt a paragraph (not a lone tag).
-        if case .start = htmlBlockStart(content, isLineComplete: isLineComplete, interruptingParagraph: true) { return true }
-        if let list = detectList(line, isLineComplete: isLineComplete) {
+        if interruptingParagraph, detectIndentedCodePrefix(original, startColumn: columnBase) != nil { return false }
+        if let list = detectList(original, isLineComplete: isLineComplete, columnBase: columnBase) {
             // Ending a table (or another non-paragraph) has no interruption
             // rule; only a paragraph is picky about which lists may follow.
-            return !interruptingParagraph || listCanInterruptParagraph(list, line: line)
+            return !interruptingParagraph || listCanInterruptParagraph(list, line: original)
         }
+        let line = droppingTabbedIndent(original, columnBase: columnBase).line
+        if detectHeading(line, isLineComplete: isLineComplete) != nil { return true }
+        // Only the HTML blocks that may interrupt a paragraph (not a lone tag).
+        if case .start = htmlBlockStart(line[...], isLineComplete: isLineComplete, interruptingParagraph: true) { return true }
         // `$$x$$` is display math only if nothing follows on the line
         // (`$$x$$y` is a paragraph), so math waits for the complete line
         // like fences, rules and tables.
@@ -2761,8 +2788,9 @@ struct StreamingParser {
     }
 
     /// Characters of indentation that make up four columns (a tab advances
-    /// to the next multiple of four), or `nil` when the line is less indented.
-    private func detectIndentedCodePrefix(_ line: String) -> Int? {
+    /// to the next multiple of four, counted from `startColumn`, where the
+    /// line starts), or `nil` when the line is less indented.
+    private func detectIndentedCodePrefix(_ line: String, startColumn: Int = 0) -> Int? {
         guard !line.isEmpty else { return nil }
         if line.trimmingCharacters(in: .whitespaces).isEmpty {
             return nil
@@ -2771,7 +2799,7 @@ struct StreamingParser {
         var count = 0
         for character in line {
             guard character == " " || character == "\t" else { break }
-            column += character == "\t" ? 4 - column % 4 : 1
+            column += character == "\t" ? 4 - (startColumn + column) % 4 : 1
             count += 1
             if column >= 4 { return count }
         }
