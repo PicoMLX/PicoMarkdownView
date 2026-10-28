@@ -474,7 +474,7 @@ struct InlineParser {
             var cursor = scalars.index(after: index)
             while cursor < graphemeEnd {
                 let scalar = scalars[cursor]
-                if scalar.isASCII, "*_`~<[]!$\\".unicodeScalars.contains(scalar) { return cursor }
+                if scalar.isASCII, "*_`~<[]!$&\\".unicodeScalars.contains(scalar) { return cursor }
                 cursor = scalars.index(after: cursor)
             }
             return nil
@@ -486,7 +486,7 @@ struct InlineParser {
         /// are what follows it. Anything else is the grapheme.
         func syntaxCharacter(at index: String.Index) -> Character {
             let leading = text.unicodeScalars[index]
-            if leading.isASCII, "*_`~<[!$\\".unicodeScalars.contains(leading) { return Character(leading) }
+            if leading.isASCII, "*_`~<[!$&\\".unicodeScalars.contains(leading) { return Character(leading) }
             return text[index]
         }
 
@@ -1304,6 +1304,18 @@ struct InlineParser {
                     continue
                 }
                 let character = syntaxCharacter(at: cursor)
+                // A character reference is text: nothing in it is markup.
+                if character == "&" {
+                    switch HTMLEntities.scan(text[...], at: cursor) {
+                    case .reference(_, let end):
+                        cursor = end
+                        continue
+                    case .partial where !includeUnterminated && limit == nil:
+                        return suspend(at: cursor)
+                    case .partial, .none:
+                        break
+                    }
+                }
                 // A bare URL is one unit to the emitter, as is `~~…~~`, whose
                 // content it parses apart: nothing inside pairs with a
                 // delimiter outside.
@@ -1531,6 +1543,15 @@ struct InlineParser {
                 guard next < text.endIndex, Self.asciiPunctuation.contains(scalars[next]) else { return nil }
                 return scalars[next]
             }
+            /// A character reference at `cursor`, appended to `target`.
+            func reference(into target: inout String.UnicodeScalarView) -> Bool {
+                guard scalars[cursor] == "&", case .reference(let replacement, let end) = HTMLEntities.scan(text[...], at: cursor) else {
+                    return false
+                }
+                target.append(contentsOf: replacement.unicodeScalars)
+                cursor = end
+                return true
+            }
             skipWhitespace()
             guard cursor < text.endIndex else { return unfinished }
             var destination = String.UnicodeScalarView()
@@ -1549,6 +1570,7 @@ struct InlineParser {
                             continue
                         }
                     }
+                    if reference(into: &destination) { continue }
                     destination.append(scalar)
                     cursor = scalars.index(after: cursor)
                 }
@@ -1566,6 +1588,7 @@ struct InlineParser {
                         }
                     }
                     if scalar.value <= 0x20 || scalar.value == 0x7F { break }
+                    if reference(into: &destination) { continue }
                     if scalar == "(" {
                         depth += 1
                         if depth > 32 { return .invalid }
@@ -1602,6 +1625,7 @@ struct InlineParser {
                             continue
                         }
                     }
+                    if reference(into: &content) { continue }
                     content.append(scalar)
                     cursor = scalars.index(after: cursor)
                 }
@@ -1776,6 +1800,17 @@ struct InlineParser {
                     continue
                 }
                 let scalar = scalars[cursor]
+                if scalar == "&" {
+                    switch HTMLEntities.scan(text[...], at: cursor) {
+                    case .reference(_, let end):
+                        cursor = end
+                        continue
+                    case .partial where !includeUnterminated:
+                        return wait(at: cursor)
+                    case .partial, .none:
+                        break
+                    }
+                }
                 if scalar == "\\" {
                     let escaped = scalars.index(after: cursor)
                     if escaped == text.endIndex {
@@ -2839,6 +2874,22 @@ struct InlineParser {
                 consumedEnd = afterClose
                 index = afterClose
                 plainStart = afterClose
+            case "&":
+                switch HTMLEntities.scan(text[...], at: index) {
+                case .reference(let replacement, let end):
+                    flushPlain(upTo: index)
+                    appendPlain(replacement)
+                    consumedEnd = end
+                    index = end
+                    plainStart = end
+                case .partial where !includeUnterminated:
+                    // `&am` may still become `&amp;`.
+                    flushPlain(upTo: index)
+                    consumedAll = false
+                    break parsing
+                case .partial, .none:
+                    index = text.index(after: index)
+                }
             case "h", "H", "w", "W":
                 // No bare URL is linked inside a link's or image's text.
                 if contexts.isEmpty, !insideLinkText, let result = parseAutolink(at: index) {

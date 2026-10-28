@@ -11,18 +11,9 @@
 14 Backslash escapes
 21 Backslash escapes
 23 Backslash escapes
-25 Entity and numeric character references
-26 Entity and numeric character references
-27 Entity and numeric character references
 28 Entity and numeric character references
 31 Entity and numeric character references
 33 Entity and numeric character references
-34 Entity and numeric character references
-37 Entity and numeric character references
-38 Entity and numeric character references
-39 Entity and numeric character references
-40 Entity and numeric character references
-41 Entity and numeric character references
 59 Thematic breaks
 61 Thematic breaks
 80 Setext headings
