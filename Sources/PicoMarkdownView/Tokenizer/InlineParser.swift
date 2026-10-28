@@ -21,7 +21,8 @@ final class LinkReferenceStore {
     private func normalizeLinkLabel(_ label: String) -> String {
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(whereSeparator: { $0.isWhitespace || $0 == "\n" || $0 == "\r" })
-        return parts.joined(separator: " ").lowercased()
+        // Labels match by Unicode case folding (`ẞ` matches `SS`).
+        return parts.joined(separator: " ").folding(options: .caseInsensitive, locale: nil)
     }
 }
 
@@ -211,6 +212,28 @@ struct InlineParser {
     }
     private var constructProgress: ConstructProgress?
 
+    /// A bracket scan (see `bracket(at:)` in `consume`) that ran out of
+    /// text: its open brackets and where it stopped, as UTF-8 offsets. The
+    /// next chunk resumes it rather than scanning again from the opener.
+    private struct BracketProgress {
+        struct Opener {
+            var offset: Int
+            var image: Bool
+            var active: Bool
+        }
+        var start: Int
+        var openers: [Opener]
+        var cursor: Int
+
+        func shifted(by delta: Int) -> BracketProgress? {
+            guard start >= delta else { return nil }
+            return BracketProgress(start: start - delta,
+                                   openers: openers.map { Opener(offset: $0.offset - delta, image: $0.image, active: $0.active) },
+                                   cursor: cursor - delta)
+        }
+    }
+    private var bracketProgress: BracketProgress?
+
     /// For the nested parse of emphasis content: what follows the content in
     /// the enclosing text, which is the closer. Flanking at the content's end
     /// reads it instead of the end of the text, and a delimiter run there
@@ -311,6 +334,7 @@ struct InlineParser {
         lastConsumed = nil
         emphasisScan = nil
         constructProgress = nil
+        bracketProgress = nil
         return runs
     }
 
@@ -338,22 +362,50 @@ struct InlineParser {
         /// images, as an enclosing emphasis span does.
         var planStyles: [(pair: Int, style: InlineStyle)] = []
 
+        /// A link or image whose text is being parsed (see `bracket(at:)`):
+        /// its text runs to `close`, the `]`, and the whole construct to
+        /// `end`. A link styles every run appended meanwhile; an image
+        /// gathers them (from `runsStart` on) into its alt text when it
+        /// closes. Runs never merge across the start of one (`floor` is the
+        /// enclosing one's).
+        struct BracketContext {
+            var close: String.Index
+            var end: String.Index
+            var image: InlineImage?
+            var runsStart: Int
+            var floor: Int
+            /// The enclosing link's target, restored when this one closes.
+            var outerLinkURL: String?
+        }
+        var contexts: [BracketContext] = []
+        var contextLinkURL: String?
+        var imageDepth = 0
+        var coalesceFloor = 0
+        /// Outcomes by opener (the `[`, or the `!` of `![`) for this text;
+        /// see `bracket(at:)`. One scan decides every opener it closes.
+        var bracketOutcomes: [String.Index: BracketOutcome] = [:]
+
         func planStyled(_ run: InlineRun) -> InlineRun {
-            guard !planStyles.isEmpty, run.style.intersection([.code, .math, .image]).isEmpty else { return run }
             var styled = run
-            for entry in planStyles { styled.style.formUnion(entry.style) }
+            if run.style.intersection([.code, .math, .image]).isEmpty {
+                for entry in planStyles { styled.style.formUnion(entry.style) }
+            }
+            // A link's text is the link, code spans included; an autolink or
+            // tag inside it keeps its own target.
+            if let url = contextLinkURL, styled.linkURL == nil, styled.image == nil, styled.math == nil {
+                styled.style.insert(.link)
+                styled.linkURL = url
+            }
             return styled
         }
 
         func appendProcessed(_ text: String) {
             guard !text.isEmpty else { return }
             let newRuns = makePlainRuns(from: text).map(planStyled)
-            guard !newRuns.isEmpty else { return }
-            let plainStyle = planStyled(InlineRun(text: "")).style
-            if let last = runs.last, last.style == plainStyle, last.linkURL == nil, last.image == nil,
-               let lastPlain = newRuns.first, lastPlain.style == plainStyle, lastPlain.linkURL == nil, lastPlain.image == nil,
-               !last.text.hasSuffix("\n"), !(lastPlain.text.hasPrefix("\n")) {
-                runs[runs.count - 1].text += lastPlain.text
+            guard let first = newRuns.first else { return }
+            if runs.count > coalesceFloor, let last = runs.last, last.canCoalesce(with: first),
+               !last.text.hasSuffix("\n"), !first.text.hasPrefix("\n") {
+                runs[runs.count - 1].text += first.text
                 runs.append(contentsOf: newRuns.dropFirst())
             } else {
                 runs.append(contentsOf: newRuns)
@@ -417,7 +469,7 @@ struct InlineParser {
             var cursor = scalars.index(after: index)
             while cursor < graphemeEnd {
                 let scalar = scalars[cursor]
-                if scalar.isASCII, "*_`~<[!$\\".unicodeScalars.contains(scalar) { return cursor }
+                if scalar.isASCII, "*_`~<[]!$\\".unicodeScalars.contains(scalar) { return cursor }
                 cursor = scalars.index(after: cursor)
             }
             return nil
@@ -505,6 +557,8 @@ struct InlineParser {
                                       tagPrefixOpeningFirstChars: parserTagPrefixOpeningFirstChars)
             nested.lastConsumed = leading
             nested.following = trailing
+            nested.linkReferences = linkReferences
+            nested.footnoteRegistry = footnoteRegistry
             var result: [InlineRun]
             if let plan {
                 nested.emphasisPlan = plan
@@ -533,7 +587,7 @@ struct InlineParser {
             // state machine via `InlineRun.canCoalesce(with:)`; the two
             // line-break guards are local to inline parsing (don't merge
             // across a hard line break) and stay here.
-            if let last = runs.last,
+            if runs.count > coalesceFloor, let last = runs.last,
                last.canCoalesce(with: run),
                !last.text.hasSuffix("\n"),
                !run.text.hasPrefix("\n") {
@@ -741,6 +795,17 @@ struct InlineParser {
         /// when no math opens there. Math is opaque: the emphasis lookahead
         /// skips it. `.none` once the text is final and the math never
         /// closed, which the emitter then shows as text.
+        /// The end of the opening marker of math that never closed, which
+        /// is text: `$`, `$$`, `\(` or `\[`.
+        func mathMarkerEnd(at index: String.Index) -> String.Index {
+            let bytes = text.utf8
+            var markerEnd = bytes.index(after: index)
+            if markerEnd < bytes.endIndex, bytes[index] == 0x5C || bytes[markerEnd] == 0x24 {
+                markerEnd = bytes.index(after: markerEnd)
+            }
+            return markerEnd
+        }
+
         func mathScan(at index: String.Index) -> SpanScan? {
             let bytes = text.utf8
             let next = bytes.index(after: index)
@@ -1118,6 +1183,8 @@ struct InlineParser {
             }
         }
         var emphasisOutcomes: EmphasisOutcomes?
+        /// The same for the text of the link or image closing at `close`.
+        var linkTextOutcomes: (close: String.Index, outcomes: EmphasisOutcomes)?
 
         /// CommonMark's emphasis algorithm over the delimiter runs from the
         /// opener at `index` on: closers are processed left to right, each
@@ -1149,7 +1216,11 @@ struct InlineParser {
                                     inner: outcomes.pairs(inside: pair.openerEnd, pair.closerStart))
                 }
             }
-            if let outcomes = emphasisOutcomes, let known = outcomes.results[base], !outcomes.spanned(base) {
+            // Inside a link's or image's text, emphasis is matched within the
+            // text, which is final: its `]` has arrived.
+            let limit = contexts.last?.close
+            let cached = limit == nil ? emphasisOutcomes : linkTextOutcomes.flatMap { $0.close == limit ? $0.outcomes : nil }
+            if let outcomes = cached, let known = outcomes.results[base], !outcomes.spanned(base) {
                 return resolved(known, in: outcomes)
             }
             func position(_ offset: Int) -> String.Index {
@@ -1163,8 +1234,8 @@ struct InlineParser {
             let targetSlot = slot(delimiter)
             // A scan saved by an earlier chunk resumes when its opener is this
             // one, now at the start of the text (see the end of `consume`).
-            var resumed = base == 0 ? emphasisScan : nil
-            emphasisScan = nil
+            var resumed = base == 0 && limit == nil ? emphasisScan : nil
+            if limit == nil { emphasisScan = nil }
             var scan: EmphasisScan
             if resumed != nil {
                 scan = resumed!
@@ -1193,7 +1264,8 @@ struct InlineParser {
                     && !(opener.originalCount % 3 == 0 && closer.originalCount % 3 == 0)
             }
             var cursor = position(scan.cursor)
-            while cursor < text.endIndex {
+            let scanEnd = limit ?? text.endIndex
+            while cursor < scanEnd {
                 if let syntax = syntaxInsideGrapheme(at: cursor) {
                     cursor = syntax
                     continue
@@ -1221,12 +1293,7 @@ struct InlineParser {
                         // Math that never closed in the final text is text:
                         // the scan goes on after its opening marker, so
                         // `**Price: $5**` is still strong emphasis.
-                        let bytes = text.utf8
-                        var markerEnd = bytes.index(after: cursor)
-                        if markerEnd < bytes.endIndex, bytes[cursor] == 0x5C || bytes[markerEnd] == 0x24 {
-                            markerEnd = bytes.index(after: markerEnd)
-                        }
-                        cursor = markerEnd
+                        cursor = mathMarkerEnd(at: cursor)
                     }
                     continue
                 }
@@ -1234,7 +1301,7 @@ struct InlineParser {
                 // A bare URL is one unit to the emitter, as is `~~…~~`, whose
                 // content it parses apart: nothing inside pairs with a
                 // delimiter outside.
-                if "hHwW".contains(character), let autolink = parseAutolink(at: cursor) {
+                if limit == nil, "hHwW".contains(character), let autolink = parseAutolink(at: cursor) {
                     switch autolink {
                     case .handled(let next, _, _):
                         cursor = next
@@ -1247,11 +1314,11 @@ struct InlineParser {
                     let second = text.unicodeScalars.index(after: cursor)
                     if second == text.endIndex, !includeUnterminated { return suspend(at: cursor) }
                     if second < text.endIndex, text[second] == "~" {
-                        if let closeAfter = findStrikethroughClosing(in: text, from: text.index(after: second)) {
+                        if let closeAfter = findStrikethroughClosing(in: text, from: text.index(after: second), before: scanEnd) {
                             cursor = closeAfter
                             continue
                         }
-                        if !includeUnterminated { return suspend(at: cursor) }
+                        if !includeUnterminated, limit == nil { return suspend(at: cursor) }
                     }
                 }
                 // A link, image or footnote reference is one unit to the
@@ -1260,14 +1327,15 @@ struct InlineParser {
                 if character == "[" || character == "!" {
                     let image = character == "!"
                     let open = image ? text.unicodeScalars.index(after: cursor) : cursor
-                    if !image || (open < text.endIndex && text[open] == "[") {
-                        switch parseBracketSequence(openBracketIndex: open, treatAsImage: image, dryRun: true) {
-                        case .handled(let next):
-                            cursor = next
+                    if !image || (open < text.endIndex && text.unicodeScalars[open] == "[") {
+                        switch bracket(at: cursor) {
+                        case .decided(.link(_, let end, _)), .decided(.image(_, let end, _, _)),
+                             .decided(.footnote(let end, _)):
+                            cursor = end
                             continue
-                        case .incomplete where !includeUnterminated:
+                        case .needMore:
                             return suspend(at: cursor)
-                        case .incomplete, .literal:
+                        case .decided(.literal):
                             break
                         }
                     }
@@ -1378,7 +1446,7 @@ struct InlineParser {
                 }
                 cursor = text.index(after: cursor)
             }
-            guard includeUnterminated else { return suspend(at: text.endIndex) }
+            guard includeUnterminated || limit != nil else { return suspend(at: text.endIndex) }
             // The text is final: an opener still on a stack keeps its
             // unpaired delimiters at the left as text; one used up pairs
             // whole. (An opener dropped between a pair is not recorded.)
@@ -1402,151 +1470,430 @@ struct InlineParser {
                 spans.append((pair.openerStart, pair.closerEnd))
             }
             let outcomes = EmphasisOutcomes(spans: spans, pairs: pairs, results: results)
-            emphasisOutcomes = outcomes
+            if let limit {
+                linkTextOutcomes = (limit, outcomes)
+            } else {
+                emphasisOutcomes = outcomes
+            }
             return results[base].map { resolved($0, in: outcomes) } ?? .none
         }
 
-        enum BracketParseResult {
-            case handled(nextIndex: String.Index)
+        /// What a `[` or `![` opener turned out to be. `close` is its `]`,
+        /// `end` the end of the whole construct.
+        enum BracketOutcome {
+            case link(close: String.Index, end: String.Index, url: String)
+            case image(close: String.Index, end: String.Index, source: String, title: String?)
+            case footnote(end: String.Index, id: String)
             case literal
-            case incomplete
         }
 
+        enum BracketScan {
+            case decided(BracketOutcome)
+            case needMore
+        }
 
-        func splitDestinationAndTitle(_ segment: String) -> (String, String?) {
-            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return ("", nil) }
+        enum LinkTail {
+            case link(end: String.Index, destination: String, title: String?)
+            case invalid
+            case needMore
+        }
 
-            let withoutAngles: String
-            if trimmed.hasPrefix("<"), trimmed.hasSuffix(">"), trimmed.count >= 2 {
-                withoutAngles = String(trimmed.dropFirst().dropLast())
-            } else {
-                withoutAngles = trimmed
+        enum LabelScan {
+            case label(Substring, end: String.Index)
+            case invalid
+            case needMore
+        }
+
+        /// The `(destination "title")` of an inline link, from its `(`:
+        /// spaces, tabs and line endings may surround both parts, a title
+        /// must be separated from the destination, and backslash escapes
+        /// are resolved in each.
+        func inlineLinkTail(from paren: String.Index) -> LinkTail {
+            let scalars = text.unicodeScalars
+            let unfinished: LinkTail = includeUnterminated ? .invalid : .needMore
+            var cursor = scalars.index(after: paren)
+            func skipWhitespace() {
+                while cursor < text.endIndex, scalars[cursor] == " " || scalars[cursor] == "\t" || scalars[cursor] == "\n" {
+                    cursor = scalars.index(after: cursor)
+                }
             }
-
-            var url = withoutAngles
-            var title: String? = nil
-
-            if let spaceIndex = withoutAngles.firstIndex(where: { $0 == " " || $0 == "\t" }) {
-                let urlPart = withoutAngles[..<spaceIndex]
-                let remainder = withoutAngles[spaceIndex...].trimmingCharacters(in: .whitespacesAndNewlines)
-                if let first = remainder.first, first == "\"" || first == "'" {
-                    let quote = first
-                    let contentStart = remainder.index(after: remainder.startIndex)
-                    if let closing = remainder[contentStart...].firstIndex(of: quote) {
-                        url = String(urlPart)
-                        title = String(remainder[contentStart..<closing])
+            /// The escaped character after a backslash at `cursor`, if it is
+            /// escapable; `nil` leaves the backslash as text.
+            func escaped() -> Unicode.Scalar? {
+                let next = scalars.index(after: cursor)
+                guard next < text.endIndex, Self.asciiPunctuation.contains(scalars[next]) else { return nil }
+                return scalars[next]
+            }
+            skipWhitespace()
+            guard cursor < text.endIndex else { return unfinished }
+            var destination = String.UnicodeScalarView()
+            if scalars[cursor] == "<" {
+                cursor = scalars.index(after: cursor)
+                while true {
+                    guard cursor < text.endIndex else { return unfinished }
+                    let scalar = scalars[cursor]
+                    if scalar == ">" { break }
+                    if scalar == "\n" || scalar == "<" { return .invalid }
+                    if scalar == "\\" {
+                        if scalars.index(after: cursor) == text.endIndex { return unfinished }
+                        if let escaped = escaped() {
+                            destination.append(escaped)
+                            cursor = scalars.index(cursor, offsetBy: 2)
+                            continue
+                        }
                     }
+                    destination.append(scalar)
+                    cursor = scalars.index(after: cursor)
                 }
-            }
-
-            return (url, title)
-        }
-
-        /// With `dryRun`, only reports how far the link, image or footnote
-        /// reference reaches, emitting and registering nothing: the emphasis
-        /// lookahead treats it as one unit, as the emitter does.
-        func parseBracketSequence(openBracketIndex: String.Index, treatAsImage: Bool, dryRun: Bool = false) -> BracketParseResult {
-            guard let closingBracket = text[text.unicodeScalars.index(after: openBracketIndex)..<text.endIndex].firstIndex(of: "]") else {
-                return .incomplete
-            }
-            let afterBracket = text.index(after: closingBracket)
-            let labelStart = text.unicodeScalars.index(after: openBracketIndex)
-            let label = String(text[labelStart..<closingBracket])
-            if !treatAsImage, label.hasPrefix("^") {
-                let id = String(label.dropFirst())
-                if !id.isEmpty, let registry = footnoteRegistry {
-                    if dryRun { return .handled(nextIndex: afterBracket) }
-                    let number = registry.index(for: id)
-                    let run = InlineRun(text: String(number), style: [.footnote, .superscript])
-                    appendStructured(run)
-                    consumedEnd = afterBracket
-                    plainStart = afterBracket
-                    return .handled(nextIndex: afterBracket)
-                }
-                return .literal
-            }
-            guard afterBracket < text.endIndex else {
-                // `[label]` at the end of the buffer may still be followed by
-                // `(url)` in the next chunk; wait unless flushing.
-                return includeUnterminated ? .literal : .incomplete
-            }
-            if text[afterBracket] != "(" {
-                if let reference = parseReferenceLink(label: label, afterBracket: afterBracket,
-                                                      treatAsImage: treatAsImage, dryRun: dryRun) {
-                    return reference
-                }
-                return .literal
-            }
-            var closingParen: String.Index?
-            var cursor = text.index(after: afterBracket)
-            var depth = 0
-            while cursor < text.endIndex {
-                let currentChar = text[cursor]
-                if currentChar == "(" {
-                    depth += 1
-                } else if currentChar == ")" {
-                    if depth == 0 {
-                        closingParen = cursor
-                        break
-                    } else {
+                cursor = scalars.index(after: cursor)
+            } else {
+                var depth = 0
+                while cursor < text.endIndex {
+                    let scalar = scalars[cursor]
+                    if scalar == "\\" {
+                        if scalars.index(after: cursor) == text.endIndex { return unfinished }
+                        if let escaped = escaped() {
+                            destination.append(escaped)
+                            cursor = scalars.index(cursor, offsetBy: 2)
+                            continue
+                        }
+                    }
+                    if scalar.value <= 0x20 || scalar.value == 0x7F { break }
+                    if scalar == "(" {
+                        depth += 1
+                        if depth > 32 { return .invalid }
+                    } else if scalar == ")" {
+                        if depth == 0 { break }
                         depth -= 1
                     }
+                    destination.append(scalar)
+                    cursor = scalars.index(after: cursor)
+                }
+                guard cursor < text.endIndex else { return unfinished }
+                if depth != 0 { return .invalid }
+            }
+            let afterDestination = cursor
+            skipWhitespace()
+            guard cursor < text.endIndex else { return unfinished }
+            var title: String?
+            let opening = scalars[cursor]
+            if opening != ")" {
+                guard cursor > afterDestination, opening == "\"" || opening == "'" || opening == "(" else { return .invalid }
+                let closing: Unicode.Scalar = opening == "(" ? ")" : opening
+                var content = String.UnicodeScalarView()
+                cursor = scalars.index(after: cursor)
+                while true {
+                    guard cursor < text.endIndex else { return unfinished }
+                    let scalar = scalars[cursor]
+                    if scalar == closing { break }
+                    if opening == "(", scalar == "(" { return .invalid }
+                    if scalar == "\\" {
+                        if scalars.index(after: cursor) == text.endIndex { return unfinished }
+                        if let escaped = escaped() {
+                            content.append(escaped)
+                            cursor = scalars.index(cursor, offsetBy: 2)
+                            continue
+                        }
+                    }
+                    content.append(scalar)
+                    cursor = scalars.index(after: cursor)
+                }
+                title = String(content)
+                cursor = scalars.index(after: cursor)
+                skipWhitespace()
+                guard cursor < text.endIndex else { return unfinished }
+                guard scalars[cursor] == ")" else { return .invalid }
+            }
+            return .link(end: scalars.index(after: cursor), destination: String(destination), title: title)
+        }
+
+        /// A link label (`[ref]`) is at most 999 characters, has a
+        /// non-whitespace character, and holds no unescaped bracket.
+        func isLinkLabel(_ label: Substring) -> Bool {
+            var count = 0
+            var escaping = false
+            var blank = true
+            for scalar in label.unicodeScalars {
+                count += 1
+                if count > 999 { return false }
+                if escaping {
+                    escaping = false
+                } else if scalar == "\\" {
+                    escaping = true
+                } else if scalar == "[" || scalar == "]" {
+                    return false
+                }
+                if !Self.isWhitespace(scalar) { blank = false }
+            }
+            return !blank
+        }
+
+        /// The link label at the `[` at `open`; an empty one is `[]`.
+        func linkLabel(at open: String.Index) -> LabelScan {
+            let scalars = text.unicodeScalars
+            let start = scalars.index(after: open)
+            var cursor = start
+            var count = 0
+            while cursor < text.endIndex {
+                let scalar = scalars[cursor]
+                if scalar == "]" {
+                    let label = text[start..<cursor]
+                    guard label.isEmpty || isLinkLabel(label) else { return .invalid }
+                    return .label(label, end: scalars.index(after: cursor))
+                }
+                if scalar == "[" { return .invalid }
+                if scalar == "\\" {
+                    cursor = scalars.index(after: cursor)
+                    count += 1
+                    if cursor == text.endIndex { break }
+                }
+                count += 1
+                if count > 999 { return .invalid }
+                cursor = scalars.index(after: cursor)
+            }
+            return includeUnterminated ? .invalid : .needMore
+        }
+
+        /// CommonMark's brackets from the opener at `start` on: each `]`
+        /// closes the nearest open bracket, which becomes a link or image
+        /// when an inline destination or a defined label follows it, and a
+        /// link deactivates the link openers before it (no links in links).
+        /// Code spans, autolinks, raw HTML, math and tags bind tighter, and
+        /// an escaped bracket is text. A decision depends only on the text up
+        /// to the end of its construct, so once made it is final; one that
+        /// needs text yet to arrive is `needMore`.
+        func bracket(at start: String.Index) -> BracketScan {
+            if let known = bracketOutcomes[start] { return .decided(known) }
+            let scalars = text.unicodeScalars
+            struct Opener {
+                var position: String.Index
+                var image: Bool
+                var active = true
+            }
+            func opener(at position: String.Index) -> (Opener, contentStart: String.Index) {
+                let image = scalars[position] == "!"
+                let bracket = image ? scalars.index(after: position) : position
+                return (Opener(position: position, image: image), scalars.index(after: bracket))
+            }
+            func closing(_ opener: Opener, at close: String.Index) -> BracketScan {
+                let bracket = opener.image ? scalars.index(after: opener.position) : opener.position
+                let label = text[scalars.index(after: bracket)..<close]
+                if !opener.image, label.hasPrefix("^") {
+                    guard label.count > 1, footnoteRegistry != nil else { return .decided(.literal) }
+                    return .decided(.footnote(end: scalars.index(after: close), id: String(label.dropFirst())))
+                }
+                func made(end: String.Index, destination: String, title: String?) -> BracketScan {
+                    .decided(opener.image ? .image(close: close, end: end, source: destination, title: title)
+                                          : .link(close: close, end: end, url: destination))
+                }
+                func reference(_ label: Substring, end: String.Index) -> BracketScan {
+                    guard isLinkLabel(label), let definition = linkReferences?.resolve(label: String(label)) else {
+                        return .decided(.literal)
+                    }
+                    return made(end: end, destination: definition.url, title: definition.title)
+                }
+                let after = scalars.index(after: close)
+                guard after < text.endIndex else {
+                    return includeUnterminated ? reference(label, end: after) : .needMore
+                }
+                if scalars[after] == "(" {
+                    switch inlineLinkTail(from: after) {
+                    case .link(let end, let destination, let title):
+                        return made(end: end, destination: destination, title: title)
+                    case .needMore:
+                        return .needMore
+                    case .invalid:
+                        break
+                    }
+                } else if scalars[after] == "[" {
+                    switch linkLabel(at: after) {
+                    case .label(let inner, let end):
+                        // `[text][]` takes its label from the text.
+                        return reference(inner.isEmpty ? label : inner, end: end)
+                    case .needMore:
+                        return .needMore
+                    case .invalid:
+                        break
+                    }
+                }
+                // A shortcut reference: the text is the label.
+                return reference(label, end: after)
+            }
+
+            var stack: [Opener]
+            var cursor: String.Index
+            // A scan saved by an earlier chunk resumes where it stopped.
+            if let saved = bracketProgress, saved.start == utf8Offset(of: start) {
+                stack = saved.openers.map { Opener(position: position(ofUTF8: $0.offset), image: $0.image, active: $0.active) }
+                cursor = position(ofUTF8: saved.cursor)
+                bracketProgress = nil
+            } else {
+                let (first, content) = opener(at: start)
+                stack = [first]
+                cursor = content
+            }
+            func wait(at stop: String.Index) -> BracketScan {
+                bracketProgress = BracketProgress(
+                    start: utf8Offset(of: start),
+                    openers: stack.map { BracketProgress.Opener(offset: utf8Offset(of: $0.position), image: $0.image, active: $0.active) },
+                    cursor: utf8Offset(of: stop))
+                return .needMore
+            }
+            while cursor < text.endIndex {
+                if let syntax = syntaxInsideGrapheme(at: cursor) {
+                    cursor = syntax
+                    continue
+                }
+                if let prefix = matchingTagPrefix(at: cursor) {
+                    switch parseTag(at: cursor, prefix: prefix, dryRun: true) {
+                    case .handled(let next):
+                        cursor = next
+                        continue
+                    case .needMore:
+                        return wait(at: cursor)
+                    case .literal:
+                        break
+                    }
+                }
+                if let math = mathScan(at: cursor) {
+                    switch math {
+                    case .end(let end): cursor = end
+                    case .needMore: return wait(at: cursor)
+                    case .none: cursor = mathMarkerEnd(at: cursor)
+                    }
+                    continue
+                }
+                let scalar = scalars[cursor]
+                if scalar == "\\" {
+                    let escaped = scalars.index(after: cursor)
+                    if escaped == text.endIndex {
+                        if !includeUnterminated { return wait(at: cursor) }
+                        cursor = escaped
+                        continue
+                    }
+                    cursor = text.index(after: escaped)
+                    continue
+                }
+                if scalar == "`" {
+                    switch codeSpan(at: cursor) {
+                    case .closed(_, let end): cursor = end
+                    case .needMore: return wait(at: cursor)
+                    case .unclosed(let runEnd): cursor = runEnd
+                    }
+                    continue
+                }
+                if scalar == "<" {
+                    switch elementScan(at: cursor) {
+                    case .end(let end)?:
+                        cursor = end
+                        continue
+                    case .needMore?:
+                        return wait(at: cursor)
+                    case .none?, nil:
+                        break
+                    }
+                    switch angleSpan(at: cursor) {
+                    case .autolink(let end, _, _), .html(let end): cursor = end
+                    case .needMore: return wait(at: cursor)
+                    case .none: cursor = text.index(after: cursor)
+                    }
+                    continue
+                }
+                if scalar == "[" || (scalar == "!" && scalars.index(after: cursor) < text.endIndex
+                                     && scalars[scalars.index(after: cursor)] == "[") {
+                    let (inner, content) = opener(at: cursor)
+                    stack.append(inner)
+                    cursor = content
+                    continue
+                }
+                if scalar == "]" {
+                    let top = stack[stack.count - 1]
+                    var outcome = BracketOutcome.literal
+                    if top.active {
+                        switch closing(top, at: cursor) {
+                        case .needMore: return wait(at: cursor)
+                        case .decided(let decided): outcome = decided
+                        }
+                    }
+                    stack.removeLast()
+                    bracketOutcomes[top.position] = outcome
+                    if stack.isEmpty { return .decided(outcome) }
+                    switch outcome {
+                    case .link(_, let end, _):
+                        for index in stack.indices where !stack[index].image { stack[index].active = false }
+                        cursor = end
+                    case .image(_, let end, _, _), .footnote(let end, _):
+                        cursor = end
+                    case .literal:
+                        cursor = scalars.index(after: cursor)
+                    }
+                    // The first opener can no longer be a link once one forms
+                    // inside it; neither can the other inactive openers.
+                    if !stack[0].active {
+                        for opener in stack where !opener.active { bracketOutcomes[opener.position] = .literal }
+                        return .decided(.literal)
+                    }
+                    continue
                 }
                 cursor = text.index(after: cursor)
             }
-            guard let closing = closingParen else {
-                return .incomplete
-            }
-            if dryRun { return .handled(nextIndex: text.index(after: closing)) }
-            let urlStart = text.index(after: afterBracket)
-            let (destination, title) = splitDestinationAndTitle(String(text[urlStart..<closing]))
-
-            if treatAsImage {
-                appendStructured(InlineRun(text: label, style: [.image], image: InlineImage(source: destination, title: title)))
-            } else {
-                appendStructured(InlineRun(text: label, style: [.link], linkURL: destination))
-            }
-
-            let afterClose = text.index(after: closing)
-            consumedEnd = afterClose
-            plainStart = afterClose
-            return .handled(nextIndex: afterClose)
+            guard includeUnterminated else { return wait(at: text.endIndex) }
+            for opener in stack { bracketOutcomes[opener.position] = .literal }
+            return .decided(.literal)
         }
 
-        func parseReferenceLink(label: String,
-                                afterBracket: String.Index,
-                                treatAsImage: Bool,
-                                dryRun: Bool = false) -> BracketParseResult? {
-            guard let store = linkReferences else { return nil }
-            var referenceLabel = label
-            var nextIndex = afterBracket
-
-            if text[afterBracket] == "[" {
-                guard let closing = text[text.index(after: afterBracket)..<text.endIndex].firstIndex(of: "]") else {
-                    return .incomplete
-                }
-                let innerStart = text.index(after: afterBracket)
-                let innerLabel = String(text[innerStart..<closing])
-                if !innerLabel.isEmpty {
-                    referenceLabel = innerLabel
-                }
-                nextIndex = text.index(after: closing)
+        /// Opens the link or image `outcome` describes (its text is parsed
+        /// next) or emits the footnote reference, and returns where parsing
+        /// continues; `nil` when the opener is text.
+        func open(_ outcome: BracketOutcome, at opener: String.Index) -> String.Index? {
+            let scalars = text.unicodeScalars
+            switch outcome {
+            case .literal:
+                return nil
+            case .footnote(let end, let id):
+                guard let registry = footnoteRegistry else { return nil }
+                appendStructured(InlineRun(text: String(registry.index(for: id)), style: [.footnote, .superscript]))
+                consumedEnd = end
+                plainStart = end
+                return end
+            case .link(let close, let end, let url):
+                settleReplacements()
+                contexts.append(BracketContext(close: close, end: end, image: nil,
+                                               runsStart: runs.count, floor: coalesceFloor, outerLinkURL: contextLinkURL))
+                contextLinkURL = url
+            case .image(let close, let end, let source, let title):
+                settleReplacements()
+                contexts.append(BracketContext(close: close, end: end,
+                                               image: InlineImage(source: source, title: title),
+                                               runsStart: runs.count, floor: coalesceFloor, outerLinkURL: contextLinkURL))
+                imageDepth += 1
             }
+            coalesceFloor = runs.count
+            let bracket = scalars[opener] == "!" ? scalars.index(after: opener) : opener
+            let content = scalars.index(after: bracket)
+            consumedEnd = content
+            plainStart = content
+            return content
+        }
 
-            guard let definition = store.resolve(label: referenceLabel), !definition.url.isEmpty else {
-                return .literal
+        /// Ends the innermost link or image at its `]`: an image becomes one
+        /// run whose text is the plain text of its content (the outermost
+        /// image does this for any inside it). Parsing continues after it.
+        func closeContext() -> String.Index {
+            let context = contexts.removeLast()
+            flushPlain(upTo: context.close)
+            settleReplacements()
+            coalesceFloor = context.floor
+            contextLinkURL = context.outerLinkURL
+            if context.image != nil { imageDepth -= 1 }
+            if let image = context.image, imageDepth == 0 {
+                let alt = runs[context.runsStart...].map(\.text).joined()
+                runs.removeSubrange(context.runsStart...)
+                appendStructured(InlineRun(text: alt, style: [.image], image: image))
             }
-            if dryRun { return .handled(nextIndex: nextIndex) }
-
-            if treatAsImage {
-                appendStructured(InlineRun(text: label, style: [.image], image: InlineImage(source: definition.url, title: definition.title)))
-            } else {
-                appendStructured(InlineRun(text: label, style: [.link], linkURL: definition.url))
-            }
-            consumedEnd = nextIndex
-            plainStart = nextIndex
-            return .handled(nextIndex: nextIndex)
+            consumedEnd = context.end
+            plainStart = context.end
+            return context.end
         }
 
         enum AutolinkParseResult {
@@ -2053,6 +2400,11 @@ struct InlineParser {
         }
 
         parsing: while index < text.endIndex {
+            // The text of the innermost link or image ends at its `]`.
+            if mathState == nil, let context = contexts.last, index >= context.close {
+                index = closeContext()
+                continue parsing
+            }
             // Math delimiters are ASCII. Scan their bytes directly so a saved
             // cursor remains valid when a new chunk extends the last grapheme.
             // Only a trailing escape or partial closer stays unresolved.
@@ -2156,6 +2508,10 @@ struct InlineParser {
             // when the following scalar joins a marker's grapheme cluster.
             let bytes = text.utf8
             let byte = bytes[index]
+            if !contexts.isEmpty, case .none? = mathScan(at: index) {
+                index = mathMarkerEnd(at: index)
+                continue parsing
+            }
             if byte == 0x24 {
                 var length = 1
                 var cursor = bytes.index(after: index)
@@ -2244,50 +2600,44 @@ struct InlineParser {
                         break parsing
                     }
                 }
-                guard text[nextIndex] == "[" else {
+                guard text.unicodeScalars[nextIndex] == "[" else {
                     index = nextIndex
                     continue parsing
                 }
                 flushPlain(upTo: index)
-                switch parseBracketSequence(openBracketIndex: nextIndex, treatAsImage: true) {
-                case .handled(let next):
-                    index = next
-                case .literal:
-                    plainStart = index
-                    index = nextIndex
-                case .incomplete:
-                    if includeUnterminated {
+                switch bracket(at: index) {
+                case .decided(let outcome):
+                    if let next = open(outcome, at: index) {
+                        index = next
+                    } else {
+                        // `![` that is not an image may still open a link.
                         plainStart = index
                         index = nextIndex
-                        continue parsing
-                    } else {
-                        consumedAll = false
-                        break parsing
                     }
+                case .needMore:
+                    consumedAll = false
+                    break parsing
                 }
             case "[":
                 flushPlain(upTo: index)
-                switch parseBracketSequence(openBracketIndex: index, treatAsImage: false) {
-                case .handled(let next):
-                    index = next
-                case .literal:
-                    plainStart = index
-                    index = text.index(after: index)
-                case .incomplete:
-                    if includeUnterminated {
+                switch bracket(at: index) {
+                case .decided(let outcome):
+                    if let next = open(outcome, at: index) {
+                        index = next
+                    } else {
                         plainStart = index
                         index = text.index(after: index)
-                        continue parsing
-                    } else {
-                        consumedAll = false
-                        break parsing
                     }
+                case .needMore:
+                    consumedAll = false
+                    break parsing
                 }
             case "*", "_":
                 let delimiter = ch
-                if let plan = emphasisPlan {
+                if let plan = emphasisPlan, contexts.isEmpty {
                     // Emphasis content: the enclosing text already paired its
-                    // delimiters. Each one opens or closes the style of its
+                    // delimiters (but not those in a link's text, which it
+                    // skipped). Each one opens or closes the style of its
                     // pair, or is text.
                     switch plan[utf8Offset(of: index)] {
                     case .open(let pair, let length, let style)?:
@@ -2402,7 +2752,7 @@ struct InlineParser {
                 let nextIndex = text.unicodeScalars.index(after: index)
                 if nextIndex < text.endIndex && text[nextIndex] == "~" {
                     let searchStart = text.index(after: nextIndex)
-                    if let closeAfter = findStrikethroughClosing(in: text, from: searchStart) {
+                    if let closeAfter = findStrikethroughClosing(in: text, from: searchStart, before: contexts.last?.close) {
                         // Flush any accumulated plain text before the styled run
                         flushPlain(upTo: index)
 
@@ -2423,7 +2773,7 @@ struct InlineParser {
                         index = closeAfter
                         plainStart = closeAfter
                         continue parsing
-                    } else if !includeUnterminated {
+                    } else if !includeUnterminated, contexts.isEmpty {
                         // Streaming: we haven’t seen the closing "~~" yet. Emit all unambiguous
                         // plain text *before* the opener, then pause so we don’t emit provisional runs.
                         flushPlain(upTo: index)
@@ -2474,7 +2824,8 @@ struct InlineParser {
                 index = afterClose
                 plainStart = afterClose
             case "h", "H", "w", "W":
-                if let result = parseAutolink(at: index) {
+                // No bare URL is linked inside a link's or image's text.
+                if contexts.isEmpty, let result = parseAutolink(at: index) {
                     switch result {
                     case .handled(let nextIndex, let display, let url):
                         flushPlain(upTo: index)
@@ -2590,6 +2941,7 @@ struct InlineParser {
         if let scan = emphasisScan, scan.targetOffset != utf8Offset(of: consumedEnd) {
             emphasisScan = nil
         }
+        bracketProgress = bracketProgress?.shifted(by: utf8Offset(of: consumedEnd))
 
         if consumedEnd > text.startIndex {
             let consumedBytes = text.utf8.distance(from: text.utf8.startIndex, to: consumedEnd)
@@ -2712,18 +3064,19 @@ struct InlineParser {
     }
     
     // MARK: - Strikethrough helper (GFM)
-    private func findStrikethroughClosing(in s: String, from: String.Index) -> String.Index? {
+    private func findStrikethroughClosing(in s: String, from: String.Index, before limit: String.Index? = nil) -> String.Index? {
+        let limit = limit ?? s.endIndex
         var i = from
-        while i < s.endIndex {
+        while i < limit {
             let ch = s[i]
             if ch == "\\" { // skip escaped next char
                 i = s.index(after: i)
-                if i < s.endIndex { i = s.index(after: i) }
+                if i < limit { i = s.index(after: i) }
                 continue
             }
             if ch == "~" {
                 let n = s.index(after: i)
-                if n < s.endIndex, s[n] == "~" {
+                if n < limit, s[n] == "~" {
                     return s.index(after: n) // index after the closing "~~"
                 }
             }
