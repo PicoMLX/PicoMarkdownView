@@ -351,9 +351,14 @@ struct MarkdownTokenizerGoldenTests {
                     plain("\n"),
                     plain("resize in browser"),
                     plain(".\n")
-                ]),
-                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+                ])
             ],
+            // A blank line does not end an item: an indented line may still
+            // continue it. The end of the text does.
+            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: nil))],
             openBlocks: []
         ), state: &state)
     }
@@ -543,9 +548,12 @@ struct MarkdownTokenizerGoldenTests {
         let second = await tokenizer.feed("ond item\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("ond item"), plain("\n")]),
-                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("ond item"), plain("\n")])
             ],
+            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: nil))],
             openBlocks: []
         ), state: &state)
     }
@@ -589,11 +597,14 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(
                     .listItem(ordered: false, index: nil, task: nil),
                     runs: [plain("Sibling"), plain("\n")]
-                ),
-                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+                )
             ]
         ), state: &state)
-        #expect(normalizeOpenBlocks(third.openBlocks).isEmpty)
+        #expect(normalizeOpenBlocks(third.openBlocks) == [.listItem(ordered: false, index: nil, task: nil)])
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: nil))],
+            openBlocks: []
+        ), state: &state)
     }
 
     @Test("Table with delayed separator")
@@ -1776,9 +1787,12 @@ struct MarkdownTokenizerGoldenTests {
         // Expect the wrapped line to remain in the same list item
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [ plain("inuation line"), plain("\n") ]),
-                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [ plain("inuation line"), plain("\n") ])
             ],
+            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: nil))],
             openBlocks: []
         ), state: &state)
     }
@@ -1803,9 +1817,12 @@ struct MarkdownTokenizerGoldenTests {
         let second = await tokenizer.feed("ond\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: true, index: 2, task: nil), runs: [ plain("ond"), plain("\n") ]),
-                .blockEnd(.listItem(ordered: true, index: 2, task: nil))
+                .blockAppendInline(.listItem(ordered: true, index: 2, task: nil), runs: [ plain("ond"), plain("\n") ])
             ],
+            openBlocks: [.listItem(ordered: true, index: 2, task: nil)]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: true, index: 2, task: nil))],
             openBlocks: []
         ), state: &state)
     }
@@ -1822,9 +1839,12 @@ struct MarkdownTokenizerGoldenTests {
                 .blockAppendInline(.listItem(ordered: false, index: nil, task: .init(checked: false)), runs: [ plain("Task one"), plain("\n") ]),
                 .blockEnd(.listItem(ordered: false, index: nil, task: .init(checked: false))),
                 .blockStart(.listItem(ordered: false, index: nil, task: .init(checked: true))),
-                .blockAppendInline(.listItem(ordered: false, index: nil, task: .init(checked: true)), runs: [ plain("Task two"), plain("\n") ]),
-                .blockEnd(.listItem(ordered: false, index: nil, task: .init(checked: true)))
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: .init(checked: true)), runs: [ plain("Task two"), plain("\n") ])
             ],
+            openBlocks: [.listItem(ordered: false, index: nil, task: .init(checked: true))]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: .init(checked: true)))],
             openBlocks: []
         ), state: &state)
     }
@@ -1849,9 +1869,12 @@ struct MarkdownTokenizerGoldenTests {
         let second = await tokenizer.feed(" line\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: false, index: nil, task: .init(checked: true)), runs: [ plain(" line"), plain("\n") ]),
-                .blockEnd(.listItem(ordered: false, index: nil, task: .init(checked: true)))
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: .init(checked: true)), runs: [ plain(" line"), plain("\n") ])
             ],
+            openBlocks: [.listItem(ordered: false, index: nil, task: .init(checked: true))]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: .init(checked: true)))],
             openBlocks: []
         ), state: &state)
     }
@@ -2309,9 +2332,12 @@ struct MarkdownTokenizerGoldenTests {
         assertChunk(second, matches: .init(
             events: [
                 .blockStart(.listItem(ordered: false, index: nil, task: nil)),
-                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("Item"), plain("\n")]),
-                .blockEnd(.listItem(ordered: false, index: nil, task: nil))
+                .blockAppendInline(.listItem(ordered: false, index: nil, task: nil), runs: [plain("Item"), plain("\n")])
             ],
+            openBlocks: [.listItem(ordered: false, index: nil, task: nil)]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: false, index: nil, task: nil))],
             openBlocks: []
         ), state: &state)
     }
@@ -2329,12 +2355,16 @@ struct MarkdownTokenizerGoldenTests {
         let kinds: ([BlockSummary]) -> [String] = { blocks in
             blocks.map { if case .inline(let kind, _) = $0 { return kind } else { return "other" } }
         }
+        // Indented to the item's content, the heading and the line after it
+        // are blocks of the item (CommonMark); they end before it does.
         let indented = summarizeBlocks(from: await collectEvents(chunks: ["- item\n  # heading\n  continuation\n\n"]))
-        #expect(kinds(indented) == ["listItem:unordered:_:plain"])
-        if case .inline(_, let runs)? = indented.first {
-            #expect(runs.map(\.text).joined().contains("heading"))
-            #expect(runs.map(\.text).joined().contains("continuation"))
+        #expect(kinds(indented) == ["heading:1", "paragraph", "listItem:unordered:_:plain"])
+        let texts = indented.map { block -> String in
+            if case .inline(_, let runs) = block { return runs.map(\.text).joined() }
+            return ""
         }
+        #expect(texts.first == "heading")
+        #expect(texts.dropFirst().first == "continuation")
         let outdented = summarizeBlocks(from: await collectEvents(chunks: ["- item\n# heading\n\n"]))
         #expect(kinds(outdented) == ["listItem:unordered:_:plain", "heading:1"])
     }
@@ -2344,20 +2374,21 @@ struct MarkdownTokenizerGoldenTests {
         let tokenizer = MarkdownTokenizer()
         var state = EventNormalizationState()
 
+        // The spaces after the marker set the item's content column, so the
+        // item opens with its first content character, as `* ` does.
         let first = await tokenizer.feed("1. ")
-        assertChunk(first, matches: .init(
-            events: [
-                .blockStart(.listItem(ordered: true, index: 1, task: nil))
-            ],
-            openBlocks: [.listItem(ordered: true, index: 1, task: nil)]
-        ), state: &state)
+        assertChunk(first, matches: .init(events: [], openBlocks: []), state: &state)
 
         let second = await tokenizer.feed("Item\n\n")
         assertChunk(second, matches: .init(
             events: [
-                .blockAppendInline(.listItem(ordered: true, index: 1, task: nil), runs: [plain("Item"), plain("\n")]),
-                .blockEnd(.listItem(ordered: true, index: 1, task: nil))
+                .blockStart(.listItem(ordered: true, index: 1, task: nil)),
+                .blockAppendInline(.listItem(ordered: true, index: 1, task: nil), runs: [plain("Item"), plain("\n")])
             ],
+            openBlocks: [.listItem(ordered: true, index: 1, task: nil)]
+        ), state: &state)
+        assertChunk(await tokenizer.finish(), matches: .init(
+            events: [.blockEnd(.listItem(ordered: true, index: 1, task: nil))],
             openBlocks: []
         ), state: &state)
     }

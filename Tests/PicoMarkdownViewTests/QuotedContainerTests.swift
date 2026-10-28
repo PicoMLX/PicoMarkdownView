@@ -790,9 +790,13 @@ struct QuotedContainerTests {
     func indentedRuleKeepsEnclosingItem() async throws {
         let top = await parse(chunks: [Self.containerDocuments[45]])
         let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
-        #expect(top.blocks.map(\.kind) == [item, item, .horizontalRule])
-        #expect(text(of: top.blocks[0]) == "parent\ncontinuation\n", "the continuation stays with the parent item and the rule adds no newline")
-        #expect(top.blocks.last?.parentID == top.blocks.first?.id, "the rule belongs to the enclosing item")
+        // Outside a quote, list items hold blocks (CommonMark): the text after
+        // the rule is a paragraph of the parent item, after the rule.
+        #expect(top.blocks.map(\.kind) == [item, item, .horizontalRule, .paragraph])
+        #expect(text(of: top.blocks[0]) == "parent\n", "the rule adds no newline")
+        #expect(top.blocks[2].parentID == top.blocks.first?.id, "the rule belongs to the enclosing item")
+        #expect(top.blocks[3].parentID == top.blocks.first?.id, "so does the continuation")
+        #expect(text(of: top.blocks[3]) == "continuation")
         let quoted = await parse(chunks: [Self.containerDocuments[46]])
         #expect(quoted.blocks.map(\.kind) == [.blockquote, item, item, .horizontalRule])
         #expect(text(of: quoted.blocks[1]) == "parent\ncontinuation\n")
