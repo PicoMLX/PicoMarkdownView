@@ -238,6 +238,13 @@ struct StreamingParser {
     private var lineHTMLPending = false
     private var events: [BlockEvent] = []
 
+    /// The current line is blank to an HTML block: only whitespace inside
+    /// its containers. A line some of whose text has gone out is not, even
+    /// once the look-behind budget has trimmed all of it but whitespace.
+    private var htmlLineIsBlank: Bool {
+        !lineEmittedContent && lineContent.allSatisfy { $0 == " " || $0 == "\t" }
+    }
+
     /// The current line without its blockquote prefix.
     private var lineContent: Substring {
         lineQuotePrefix > 0 ? lineBuffer.dropFirst(lineQuotePrefix) : lineBuffer[...]
@@ -322,7 +329,7 @@ struct StreamingParser {
         case .htmlBlock:
             // Every line ends with its newline, except a blank line that ends
             // the block (or, unmarked, the quote around it).
-            let blank = lineContent.allSatisfy { $0 == " " || $0 == "\t" }
+            let blank = htmlLineIsBlank
             if blank, ctx.htmlEnd == .blankLine { return false }
             if blank, lineQuotePrefix == 0, contextStack.contains(where: { $0.kind == .blockquote }) { return false }
             return true
@@ -1319,8 +1326,10 @@ struct StreamingParser {
         }
         let line = droppingTabbedIndent(original, columnBase: columnBase).line
         if detectHeading(line, isLineComplete: isLineComplete) != nil { return true }
-        // Only the HTML blocks that may interrupt a paragraph (not a lone tag).
-        if case .start = htmlBlockStart(line[...], isLineComplete: isLineComplete, interruptingParagraph: true) { return true }
+        // A lone tag starts a block but does not interrupt a paragraph.
+        if case .start = htmlBlockStart(line[...], isLineComplete: isLineComplete, interruptingParagraph: interruptingParagraph) {
+            return true
+        }
         // `$$x$$` is display math only if nothing follows on the line
         // (`$$x$$y` is a paragraph), so math waits for the complete line
         // like fences, rules and tables.
@@ -1373,7 +1382,10 @@ struct StreamingParser {
             // The line inside its containers is the block's, whitespace and
             // all, but a blank line that ends the block is not.
             if emittedCount < lineQuotePrefix { emittedCount = min(lineBuffer.count, lineQuotePrefix) }
-            if isLineComplete, ctx.htmlEnd == .blankLine, lineContent.allSatisfy({ $0 == " " || $0 == "\t" }) { return }
+            if isLineComplete, htmlLineIsBlank, ctx.htmlEnd == .blankLine
+                || (lineQuotePrefix == 0 && contextStack.contains(where: { $0.kind == .blockquote })) {
+                return
+            }
         }
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         let start: String.Index
@@ -1428,7 +1440,7 @@ struct StreamingParser {
             case .htmlBlock:
                 // Whitespace alone may still be a blank line, which ends the
                 // block or its quote; it goes out once text follows it.
-                if trimmedLine.isEmpty { return }
+                if trimmedLine.isEmpty, !lineEmittedContent { return }
             default:
                 break
             }
@@ -1509,8 +1521,10 @@ struct StreamingParser {
         // the `>` prefix: a marker-only line is blank to them.
         let trimmed = lineContent.trimmingCharacters(in: .whitespaces)
         // The line that opens a list item is not blank, even when only its
-        // marker, which the container prefix strips, is on it.
-        let isBlank = trimmed.isEmpty && lineOpenedListItems == 0
+        // marker, which the container prefix strips, is on it. Nor is a line
+        // whose text has gone out, when the look-behind budget has trimmed
+        // all of it but trailing whitespace.
+        let isBlank = trimmed.isEmpty && lineOpenedListItems == 0 && !(lineEmittedContent && lineBufferTrimmed > 0)
 
         if isBlank, !force, lineQuotePrefix == 0,
            contextStack.contains(where: { $0.kind == .blockquote }) {
@@ -1620,7 +1634,7 @@ struct StreamingParser {
                     closeCurrentBlock()
                 }
             case .htmlBlock:
-                if force || ctx.htmlEndSeen || (isBlank && ctx.htmlEnd == .blankLine) {
+                if force || ctx.htmlEndSeen || (isBlank && htmlLineIsBlank && ctx.htmlEnd == .blankLine) {
                     closeCurrentBlock()
                 } else {
                     ctx.htmlLineTail.removeAll(keepingCapacity: true)
@@ -3328,7 +3342,9 @@ func htmlBlockStart(_ line: Substring, isLineComplete: Bool, interruptingParagra
             if bytes[cursor + 1] == 0x3E { return .start(.blankLine) }
         }
     }
-    guard !interruptingParagraph, !htmlRawTextNames.contains(name) else { return .none }
+    // Kind 1 has already taken `<script>` and the like; any other tag of
+    // those names (`</script>`, `<pre/>`) is a lone tag, as in cmark-gfm.
+    guard !interruptingParagraph else { return .none }
     switch htmlTagFillsLine(bytes, from: cursor, closing: closing) {
     case true: return isLineComplete ? .start(.blankLine) : .pending
     case nil: return ranOut

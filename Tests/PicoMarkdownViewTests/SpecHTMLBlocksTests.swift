@@ -38,6 +38,10 @@ struct SpecHTMLBlocksTests {
         ("<x-tag data-a='1' b=c d>  \nbody\n\n", #"[html("<x-tag data-a=\'1\' b=c d>  \nbody")]"#),
         ("<x-tag a=\"1\"/>\nbody\n\n", #"[html("<x-tag a=\"1\"/>\nbody")]"#),
         ("</x-tag>\nbody\n\n", #"[html("</x-tag>\nbody")]"#),
+        // Raw-text names are lone tags too when kind 1 has not taken them.
+        ("</script>\n**bold**\n\n", #"[html("</script>\n**bold**")]"#),
+        ("<script/>\nx\n\n", #"[html("<script/>\nx")]"#),
+        ("a\n</script>\nx\n\n", #"[p("a </script> x")]"#),
         // A lone tag needs nothing else on its line, and a tag name only
         // counts whole.
         ("<x-tag a=\"1\">tail\n\n", #"[p("<x-tag a=\"1\">tail")]"#),
@@ -52,6 +56,8 @@ struct SpecHTMLBlocksTests {
         ("Foo\n<answer>\nbar\n\n", #"[p("Foo <answer> bar")]"#),
         ("> a\n<div>\n\n", #"[quote[p("a")], html("<div>")]"#),
         ("| a |\n| --- |\n<div>\n\n", #"[other, html("<div>")]"#),
+        // A table is not a paragraph: a lone tag ends it too.
+        ("| a |\n| --- |\n<answer>\ntext\n\n", #"[other, html("<answer>\ntext")]"#),
         // Inside quotes and list items: no laziness, and further markers
         // inside the block are text.
         ("> <div>\n> x\n\nafter\n\n", #"[quote[html("<div>\nx")], p("after")]"#),
@@ -196,6 +202,22 @@ struct SpecHTMLBlocksTests {
         #expect(lone.map(\.kind) == [.htmlBlock])
         let interrupting = await parse(chunks("Foo\n<x-tag data-a=\"" + String(repeating: "a ", count: 10_000) + "\">\nx\n\n", of: 8))
         #expect(interrupting.map(\.kind) == [.paragraph], "a lone tag does not interrupt a paragraph")
+    }
+
+    @Test("A line whose text has gone out is not blank once trimming leaves only its trailing spaces")
+    func trimmedLineIsNotBlank() async {
+        let spaces = String(repeating: " ", count: 2_000)
+        let cases: [(markdown: String, shape: String)] = [
+            ("<div>\nhello" + spaces + "\n**bold**\n\n", #"[html("<div>\nhello"# + spaces + #"\n**bold**")]"#),
+            ("> <div>\n> hello" + spaces + "\n> **bold**\n\n", #"[quote[html("<div>\nhello"# + spaces + #"\n**bold**")]]"#),
+            ("- <div>\n  hello" + spaces + "\n  **bold**\n\n", #"[ul[[html("<div>\nhello"# + spaces + #"\n**bold**")]]]"#),
+            ("> hello" + spaces + "\n> more\n\n", #"[quote[p("hello more")]]"#)
+        ]
+        for (markdown, expected) in cases {
+            let whole = await parse([markdown])
+            #expect(shape(whole) == expected, Comment(rawValue: String(markdown.prefix(16)).debugDescription))
+            #expect(await parse(chunks(markdown, of: 8)) == whole, Comment(rawValue: String(markdown.prefix(16)).debugDescription))
+        }
     }
 
     @Test("An HTML block renders as its text, in the body font")
