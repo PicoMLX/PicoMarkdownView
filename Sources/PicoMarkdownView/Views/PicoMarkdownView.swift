@@ -259,12 +259,7 @@ private struct TextKit2Container: UIViewRepresentable {
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
 
     func makeUIView(context: Context) -> UITextView {
-        let view: UITextView
-        if #available(iOS 16.0, *) {
-            view = controller.makeTextKit2View(configuration: configuration)
-        } else {
-            view = controller.makeTextKit1View(configuration: configuration)
-        }
+        let view = controller.makeTextKit2View(configuration: configuration)
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
         controller.installContentSizeObserver(on: view, onContentSize)
         controller.installLinkHandler(on: view, linkHandler)
@@ -293,12 +288,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
 
     func makeNSView(context: Context) -> NSTextView {
-        let view: NSTextView
-        if #available(macOS 13.0, *) {
-            view = controller.makeTextKit2View(configuration: configuration)
-        } else {
-            view = controller.makeTextKit1View(configuration: configuration)
-        }
+        let view = controller.makeTextKit2View(configuration: configuration)
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
         controller.installContentSizeObserver(on: view, onContentSize)
         controller.installLinkHandler(on: view, linkHandler)

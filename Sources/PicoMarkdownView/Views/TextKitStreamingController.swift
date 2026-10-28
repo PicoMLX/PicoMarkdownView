@@ -17,13 +17,6 @@ final class TextKitStreamingController: ObservableObject {
     private var lastAppliedReplaceToken: UInt64 = 0
 
 #if canImport(UIKit)
-    func makeTextKit1View(configuration: PicoTextKitConfiguration) -> UITextView {
-        let textView = StreamingTextKit1View(backend: backend)
-        configure(textView, with: configuration)
-        return textView
-    }
-
-    @available(iOS 16.0, *)
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> UITextView {
         let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)
@@ -106,13 +99,6 @@ final class TextKitStreamingController: ObservableObject {
         }
     }
 #elseif canImport(AppKit)
-    func makeTextKit1View(configuration: PicoTextKitConfiguration) -> NSTextView {
-        let textView = StreamingTextKit1View(backend: backend)
-        configure(textView, with: configuration)
-        return textView
-    }
-
-    @available(macOS 13.0, *)
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)
@@ -205,28 +191,16 @@ final class TextKitStreamingController: ObservableObject {
     }
 
     func installMermaidWidthObserver(on textView: UITextView, _ observer: @escaping (CGFloat?) -> Void) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.onMermaidContentWidthChanged = observer
-        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.onMermaidContentWidthChanged = observer
-        }
+        (textView as? StreamingTextKit2View)?.onMermaidContentWidthChanged = observer
         observer(mermaidContentWidth(for: textView))
     }
 
     func installContentSizeObserver(on textView: UITextView, _ observer: ((CGSize) -> Void)?) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.onContentSizeChanged = observer
-        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.onContentSizeChanged = observer
-        }
+        (textView as? StreamingTextKit2View)?.onContentSizeChanged = observer
     }
 
     func installLinkHandler(on textView: UITextView, _ handler: ((URL, String) -> Void)?) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.linkActionHandler = handler
-        } else if #available(iOS 16.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.linkActionHandler = handler
-        }
+        (textView as? StreamingTextKit2View)?.linkActionHandler = handler
     }
 #elseif canImport(AppKit)
     func mermaidContentWidth(for textView: NSTextView) -> CGFloat? {
@@ -236,36 +210,20 @@ final class TextKitStreamingController: ObservableObject {
     }
 
     func installMermaidWidthObserver(on textView: NSTextView, _ observer: @escaping (CGFloat?) -> Void) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.onMermaidContentWidthChanged = observer
-        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.onMermaidContentWidthChanged = observer
-        }
+        (textView as? StreamingTextKit2View)?.onMermaidContentWidthChanged = observer
         observer(mermaidContentWidth(for: textView))
     }
 
     func installContentSizeObserver(on textView: NSTextView, _ observer: ((CGSize) -> Void)?) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.onContentSizeChanged = observer
-        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.onContentSizeChanged = observer
-        }
+        (textView as? StreamingTextKit2View)?.onContentSizeChanged = observer
     }
 
     func installLinkHandler(on textView: NSTextView, _ handler: ((URL, String) -> Void)?) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.linkActionHandler = handler
-        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.linkActionHandler = handler
-        }
+        (textView as? StreamingTextKit2View)?.linkActionHandler = handler
     }
 
     func installHoverHandler(on textView: NSTextView, _ handler: ((URL?, String, CGRect?) -> Void)?) {
-        if let textView = textView as? StreamingTextKit1View {
-            textView.hoverHandler = handler
-        } else if #available(macOS 13.0, *), let textView = textView as? StreamingTextKit2View {
-            textView.hoverHandler = handler
-        }
+        (textView as? StreamingTextKit2View)?.hoverHandler = handler
     }
 #endif
 }
@@ -675,12 +633,14 @@ final class TextKitStreamingBackend {
         return result
     }
 
+#if canImport(AppKit)
     fileprivate func connect(to layoutManager: NSLayoutManager) {
         for manager in storage.layoutManagers {
             storage.removeLayoutManager(manager)
         }
         storage.addLayoutManager(layoutManager)
     }
+#endif
 
     func cachedAttributedString(forBlockAt index: Int) -> NSAttributedString? {
         guard records.indices.contains(index) else { return nil }
@@ -699,7 +659,6 @@ final class TextKitStreamingBackend {
         }
     }
 #elseif canImport(AppKit)
-    @available(macOS 13.0, *)
     fileprivate func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
         // Adopt the content storage's existing text storage so the TextKit2 observation
         // chain stays intact. Writing to this storage will flow through
@@ -740,78 +699,6 @@ private extension NSRange {
 }
 
 #if canImport(UIKit)
-@MainActor
-private final class StreamingTextKit1View: UITextView, UITextViewDelegate {
-    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
-    var onContentSizeChanged: ((CGSize) -> Void)?
-    var linkActionHandler: ((URL, String) -> Void)?
-    private var lastMermaidWidthBucket: Int?
-    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
-
-    init(backend: TextKitStreamingBackend) {
-        let layoutManager = BlockquoteBarLayoutManager()
-        let textContainer = NSTextContainer(size: .zero)
-        layoutManager.addTextContainer(textContainer)
-        backend.connect(to: layoutManager)
-        super.init(frame: .zero, textContainer: textContainer)
-        delegate = self
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func textView(_ textView: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
-        TextItemLinkAction.make(for: textItem.content, range: textItem.range,
-                                in: textView, defaultAction: defaultAction, handler: linkActionHandler)
-    }
-
-    override var intrinsicContentSize: CGSize {
-        guard !isScrollEnabled else { return super.intrinsicContentSize }
-        let targetWidth = bounds.width > 0 ? bounds.width : UIScreen.main.bounds.width
-        let size = sizeThatFits(CGSize(width: targetWidth, height: .greatestFiniteMagnitude))
-        return CGSize(width: UIView.noIntrinsicMetric, height: size.height)
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil {
-            setNeedsDisplay()
-            invalidateIntrinsicContentSize()
-        }
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        notifyMermaidContentWidthIfNeeded()
-        notifyContentSizeIfNeeded()
-        if !isScrollEnabled {
-            invalidateIntrinsicContentSize()
-        }
-    }
-
-    private func notifyMermaidContentWidthIfNeeded() {
-        let insets = textContainerInset
-        let width = bounds.width - insets.left - insets.right
-        let normalized = width > 0 ? width : nil
-        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
-        guard bucket != lastMermaidWidthBucket else { return }
-        lastMermaidWidthBucket = bucket
-        onMermaidContentWidthChanged?(normalized)
-    }
-
-    private func notifyContentSizeIfNeeded() {
-        guard let onContentSizeChanged, bounds.width > 0 else { return }
-        let fitted = sizeThatFits(CGSize(width: bounds.width, height: .greatestFiniteMagnitude))
-        let newSize = CGSize(width: bounds.width, height: fitted.height)
-        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
-                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
-        lastReportedContentSize = newSize
-        onContentSizeChanged(newSize)
-    }
-}
-
-@available(iOS 16.0, *)
 @MainActor
 private final class StreamingTextKit2View: UITextView, UITextViewDelegate, NSTextLayoutManagerDelegate {
     // Nonisolated: NSTextLayoutManagerDelegate is not main-actor bound (TextKit 2
@@ -927,164 +814,6 @@ private extension UITextView {
 }
 
 #elseif canImport(AppKit)
-@MainActor
-private final class StreamingTextKit1View: NSTextView {
-    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
-    var onContentSizeChanged: ((CGSize) -> Void)?
-    var linkActionHandler: ((URL, String) -> Void)?
-    private var lastMermaidWidthBucket: Int?
-    private var lastLaidOutWidth: CGFloat = -1
-    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
-    var hoverHandler: ((URL?, String, CGRect?) -> Void)?
-    private var hoverTrackingArea: NSTrackingArea?
-    private var lastHoverLinkStart: Int?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-        let area = NSTrackingArea(rect: .zero,
-                                  options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        notifyHover(at: convert(event.locationInWindow, from: nil))
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        clearHover()
-    }
-
-    private func notifyHover(at point: NSPoint) {
-        guard let hoverHandler else { return }
-        if let info = hoverLink(at: point) {
-            guard info.linkStart != lastHoverLinkStart else { return }
-            lastHoverLinkStart = info.linkStart
-            hoverHandler(info.url, info.displayText, info.rect)
-        } else {
-            clearHover()
-        }
-    }
-
-    private func clearHover() {
-        guard lastHoverLinkStart != nil, let hoverHandler else { return }
-        lastHoverLinkStart = nil
-        hoverHandler(nil, "", nil)
-    }
-
-    init(backend: TextKitStreamingBackend) {
-        let layoutManager = BlockquoteBarLayoutManager()
-        let textContainer = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                         height: CGFloat.greatestFiniteMagnitude))
-        layoutManager.addTextContainer(textContainer)
-        backend.connect(to: layoutManager)
-        super.init(frame: .zero, textContainer: textContainer)
-        isVerticallyResizable = true
-        isHorizontallyResizable = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func clicked(onLink link: Any, at charIndex: Int) {
-        guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
-            super.clicked(onLink: link, at: charIndex)
-            return
-        }
-        handler(url, linkDisplayText(at: charIndex))
-    }
-
-    override var intrinsicContentSize: NSSize {
-        guard !isVerticallyResizable else { return super.intrinsicContentSize }
-        return sizeThatFits()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil {
-            needsLayout = true
-            needsDisplay = true
-            invalidateIntrinsicContentSize()
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        notifyMermaidContentWidthIfNeeded()
-        notifyContentSizeIfNeeded()
-        relayoutIfUsableWidthChanged()
-        invalidateIntrinsicContentSize()
-    }
-
-    private func notifyContentSizeIfNeeded() {
-        guard let onContentSizeChanged, bounds.width > 0,
-              let textContainer, let layoutManager else { return }
-        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: textContainer)
-        let used = layoutManager.usedRect(for: textContainer)
-        let newSize = CGSize(width: bounds.width, height: used.height + textContainerInset.height * 2)
-        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
-                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
-        lastReportedContentSize = newSize
-        onContentSizeChanged(newSize)
-    }
-
-    /// Force a one-shot full text relayout when the usable width changes. On a cold
-    /// launch the first blocks (notably the H1 title) can be laid out at a transient
-    /// narrow width before the split view settles; the automatic width tracking does
-    /// not always reflow that early layout, leaving the heading wrapped/stale until a
-    /// later relayout (which is why re-selecting the example "fixes" it). Re-laying out
-    /// whenever the width actually changes makes the settled width win on first render.
-    private func relayoutIfUsableWidthChanged() {
-        guard let layoutManager, let textContainer else { return }
-        let width = bounds.width
-        guard width > 0, abs(width - lastLaidOutWidth) > 0.5 else { return }
-        lastLaidOutWidth = width
-        let length = layoutManager.textStorage?.length ?? 0
-        guard length > 0 else { return }
-        layoutManager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
-                                       actualCharacterRange: nil)
-        layoutManager.ensureLayout(for: textContainer)
-        needsDisplay = true
-    }
-
-    private func sizeThatFits() -> NSSize {
-        guard let textContainer = textContainer, let layoutManager = layoutManager else {
-            return super.intrinsicContentSize
-        }
-        // Defer measurement until SwiftUI has assigned a real width. The old fallback
-        // laid out at an infinite container width when bounds.width == 0, which happens
-        // on a cold launch: ContentView auto-selects the first example in .onAppear, so
-        // the text view starts receiving streamed edits before its frame is set. Measuring
-        // (and drawing) at infinite width mis-sizes the content and leaves stale glyph
-        // fragments stacked at the top. Reporting "no intrinsic metric" here is corrected
-        // automatically — layout()/viewDidMoveToWindow() invalidate the intrinsic size as
-        // soon as a real width arrives.
-        guard bounds.width > 0 else {
-            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-        }
-        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: textContainer)
-        let used = layoutManager.usedRect(for: textContainer)
-        return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
-    }
-
-    private func notifyMermaidContentWidthIfNeeded() {
-        let width = bounds.width - textContainerInset.width * 2
-        let normalized = width > 0 ? width : nil
-        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
-        guard bucket != lastMermaidWidthBucket else { return }
-        lastMermaidWidthBucket = bucket
-        onMermaidContentWidthChanged?(normalized)
-    }
-}
-
-@available(macOS 13.0, *)
 @MainActor
 private final class StreamingTextKit2View: NSTextView {
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
