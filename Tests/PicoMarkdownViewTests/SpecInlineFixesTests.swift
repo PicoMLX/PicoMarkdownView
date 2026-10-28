@@ -96,6 +96,9 @@ struct SpecInlineFixesTests {
         // point; it does not hide the syntax.
         ("**a *\u{301}b* c**\n\n", "<b>a </b><b><i>\u{301}b</i></b><b> c</b>"),
         ("\\\u{301}*a*\n\n", "\\\u{301}<i>a</i>"),
+        // A star pairs only with a star, whatever follows it.
+        ("*\u{301}a_\n\n", "*\u{301}a_"),
+        ("_\u{301}a*\n\n", "_\u{301}a*"),
         ("a \u{600}*b* c\n\n", "a \u{600}<i>b</i> c"),
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.

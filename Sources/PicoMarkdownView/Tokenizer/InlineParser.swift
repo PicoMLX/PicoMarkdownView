@@ -1159,7 +1159,7 @@ struct InlineParser {
             // One stack per delimiter character (`*`, `_`): a closer only ever
             // looks at its own character's openers.
             func slot(_ character: Character) -> Int { character == "*" ? 0 : 1 }
-            let delimiter = text[index]
+            let delimiter = syntaxCharacter(at: index)
             let targetSlot = slot(delimiter)
             // A scan saved by an earlier chunk resumes when its opener is this
             // one, now at the start of the text (see the end of `consume`).
