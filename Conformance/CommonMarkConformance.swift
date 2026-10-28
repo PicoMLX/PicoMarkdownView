@@ -18,8 +18,8 @@ import Testing
 /// lists the examples that currently differ, each with its section, so the
 /// pass count only moves up: an example that starts failing fails the suite,
 /// and an example that starts passing fails it too, until the list is updated.
-/// Deliberate deviations (raw HTML, entity decoding, setext headings) live in
-/// that list with the rest; the list is the current state of conformance.
+/// Deliberate deviations (setext headings) live in that list with the rest;
+/// the list is the current state of conformance.
 @Suite
 struct CommonMarkConformance {
     struct Example: Decodable {
@@ -212,6 +212,8 @@ indirect enum Shape: Equatable, CustomStringConvertible {
             return .quote(content)
         case .horizontalRule:
             return .rule
+        case .htmlBlock:
+            return .html(normalizeCode(block.codeText ?? ""))
         case .table:
             return .other("table")
         case .math:
@@ -250,7 +252,7 @@ indirect enum Shape: Equatable, CustomStringConvertible {
         case is ThematicBreak:
             return .rule
         case let html as HTMLBlock:
-            return .html(html.rawHTML)
+            return .html(normalizeCode(html.rawHTML))
         case is Table:
             return .other("table")
         default:

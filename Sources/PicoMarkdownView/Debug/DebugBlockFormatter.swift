@@ -35,7 +35,7 @@ struct DebugBlockFormatter {
             emitInlineRuns(block.snapshot.inlineRuns, prefix: prefix, into: &lines)
         case .math:
             emitMath(block, prefix: prefix, into: &lines)
-        case .fencedCode:
+        case .fencedCode, .htmlBlock:
             if let code = block.snapshot.codeText {
                 lines.append(prefix + "  code: \"" + sanitizeNewlines(in: code) + "\"")
             }
@@ -149,6 +149,8 @@ struct DebugBlockFormatter {
             return "table"
         case .horizontalRule:
             return "horizontalRule"
+        case .htmlBlock:
+            return "htmlBlock"
         case .unknown:
             return "unknown"
         }
