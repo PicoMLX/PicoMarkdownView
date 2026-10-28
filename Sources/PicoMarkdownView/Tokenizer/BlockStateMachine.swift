@@ -50,6 +50,10 @@ struct StreamingParser {
         /// Non-whitespace inline text has been appended: for a blockquote
         /// this means its own text acts as an open paragraph.
         var hasInlineContent: Bool = false
+        /// For a list item outside any quote: the column its content starts
+        /// at (CommonMark's W + N). A line belongs to the item when it is
+        /// indented at least this far.
+        var listContentColumn: Int = 0
         /// A heading has received content other than a possible closing
         /// sequence; decides whether trailing `#`s alone close an empty heading.
         var headingHasContent: Bool = false
@@ -104,10 +108,15 @@ struct StreamingParser {
         var ordered: Bool
         var index: Int?
         var indent: Int
+        /// The marker and the whitespace after it that precedes the content.
         var markerLength: Int
         var indentText: String
         var task: TaskListState?
         var taskMarkerLength: Int
+        /// The column the item's content starts at: the marker's, plus its
+        /// width, plus one to four spaces (one for an empty item, or when
+        /// five or more follow, which then start indented code).
+        var contentColumn: Int
 
         /// Source characters to strip before the item's text. `indent` counts
         /// columns (a tab is four) and is only for nesting comparisons.
@@ -202,6 +211,13 @@ struct StreamingParser {
     /// item's indentation alone does not count, so a later opener on the
     /// same line is still allowed.
     private var lineEmittedContent = false
+    /// The list items open outside quotes have judged the current line
+    /// (`analyzeListContainers`); a re-analysis only routes its content.
+    private var lineListResolved = false
+    /// The line lazily continues a paragraph inside a list item.
+    private var lineListLazy = false
+    /// The line opened a list item.
+    private var lineOpenedListItem = false
     /// Characters at the start of `lineBuffer` that are the enclosing
     /// blockquote's `>` markers (with their optional space). Resolved once
     /// per line by `analyzeQuotedLine`; everything after it is the line as
@@ -352,6 +368,12 @@ struct StreamingParser {
             return
         }
 
+        if !contextStack.contains(where: { $0.kind == .blockquote }),
+           contextStack.contains(where: \.kind.isListItem),
+           analyzeListContainers(isLineComplete: isLineComplete) {
+            return
+        }
+
         if contextStack.isEmpty {
             // `[^a]:` with nothing after it yet may still gain its space; the
             // prefix is published with the block, so wait one character.
@@ -411,7 +433,9 @@ struct StreamingParser {
             if let list = detectList(lineBuffer, isLineComplete: isLineComplete) {
                 openListItem(list)
                 emittedCount = min(lineBuffer.count, list.prefixLength)
-                lineAnalyzed = true
+                // What follows the marker is the item's content, which may
+                // open a block of its own (`- # Heading`, `- - nested`).
+                _ = analyzeListContent(isLineComplete: isLineComplete)
                 return
             }
 
@@ -501,6 +525,7 @@ struct StreamingParser {
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
                     lineAnalyzed = true
+                    _ = analyzeListContent(isLineComplete: isLineComplete)
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
@@ -742,6 +767,178 @@ struct StreamingParser {
         lineAnalyzed = true
     }
 
+    // MARK: List item containers
+
+    /// A line while list items are open outside any quote: CommonMark list
+    /// item containers. Each open item, outermost first, keeps the line if it
+    /// is indented to the item's content column. The first one the line does
+    /// not reach ends, with everything in it, unless the line lazily continues
+    /// an open paragraph. The rest of the line, past the deepest keeping
+    /// item's content column, is that item's content (`analyzeListContent`).
+    /// Returns `false` when no item keeps the line: it is then a top-level
+    /// line, analyzed as one. (Blank lines are handled in `finalizeLine`.)
+    private mutating func analyzeListContainers(isLineComplete: Bool) -> Bool {
+        // Once the line's container is known and some of its content has
+        // gone out, a re-analysis as the line grows has nothing to decide.
+        if lineListLazy || (lineListResolved && lineEmittedContent) {
+            lineAnalyzed = true
+            return true
+        }
+        if lineListResolved { return analyzeListContent(isLineComplete: isLineComplete) }
+        let indent = leadingColumns(lineBuffer)
+        // The indentation decides, so it must be complete.
+        guard indent.characters < lineBuffer.count else {
+            lineAnalyzed = true
+            return true
+        }
+        var deepest: Int?
+        var firstUnkept: Int?
+        for index in contextStack.indices where contextStack[index].kind.isListItem {
+            if indent.columns >= contextStack[index].listContentColumn {
+                deepest = index
+            } else {
+                firstUnkept = index
+                break
+            }
+        }
+        if let firstUnkept {
+            let rest = String(lineBuffer.dropFirst(indent.characters))
+            if let top = currentBlock, paragraphIsOpen(top) {
+                // A partial line may still turn out to open a block.
+                if !isLineComplete, shouldDeferParagraphFallback(for: rest) || listMarkerIsPending(rest) {
+                    lineDeferredUntilComplete = isDeferredUntilLineEnd(rest)
+                    lineAnalyzed = true
+                    return true
+                }
+                // The line is judged where it would go: in the deepest item
+                // that keeps it, or at the top level. There any list item
+                // starts (the item it would interrupt is the one that ended,
+                // not a paragraph); four columns more are indented code, which
+                // interrupts nothing.
+                let base = deepest.map { contextStack[$0].listContentColumn } ?? 0
+                let local = String(lineBuffer.dropFirst(characters(covering: base, in: lineBuffer).count))
+                let opensBlock = leadingColumns(local).columns < 4
+                    && (detectList(local, isLineComplete: isLineComplete) != nil
+                        || detectBlockquote(local) != nil
+                        || startsBlock(local[...], isLineComplete: isLineComplete))
+                if !opensBlock {
+                    lineListLazy = true
+                    if emittedCount < indent.characters { emittedCount = indent.characters }
+                    lineAnalyzed = true
+                    return true
+                }
+            }
+            closeContexts(above: firstUnkept - 1)
+        }
+        lineListResolved = true
+        guard deepest != nil else { return false }
+        return analyzeListContent(isLineComplete: isLineComplete)
+    }
+
+    /// The current line as content of the deepest open list item: it
+    /// continues the item's open child block (code, a paragraph) or its own
+    /// text, or starts a block of its own.
+    private mutating func analyzeListContent(isLineComplete: Bool) -> Bool {
+        guard let itemIndex = contextStack.lastIndex(where: \.kind.isListItem) else { return false }
+        let item = contextStack[itemIndex]
+        // A tab may reach past the content column; the content then starts
+        // at the column the tab reaches.
+        let (prefix, contentColumn) = characters(covering: item.listContentColumn, in: lineBuffer)
+        lineQuotePrefix = prefix
+        let content = String(lineContent)
+        if itemIndex < contextStack.count - 1, var child = currentBlock {
+            switch child.kind {
+            case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown:
+                // Their own line handling reads `lineContent`.
+                lineAnalyzed = true
+                return true
+            case .fencedCode:
+                if let codePrefix = detectIndentedCodePrefix(content) {
+                    child.linePrefixToStrip = prefix + codePrefix
+                    setCurrentBlock(child)
+                    if emittedCount < prefix + codePrefix {
+                        emittedCount = min(lineBuffer.count, prefix + codePrefix)
+                    }
+                    lineAnalyzed = true
+                    return true
+                }
+                // Less indented than code: the code ends.
+                closeCurrentBlock()
+            default:
+                break
+            }
+        }
+        let leading = content.prefix { $0 == " " || $0 == "\t" }.count
+        guard leading < content.count else {
+            lineAnalyzed = true
+            return true
+        }
+        if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
+            lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
+            lineAnalyzed = true
+            return true
+        }
+        if !lineOpenedChild, !lineEmittedContent,
+           openContainerChild(from: lineContent, columnBase: contentColumn, isLineComplete: isLineComplete) {
+            // An item opened on this line has content of its own after its
+            // marker, which may open a further block.
+            if let opened = currentBlock, opened.kind.isListItem, opened.id != item.id {
+                lineOpenedChild = false
+                return analyzeListContent(isLineComplete: isLineComplete)
+            }
+            return true
+        }
+        guard let current = currentBlock else { return false }
+        if current.kind == .paragraph {
+            // The line continues the item's paragraph child.
+        } else if current.kind.isListItem, current.hasBlockChildren {
+            // The item's own text has ended: text is a new paragraph child.
+            openInlineBlock(kind: .paragraph, prefixToStrip: prefix + leading)
+        }
+        if emittedCount < prefix + leading { emittedCount = min(lineBuffer.count, prefix + leading) }
+        lineAnalyzed = true
+        return true
+    }
+
+    /// A paragraph is open at `context`: a paragraph, or a list item whose
+    /// own text has not ended.
+    private func paragraphIsOpen(_ context: BlockContext) -> Bool {
+        if context.kind == .paragraph { return true }
+        return context.kind.isListItem && context.hasInlineContent && !context.hasBlockChildren
+    }
+
+    /// Leading whitespace of `line`: its width in columns (a tab advances
+    /// to the next multiple of four) and in characters.
+    private func leadingColumns(_ line: String) -> (columns: Int, characters: Int) {
+        var columns = 0
+        var characters = 0
+        for character in line {
+            if character == " " {
+                columns += 1
+            } else if character == "\t" {
+                columns += 4 - columns % 4
+            } else {
+                break
+            }
+            characters += 1
+        }
+        return (columns, characters)
+    }
+
+    /// Characters at the start of `line` that span `columns` columns (a tab
+    /// counts whole), or the whole line when it is narrower, and the column
+    /// they reach.
+    private func characters(covering columns: Int, in line: String) -> (count: Int, column: Int) {
+        var column = 0
+        var count = 0
+        for character in line {
+            guard column < columns else { break }
+            column += character == "\t" ? 4 - column % 4 : 1
+            count += 1
+        }
+        return (count, column)
+    }
+
     // MARK: Blockquote containers
 
     /// Handles a line while a blockquote is open: the `>` prefix is resolved
@@ -869,7 +1066,7 @@ struct StreamingParser {
             // of the line's content has been emitted, a re-analysis (the line
             // grew) must not open the same block again. Indentation consumed
             // for a list item is not content, so an opener may still follow.
-            if !lineOpenedChild, !lineEmittedContent, openQuotedChild(from: content, isLineComplete: isLineComplete) {
+            if !lineOpenedChild, !lineEmittedContent, openContainerChild(from: content, isLineComplete: isLineComplete) {
                 return true
             }
             if current.kind == .blockquote, current.hasBlockChildren,
@@ -891,18 +1088,20 @@ struct StreamingParser {
         }
     }
 
-    /// Opens a child block of the enclosing quote when `content` starts
-    /// one. A paragraph child in progress ends first; the quote itself
-    /// stays open.
-    private mutating func openQuotedChild(from content: Substring, isLineComplete: Bool) -> Bool {
+    /// Opens a child block of the enclosing quote or list item when
+    /// `content` starts one. A paragraph child in progress ends first; the
+    /// container itself stays open. `columnBase` is the column `content`
+    /// starts at, for a nested list item's columns.
+    private mutating func openContainerChild(from content: Substring, columnBase: Int = 0, isLineComplete: Bool) -> Bool {
         let line = String(content)
         let prefix = lineQuotePrefix
-        // A quoted paragraph is open (a paragraph child, or the quote's own
+        // A paragraph is open (a paragraph child, or the container's own
         // text): only a block that may interrupt a paragraph starts here.
         let paragraphIsOpen: Bool
         if let current = currentBlock {
             paragraphIsOpen = current.kind == .paragraph
                 || (current.kind == .blockquote && current.hasInlineContent && !current.hasBlockChildren)
+                || self.paragraphIsOpen(current)
         } else {
             paragraphIsOpen = false
         }
@@ -915,8 +1114,16 @@ struct StreamingParser {
                 default: break
                 }
             }
-            if let quoteIndex = contextStack.lastIndex(where: { $0.kind == .blockquote }) {
-                contextStack[quoteIndex].hasBlockChildren = true
+            if let containerIndex = contextStack.lastIndex(where: { $0.kind == .blockquote || $0.kind.isListItem }) {
+                var container = contextStack[containerIndex]
+                if container.kind.isListItem, !container.hasBlockChildren, container.hasInlineContent {
+                    // The item's own text is complete: settle its inline
+                    // parser, which children never feed.
+                    emitFinishedInlineRuns(&container)
+                    container.inlineParser = makeInlineParser()
+                }
+                container.hasBlockChildren = true
+                contextStack[containerIndex] = container
             }
         }
 
@@ -982,7 +1189,7 @@ struct StreamingParser {
                 return false
             }
             beginChild()
-            openListItem(list)
+            openListItem(list, columnBase: columnBase)
             emittedCount = min(lineBuffer.count, prefix + list.prefixLength)
             lineAnalyzed = true
             return true
@@ -1042,6 +1249,14 @@ struct StreamingParser {
     private mutating func appendDeltaIfNeeded(includeTerminatingNewline: Bool = false, isLineComplete: Bool = false) {
         guard let ctx = currentBlock else { return }
         if lineDeferredUntilComplete, !isLineComplete { return }
+        // Until a list item has judged the line by its indentation, none of
+        // it is content: the leading whitespace may still be the item's.
+        if !isLineComplete, !lineListResolved, !lineListLazy,
+           lineBuffer.allSatisfy({ $0 == " " || $0 == "\t" }),
+           !contextStack.contains(where: { $0.kind == .blockquote }),
+           contextStack.contains(where: \.kind.isListItem) {
+            return
+        }
         if ctx.kind == .table {
             emittedCount = lineBuffer.count
             return
@@ -1180,7 +1395,9 @@ struct StreamingParser {
         // Inside a quote, the children judge the line by its content after
         // the `>` prefix: a marker-only line is blank to them.
         let trimmed = lineContent.trimmingCharacters(in: .whitespaces)
-        let isBlank = trimmed.isEmpty
+        // The line that opens a list item is not blank, even when only its
+        // marker, which the container prefix strips, is on it.
+        let isBlank = trimmed.isEmpty && !lineOpenedListItem
 
         if isBlank, !force, lineQuotePrefix == 0,
            contextStack.contains(where: { $0.kind == .blockquote }) {
@@ -1225,7 +1442,20 @@ struct StreamingParser {
                     trimTrailingSpace(for: &ctx)
                     setCurrentBlock(ctx)
                 }
-                if isBlank || force {
+                if isBlank, !force, !contextStack.contains(where: { $0.kind == .blockquote }) {
+                    // An item stays open across a blank line: the next line
+                    // decides by its indentation. Its own text has ended. An
+                    // item still empty ends: it begins with at most one blank
+                    // line (CommonMark).
+                    if !ctx.hasInlineContent, !ctx.hasBlockChildren {
+                        closeCurrentBlock()
+                    } else if !ctx.hasBlockChildren {
+                        emitFinishedInlineRuns(&ctx)
+                        ctx.inlineParser = makeInlineParser()
+                        ctx.hasBlockChildren = true
+                        setCurrentBlock(ctx)
+                    }
+                } else if isBlank || force {
                     closeCurrentBlock()
                     // When a blank line closes a list item, mark the parent
                     // list item (if any) so that non-continuation text on the
@@ -1308,6 +1538,9 @@ struct StreamingParser {
         lineDeferredUntilComplete = false
         lineOpenedChild = false
         lineEmittedContent = false
+        lineListResolved = false
+        lineListLazy = false
+        lineOpenedListItem = false
     }
 
     /// Whether a line may begin a link reference definition: up to three
@@ -1895,8 +2128,10 @@ struct StreamingParser {
         pushBlock(context)
     }
 
-    private mutating func openListItem(_ info: ListInfo) {
-        let context = BlockContext(
+    /// `columnBase` is the column the line `info` was read from starts at,
+    /// within an enclosing list item's content.
+    private mutating func openListItem(_ info: ListInfo, columnBase: Int = 0) {
+        var context = BlockContext(
             id: nextID,
             kind: .listItem(ordered: info.ordered, index: info.index, task: info.task),
             inlineParser: makeInlineParser(),
@@ -1907,13 +2142,21 @@ struct StreamingParser {
             linePrefixToStrip: info.prefixLength,
             headingPendingSuffix: "",
             eventStartIndex: events.count,
-            listIndent: info.indent
+            listIndent: columnBase + info.indent
         )
+        context.listContentColumn = columnBase + info.contentColumn
         nextID &+= 1
         events.append(.blockStart(id: context.id, kind: .listItem(ordered: info.ordered, index: info.index, task: info.task)))
         pushBlock(context)
-        if !info.indentText.isEmpty {
-            appendToCurrent(info.indentText)
+        // The line has found its container: a re-analysis as it grows only
+        // routes its content.
+        lineOpenedListItem = true
+        lineListResolved = true
+        // A nested item keeps its line's indentation as a leading run; read
+        // within an enclosing item's content, that is the whole line's.
+        let indentText = columnBase > 0 ? String(lineBuffer.prefix { $0 == " " || $0 == "\t" }) : info.indentText
+        if !indentText.isEmpty {
+            appendToCurrent(indentText)
             if var updated = currentBlock {
                 updated.linePrefixToStrip = info.prefixLength
                 updated.preventNextCoalesce = true
@@ -2176,65 +2419,64 @@ struct StreamingParser {
     }
 
     private func detectList(_ line: String, isLineComplete: Bool = false) -> ListInfo? {
-        var index = line.startIndex
-        var indent = 0
-        while index < line.endIndex {
-            let character = line[index]
-            if character == " " {
-                indent += 1
-            } else if character == "\t" {
-                indent += 4
-            } else {
-                break
-            }
-            index = line.index(after: index)
-        }
-
+        let (indent, indentCharacters) = leadingColumns(line)
+        let index = line.index(line.startIndex, offsetBy: indentCharacters)
         guard index < line.endIndex else { return nil }
         let indentText = String(line[line.startIndex..<index])
 
-        var markerLength = 0
+        // A bullet (`-`, `+`, `*`) or one to nine digits and `.` or `)`
+        // (CommonMark), then a space or tab, or the end of the line for an
+        // empty item.
         var ordered = false
         var listIndex: Int? = nil
-
-        if line[index...].hasPrefix("- ") || line[index...].hasPrefix("* ") || line[index...].hasPrefix("+ ") {
-            markerLength = 2
-        } else {
+        var markerEnd = line.index(after: index)
+        if !"-+*".contains(line[index]) {
             var numberEnd = index
-            var digits = 0
-            while numberEnd < line.endIndex,
-                  let scalar = line[numberEnd].unicodeScalars.first,
-                  CharacterSet.decimalDigits.contains(scalar) {
-                digits += 1
+            while numberEnd < line.endIndex, line[numberEnd].isASCII, line[numberEnd].isNumber {
                 numberEnd = line.index(after: numberEnd)
             }
-            if digits > 0, numberEnd < line.endIndex, line[numberEnd] == "." {
-                let afterDot = line.index(after: numberEnd)
-                // "1. " followed by content (standard case)
-                let hasSpaceAfterDot = afterDot < line.endIndex && line[afterDot] == " "
-                // "1." at end of line — empty list item, only when line is complete
-                let isEmptyMarker = isLineComplete && afterDot >= line.endIndex
-                if hasSpaceAfterDot || isEmptyMarker {
-                    let numberPart = line[index..<numberEnd]
-                    if let number = Int(numberPart) {
-                        ordered = true
-                        listIndex = number
-                        markerLength = hasSpaceAfterDot
-                            ? digits + 2   // "1. " — digits + ". "
-                            : digits + 1   // "1." — no trailing space
-                    }
-                }
+            let digits = line.distance(from: index, to: numberEnd)
+            guard (1...9).contains(digits), numberEnd < line.endIndex, line[numberEnd] == "." || line[numberEnd] == ")" else {
+                return nil
             }
+            ordered = true
+            listIndex = Int(line[index..<numberEnd])
+            markerEnd = line.index(after: numberEnd)
         }
+        let markerWidth = line.distance(from: index, to: markerEnd)
+        guard markerEnd == line.endIndex || line[markerEnd] == " " || line[markerEnd] == "\t" else { return nil }
+        // The spaces after the marker set the content column, so they must
+        // all have arrived: an item with nothing after its marker yet waits.
+        var gapEnd = markerEnd
+        var column = indent + markerWidth
+        while gapEnd < line.endIndex, line[gapEnd] == " " || line[gapEnd] == "\t" {
+            column += line[gapEnd] == "\t" ? 4 - column % 4 : 1
+            gapEnd = line.index(after: gapEnd)
+        }
+        let empty = gapEnd == line.endIndex
+        if empty, !isLineComplete { return nil }
+        let contentColumn: Int
+        let contentStart: String.Index
+        if empty {
+            contentColumn = indent + markerWidth + 1
+            contentStart = gapEnd
+        } else if column - (indent + markerWidth) >= 5 {
+            // Five or more spaces: the content is indented code, one column
+            // after the marker.
+            contentColumn = indent + markerWidth + 1
+            contentStart = line.index(after: markerEnd)
+        } else {
+            contentColumn = column
+            contentStart = gapEnd
+        }
+        let markerLength = line.distance(from: index, to: contentStart)
 
-        guard markerLength > 0 else { return nil }
-
-        let markerEnd = line.index(index, offsetBy: markerLength)
+        let taskStart = contentStart
         if !isLineComplete {
             // The item's task state is published with the item and cannot
             // change later: wait while the text after the marker could
             // still grow into `[ ] ` / `[x] `.
-            let suffix = line[markerEnd...]
+            let suffix = line[taskStart...]
             if suffix.hasPrefix("["),
                ["[ ] ", "[x] ", "[X] "].contains(where: { $0.hasPrefix(suffix) }) {
                 return nil
@@ -2242,8 +2484,8 @@ struct StreamingParser {
         }
         var task: TaskListState? = nil
         var taskMarkerLength = 0
-        if markerEnd < line.endIndex, line[markerEnd] == "[" {
-            let statusIndex = line.index(after: markerEnd)
+        if taskStart < line.endIndex, line[taskStart] == "[" {
+            let statusIndex = line.index(after: taskStart)
             if statusIndex < line.endIndex {
                 let closingIndex = line.index(after: statusIndex)
                 if closingIndex < line.endIndex, line[closingIndex] == "]" {
@@ -2252,7 +2494,7 @@ struct StreamingParser {
                         let statusChar = line[statusIndex]
                         if statusChar == " " || statusChar == "x" || statusChar == "X" {
                             task = TaskListState(checked: statusChar == "x" || statusChar == "X")
-                            taskMarkerLength = line.distance(from: markerEnd, to: line.index(after: postClosing))
+                            taskMarkerLength = line.distance(from: taskStart, to: line.index(after: postClosing))
                         }
                     }
                 }
@@ -2266,7 +2508,8 @@ struct StreamingParser {
             markerLength: markerLength,
             indentText: indentText,
             task: task,
-            taskMarkerLength: taskMarkerLength
+            taskMarkerLength: taskMarkerLength,
+            contentColumn: contentColumn
         )
     }
 
@@ -2356,16 +2599,22 @@ struct StreamingParser {
         return context.fenceInfo?.isIndented == true
     }
 
+    /// Characters of indentation that make up four columns (a tab advances
+    /// to the next multiple of four), or `nil` when the line is less indented.
     private func detectIndentedCodePrefix(_ line: String) -> Int? {
         guard !line.isEmpty else { return nil }
         if line.trimmingCharacters(in: .whitespaces).isEmpty {
             return nil
         }
-        if line.hasPrefix("\t") {
-            return 1
+        var column = 0
+        var count = 0
+        for character in line {
+            guard character == " " || character == "\t" else { break }
+            column += character == "\t" ? 4 - column % 4 : 1
+            count += 1
+            if column >= 4 { return count }
         }
-        let spaces = line.prefix { $0 == " " }.count
-        return spaces >= 4 ? 4 : nil
+        return nil
     }
 
     private func shouldDeferParagraphFallback(for line: String) -> Bool {
@@ -2491,31 +2740,30 @@ struct StreamingParser {
     }
 
     private func isPotentialListMarkerOnly(_ trimmed: String) -> Bool {
-        if trimmed == "-" || trimmed == "*" || trimmed == "+" { return true }
-        if (trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") || trimmed.hasPrefix("+ ")) &&
-            trimmed.dropFirst(2).allSatisfy({ $0 == " " }) {
+        if let first = trimmed.first, "-*+".contains(first),
+           trimmed.dropFirst().allSatisfy({ $0 == " " || $0 == "\t" }) {
             return true
         }
 
         var digits = 0
-        var seenDot = false
+        var seenDelimiter = false
         for character in trimmed {
-            if character.isNumber, !seenDot {
+            if character.isASCII, character.isNumber, !seenDelimiter {
                 digits += 1
                 continue
             }
-            if character == ".", !seenDot, digits > 0 {
-                seenDot = true
+            if character == "." || character == ")", !seenDelimiter, digits > 0 {
+                seenDelimiter = true
                 continue
             }
-            if character == " ", seenDot {
+            if character == " " || character == "\t", seenDelimiter {
                 continue
             }
             return false
         }
-        // digits only (e.g. "1") — could still become "1. " ordered list marker
-        // digits + dot (e.g. "1.") or digits + dot + spaces (e.g. "1. ")
-        return digits > 0
+        // Digits alone (`1`) may still become a marker; so may a marker with
+        // nothing after it yet (`1.`, `1) `).
+        return (1...9).contains(digits)
     }
 
     private func isPotentialFencePrefixOnly(_ trimmed: String) -> Bool {
@@ -2768,6 +3016,11 @@ private extension BlockKind {
 
     var isHeading: Bool {
         if case .heading = self { return true }
+        return false
+    }
+
+    var isListItem: Bool {
+        if case .listItem = self { return true }
         return false
     }
 }

@@ -2,8 +2,6 @@
 # One per line: example number, then the spec section. Keep in example order.
 # The conformance suite fails when a listed example starts passing (remove it
 # here) or an unlisted one starts failing (fix it, or list it with a reason).
-2 Tabs
-4 Tabs
 5 Tabs
 6 Tabs
 7 Tabs
@@ -15,7 +13,6 @@
 31 Entity and numeric character references
 33 Entity and numeric character references
 59 Thematic breaks
-61 Thematic breaks
 80 Setext headings
 81 Setext headings
 82 Setext headings
@@ -29,8 +26,6 @@
 96 Setext headings
 102 Setext headings
 103 Setext headings
-108 Indented code blocks
-109 Indented code blocks
 115 Indented code blocks
 141 Fenced code blocks
 148 HTML blocks
@@ -81,49 +76,21 @@
 215 Link reference definitions
 218 Link reference definitions
 254 List items
-256 List items
-258 List items
 259 List items
-262 List items
 263 List items
-264 List items
-266 List items
-270 List items
-271 List items
-273 List items
-274 List items
-277 List items
-278 List items
-280 List items
-281 List items
-284 List items
 286 List items
 287 List items
 288 List items
 290 List items
 292 List items
 293 List items
-295 List items
-296 List items
-297 List items
-298 List items
-299 List items
 300 List items
 301 Lists
 302 Lists
-307 Lists
 308 Lists
 309 Lists
-310 Lists
-312 Lists
-315 Lists
-316 Lists
-318 Lists
-319 Lists
 320 Lists
 321 Lists
-324 Lists
-325 Lists
 491 Links
 515 Links
 527 Links

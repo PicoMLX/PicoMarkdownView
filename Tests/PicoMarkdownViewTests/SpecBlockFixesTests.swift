@@ -141,9 +141,13 @@ struct SpecBlockFixesTests {
         let codeSpan = await parse([Self.documents[20]])
         #expect(codeSpan.map(\.kind) == [.paragraph])
         #expect(codeSpan.map(text(of:)) == ["foo\\ bar"], "inside a code span the line ending is a space and the backslash literal")
+        // Two rule characters are not a rule, whatever separates them. A tab
+        // after a bullet makes it a list marker (CommonMark), so each line is
+        // an item holding an empty item, as cmark-gfm reads them.
+        let item = BlockKind.listItem(ordered: false, index: nil, task: nil)
         let twoMarkers = await parse([Self.documents[21]])
-        #expect(twoMarkers.map(\.kind) == [.paragraph], "two rule characters are not a rule, whatever separates them")
-        #expect(await parse([Self.documents[22]]).map(\.kind) == [.paragraph])
+        #expect(twoMarkers.map(\.kind) == [.paragraph, item, item], "two rule characters are not a rule, whatever separates them")
+        #expect(await parse([Self.documents[22]]).map(\.kind) == [item, item])
         let escapedBacktick = await parse([Self.documents[23]])
         #expect(try #require(escapedBacktick.first.map(text(of:))).contains("foo\\ bar"), "an escaped backtick does not open a code span")
         #expect(await parse([Self.documents[24]]).map(text(of:)) == ["*\u{301}"], "the escape applies to the leading scalar")
