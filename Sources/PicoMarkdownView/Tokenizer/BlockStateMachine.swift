@@ -441,15 +441,7 @@ struct StreamingParser {
             if let itemIndex = lastContainerItemIndex {
                 lineQuotePrefix = characters(covering: contextStack[itemIndex].listContentColumn, in: lineBuffer).count
             }
-            // A blank line inside indented code loses up to four columns of
-            // indentation like any code line; the rest is content.
-            if let ctx = currentBlock, isIndentedCodeBlock(ctx) {
-                let content = lineContent
-                let blankPrefix = lineQuotePrefix + min(4, content.hasPrefix("\t") ? 1 : content.prefix { $0 == " " }.count)
-                if emittedCount < blankPrefix {
-                    emittedCount = min(lineBuffer.count, blankPrefix)
-                }
-            }
+            consumeBlankCodeIndentation()
             lineAnalyzed = true
             return
         }
@@ -744,6 +736,14 @@ struct StreamingParser {
         let indent = leadingColumns(line)
         // The indentation decides, so it must be complete.
         guard indent.characters < line.count else {
+            // Blank inside a quote, the line stays in the items: it loses
+            // their indentation, up to the deepest content column, before a
+            // code block inside sees it.
+            if isLineComplete {
+                let deepest = contextStack[containerRunEnd(from: start) - 1]
+                lineQuotePrefix = base + characters(covering: deepest.listContentColumn, in: line).count
+                consumeBlankCodeIndentation()
+            }
             lineAnalyzed = true
             return .handled
         }
@@ -760,8 +760,10 @@ struct StreamingParser {
         if let firstUnkept {
             let rest = String(line.dropFirst(indent.characters))
             if let top = currentBlock, paragraphIsOpen(top) {
-                // A partial line may still turn out to open a block.
+                // A partial line may still turn out to open a block. Its
+                // indentation is not content meanwhile, whatever it becomes.
                 if !isLineComplete, shouldDeferParagraphFallback(for: rest) || listMarkerIsPending(rest) {
+                    lineQuotePrefix = base + indent.characters
                     lineDeferredUntilComplete = isDeferredUntilLineEnd(rest)
                     lineAnalyzed = true
                     return .handled
@@ -898,6 +900,18 @@ struct StreamingParser {
             if emittedCount < prefix + leading { emittedCount = min(lineBuffer.count, prefix + leading) }
             lineAnalyzed = true
             return .handled
+        }
+    }
+
+    /// A blank line inside indented code loses up to four columns of
+    /// indentation past its containers' prefix, like any code line; the
+    /// rest is content.
+    private mutating func consumeBlankCodeIndentation() {
+        guard let ctx = currentBlock, isIndentedCodeBlock(ctx) else { return }
+        let content = lineContent
+        let blankPrefix = lineQuotePrefix + min(4, content.hasPrefix("\t") ? 1 : content.prefix { $0 == " " }.count)
+        if emittedCount < blankPrefix {
+            emittedCount = min(lineBuffer.count, blankPrefix)
         }
     }
 

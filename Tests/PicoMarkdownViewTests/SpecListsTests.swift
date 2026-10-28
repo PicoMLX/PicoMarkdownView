@@ -116,6 +116,9 @@ struct SpecListsTests {
         // item's open paragraph.
         ("> - ```\n>   > b\n>   ```\n\n", #"[quote[ul[[code(-, "> b")]]]]"#),
         ("> - <div>\n>   > b\n>   </div>\n\n", "[quote[ul[[other]]]]"),
+        // A blank line in code in a quoted item loses the item's indentation.
+        ("> - a\n>   ```\n>   x\n>   \n>   y\n>   ```\n\n", #"[quote[ul[[p("a"), code(-, "x\n\ny")]]]]"#),
+        ("> - a\n>\n>       x\n>   \n>       y\n\n", #"[quote[ul[[p("a"), code(-, "x\n\ny")]]]]"#),
         // Fewer markers so far than the quotes around the items: the line
         // may still carry them all, so it waits.
         ("> > - a\n> >\n> > - b\n\n", #"[quote[quote[ul[[p("a")], [p("b")]]]]]"#),
@@ -334,6 +337,21 @@ struct SpecListsTests {
             let blocks = await parse([String(characters[..<split]), String(characters[split...])])
             let quote = blocks.first { $0.kind == .blockquote }
             #expect((quote?.inlineRuns ?? []).map(\.text).joined() == "a\nb\n", "Split at \(split)")
+        }
+    }
+
+    @Test("A lazy line whose opener is still pending keeps its indentation out of the text")
+    func lazyLineWithPendingOpener() async {
+        // `<kb` may still become an HTML block; meanwhile its indentation is
+        // not the paragraph's text, whichever way the line goes.
+        for markdown in [">   1. a\n>     <kbd>b</kbd>\n\n", "  1. a\n    <kbd>b</kbd>\n\n"] {
+            let baseline = await parse([markdown])
+            let characters = Array(markdown)
+            for split in 0...characters.count {
+                let streamed = await parse([String(characters[..<split]), String(characters[split...])])
+                #expect(streamed == baseline, Comment(rawValue: markdown.debugDescription + " split at \(split)"))
+            }
+            #expect(await parse(characters.map(String.init)) == baseline, Comment(rawValue: markdown.debugDescription))
         }
     }
 
