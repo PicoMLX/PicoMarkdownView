@@ -239,6 +239,11 @@ struct StreamingParser {
     /// below it.
     private var lineContainerIndex = 0
     private var lineContainerBase = 0
+    /// The run of quotes that handed the line to the items inside it, and
+    /// where it read the line from: when no item keeps the line, it is that
+    /// quote's again.
+    private var lineQuoteRunStart = 0
+    private var lineQuoteRunBase = 0
     /// End of the deepest run of quotes whose `>` markers the line carries,
     /// as a stack index; 0 when it carries none.
     private var lineMarkedQuoteEnd = 0
@@ -399,8 +404,8 @@ struct StreamingParser {
         // anything else: a line they do not keep ends them first, so a
         // definition after them is a top-level one. A quote inside the
         // deepest of them reads its markers after their indentation.
-        if !trimmed.isEmpty, contextStack.first?.kind.isListItem == true,
-           analyzeListContainers(isLineComplete: isLineComplete) {
+        let walkedItems = !trimmed.isEmpty && contextStack.first?.kind.isListItem == true
+        if walkedItems, walkContainers(isLineComplete: isLineComplete) {
             return
         }
         let insideQuote = contextStack.contains(where: { $0.kind == .blockquote })
@@ -449,7 +454,7 @@ struct StreamingParser {
             return
         }
 
-        if insideQuote, analyzeQuotedLine(isLineComplete: isLineComplete) {
+        if !walkedItems, contextStack.first?.kind == .blockquote, walkContainers(isLineComplete: isLineComplete) {
             return
         }
 
@@ -517,7 +522,7 @@ struct StreamingParser {
                 emittedCount = min(lineBuffer.count, list.prefixLength)
                 // What follows the marker is the item's content, which may
                 // open a block of its own (`- # Heading`, `- - nested`).
-                _ = analyzeListContent(isLineComplete: isLineComplete)
+                if analyzeListContent(isLineComplete: isLineComplete) == .next { _ = walkContainers(isLineComplete: isLineComplete) }
                 return
             }
 
@@ -610,7 +615,7 @@ struct StreamingParser {
                     openListItem(list)
                     emittedCount = min(lineBuffer.count, list.prefixLength)
                     lineAnalyzed = true
-                    _ = analyzeListContent(isLineComplete: isLineComplete)
+                    if analyzeListContent(isLineComplete: isLineComplete) == .next { _ = walkContainers(isLineComplete: isLineComplete) }
                     return
                 }
                 if let quote = detectBlockquote(lineBuffer) {
@@ -712,14 +717,13 @@ struct StreamingParser {
     /// does not reach ends, with everything in it, unless the line lazily
     /// continues an open paragraph. The rest of the line, past the deepest
     /// keeping item's content column, is that item's content
-    /// (`analyzeListContent`). Returns `false` when no item keeps the line,
-    /// which is then the enclosing container's (or a top-level line), or
-    /// when a quote inside the deepest item reads the rest of it.
-    /// (Blank lines are handled in `finalizeLine`.)
-    private mutating func analyzeListContainers(isLineComplete: Bool) -> Bool {
+    /// (`analyzeListContent`). When no item keeps the line, it is the
+    /// enclosing quote's again, or a top-level line. (Blank lines are
+    /// handled in `finalizeLine`.)
+    private mutating func analyzeListContainers(isLineComplete: Bool) -> LineRouting {
         if lineListLazy {
             lineAnalyzed = true
-            return true
+            return .handled
         }
         let start = lineContainerIndex
         let base = lineContainerBase
@@ -730,7 +734,7 @@ struct StreamingParser {
             let runEnd = containerRunEnd(from: start)
             if lineEmittedContent, runEnd == contextStack.count || contextStack[runEnd].kind != .blockquote {
                 lineAnalyzed = true
-                return true
+                return .handled
             }
             return analyzeListContent(isLineComplete: isLineComplete)
         }
@@ -741,7 +745,7 @@ struct StreamingParser {
         // The indentation decides, so it must be complete.
         guard indent.characters < line.count else {
             lineAnalyzed = true
-            return true
+            return .handled
         }
         var deepest: Int?
         var firstUnkept: Int?
@@ -760,7 +764,7 @@ struct StreamingParser {
                 if !isLineComplete, shouldDeferParagraphFallback(for: rest) || listMarkerIsPending(rest) {
                     lineDeferredUntilComplete = isDeferredUntilLineEnd(rest)
                     lineAnalyzed = true
-                    return true
+                    return .handled
                 }
                 // The line is judged where it would go: in the deepest item
                 // that keeps it, or in the enclosing container. There any list
@@ -778,28 +782,35 @@ struct StreamingParser {
                     lineListLazy = true
                     if emittedCount < base + indent.characters { emittedCount = base + indent.characters }
                     lineAnalyzed = true
-                    return true
+                    return .handled
                 }
             }
             closeContexts(above: firstUnkept - 1)
         }
         markItemRunJudged(start)
-        guard deepest != nil else { return false }
+        guard deepest != nil else {
+            // Inside a quote, the line is the quote's own, whose items
+            // have ended; at the top level it is a top-level line.
+            guard start > 0 else { return .unhandled }
+            lineContainerIndex = lineQuoteRunStart
+            lineContainerBase = lineQuoteRunBase
+            return .next
+        }
         return analyzeListContent(isLineComplete: isLineComplete)
     }
 
     /// The current line as content of the deepest item of the run at
     /// `lineContainerIndex`: it continues the item's open child block (code,
-    /// a paragraph) or its own text, or starts a block of its own. Returns
-    /// `false` when a quote inside the item reads the rest of the line; the
-    /// walk then continues there (`lineContainerIndex`, `lineContainerBase`).
-    private mutating func analyzeListContent(isLineComplete: Bool) -> Bool {
+    /// a paragraph) or its own text, or starts a block of its own. When a
+    /// quote inside the item reads the rest of the line, the walk continues
+    /// there (`lineContainerIndex`, `lineContainerBase`).
+    private mutating func analyzeListContent(isLineComplete: Bool) -> LineRouting {
         // An item opened on this line has content of its own after its
         // marker, which may open a further item: a loop, not recursion,
         // since a line may nest many.
         while true {
             let start = lineContainerIndex
-            guard start < contextStack.count, contextStack[start].kind.isListItem else { return false }
+            guard start < contextStack.count, contextStack[start].kind.isListItem else { return .unhandled }
             let runEnd = containerRunEnd(from: start)
             let itemIndex = runEnd - 1
             let item = contextStack[itemIndex]
@@ -812,7 +823,7 @@ struct StreamingParser {
             if runEnd < contextStack.count, contextStack[runEnd].kind == .blockquote {
                 lineContainerBase = prefix
                 lineContainerIndex = runEnd
-                return false
+                return .next
             }
             let content = String(lineContent)
             if itemIndex < contextStack.count - 1, var child = currentBlock {
@@ -825,7 +836,7 @@ struct StreamingParser {
                 case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown, .htmlBlock:
                     // Their own line handling reads `lineContent`.
                     lineAnalyzed = true
-                    return true
+                    return .handled
                 case .fencedCode:
                     if let codePrefix = detectIndentedCodePrefix(content, startColumn: contentColumn) {
                         child.linePrefixToStrip = prefix + codePrefix
@@ -834,7 +845,7 @@ struct StreamingParser {
                             emittedCount = min(lineBuffer.count, prefix + codePrefix)
                         }
                         lineAnalyzed = true
-                        return true
+                        return .handled
                     }
                     // Less indented than code: the code ends.
                     closeCurrentBlock()
@@ -845,33 +856,39 @@ struct StreamingParser {
             let leading = content.prefix { $0 == " " || $0 == "\t" }.count
             guard leading < content.count else {
                 lineAnalyzed = true
-                return true
+                return .handled
             }
-            if isLineComplete, lineOpenedListItems == 0, !lineEmittedContent, currentBlock?.kind.isListItem == true,
+            // A definition cannot interrupt the item's open paragraph.
+            if isLineComplete, lineOpenedListItems == 0, !lineEmittedContent, let current = currentBlock,
+               current.kind.isListItem, !paragraphIsOpen(current),
                let linkDefinition = detectLinkDefinition(content) {
                 linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
                 lineIsLinkDefinition = true
                 emittedCount = lineBuffer.count
                 lineAnalyzed = true
-                return true
+                return .handled
             }
             if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
                 lineAnalyzed = true
-                return true
+                return .handled
             }
             if !lineOpenedChild, !lineEmittedContent,
                openContainerChild(from: lineContent, columnBase: contentColumn, isLineComplete: isLineComplete) {
-                // A nested item opened in this run has content of its own. (A
-                // quote opened in the item has already read the rest.)
-                if containerRunEnd(from: start) == contextStack.count, let opened = currentBlock,
+                // A nested item opened in this run has content of its own,
+                // and a quote opened in the item reads the rest of the line.
+                let openedRunEnd = containerRunEnd(from: start)
+                if openedRunEnd < contextStack.count, contextStack[openedRunEnd].kind == .blockquote {
+                    continue
+                }
+                if openedRunEnd == contextStack.count, let opened = currentBlock,
                    opened.kind.isListItem, opened.id != item.id {
                     lineOpenedChild = false
                     continue
                 }
-                return true
+                return .handled
             }
-            guard let current = currentBlock else { return false }
+            guard let current = currentBlock else { return .unhandled }
             if current.kind == .paragraph {
                 // The line continues the item's paragraph child.
             } else if current.kind.isListItem, current.hasBlockChildren {
@@ -880,8 +897,42 @@ struct StreamingParser {
             }
             if emittedCount < prefix + leading { emittedCount = min(lineBuffer.count, prefix + leading) }
             lineAnalyzed = true
-            return true
+            return .handled
         }
+    }
+
+    /// What a run of containers made of the current line.
+    private enum LineRouting {
+        /// The line is analyzed.
+        case handled
+        /// The generic handling decides: a top-level line, or the per-kind
+        /// handling of the innermost block.
+        case unhandled
+        /// Another run reads the rest of it (`lineContainerIndex`).
+        case next
+    }
+
+    /// Hands the line from run to run of open containers, starting at
+    /// `lineContainerIndex`, in a loop: however deeply quotes and items
+    /// nest, each run reads its part once. Returns whether the line is
+    /// analyzed.
+    private mutating func walkContainers(isLineComplete: Bool) -> Bool {
+        while lineContainerIndex < contextStack.count {
+            let routing: LineRouting
+            if contextStack[lineContainerIndex].kind.isListItem {
+                routing = analyzeListContainers(isLineComplete: isLineComplete)
+            } else if contextStack[lineContainerIndex].kind == .blockquote {
+                routing = analyzeQuotedLine(isLineComplete: isLineComplete)
+            } else {
+                return false
+            }
+            switch routing {
+            case .handled: return true
+            case .unhandled: return false
+            case .next: continue
+            }
+        }
+        return false
     }
 
     /// End of the run of containers of one kind (list items, or quotes)
@@ -954,19 +1005,19 @@ struct StreamingParser {
     /// its `>` markers are read from `lineContainerBase`, and the remainder
     /// is treated like a line of a normal document whose blocks become
     /// children of the innermost quote (CommonMark container prefixes), or
-    /// is judged by the list items inside it. Returns `false` when the
+    /// is judged by the list items inside it. `.unhandled` means the
     /// per-kind handling below should still run on the stripped line
     /// (verbatim, math and table children).
-    private mutating func analyzeQuotedLine(isLineComplete: Bool) -> Bool {
+    private mutating func analyzeQuotedLine(isLineComplete: Bool) -> LineRouting {
         let start = lineContainerIndex
         guard start < contextStack.count, contextStack[start].kind == .blockquote,
-              let top = currentBlock else { return false }
+              let top = currentBlock else { return .unhandled }
         // Once the look-behind budget has trimmed the front of this line,
         // its container prefix was resolved and emitted; what remains is
         // content of the block that is open, not a new line to classify.
         if lineBufferTrimmed > 0 {
             lineAnalyzed = true
-            return true
+            return .handled
         }
         let quoteIndex = containerRunEnd(from: start) - 1
         let activeLevel = contextStack[quoteIndex].blockquoteLevel
@@ -996,7 +1047,7 @@ struct StreamingParser {
             // A partial line of only whitespace may still grow a marker.
             if !isLineComplete, line.allSatisfy({ $0 == " " || $0 == "\t" }) {
                 lineAnalyzed = true
-                return true
+                return .handled
             }
             lineQuotePrefix = base
             // Quoted code, math and tables cannot continue without the
@@ -1007,7 +1058,7 @@ struct StreamingParser {
                 closeContexts(above: start - 1)
                 lineAnalyzed = false
                 analyzeLineIfNeeded(isLineComplete: isLineComplete)
-                return true
+                return .handled
             }
             // An unmarked line continues a quoted paragraph lazily
             // (CommonMark); anything else — a heading, code or rule that
@@ -1016,26 +1067,27 @@ struct StreamingParser {
             if !isLineComplete, shouldDeferParagraphFallback(for: line) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(line)
                 lineAnalyzed = true
-                return true
+                return .handled
             }
             if paragraphEnded || startsBlock(line[...], isLineComplete: isLineComplete) {
                 closeContexts(above: start - 1)
                 lineAnalyzed = false
                 analyzeLineIfNeeded(isLineComplete: isLineComplete)
-                return true
+                return .handled
             }
             // The enclosing items' indentation is not the paragraph's text.
             if emittedCount < base { emittedCount = min(lineBuffer.count, base) }
             lineAnalyzed = true
-            return true
+            return .handled
         }
 
         // A partial line of only markers may still grow deeper (`>` then
         // `> `): keep the markers seen so far out of the content and wait.
         // Inside quoted indented code a further `>` is content whose
         // indentation decides (four columns: a code line; fewer: the code
-        // ends), so the code's own line handling judges it at once.
-        if !isLineComplete, line.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
+        // ends), so the code's own line handling judges it at once. With
+        // items inside the quote, they strip their own indentation first.
+        if !isLineComplete, !itemsInside, line.allSatisfy({ $0 == ">" || $0 == " " || $0 == "\t" }),
            quote.markerCount <= activeLevel,
            !(isIndentedCodeBlock(top) && line.dropFirst(quote.prefixLength).contains(">")) {
             lineQuotePrefix = base + quote.prefixLength
@@ -1044,7 +1096,7 @@ struct StreamingParser {
                 emittedCount = min(lineBuffer.count, lineQuotePrefix)
             }
             lineAnalyzed = true
-            return true
+            return .handled
         }
 
         if quote.markerCount > activeLevel {
@@ -1062,7 +1114,7 @@ struct StreamingParser {
                 closeContexts(above: start + quote.markerCount - 1)
             } else if blank {
                 lineAnalyzed = true
-                return true
+                return .handled
             }
         }
 
@@ -1076,19 +1128,15 @@ struct StreamingParser {
         let runEnd = containerRunEnd(from: start)
         if runEnd < contextStack.count, contextStack[runEnd].kind.isListItem,
            quote.markerCount == contextStack[runEnd - 1].blockquoteLevel {
+            // If no item keeps the line, the items end and it comes back
+            // here, where its further markers may then nest quotes.
+            lineQuoteRunStart = start
+            lineQuoteRunBase = base
             lineContainerIndex = runEnd
             lineContainerBase = lineQuotePrefix
-            if analyzeListContainers(isLineComplete: isLineComplete) { return true }
-            // A quote inside the deepest item reads the rest of the line.
-            if lineContainerIndex > runEnd { return analyzeQuotedLine(isLineComplete: isLineComplete) }
-            // No item kept the line, and the items have ended: it is the
-            // quote's, whose further markers may now nest quotes.
-            lineContainerIndex = start
-            lineContainerBase = base
-            lineAnalyzed = false
-            return analyzeQuotedLine(isLineComplete: isLineComplete)
+            return .next
         }
-        guard let current = currentBlock else { return false }
+        guard let current = currentBlock else { return .unhandled }
         let content = lineContent
 
         switch current.kind {
@@ -1096,32 +1144,41 @@ struct StreamingParser {
             if !isLineComplete, shouldDeferParagraphFallback(for: String(content)) || listMarkerIsPending(String(content)) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(String(content))
                 lineAnalyzed = true
-                return true
+                return .handled
             }
             // Openers are decided once per line: after one ran, or after any
             // of the line's content has been emitted, a re-analysis (the line
             // grew) must not open the same block again. Indentation consumed
             // for a list item is not content, so an opener may still follow.
             if !lineOpenedChild, !lineEmittedContent, openContainerChild(from: content, isLineComplete: isLineComplete) {
-                return true
+                // An item opened in the quote starts a run of items there;
+                // what follows its marker is its content, as at the top level.
+                let runEnd = containerRunEnd(from: start)
+                if runEnd < contextStack.count, contextStack[runEnd].kind.isListItem {
+                    lineContainerIndex = runEnd
+                    lineContainerBase = lineQuotePrefix
+                    lineOpenedChild = false
+                    return .next
+                }
+                return .handled
             }
             if current.kind == .blockquote, current.hasBlockChildren,
                !content.allSatisfy({ $0 == " " || $0 == "\t" }) {
                 openInlineBlock(kind: .paragraph, prefixToStrip: base + quote.prefixLength)
             }
             lineAnalyzed = true
-            return true
+            return .handled
         case .listItem:
             // Only a lazy line with fewer markers gets here (the items judge
             // every other line): it continues the item's text.
             lineAnalyzed = true
-            return true
+            return .handled
         case .heading, .horizontalRule:
             // Single-line blocks close at the end of their line.
             lineAnalyzed = true
-            return true
+            return .handled
         default:
-            return false
+            return .unhandled
         }
     }
 
@@ -1188,16 +1245,14 @@ struct StreamingParser {
             return true
         }
         // A quote inside a list item: its markers are read after the item's
-        // indentation, by the quote's own line handling as the line is
-        // walked again, which then opens its first child. (Inside a quote,
-        // deeper markers nest instead.)
+        // indentation, by the quote's own line handling as the walk goes on
+        // (`analyzeListContent`), which then opens its first child. (Inside
+        // a quote, deeper markers nest instead.)
         if contextStack.last(where: { $0.kind == .blockquote || $0.kind.isListItem })?.kind.isListItem == true,
            leadingColumns(line, startColumn: columnBase).columns < 4, let quote = detectBlockquote(opener) {
             beginChild()
             openBlockquotes(from: 0, to: quote.markerCount, prefixLength: prefix + dropped + quote.prefixLength)
             lineOpenedChild = false
-            lineAnalyzed = false
-            analyzeLineIfNeeded(isLineComplete: isLineComplete)
             return true
         }
         if let heading = detectHeading(opener, isLineComplete: isLineComplete) {
@@ -1251,20 +1306,10 @@ struct StreamingParser {
             if paragraphIsOpen, !listCanInterruptParagraph(list, line: line) {
                 return false
             }
-            let inQuote = contextStack.last(where: { $0.kind == .blockquote || $0.kind.isListItem })?.kind == .blockquote
             beginChild()
             openListItem(list, columnBase: columnBase)
             emittedCount = min(lineBuffer.count, prefix + list.prefixLength)
             lineAnalyzed = true
-            // An item opened in a quote starts a run of items there; what
-            // follows its marker is its content, as at the top level. (In an
-            // item, the enclosing run's loop routes it.)
-            if inQuote {
-                lineContainerIndex = contextStack.count - 1
-                lineContainerBase = prefix
-                lineOpenedChild = false
-                _ = analyzeListContent(isLineComplete: isLineComplete)
-            }
             return true
         }
         if isLineComplete, opener.hasPrefix(":::") {

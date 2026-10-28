@@ -110,7 +110,14 @@ struct SpecListsTests {
         ("> - a\n>   ```\n>   x\n>   ```\n> b\n\n", #"[quote[ul[[p("a"), code(-, "x")]], p("b")]]"#),
         ("> 1. a\n>\n>    b\n>\n> 2. c\n\n", #"[quote[ol[[p("a"), p("b")], [p("c")]]]]"#),
         ("> > - a\n> b\n\n", #"[quote[quote[ul[[p("a b")]]]]]"#),
-        ("> 1. > Blockquote\ncontinued here.\n\n", #"[quote[ol[[quote[p("Blockquote continued here.")]]]]]"#)
+        ("> 1. > Blockquote\ncontinued here.\n\n", #"[quote[ol[[quote[p("Blockquote continued here.")]]]]]"#),
+        // A partial line of markers in a quoted item is the item's to strip
+        // first, also for code and HTML; a definition cannot interrupt an
+        // item's open paragraph.
+        ("> - ```\n>   > b\n>   ```\n\n", #"[quote[ul[[code(-, "> b")]]]]"#),
+        ("> - <div>\n>   > b\n>   </div>\n\n", "[quote[ul[[other]]]]"),
+        ("> - a\n>   [ref]: /url\n>   [ref]\n\n", #"[quote[ul[[p("a [ref]: /url [ref]")]]]]"#),
+        ("- a\n  [ref]: /url\n  [ref]\n\n", #"[ul[[p("a [ref]: /url [ref]")]]]"#)
     ]
 
     static let documents = cases.map(\.markdown)
@@ -252,6 +259,22 @@ struct SpecListsTests {
         let whole = await parse([markdown])
         #expect(await parse(chunks) == whole)
         #expect(shape(whole).hasPrefix(#"[ul[[p("a"), quote[ul[[p("b"), p("word word"#))
+    }
+
+    @Test("Quotes and items nested deeply on one line are walked in a loop, whole or streamed")
+    func deepAlternatingNesting() async {
+        // Recursing once per container overflowed the stack here.
+        let deep = await parse([String(repeating: "> - ", count: 300) + "x\n\n"])
+        #expect(deep.filter { $0.kind == .blockquote }.count == 100, "99 items, each holding a quote, plus the outer quote")
+        let markdown = String(repeating: "> - ", count: 80) + "x\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 8).map {
+            String(characters[$0..<min($0 + 8, characters.count)])
+        }
+        let whole = await parse([markdown])
+        #expect(await parse(chunks) == whole)
+        #expect(whole.filter { $0.kind == .blockquote }.count == 80)
+        #expect(whole.filter { if case .listItem = $0.kind { return true }; return false }.count == 80)
     }
 
     @Test("One line opens at most 99 items, as in cmark-gfm; further markers are text")
