@@ -2030,30 +2030,8 @@ struct StreamingParser {
         // A backtick fence's info string may not contain backticks (CommonMark);
         // ``` ``` is a code span, not a fence.
         if first == "`", rawInfo.contains("`") { return nil }
-        let info = unescapePunctuation(rawInfo)
+        let info = HTMLEntities.unescaping(rawInfo[...])
         return FenceInfo(marker: marker, language: info.isEmpty ? nil : info, closingMarker: marker, leadingIndent: indent)
-    }
-
-    /// Backslash escapes of ASCII punctuation are processed in info strings.
-    private func unescapePunctuation(_ text: String) -> String {
-        guard text.contains("\\") else { return text }
-        var result = ""
-        var escaping = false
-        for character in text {
-            if escaping {
-                if !(character.isASCII && (character.isPunctuation || character.isSymbol)) {
-                    result.append("\\")
-                }
-                result.append(character)
-                escaping = false
-            } else if character == "\\" {
-                escaping = true
-            } else {
-                result.append(character)
-            }
-        }
-        if escaping { result.append("\\") }
-        return result
     }
 
     /// Up to the opening fence's indent is removed from a content line.
@@ -2849,6 +2827,15 @@ func parseLinkDefinition(_ text: Substring, isFinal: Bool,
         cursor = scalars.index(after: next)
         return scalars[next]
     }
+    /// A character reference at `cursor`, appended to `target`.
+    func reference(into target: inout String.UnicodeScalarView) -> Bool {
+        guard scalars[cursor] == "&", case .reference(let replacement, let referenceEnd) = HTMLEntities.scan(text, at: cursor) else {
+            return false
+        }
+        target.append(contentsOf: replacement.unicodeScalars)
+        cursor = referenceEnd
+        return true
+    }
 
     func offset(_ index: String.Index) -> Int { text.utf8.distance(from: text.startIndex, to: index) }
     func index(_ offset: Int) -> String.Index { text.utf8.index(text.startIndex, offsetBy: offset) }
@@ -2914,6 +2901,7 @@ func parseLinkDefinition(_ text: Substring, isFinal: Bool,
                     destination.append(escaped)
                     continue
                 }
+                if reference(into: &destination) { continue }
                 destination.append(scalar)
                 advance()
             }
@@ -2927,6 +2915,7 @@ func parseLinkDefinition(_ text: Substring, isFinal: Bool,
                     continue
                 }
                 if scalar.value <= 0x20 || scalar.value == 0x7F { break }
+                if reference(into: &destination) { continue }
                 if scalar == "(" {
                     depth += 1
                     if depth > 32 { return .invalid }
@@ -2984,6 +2973,7 @@ func parseLinkDefinition(_ text: Substring, isFinal: Bool,
             title.append(escaped)
             continue
         }
+        if reference(into: &title) { continue }
         title.append(scalar)
         advance()
     }
