@@ -216,8 +216,8 @@ struct StreamingParser {
     private var lineListResolved = false
     /// The line lazily continues a paragraph inside a list item.
     private var lineListLazy = false
-    /// The line opened a list item.
-    private var lineOpenedListItem = false
+    /// The list items the line opened.
+    private var lineOpenedListItems = 0
     /// Characters at the start of `lineBuffer` that are the enclosing
     /// blockquote's `>` markers (with their optional space). Resolved once
     /// per line by `analyzeQuotedLine`; everything after it is the line as
@@ -850,73 +850,76 @@ struct StreamingParser {
     /// continues the item's open child block (code, a paragraph) or its own
     /// text, or starts a block of its own.
     private mutating func analyzeListContent(isLineComplete: Bool) -> Bool {
-        guard let itemIndex = contextStack.lastIndex(where: \.kind.isListItem) else { return false }
-        let item = contextStack[itemIndex]
-        // A tab may reach past the content column; the content then starts
-        // at the column the tab reaches.
-        let (prefix, contentColumn) = characters(covering: item.listContentColumn, in: lineBuffer)
-        lineQuotePrefix = prefix
-        let content = String(lineContent)
-        if itemIndex < contextStack.count - 1, var child = currentBlock {
-            switch child.kind {
-            case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown:
-                // Their own line handling reads `lineContent`.
-                lineAnalyzed = true
-                return true
-            case .fencedCode:
-                if let codePrefix = detectIndentedCodePrefix(content) {
-                    child.linePrefixToStrip = prefix + codePrefix
-                    setCurrentBlock(child)
-                    if emittedCount < prefix + codePrefix {
-                        emittedCount = min(lineBuffer.count, prefix + codePrefix)
-                    }
+        // An item opened on this line has content of its own after its
+        // marker, which may open a further item: a loop, not recursion,
+        // since a line may nest many.
+        while true {
+            guard let itemIndex = contextStack.lastIndex(where: \.kind.isListItem) else { return false }
+            let item = contextStack[itemIndex]
+            // A tab may reach past the content column; the content then starts
+            // at the column the tab reaches.
+            let (prefix, contentColumn) = characters(covering: item.listContentColumn, in: lineBuffer)
+            lineQuotePrefix = prefix
+            let content = String(lineContent)
+            if itemIndex < contextStack.count - 1, var child = currentBlock {
+                switch child.kind {
+                case .fencedCode where !isIndentedCodeBlock(child), .math, .table, .unknown:
+                    // Their own line handling reads `lineContent`.
                     lineAnalyzed = true
                     return true
+                case .fencedCode:
+                    if let codePrefix = detectIndentedCodePrefix(content) {
+                        child.linePrefixToStrip = prefix + codePrefix
+                        setCurrentBlock(child)
+                        if emittedCount < prefix + codePrefix {
+                            emittedCount = min(lineBuffer.count, prefix + codePrefix)
+                        }
+                        lineAnalyzed = true
+                        return true
+                    }
+                    // Less indented than code: the code ends.
+                    closeCurrentBlock()
+                default:
+                    break
                 }
-                // Less indented than code: the code ends.
-                closeCurrentBlock()
-            default:
-                break
             }
-        }
-        let leading = content.prefix { $0 == " " || $0 == "\t" }.count
-        guard leading < content.count else {
-            lineAnalyzed = true
-            return true
-        }
-        if isLineComplete, !lineOpenedListItem, !lineEmittedContent, currentBlock?.kind.isListItem == true,
-           let linkDefinition = detectLinkDefinition(content) {
-            linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
-            lineIsLinkDefinition = true
-            emittedCount = lineBuffer.count
-            lineAnalyzed = true
-            return true
-        }
-        if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
-            lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
-            lineAnalyzed = true
-            return true
-        }
-        if !lineOpenedChild, !lineEmittedContent,
-           openContainerChild(from: lineContent, columnBase: contentColumn, isLineComplete: isLineComplete) {
-            // An item opened on this line has content of its own after its
-            // marker, which may open a further block.
-            if let opened = currentBlock, opened.kind.isListItem, opened.id != item.id {
-                lineOpenedChild = false
-                return analyzeListContent(isLineComplete: isLineComplete)
+            let leading = content.prefix { $0 == " " || $0 == "\t" }.count
+            guard leading < content.count else {
+                lineAnalyzed = true
+                return true
             }
+            if isLineComplete, lineOpenedListItems == 0, !lineEmittedContent, currentBlock?.kind.isListItem == true,
+               let linkDefinition = detectLinkDefinition(content) {
+                linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
+                lineIsLinkDefinition = true
+                emittedCount = lineBuffer.count
+                lineAnalyzed = true
+                return true
+            }
+            if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
+                lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
+                lineAnalyzed = true
+                return true
+            }
+            if !lineOpenedChild, !lineEmittedContent,
+               openContainerChild(from: lineContent, columnBase: contentColumn, isLineComplete: isLineComplete) {
+                if let opened = currentBlock, opened.kind.isListItem, opened.id != item.id {
+                    lineOpenedChild = false
+                    continue
+                }
+                return true
+            }
+            guard let current = currentBlock else { return false }
+            if current.kind == .paragraph {
+                // The line continues the item's paragraph child.
+            } else if current.kind.isListItem, current.hasBlockChildren {
+                // The item's own text has ended: text is a new paragraph child.
+                openInlineBlock(kind: .paragraph, prefixToStrip: prefix + leading)
+            }
+            if emittedCount < prefix + leading { emittedCount = min(lineBuffer.count, prefix + leading) }
+            lineAnalyzed = true
             return true
         }
-        guard let current = currentBlock else { return false }
-        if current.kind == .paragraph {
-            // The line continues the item's paragraph child.
-        } else if current.kind.isListItem, current.hasBlockChildren {
-            // The item's own text has ended: text is a new paragraph child.
-            openInlineBlock(kind: .paragraph, prefixToStrip: prefix + leading)
-        }
-        if emittedCount < prefix + leading { emittedCount = min(lineBuffer.count, prefix + leading) }
-        lineAnalyzed = true
-        return true
     }
 
     /// A paragraph is open at `context`: a paragraph, or a list item whose
@@ -927,15 +930,16 @@ struct StreamingParser {
     }
 
     /// Leading whitespace of `line`: its width in columns (a tab advances
-    /// to the next multiple of four) and in characters.
-    private func leadingColumns(_ line: String) -> (columns: Int, characters: Int) {
+    /// to the next multiple of four, counted from `startColumn`, where the
+    /// line starts) and in characters.
+    private func leadingColumns(_ line: String, startColumn: Int = 0) -> (columns: Int, characters: Int) {
         var columns = 0
         var characters = 0
         for character in line {
             if character == " " {
                 columns += 1
             } else if character == "\t" {
-                columns += 4 - columns % 4
+                columns += 4 - (startColumn + columns) % 4
             } else {
                 break
             }
@@ -1201,7 +1205,10 @@ struct StreamingParser {
             lineAnalyzed = true
             return true
         }
-        if let list = detectList(line, isLineComplete: isLineComplete) {
+        // Each item opened on a line reads the rest of it again, so like
+        // cmark-gfm (`MAX_LIST_DEPTH`) one line opens fewer than 100; any
+        // further marker is text.
+        if lineOpenedListItems < 99, let list = detectList(line, isLineComplete: isLineComplete, columnBase: columnBase) {
             // A quoted paragraph (a paragraph child, or the quote's own text)
             // is only interrupted by a list that may interrupt a paragraph.
             if paragraphIsOpen, !listCanInterruptParagraph(list, line: line) {
@@ -1416,7 +1423,7 @@ struct StreamingParser {
         let trimmed = lineContent.trimmingCharacters(in: .whitespaces)
         // The line that opens a list item is not blank, even when only its
         // marker, which the container prefix strips, is on it.
-        let isBlank = trimmed.isEmpty && !lineOpenedListItem
+        let isBlank = trimmed.isEmpty && lineOpenedListItems == 0
 
         if isBlank, !force, lineQuotePrefix == 0,
            contextStack.contains(where: { $0.kind == .blockquote }) {
@@ -1559,7 +1566,7 @@ struct StreamingParser {
         lineEmittedContent = false
         lineListResolved = false
         lineListLazy = false
-        lineOpenedListItem = false
+        lineOpenedListItems = 0
     }
 
     /// Whether a line may begin a link reference definition: up to three
@@ -2169,7 +2176,7 @@ struct StreamingParser {
         pushBlock(context)
         // The line has found its container: a re-analysis as it grows only
         // routes its content.
-        lineOpenedListItem = true
+        lineOpenedListItems += 1
         lineListResolved = true
         // A nested item keeps its line's indentation as a leading run; read
         // within an enclosing item's content, that is the whole line's.
@@ -2437,8 +2444,10 @@ struct StreamingParser {
         return HeadingInfo(level: level, prefixLength: prefixLength, indent: indent)
     }
 
-    private func detectList(_ line: String, isLineComplete: Bool = false) -> ListInfo? {
-        let (indent, indentCharacters) = leadingColumns(line)
+    /// `columnBase` is the column `line` starts at, inside an enclosing
+    /// item's content, so tabs reach the same columns as in the whole line.
+    private func detectList(_ line: String, isLineComplete: Bool = false, columnBase: Int = 0) -> ListInfo? {
+        let (indent, indentCharacters) = leadingColumns(line, startColumn: columnBase)
         let index = line.index(line.startIndex, offsetBy: indentCharacters)
         guard index < line.endIndex else { return nil }
         let indentText = String(line[line.startIndex..<index])
@@ -2469,7 +2478,7 @@ struct StreamingParser {
         var gapEnd = markerEnd
         var column = indent + markerWidth
         while gapEnd < line.endIndex, line[gapEnd] == " " || line[gapEnd] == "\t" {
-            column += line[gapEnd] == "\t" ? 4 - column % 4 : 1
+            column += line[gapEnd] == "\t" ? 4 - (columnBase + column) % 4 : 1
             gapEnd = line.index(after: gapEnd)
         }
         let empty = gapEnd == line.endIndex

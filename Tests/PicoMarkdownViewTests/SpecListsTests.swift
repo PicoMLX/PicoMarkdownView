@@ -50,6 +50,9 @@ struct SpecListsTests {
         ("- - foo\n\n", #"[ul[[ul[[p("foo")]]]]]"#),
         ("1. - 2. foo\n\n", #"[ol[[ul[[ol[[p("foo")]]]]]]]"#),
         ("- # Foo\n- Bar\n\n", #"[ul[[h1("Foo")], [p("Bar")]]]"#),
+        // A tab after a nested marker counts from the line's start.
+        ("- -\tfoo\n\n", #"[ul[[ul[[p("foo")]]]]]"#),
+        ("1. -\tfoo\n\n", #"[ol[[ul[[p("foo")]]]]]"#),
         ("- a\n  - b\n\n    c\n- d\n\n", #"[ul[[p("a"), ul[[p("b"), p("c")]]], [p("d")]]]"#),
         ("* foo\n  * bar\n\n  baz\n\n", #"[ul[[p("foo"), ul[[p("bar")]], p("baz")]]]"#),
         ("- a\n- ```\n  b\n\n\n  ```\n- c\n\n", #"[ul[[p("a")], [code(-, "b\n\n")], [p("c")]]]"#),
@@ -157,6 +160,22 @@ struct SpecListsTests {
         let whole = await parse([markdown])
         #expect(await parse(chunks) == whole)
         #expect(shape(whole).hasPrefix(#"[ul[[p("a"), ul[[p("b"), p("word word"#))
+    }
+
+    @Test("One line opens at most 99 items, as in cmark-gfm; further markers are text")
+    func sameLineNestingStops() async {
+        let markdown = String(repeating: "- ", count: 1_600) + "x\n\n"
+        let characters = Array(markdown)
+        let chunks = stride(from: 0, to: characters.count, by: 8).map {
+            String(characters[$0..<min($0 + 8, characters.count)])
+        }
+        let whole = await parse([markdown])
+        #expect(await parse(chunks) == whole)
+        let items = whole.filter { if case .listItem = $0.kind { return true }; return false }
+        #expect(items.count == 99)
+        #expect(whole.count == 99, "the remaining markers are the innermost item's text")
+        let text = (items.last?.inlineRuns ?? []).map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(text == String(repeating: "- ", count: 1_501) + "x")
     }
 
     @Test("An item's child blocks render at its text column, the first one with its marker")
