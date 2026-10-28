@@ -180,10 +180,12 @@ actor MarkdownRenderer {
         for id in blocks.map(\.id) {
             while let index = indexByID[id] {
                 let snapshot = blocks[index].snapshot
+                let placement = listPlacement(for: snapshot)
                 let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind(at: index),
-                                            blockquoteLevel: blocks[index].blockquoteLevel)
+                                            blockquoteLevel: blocks[index].blockquoteLevel, placement: placement)
                 guard let current = indexByID[id] else { break }
                 if blocks[current].snapshot == snapshot {
+                    blocks[current].listPlacement = placement
                     blocks[current].updatePresentation(from: rendered)
                     break
                 }
@@ -194,11 +196,15 @@ actor MarkdownRenderer {
 
     /// Renders with the current builder, again if the builder changed while
     /// an image or diagram was awaited, so old fonts never land.
-    private func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind?, blockquoteLevel: Int) async -> RenderedContentResult {
+    private func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind?, blockquoteLevel: Int,
+                        placement: ListPlacement) async -> RenderedContentResult {
         while true {
             let generation = builderGeneration
             let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind,
-                                                         blockquoteLevel: blockquoteLevel)
+                                                         blockquoteLevel: blockquoteLevel,
+                                                         listIndent: placement.indent,
+                                                         listMarker: placement.marker,
+                                                         markerOnFirstChild: placement.markerOnFirstChild)
             if generation == builderGeneration { return rendered }
         }
     }
@@ -314,7 +320,9 @@ actor MarkdownRenderer {
         let snapshot = await snapshotProvider(id)
         let previousKind = previousBlockKind(at: index)
         let quoteLevel = blockquoteLevel(for: snapshot)
-        let rendered = await render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel)
+        let placement = listPlacement(for: snapshot)
+        let rendered = await render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel,
+                                    placement: placement)
 
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
@@ -324,6 +332,7 @@ actor MarkdownRenderer {
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot
         blocks[index].blockquoteLevel = quoteLevel
+        blocks[index].listPlacement = placement
         blocks[index].updatePresentation(from: rendered)
         return didMutate
     }
@@ -400,7 +409,9 @@ actor MarkdownRenderer {
 
     private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {
         let quoteLevel = blockquoteLevel(for: snapshot)
-        let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel)
+        let placement = listPlacement(for: snapshot)
+        let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel,
+                                    placement: placement)
         return RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
@@ -412,7 +423,8 @@ actor MarkdownRenderer {
                              images: rendered.images,
                              codeBlock: rendered.codeBlock,
                              mermaidDiagram: rendered.mermaidDiagram,
-                             blockquoteLevel: quoteLevel)
+                             blockquoteLevel: quoteLevel,
+                             listPlacement: placement)
     }
 
     /// How many blockquotes enclose a block (the block's own, when it is
@@ -425,6 +437,31 @@ actor MarkdownRenderer {
         }
         let inherited = snapshot.parentID.flatMap { indexByID[$0] }.map { blocks[$0].blockquoteLevel } ?? 0
         return inherited + (snapshot.kind == .blockquote ? 1 : 0)
+    }
+
+    /// Where a block sits in a list item, from its parent in the rendered
+    /// list: a child block starts at the item's text column, and the first
+    /// child of an item without text of its own carries the item's marker
+    /// when it is a paragraph or heading. The item then renders nothing.
+    private func listPlacement(for snapshot: BlockSnapshot) -> ListPlacement {
+        func carriesMarker(_ kind: BlockKind) -> Bool {
+            if case .heading = kind { return true }
+            return kind == .paragraph
+        }
+        if case .listItem = snapshot.kind {
+            let first = snapshot.childIDs.first.flatMap { indexByID[$0] }
+            return ListPlacement(markerOnFirstChild: first.map { carriesMarker(blocks[$0].kind) } ?? false)
+        }
+        guard let parentID = snapshot.parentID else { return ListPlacement() }
+        guard let parent = indexByID[parentID] else {
+            // A closed parent can be evicted before its retained children.
+            return indexByID[snapshot.id].map { blocks[$0].listPlacement } ?? ListPlacement()
+        }
+        guard let item = blocks[parent].listItem else { return ListPlacement() }
+        // The parent's stored snapshot may not list a child that just started.
+        let isFirst = (blocks[parent].snapshot.childIDs.first ?? snapshot.id) == snapshot.id
+        let marker = isFirst && item.content.characters.isEmpty && carriesMarker(snapshot.kind) ? item.bullet : nil
+        return ListPlacement(indent: item.textIndent, marker: marker)
     }
 
 }
@@ -444,6 +481,15 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     /// Enclosing quote depth (0 outside any quote); drives the bars and
     /// indent children of a quote are drawn with.
     var blockquoteLevel: Int = 0
+    /// Its place in an enclosing list item, kept for when the item is
+    /// evicted before it.
+    var listPlacement = ListPlacement()
+}
+
+struct ListPlacement: Sendable, Equatable {
+    var indent: CGFloat = 0
+    var marker: String?
+    var markerOnFirstChild = false
 }
 
 extension RenderedBlock {
@@ -487,6 +533,8 @@ struct RenderedListItem: Sendable, Equatable {
     var ordered: Bool
     var index: Int?
     var task: TaskListState?
+    /// The column the item's text, and each of its child blocks, starts at.
+    var textIndent: CGFloat = 0
 }
 
 struct RenderedBlockquote: Sendable, Equatable {

@@ -325,11 +325,20 @@ struct StreamingParser {
         if !definitionHold.isEmpty, analyzeLineAfterDefinitionHold(isLineComplete: isLineComplete) { return }
 
         let trimmed = lineBuffer.trimmingCharacters(in: .whitespaces)
+        let insideQuote = contextStack.contains(where: { $0.kind == .blockquote })
+
+        // Outside quotes, open list items judge a line by its indentation
+        // before anything else: a line they do not keep ends them first, so
+        // a definition after them is a top-level one.
+        if !trimmed.isEmpty, !insideQuote, contextStack.contains(where: \.kind.isListItem),
+           analyzeListContainers(isLineComplete: isLineComplete) {
+            return
+        }
 
         // An unmarked line inside a quote is the quote's business first: it
         // ends quoted code (and is then a definition at the outer level) or
         // continues a quoted paragraph, which a definition cannot interrupt.
-        let unmarkedInsideQuote = contextStack.contains(where: { $0.kind == .blockquote }) && detectBlockquote(lineBuffer) == nil
+        let unmarkedInsideQuote = insideQuote && detectBlockquote(lineBuffer) == nil
         // A definition cannot interrupt a paragraph; at the top level it may
         // span lines, so its lines are held until they decide.
         if isLineComplete, !unmarkedInsideQuote, contextStack.isEmpty, !suppressDefinitionHold,
@@ -351,10 +360,17 @@ struct StreamingParser {
                 ctx.linePrefixToStrip = 0
                 setCurrentBlock(ctx)
             }
+            // Outside quotes a blank line stays in the open list items, so
+            // it loses their indentation, up to the deepest content column,
+            // before a code block inside sees it.
+            if !insideQuote, let item = contextStack.last(where: \.kind.isListItem) {
+                lineQuotePrefix = characters(covering: item.listContentColumn, in: lineBuffer).count
+            }
             // A blank line inside indented code loses up to four columns of
             // indentation like any code line; the rest is content.
             if let ctx = currentBlock, isIndentedCodeBlock(ctx) {
-                let blankPrefix = min(4, lineBuffer.hasPrefix("\t") ? 1 : lineBuffer.prefix { $0 == " " }.count)
+                let content = lineContent
+                let blankPrefix = lineQuotePrefix + min(4, content.hasPrefix("\t") ? 1 : content.prefix { $0 == " " }.count)
                 if emittedCount < blankPrefix {
                     emittedCount = min(lineBuffer.count, blankPrefix)
                 }
@@ -363,14 +379,7 @@ struct StreamingParser {
             return
         }
 
-        if contextStack.contains(where: { $0.kind == .blockquote }),
-           analyzeQuotedLine(isLineComplete: isLineComplete) {
-            return
-        }
-
-        if !contextStack.contains(where: { $0.kind == .blockquote }),
-           contextStack.contains(where: \.kind.isListItem),
-           analyzeListContainers(isLineComplete: isLineComplete) {
+        if insideQuote, analyzeQuotedLine(isLineComplete: isLineComplete) {
             return
         }
 
@@ -785,6 +794,8 @@ struct StreamingParser {
             return true
         }
         if lineListResolved { return analyzeListContent(isLineComplete: isLineComplete) }
+        // A prefix set while the line was only whitespace is decided afresh.
+        lineQuotePrefix = 0
         let indent = leadingColumns(lineBuffer)
         // The indentation decides, so it must be complete.
         guard indent.characters < lineBuffer.count else {
@@ -870,6 +881,14 @@ struct StreamingParser {
         }
         let leading = content.prefix { $0 == " " || $0 == "\t" }.count
         guard leading < content.count else {
+            lineAnalyzed = true
+            return true
+        }
+        if isLineComplete, !lineOpenedListItem, !lineEmittedContent, currentBlock?.kind.isListItem == true,
+           let linkDefinition = detectLinkDefinition(content) {
+            linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
+            lineIsLinkDefinition = true
+            emittedCount = lineBuffer.count
             lineAnalyzed = true
             return true
         }

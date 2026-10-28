@@ -64,10 +64,18 @@ actor MarkdownAttributeBuilder {
     /// it (its own included for a `.blockquote`); a child of a quote is
     /// rendered as usual and then indented past the bars and tagged with
     /// the quote attributes so the text view draws the bars beside it.
+    /// A child of a list item starts at the item's text column,
+    /// `listIndent`; the first child of an item without text of its own
+    /// carries the item's `listMarker` before that column, and the item,
+    /// told so by `markerOnFirstChild`, renders nothing itself.
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
-                blockquoteLevel: Int = 0) async -> RenderedContentResult {
+                blockquoteLevel: Int = 0, listIndent: CGFloat = 0, listMarker: String? = nil,
+                markerOnFirstChild: Bool = false) async -> RenderedContentResult {
         var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
-                                         blockquoteLevel: blockquoteLevel)
+                                         blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+        if listIndent > 0 || listMarker != nil {
+            result.attributed = placeInListItem(result.attributed, indent: listIndent, marker: listMarker)
+        }
         guard blockquoteLevel > 0, snapshot.kind != .blockquote else { return result }
 
         let gutter = BlockquoteBarMetrics.textIndent(level: blockquoteLevel)
@@ -88,8 +96,34 @@ actor MarkdownAttributeBuilder {
         return result
     }
 
+    private func placeInListItem(_ attributed: AttributedString, indent: CGFloat, marker: String?) -> AttributedString {
+        let content = NSMutableAttributedString(attributedString: .picoConverted(from: attributed))
+        guard content.length > 0 else { return attributed }
+        content.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: content.length)) { value, paragraphRange, _ in
+            let paragraph = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            paragraph.firstLineHeadIndent += indent
+            paragraph.headIndent += indent
+            content.addAttribute(.paragraphStyle, value: paragraph, range: paragraphRange)
+        }
+        if let marker {
+            // The marker hangs before the text column, as on an item's own
+            // first line.
+            let prefix = marker + " "
+            let first = (content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            first.firstLineHeadIndent = max(0, first.headIndent - bulletPrefixWidth(for: prefix, font: bodyFont))
+            content.insert(NSAttributedString(string: prefix, attributes: [
+                .font: bodyFont,
+                .foregroundColor: PlatformColor.rendererLabel
+            ]), at: 0)
+            let firstParagraph = (content.string as NSString).paragraphRange(for: NSRange(location: 0, length: 0))
+            content.addAttribute(.paragraphStyle, value: first, range: firstParagraph)
+        }
+        return .picoConverted(from: content)
+    }
+
     private func renderContent(snapshot: BlockSnapshot, previousBlockKind: BlockKind?,
-                               blockquoteLevel: Int) async -> RenderedContentResult {
+                               blockquoteLevel: Int, markerOnFirstChild: Bool) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
             let (fallback, table, images) = await renderTable(snapshot, font: bodyFont)
@@ -103,7 +137,8 @@ actor MarkdownAttributeBuilder {
         case .listItem(let ordered, let index, let task):
             return await renderListItem(snapshot: snapshot, ordered: ordered, index: index, task: task,
                                         previousBlockKind: previousBlockKind,
-                                        listDepth: max(0, snapshot.depth - blockquoteLevel))
+                                        listDepth: max(0, snapshot.depth - blockquoteLevel),
+                                        markerOnFirstChild: markerOnFirstChild)
         case .blockquote:
             return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                           level: max(1, blockquoteLevel))
@@ -418,7 +453,8 @@ actor MarkdownAttributeBuilder {
                                 index: Int?,
                                 task: TaskListState?,
                                 previousBlockKind: BlockKind?,
-                                listDepth: Int) async -> RenderedContentResult {
+                                listDepth: Int,
+                                markerOnFirstChild: Bool) async -> RenderedContentResult {
         let bulletText: String
         if let task {
             bulletText = task.checked ? "☑︎" : "☐"
@@ -477,6 +513,24 @@ actor MarkdownAttributeBuilder {
         listParagraph.firstLineHeadIndent = headIndent - bulletWidth
         listParagraph.headIndent = headIndent
 
+        let metadata = RenderedListItem(bullet: bulletText,
+                                        content: AttributedString(body),
+                                        ordered: ordered,
+                                        index: index,
+                                        task: task,
+                                        textIndent: headIndent)
+        // Without text of its own, the item's marker goes on its first
+        // child's line instead of a line of its own.
+        if markerOnFirstChild, body.length == 0 {
+            return RenderedContentResult(attributed: AttributedString(),
+                                         table: nil,
+                                         listItem: metadata,
+                                         blockquote: nil,
+                                         math: nil,
+                                         images: inlineImages,
+                                         codeBlock: nil)
+        }
+
         rendered.addAttributes([.paragraphStyle: listParagraph],
                                range: NSRange(location: 0, length: rendered.length))
 
@@ -489,12 +543,6 @@ actor MarkdownAttributeBuilder {
         rendered.append(NSAttributedString(string: "\n",
                                            attributes: [.font: bodyFont,
                                                         .paragraphStyle: listParagraph]))
-
-        let metadata = RenderedListItem(bullet: bulletText,
-                                        content: AttributedString(body),
-                                        ordered: ordered,
-                                        index: index,
-                                        task: task)
 
         return RenderedContentResult(attributed: AttributedString(rendered),
                                      table: nil,

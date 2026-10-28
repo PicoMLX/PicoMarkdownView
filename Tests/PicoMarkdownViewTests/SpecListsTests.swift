@@ -2,6 +2,12 @@ import Foundation
 import Testing
 @testable import PicoMarkdownView
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 /// List items from the seventh conformance batch: items hold blocks, stay
 /// open across blank lines, and are kept by indentation to their content
 /// column. The conformance suite proves the single-shot text; these prove
@@ -20,6 +26,12 @@ struct SpecListsTests {
          #"[ol[[code(-, "indented code"), p("paragraph"), code(-, "more code")]]]"#),
         ("1. a\n\n   ```\n   x\n\n   ```\n2. b\n\n", #"[ol[[p("a"), code(-, "x\n")], [p("b")]]]"#),
         ("- [ ] task\n\n  more\n\n", #"[ul[[p("task"), p("more")]]]"#),
+        // Blank lines in code lose the item's indentation too.
+        ("- ```python\n  value = \"\"\"a\n  \n  b\"\"\"\n  ```\n\n", #"[ul[[code(-, "value = \"\"\"a\n\nb\"\"\"")]]]"#),
+        ("- a\n\n      x\n        \n      y\n\n", #"[ul[[p("a"), code(-, "x\n  \ny")]]]"#),
+        // A definition the item does not keep ends it.
+        ("- a\n\n[ref]: /url\n  text\n\n", #"[ul[[p("a")]], p("text")]"#),
+        ("- a\n\n  [ref]: /url\n  text\n\n", #"[ul[[p("a"), p("text")]]]"#),
         // Less indented, a line ends the item, unless it continues a
         // paragraph lazily.
         ("- a\n\n- b\n\nafter\n\n", #"[ul[[p("a")], [p("b")]], p("after")]"#),
@@ -145,6 +157,36 @@ struct SpecListsTests {
         let whole = await parse([markdown])
         #expect(await parse(chunks) == whole)
         #expect(shape(whole).hasPrefix(#"[ul[[p("a"), ul[[p("b"), p("word word"#))
+    }
+
+    @Test("An item's child blocks render at its text column, the first one with its marker")
+    func childBlocksRenderInsideTheItem() async throws {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        let renderer = MarkdownRenderer { await assembler.block($0) }
+        for character in "- # Title\n- Bar\n\n  more\n\n" {
+            _ = await renderer.apply(await assembler.apply(await tokenizer.feed(String(character))))
+        }
+        _ = await renderer.apply(await assembler.apply(await tokenizer.finish()))
+        let blocks = await renderer.renderedBlocks()
+        #expect(blocks.map(\.kind) == [.listItem(ordered: false, index: nil, task: nil), .heading(level: 1),
+                                       .listItem(ordered: false, index: nil, task: nil), .paragraph])
+        func style(_ block: RenderedBlock) throws -> NSParagraphStyle {
+            let content = NSAttributedString.picoConverted(from: block.content)
+            return try #require(content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)
+        }
+        // The first item has no text of its own: its marker is on the
+        // heading's line, which hangs it before the item's text column.
+        #expect(blocks[0].content.characters.isEmpty)
+        let textIndent = try #require(blocks[0].listItem?.textIndent)
+        #expect(textIndent > 0)
+        #expect(String(blocks[1].content.characters).hasPrefix("• Title"))
+        #expect(try style(blocks[1]).headIndent == textIndent)
+        #expect(try style(blocks[1]).firstLineHeadIndent < textIndent)
+        // A later child is indented to the column without a marker.
+        #expect(String(blocks[2].content.characters).hasPrefix("• Bar"))
+        #expect(String(blocks[3].content.characters).hasPrefix("more"))
+        #expect(try style(blocks[3]).firstLineHeadIndent == blocks[2].listItem?.textIndent)
     }
 
     @Test("An item's text streams as it arrives, and a blank line keeps the item open")
