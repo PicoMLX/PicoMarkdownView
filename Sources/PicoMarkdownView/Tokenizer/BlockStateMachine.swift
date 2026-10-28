@@ -905,6 +905,15 @@ struct StreamingParser {
                 lineAnalyzed = true
                 return true
             }
+            // Items cannot hold a block quote yet, so a line that would start
+            // one at the top level ends the items and is analyzed there.
+            if lineOpenedListItems == 0, !lineOpenedChild, !lineEmittedContent,
+               detectBlockquote(content) != nil, leadingColumns(lineBuffer).columns < 4,
+               let firstItem = contextStack.firstIndex(where: \.kind.isListItem) {
+                closeContexts(above: firstItem - 1)
+                lineQuotePrefix = 0
+                return false
+            }
             if !isLineComplete, shouldDeferParagraphFallback(for: content) || listMarkerIsPending(content) {
                 lineDeferredUntilComplete = isDeferredUntilLineEnd(content)
                 lineAnalyzed = true
