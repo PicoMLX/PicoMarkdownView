@@ -71,6 +71,14 @@ struct SpecListsTests {
         ("- a\n\n  \t  foo\n\n", #"[ul[[p("a"), code(-, "foo")]]]"#),
         ("- a\n\n      x\n  \ty\n\n", #"[ul[[p("a"), code(-, "x"), p("y")]]]"#),
         ("- a\n\n      x\n  \t  y\n\n", #"[ul[[p("a"), code(-, "x\ny")]]]"#),
+        // Short of four columns, a tab is indentation a block opener may have,
+        // also where it decides that a line is not lazy.
+        ("- a\n\n  \t# heading\n\n", #"[ul[[p("a"), h1("heading")]]]"#),
+        ("- a\n\n  \t---\n\n", #"[ul[[p("a"), hr]]]"#),
+        ("- a\n  1. b\n  \t# heading\n\n", #"[ul[[p("a"), ol[[p("b")]], h1("heading")]]]"#),
+        ("- a\n  1. b\n  \t- c\n\n", #"[ul[[p("a"), ol[[p("b")]], ul[[p("c")]]]]]"#),
+        ("- a\n  1. b\n  \t```\n  x\n  ```\n\n", #"[ul[[p("a"), ol[[p("b")]], code(-, "x")]]]"#),
+        ("- a\n  1. b\n  \tc\n\n", #"[ul[[p("a"), ol[[p("b c")]]]]]"#),
         ("  \tfoo\n\n", #"[code(-, "foo")]"#)
     ]
 
