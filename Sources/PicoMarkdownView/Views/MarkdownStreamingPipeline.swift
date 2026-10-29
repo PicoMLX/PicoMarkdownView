@@ -56,6 +56,13 @@ actor MarkdownStreamingPipeline {
         return StreamingUpdate(diff: diff, blocks: blocks)
     }
 
+#if os(macOS)
+    func refreshMermaidPreviews(_ ids: Set<BlockID>) async -> StreamingUpdate? {
+        let openIDs = await renderer.openMermaidBlockIDs(in: ids)
+        return await refreshBlocks(openIDs)
+    }
+#endif
+
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
         await renderer.updateMermaidContentWidth(width)
     }

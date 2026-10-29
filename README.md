@@ -198,9 +198,22 @@ The bundled grammar set is regenerated with `Scripts/bundle-prism.sh` (pins the 
 
 ### Diagrams (Mermaid)
 
-Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle, and the resulting SVG is rasterized natively with CoreGraphics on both macOS and iOS (no WebView, no SVG library). Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
+Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle. On macOS 27, a TextKit 2 hosted attachment draws the SVG paths and text directly with CoreGraphics; zoom redraws vectors at the new scale. iOS keeps its existing native bitmap attachments. Neither path uses a WebView or an SVG library. Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
 
 A diagram renders once its closing fence arrives; while the block is still streaming it shows as a highlighted code block, so streaming cost is unchanged. Colors follow the `MarkdownRenderTheme` (code block foreground/background for text and node surfaces, `linkColor` for accents) in light and dark mode, labels are measured and drawn in the system font, and a flowchart that is too wide for the view is laid out vertically instead of being scaled down. Sources Pele cannot parse stay as code blocks.
+
+The macOS diagram has zoom, Fit Diagram, Fit Width, Expand/Restore and Copy Mermaid controls, revealed on hover or keyboard focus. Zoom and pan stay inside a bounded viewport; Fit Width can enlarge a small diagram to the available message width, respecting quote/list indentation. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
+
+To show a growing diagram while source streams on macOS:
+
+```swift
+let theme = MarkdownRenderTheme.default()
+    .withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+
+PicoMarkdownView(stream: makeStream, theme: theme)
+```
+
+Previews try completed source lines periodically and retain the last valid drawing while a statement is incomplete. Pele lays out each accepted prefix as a whole, so nodes can move as the graph grows. This does not reparse surrounding Markdown. Open previews stop beyond 8 KiB or 256 lines to bound layout work; the complete source is still rendered when the fence ends. The final render always runs regardless of the preview interval, and invalid final source falls back to code. The default `.onFenceClose` behavior and the iOS path are unchanged. The macOS example app enables progressive previews.
 
 To keep mermaid fences as plain code:
 

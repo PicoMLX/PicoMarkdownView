@@ -274,8 +274,14 @@ actor MarkdownRenderer {
                  .blockEnded(let id):
                 mutated = await refreshBlock(id: id) || mutated
             case .blocksDiscarded(let range):
+#if canImport(AppKit)
+                let firstDiscarded = max(0, min(range.lowerBound, blocks.count))
+                let endDiscarded = max(firstDiscarded, min(range.upperBound, blocks.count))
+                let discardedIDs = Set(blocks[firstDiscarded..<endDiscarded].map(\.id))
+#endif
                 removeBlocks(in: range)
 #if canImport(AppKit)
+                await attributeBuilder.discardMermaidPreviews(for: discardedIDs)
                 // Repair the local container links, then refresh only the
                 // first visible successor (or first retained visible block).
                 if let successor = relinkVisibleSuccessor(startingAt: max(0, range.lowerBound)) {
@@ -300,6 +306,16 @@ actor MarkdownRenderer {
     func renderedBlocks() -> [RenderedBlock] {
         blocks
     }
+
+#if os(macOS)
+    func openMermaidBlockIDs(in ids: Set<BlockID>) -> Set<BlockID> {
+        Set(ids.filter { id in
+            guard let index = indexByID[id], !blocks[index].snapshot.isClosed,
+                  case .fencedCode(let language) = blocks[index].kind else { return false }
+            return ["mermaid", "mmd", "mermaidjs"].contains(language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
+        })
+    }
+#endif
 
     func refreshBlocks(_ ids: Set<BlockID>) async -> [BlockID] {
         guard !ids.isEmpty else { return [] }
@@ -403,6 +419,7 @@ actor MarkdownRenderer {
 
 #if canImport(AppKit)
             let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
+                || blocks[acceptedIndex].mermaidDiagram != rendered.mermaidDiagram
 #else
             let didMutate = oldContent != newContent
 #endif
@@ -626,12 +643,18 @@ actor MarkdownRenderer {
     /// list: a child block starts at the item's text column (so do the
     /// blocks of a quote inside the item), and the first
     /// child of an item without text of its own carries the item's marker
-    /// when it is a paragraph or heading. The item then renders nothing.
+    /// when it is a paragraph, heading or macOS Mermaid fence. The item then
+    /// renders nothing.
     /// A quote's bars start at the column the quote starts at, and stay
     /// there for every block inside it.
     private func listPlacement(for snapshot: BlockSnapshot) -> ListPlacement {
         func carriesMarker(_ kind: BlockKind) -> Bool {
             if case .heading = kind { return true }
+#if os(macOS)
+            if case .fencedCode(let language) = kind, theme.mermaidRenderingMode.isEnabled {
+                return ["mermaid", "mmd", "mermaidjs"].contains(language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
+            }
+#endif
             return kind == .paragraph
         }
         var placement = ListPlacement()
@@ -757,4 +780,7 @@ struct RenderedMermaidDiagram: Sendable, Equatable {
     var source: String
     var size: CGSize
     var diagnostics: String?
+    /// macOS replays the vector drawing in a hosted attachment. Bitmap-only
+    /// providers and UIKit keep their existing image attachment path.
+    var svg: String? = nil
 }

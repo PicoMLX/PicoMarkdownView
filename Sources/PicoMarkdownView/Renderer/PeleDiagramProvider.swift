@@ -7,8 +7,8 @@ import UIKit
 import AppKit
 #endif
 
-/// The default `MermaidDiagramProvider`: Pele (via `PeleRenderer`) lays the
-/// diagram out and `PeleSVGDocument` rasterizes it, both off the main actor.
+/// Pele (via `PeleRenderer`) lays diagrams out off the main actor. The image
+/// provider rasterizes them; the macOS vector provider retains SVG output.
 ///
 /// Colors come from the `MarkdownRenderTheme` the view was given, resolved
 /// for the current light/dark appearance, so diagrams match the surrounding
@@ -30,6 +30,20 @@ actor PeleDiagramProvider: MermaidDiagramProvider {
     private let maxLineCount: Int
     private var cache: [CacheKey: MermaidRenderResult] = [:]
     private var lru: [CacheKey] = []
+#if os(macOS)
+    private struct VectorCacheKey: Hashable {
+        var source: String
+        var widthBucket: CGFloat?
+        var appearance: PeleAppearance
+    }
+
+    private var vectorCache: [VectorCacheKey: MermaidVectorRenderResult] = [:]
+    private var vectorLRU: [VectorCacheKey] = []
+    // Growing prefixes must not fill the completed-diagram cache. A final
+    // request consumes this one reusable preview and releases its source/SVG.
+    private var vectorPreview: (key: VectorCacheKey, result: MermaidVectorRenderResult)?
+    private var vectorPreviewGeneration: UInt64 = 0
+#endif
     private static let logger = Logger(subsystem: "com.picomarkdown", category: "PeleDiagramProvider")
 
     init(theme: MarkdownRenderTheme,
@@ -139,6 +153,92 @@ actor PeleDiagramProvider: MermaidDiagramProvider {
         }
     }
 }
+
+#if os(macOS)
+extension PeleDiagramProvider: MermaidVectorDiagramProvider {
+    func renderVector(_ request: MermaidRenderRequest) async -> MermaidVectorRenderResult? {
+        guard !Task.isCancelled else { return nil }
+        vectorPreviewGeneration &+= 1
+        let generation = vectorPreviewGeneration
+        let reusablePreview = vectorPreview
+        if !request.isPreview { vectorPreview = nil }
+        let source = request.source
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              source.utf8.count <= maxSourceLength,
+              source.split(separator: "\n", omittingEmptySubsequences: false).count <= maxLineCount,
+              let renderer = PeleRenderer.shared else { return nil }
+
+        let appearance = await MainActor.run { PeleAppearance.current() }
+        guard !Task.isCancelled else { return nil }
+        let width = request.targetWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        // Display scale affects raster output, not SVG geometry or its cache.
+        let key = VectorCacheKey(source: source,
+                                 widthBucket: width.map { ($0 / 8).rounded(.toNearestOrAwayFromZero) },
+                                 appearance: appearance)
+        if let cached = vectorCache[key] {
+            touchVector(key)
+            return cached
+        }
+        if let cached = reusablePreview, cached.key == key {
+            retainVector(cached.result, for: key, isPreview: request.isPreview, generation: generation)
+            return cached.result
+        }
+
+        let options = PeleRenderOptions(fontSize: theme.bodyFont.pointSize,
+                                        fontFamily: "sans-serif",
+                                        maxWidth: width,
+                                        theme: Self.peleTheme(for: theme, appearance: appearance))
+        let rendered: PeleRenderResult
+        do {
+            rendered = try await renderer.render(source, options: options)
+        } catch {
+            Self.logger.debug("Pele could not render a vector fence (\(error.code, privacy: .public)): \(error.message, privacy: .private)")
+            return nil
+        }
+
+        guard !Task.isCancelled else { return nil }
+
+        // Another request for the same geometry may have completed while the
+        // shared layout actor was rendering. Retain the existing cached value.
+        if let cached = vectorCache[key] {
+            touchVector(key)
+            return cached
+        }
+        guard let document = PeleSVGDocument(svg: rendered.svg) else {
+            Self.logger.error("Pele output for a \(rendered.type, privacy: .public) diagram was not valid SVG")
+            return nil
+        }
+        let result = MermaidVectorRenderResult(svg: rendered.svg,
+                                               intrinsicSize: CGSize(width: document.width, height: document.height))
+        retainVector(result, for: key, isPreview: request.isPreview, generation: generation)
+        return result
+    }
+
+    private func retainVector(_ value: MermaidVectorRenderResult, for key: VectorCacheKey,
+                              isPreview: Bool, generation: UInt64) {
+        if isPreview {
+            // A final request or a newer prefix can arrive during Pele's await.
+            guard generation == vectorPreviewGeneration else { return }
+            vectorPreview = (key, value)
+        } else {
+            vectorCache[key] = value
+            touchVector(key)
+            while vectorLRU.count > max(0, maxEntries) {
+                vectorCache[vectorLRU.removeFirst()] = nil
+            }
+        }
+    }
+
+    private func touchVector(_ key: VectorCacheKey) {
+        if let index = vectorLRU.firstIndex(of: key) {
+            vectorLRU.remove(at: index)
+        }
+        vectorLRU.append(key)
+    }
+}
+#endif
 
 enum PeleAppearance: Sendable, Hashable {
     case light

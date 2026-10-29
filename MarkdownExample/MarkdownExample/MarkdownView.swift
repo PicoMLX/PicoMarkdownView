@@ -219,7 +219,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     var body: some View {
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
-        }, tagPrefixes: tagPrefixes)
+        }, theme: exampleTheme, tagPrefixes: tagPrefixes)
             .id(markdown)
             .textSelection(.enabled)
             .padding()
@@ -242,6 +242,14 @@ private struct StreamingMarkdownContent: View, Equatable {
             .onContentSize { [onContentSize] size in
                 onContentSize(size)
             }
+    }
+
+    private var exampleTheme: MarkdownRenderTheme {
+#if os(macOS)
+        .default().withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+#else
+        .default()
+#endif
     }
 }
 
