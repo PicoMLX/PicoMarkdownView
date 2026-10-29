@@ -650,7 +650,7 @@ struct QuotedContainerTests {
 
         let heading = await parse(chunks: [Self.containerDocuments[16]])
         #expect(heading.blocks.map(\.kind) == [.blockquote, .listItem(ordered: false, index: nil, task: nil), .heading(level: 1)])
-        #expect(heading.blocks[2].parentID == heading.blocks[0].id, "a heading ends the list and joins the quote")
+        #expect(heading.blocks[2].parentID == heading.blocks[1].id, "a heading indented to the item's text is the item's")
     }
 
     @Test("Tables inside a quote are children; a candidate without a separator degrades in place")
@@ -797,10 +797,13 @@ struct QuotedContainerTests {
         #expect(top.blocks[2].parentID == top.blocks.first?.id, "the rule belongs to the enclosing item")
         #expect(top.blocks[3].parentID == top.blocks.first?.id, "so does the continuation")
         #expect(text(of: top.blocks[3]) == "continuation")
+        // Inside a quote, the same.
         let quoted = await parse(chunks: [Self.containerDocuments[46]])
-        #expect(quoted.blocks.map(\.kind) == [.blockquote, item, item, .horizontalRule])
-        #expect(text(of: quoted.blocks[1]) == "parent\ncontinuation\n")
-        #expect(quoted.blocks.last?.parentID == quoted.blocks[1].id)
+        #expect(quoted.blocks.map(\.kind) == [.blockquote, item, item, .horizontalRule, .paragraph])
+        #expect(text(of: quoted.blocks[1]) == "parent\n", "the rule adds no newline")
+        #expect(quoted.blocks[3].parentID == quoted.blocks[1].id, "the rule belongs to the enclosing item")
+        #expect(quoted.blocks[4].parentID == quoted.blocks[1].id, "so does the continuation")
+        #expect(text(of: quoted.blocks[4]) == "continuation")
     }
 
     @Test("Footnote definition continuation lines keep their word separator")

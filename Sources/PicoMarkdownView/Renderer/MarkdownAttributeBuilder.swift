@@ -67,10 +67,11 @@ actor MarkdownAttributeBuilder {
     /// A child of a list item starts at the item's text column,
     /// `listIndent`; the first child of an item without text of its own
     /// carries the item's `listMarker` before that column, and the item,
-    /// told so by `markerOnFirstChild`, renders nothing itself.
+    /// told so by `markerOnFirstChild`, renders nothing itself. The bars of
+    /// a quote inside a list item start at `blockquoteBarInset`.
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
                 blockquoteLevel: Int = 0, listIndent: CGFloat = 0, listMarker: String? = nil,
-                markerOnFirstChild: Bool = false) async -> RenderedContentResult {
+                markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0) async -> RenderedContentResult {
         var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                          blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
         if listIndent > 0 || listMarker != nil {
@@ -95,8 +96,8 @@ actor MarkdownAttributeBuilder {
             ], range: range)
         }
         // A quote inside a list item draws its bars at the item's text column.
-        if listIndent > 0 {
-            content.addAttribute(.picoBlockquoteBarInset, value: listIndent, range: range)
+        if blockquoteBarInset > 0 {
+            content.addAttribute(.picoBlockquoteBarInset, value: blockquoteBarInset, range: range)
         }
         result.attributed = .picoConverted(from: content)
         return result
