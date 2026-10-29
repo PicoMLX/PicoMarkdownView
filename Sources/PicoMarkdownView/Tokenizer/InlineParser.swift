@@ -7,6 +7,9 @@ struct LinkDefinition: Equatable {
 
 final class LinkReferenceStore {
     private var definitions: [String: LinkDefinition] = [:]
+    /// Labels the text used as references before anything defined them:
+    /// those references went out as text.
+    private var usedUndefined: Set<String> = []
 
     func define(label: String, url: String, title: String?) {
         let key = normalizeLinkLabel(label)
@@ -16,6 +19,18 @@ final class LinkReferenceStore {
 
     func resolve(label: String) -> LinkDefinition? {
         definitions[normalizeLinkLabel(label)]
+    }
+
+    /// A reference to `label` found no definition and went out as text.
+    func noteUndefined(label: String) {
+        usedUndefined.insert(normalizeLinkLabel(label))
+    }
+
+    /// Whether a definition of `label` would come too late for references
+    /// already shown as text: the text used it, and nothing defines it yet.
+    func isUsedUndefined(label: String) -> Bool {
+        let key = normalizeLinkLabel(label)
+        return definitions[key] == nil && usedUndefined.contains(key)
     }
 
     private func normalizeLinkLabel(_ label: String) -> String {
@@ -1717,7 +1732,9 @@ struct InlineParser {
                                           : .link(close: close, end: end, url: destination))
                 }
                 func reference(_ label: Substring, end: String.Index) -> BracketScan {
-                    guard isLinkLabel(label), let definition = linkReferences?.resolve(label: String(label)) else {
+                    guard isLinkLabel(label) else { return .decided(.literal) }
+                    guard let definition = linkReferences?.resolve(label: String(label)) else {
+                        linkReferences?.noteUndefined(label: String(label))
                         return .decided(.literal)
                     }
                     return made(end: end, destination: definition.url, title: definition.title)
