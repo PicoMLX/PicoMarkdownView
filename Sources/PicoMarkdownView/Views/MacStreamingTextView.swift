@@ -47,10 +47,11 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager,
                                        textLayoutFragmentFor location: NSTextLocation,
                                        in textElement: NSTextElement) -> NSTextLayoutFragment {
-        if let paragraph = textElement as? NSTextParagraph,
-           paragraph.attributedString.length > 0,
-           paragraph.attributedString.attribute(.picoBlockquoteLevel, at: 0, effectiveRange: nil) != nil {
-            return MacBlockquoteTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
+            let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
+            if attributes[.picoBlockquoteLevel] != nil || attributes[.picoCodeBlockBackgroundColor] != nil {
+                return MacMarkdownTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+            }
         }
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }

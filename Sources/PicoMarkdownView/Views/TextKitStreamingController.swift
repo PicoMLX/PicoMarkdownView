@@ -813,7 +813,18 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         guard let table = block.table, let snapshot = block.snapshot.table else {
             hostedTables.removeValue(forKey: block.id)
-            return NSAttributedString.picoConverted(from: block.content)
+            let attributed = NSAttributedString.picoConverted(from: block.content)
+            guard case .fencedCode = block.kind, block.codeBlock != nil, block.mermaidDiagram == nil,
+                  attributed.length > 0,
+                  let color = attributed.attribute(.backgroundColor, at: attributed.length - 1, effectiveRange: nil) as? NSColor else {
+                return attributed
+            }
+            let decorated = NSMutableAttributedString(attributedString: attributed)
+            decorated.addAttributes([
+                .picoCodeBlockID: NSNumber(value: block.id),
+                .picoCodeBlockBackgroundColor: color
+            ], range: NSRange(location: 0, length: decorated.length))
+            return decorated
         }
         let entry: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)
         if let existing = hostedTables[block.id] {
