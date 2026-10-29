@@ -703,9 +703,9 @@ struct MarkdownRendererTests {
         // The body run and the terminating "\n" of a list item form one paragraph.
         // A paragraph's trailing paragraphSpacing is resolved from its terminator's
         // style, so both must agree and must equal the margin-system value:
-        // 2pt at depth 0, 0pt at depth 1 (bottomMargin 2, minus the depth penalty).
-        // The previous code hardcoded 6pt on the terminator, overriding the
-        // depth-based reduction and loosening every gap.
+        // The macOS parent opens directly onto its nested list; sibling items
+        // reserve a compact font-relative margin. UIKit retains its existing
+        // depth-based margins.
         func paragraphSpacings(in content: AttributedString) -> (first: CGFloat, last: CGFloat)? {
             let ns = NSAttributedString(content)
             guard ns.length > 0,
@@ -722,8 +722,13 @@ struct MarkdownRendererTests {
         }
 
         // Terminator governs the inter-item gap.
+#if canImport(AppKit)
+        #expect(top.last == 0)
+        #expect(sub.last == MarkdownRenderTheme.default().bodyFont.pointSize * 0.25)
+#else
         #expect(top.last == 2)
         #expect(sub.last == 0)
+#endif
         // The whole item paragraph is uniform (body == terminator), as for paragraphs/headings.
         #expect(top.first == top.last)
         #expect(sub.first == sub.last)

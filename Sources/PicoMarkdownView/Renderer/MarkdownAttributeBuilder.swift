@@ -15,6 +15,16 @@ struct RenderedContentResult {
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
+    var paragraphSpacingAfter: CGFloat? = nil
+}
+
+/// Presentation context for macOS paragraph margins. UIKit keeps its existing
+/// margin rules; this carries no tokenizer or assembler state.
+struct BlockSpacingContext: Sendable, Equatable {
+    enum Gap: Sendable, Equatable { case standard, paragraph, listItem, none }
+    var previousSpacingAfter: CGFloat?
+    var gap: Gap
+    var suppressTrailingListSpacing: Bool
 }
 
 actor MarkdownAttributeBuilder {
@@ -96,9 +106,17 @@ actor MarkdownAttributeBuilder {
     /// a quote inside a list item start at `blockquoteBarInset`.
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
                 blockquoteLevel: Int = 0, listIndent: CGFloat = 0, listMarker: String? = nil,
-                markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0) async -> RenderedContentResult {
+                markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0,
+                spacingContext: BlockSpacingContext? = nil) async -> RenderedContentResult {
         var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                          blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+#if canImport(AppKit)
+        if let spacingContext {
+            let spaced = applySpacing(spacingContext, to: result.attributed, previousKind: previousBlockKind)
+            result.attributed = spaced.content
+            result.paragraphSpacingAfter = spaced.after
+        }
+#endif
         if listIndent > 0 || listMarker != nil {
             result.attributed = placeInListItem(result.attributed, indent: listIndent, marker: listMarker)
         }
@@ -127,6 +145,42 @@ actor MarkdownAttributeBuilder {
         result.attributed = .picoConverted(from: content)
         return result
     }
+
+#if canImport(AppKit)
+    private func applySpacing(_ context: BlockSpacingContext, to attributed: AttributedString,
+                              previousKind: BlockKind?) -> (content: AttributedString, after: CGFloat?) {
+        let content = NSMutableAttributedString(attributedString: .picoConverted(from: attributed))
+        guard content.length > 0 else { return (attributed, nil) }
+        let firstRange = (content.string as NSString).paragraphRange(for: NSRange(location: 0, length: 1))
+        let first = (content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+            .mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+        if let previousAfter = context.previousSpacingAfter {
+            let desiredGap: CGFloat
+            switch context.gap {
+            case .paragraph: desiredGap = bodyFont.pointSize
+            case .listItem: desiredGap = bodyFont.pointSize * 0.25
+            case .none: desiredGap = 0
+            case .standard:
+                // Preserve the block's own margin, compensating for the
+                // visible predecessor's actual trailing space.
+                desiredGap = (previousKind.map { margins(for: $0).bottomMargin } ?? 0) + first.paragraphSpacingBefore
+            }
+            first.paragraphSpacingBefore = max(0, desiredGap - previousAfter)
+        } else if context.gap != .standard {
+            first.paragraphSpacingBefore = 0
+        }
+        content.addAttribute(.paragraphStyle, value: first, range: firstRange)
+        if context.suppressTrailingListSpacing {
+            let lastRange = (content.string as NSString).paragraphRange(for: NSRange(location: content.length - 1, length: 1))
+            let last = (content.attribute(.paragraphStyle, at: content.length - 1, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            last.paragraphSpacing = 0
+            content.addAttribute(.paragraphStyle, value: last, range: lastRange)
+        }
+        let after = (content.attribute(.paragraphStyle, at: content.length - 1, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing
+        return (.picoConverted(from: content), after)
+    }
+#endif
 
     private func placeInListItem(_ attributed: AttributedString, indent: CGFloat, marker: String?) -> AttributedString {
         let content = NSMutableAttributedString(attributedString: .picoConverted(from: attributed))
@@ -506,9 +560,11 @@ actor MarkdownAttributeBuilder {
 
         // Spacing via margin collapsing
         var listSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
+#if !canImport(AppKit)
         if listDepth > 0 {
             listSpacing.spacingAfter = max(0, listSpacing.spacingAfter - 2)
         }
+#endif
         let listParagraph = makeParagraphStyle(listSpacing)
 
         // Measure the actual bullet width
@@ -559,9 +615,8 @@ actor MarkdownAttributeBuilder {
         // Apply the SAME paragraph style to the terminating "\n" as to the body,
         // mirroring renderInlineBlock. A paragraph's trailing paragraphSpacing is
         // resolved from its terminating character's style, so reusing listParagraph
-        // here makes the inter-item gap honor listSpacing.spacingAfter (4pt top-level,
-        // 2pt nested) instead of a hardcoded 6pt that overrode the margin system and
-        // defeated the depth-based reduction above.
+        // here makes the inter-item gap honor the margin system instead of a
+        // separate, hardcoded gap on the terminating character.
         rendered.append(NSAttributedString(string: "\n",
                                            attributes: [.font: bodyFont,
                                                         .paragraphStyle: listParagraph]))
@@ -617,13 +672,21 @@ actor MarkdownAttributeBuilder {
             default: return BlockMargins(topMargin: 12, bottomMargin: 6, lineHeightMultiple: 1.12)
             }
         case .paragraph:
+#if canImport(AppKit)
+            return BlockMargins(topMargin: 0, bottomMargin: bodyFont.pointSize, lineHeightMultiple: 1.24)
+#else
             return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
+#endif
         case .fencedCode:
             return BlockMargins(topMargin: 12, bottomMargin: 12, lineHeightMultiple: 1.24)
         case .blockquote:
             return BlockMargins(topMargin: 8, bottomMargin: 8, lineHeightMultiple: 1.24)
         case .listItem:
+#if canImport(AppKit)
+            return BlockMargins(topMargin: 0, bottomMargin: bodyFont.pointSize * 0.25, lineHeightMultiple: 1.24)
+#else
             return BlockMargins(topMargin: 0, bottomMargin: 2, lineHeightMultiple: 1.24)
+#endif
         case .horizontalRule:
             return BlockMargins(topMargin: 20, bottomMargin: 20, lineHeightMultiple: 1.0)
         case .table:
@@ -902,7 +965,12 @@ actor MarkdownAttributeBuilder {
         let indent = BlockquoteBarMetrics.textIndent(level: level)
         paragraphStyle.firstLineHeadIndent = indent
         paragraphStyle.headIndent = indent
+#if canImport(AppKit)
+        paragraphStyle.lineHeightMultiple = 1.24
+        paragraphStyle.paragraphSpacing = bodyFont.pointSize
+#else
         paragraphStyle.paragraphSpacing = 8
+#endif
         paragraphStyle.paragraphSpacingBefore = spacingBefore
         return paragraphStyle
     }

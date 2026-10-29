@@ -433,6 +433,12 @@ final class TextKitStreamingBackend {
                 switch change {
                 case .blockStarted(let id, _, let position):
                     if position < 0 || position > expectedCount { return false }
+#if canImport(AppKit)
+                    // Retention can shift an insertion's position before the
+                    // final snapshot arrives. Use the retained snapshot when
+                    // that position cannot identify its new block.
+                    if position >= blocks.count { return false }
+#endif
                     if position < blocks.count, blocks[position].id != id { return false }
                     insertedIDs.insert(id)
                     expectedCount += 1
@@ -480,6 +486,15 @@ final class TextKitStreamingBackend {
             switch change {
             case .blocksDiscarded(let range):
                 updatedSelection = removeRecords(in: range, selection: updatedSelection)
+#if canImport(AppKit)
+                // Its predecessor changed, so the first retained block may
+                // have a different leading margin without a text-change event.
+                var firstVisible = range.lowerBound
+                while firstVisible < blocks.count, blocks[firstVisible].content.characters.isEmpty { firstVisible += 1 }
+                if firstVisible < blocks.count {
+                    updatedSelection = updateRecord(id: blocks[firstVisible].id, blocks: blocks, selection: updatedSelection)
+                }
+#endif
             case .blockStarted(let id, _, let position):
                 let index = max(0, min(position, blocks.count))
                 guard index < blocks.count, blocks[index].id == id else { continue }
@@ -491,6 +506,13 @@ final class TextKitStreamingBackend {
                 if let parentID = blocks[index].snapshot.parentID {
                     updatedSelection = updateRecord(id: parentID, blocks: blocks, selection: updatedSelection)
                 }
+#if canImport(AppKit)
+                var nextVisible = index + 1
+                while nextVisible < blocks.count, blocks[nextVisible].content.characters.isEmpty { nextVisible += 1 }
+                if nextVisible < blocks.count {
+                    updatedSelection = updateRecord(id: blocks[nextVisible].id, blocks: blocks, selection: updatedSelection)
+                }
+#endif
             case .runsAppended(let id, _),
                  .codeAppended(let id, _),
                  .tableHeaderConfirmed(let id),
