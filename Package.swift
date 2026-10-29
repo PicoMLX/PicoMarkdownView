@@ -7,7 +7,7 @@ let package = Package(
     name: "PicoMarkdownView",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v15),
+        .macOS("27.0"),
         .iOS(.v18)
     ],
     products: [

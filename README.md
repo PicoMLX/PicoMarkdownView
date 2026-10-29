@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/PicoMLX/PicoMarkdownView/actions/workflows/ci.yml/badge.svg)](https://github.com/PicoMLX/PicoMarkdownView/actions/workflows/ci.yml)
 
-SwiftUI component for rendering streaming Markdown and KaTeX in chat-style apps on iOS 18+ and macOS 15+.
+SwiftUI component for rendering streaming Markdown and KaTeX in chat-style apps on iOS 18+ and macOS 27+.
 
 ## Installation
 
@@ -48,7 +48,36 @@ growing array during live streaming — use `stream:` for that:
 PicoMarkdownView(chunks: ["Hello ", "world", "\n\n"])
 ```
 
-The view maintains continuous selection and reuses layout via a shared `NSTextStorage` / TextKit host under the hood.
+The view maintains continuous selection in a single TextKit document. On macOS 27 it uses TextKit 2 with hosted table attachments; iOS retains its existing UIKit rendering path. Streaming rows update the hosted table model without replacing its attachment character, and mixed selections copy the selected table as Markdown.
+
+### Hosted macOS content
+
+On macOS 27, tables occupy one attachment character. Dragging through a table
+selects it as a whole; copying expands it to Markdown. Row appends keep the
+attachment and row identities, while changes in height invalidate only the
+attachment's text range. The tokenizer and assembler remain incremental and
+run off the main actor.
+
+`PicoHostedAttachment` is the same reusable hosting primitive for additional
+macOS renderer blocks, such as charts or tool controls:
+
+```swift
+let attachment = PicoHostedAttachment(
+    interaction: .interactive,
+    markdown: { "[Run tool](tool://run)" }
+) { context in
+    Button("Run tool", action: runTool)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+```
+
+A renderer inserts it with `NSAttributedString(attachment: attachment)`.
+The host proposes `context.availableWidth`, exposes `context.isSelected`, and
+measures its content as that content changes. Use `.selectableBlock` for
+noninteractive content that participates in the outer text selection, or
+`.interactive` for native controls. Supply a Markdown representation for copy.
+This primitive does not change the parser's supported Markdown syntax. Hosted
+content must provide a finite intrinsic height at its proposed width.
 
 ### Configuration
 

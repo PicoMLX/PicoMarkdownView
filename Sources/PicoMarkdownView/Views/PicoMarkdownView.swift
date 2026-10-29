@@ -148,6 +148,9 @@ public struct PicoMarkdownView: View {
                           onContentSize: onContentSize,
                           linkHandler: makeLinkHandler(),
                           hoverHandler: makeHoverHandler())
+#if os(macOS)
+            .withDocumentIdentity(viewModel.documentIdentity)
+#endif
             .task(id: consumeTaskID) {
                 await viewModel.consume(input)
             }
@@ -278,6 +281,13 @@ import AppKit
 
 private struct TextKit2Container: NSViewRepresentable {
     var controller: TextKitStreamingController
+    var documentIdentity: UInt64 = 0
+
+    func withDocumentIdentity(_ identity: UInt64) -> Self {
+        var container = self
+        container.documentIdentity = identity
+        return container
+    }
     var blocks: [RenderedBlock]
     var diffs: [AssemblerDiff]
     var replaceToken: UInt64
@@ -297,7 +307,7 @@ private struct TextKit2Container: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
-        controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration)
+        controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration, documentIdentity: documentIdentity)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
         controller.installContentSizeObserver(on: nsView, onContentSize)
         controller.installLinkHandler(on: nsView, linkHandler)

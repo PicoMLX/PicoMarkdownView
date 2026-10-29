@@ -33,6 +33,11 @@ final class MarkdownStreamingViewModel {
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
     var replaceToken: UInt64 = 0
+#if os(macOS)
+    /// Published with the blocks, separately from presentation-only refreshes.
+    var documentIdentity: UInt64 = 0
+    private var pendingDocumentIdentity: UInt64 = 0
+#endif
 
     private var pendingBlocks: [RenderedBlock]?
     private var pendingDiffs: [AssemblerDiff] = []
@@ -237,6 +242,9 @@ final class MarkdownStreamingViewModel {
     }
 
     private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?) {
+#if os(macOS)
+        pendingDocumentIdentity = pipelineGeneration
+#endif
         updateImageDependencies(using: blocks)
         scheduleImagePrefetchIfNeeded(using: blocks)
         pendingBlocks = blocks
@@ -268,6 +276,9 @@ final class MarkdownStreamingViewModel {
         #if DEBUG
         Self.logger.debug("Applying Markdown update: blocks=\(blocks.count), replacementToken=\(self.pendingReplaceToken.map { String($0) } ?? "nil")")
         #endif
+#if os(macOS)
+        documentIdentity = pendingDocumentIdentity
+#endif
         self.blocks = blocks
         self.diffQueue = pendingDiffs
         if let token = pendingReplaceToken {

@@ -15,6 +15,9 @@ final class TextKitStreamingController: ObservableObject {
     private let backend = TextKitStreamingBackend()
     private var lastAppliedVersion: UInt64 = 0
     private var lastAppliedReplaceToken: UInt64 = 0
+#if canImport(AppKit)
+    private var lastAppliedDocumentIdentity: UInt64?
+#endif
 
 #if canImport(UIKit)
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> UITextView {
@@ -109,15 +112,23 @@ final class TextKitStreamingController: ObservableObject {
                 blocks: [RenderedBlock],
                 diffs: [AssemblerDiff],
                 replaceToken: UInt64,
-                configuration: PicoTextKitConfiguration) {
+                configuration: PicoTextKitConfiguration,
+                documentIdentity: UInt64? = nil) {
         Self.logger.debug("Updating text view: blocks=\(blocks.count), replacementToken=\(replaceToken), appliedReplacementToken=\(self.lastAppliedReplaceToken), storageLength=\(self.backend.length)")
         configure(textView, with: configuration)
         let currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
         backend.setPaused(configuration.isPaused)
-        if replaceToken != lastAppliedReplaceToken {
+        let documentChanged = documentIdentity != nil && documentIdentity != lastAppliedDocumentIdentity
+        if documentChanged {
+            lastAppliedDocumentIdentity = documentIdentity
+            backend.resetDocumentOnNextApply()
+        }
+        if replaceToken != lastAppliedReplaceToken || documentChanged {
             lastAppliedReplaceToken = replaceToken
             lastAppliedVersion = 0
-            _ = backend.apply(blocks: blocks, selection: currentSelection)
+            if documentIdentity == nil { backend.resetDocumentOnNextApply() }
+            let selection = backend.apply(blocks: blocks, selection: currentSelection)
+            if configuration.isSelectable { textView.setSelectedRange(selection.clamped(maxLength: backend.length)) }
             Self.logger.debug("Text view content replaced: storageLength=\(self.backend.length)")
             textView.needsDisplay = true
             textView.invalidateIntrinsicContentSize()
@@ -163,7 +174,7 @@ final class TextKitStreamingController: ObservableObject {
                                          height: configuration.verticalInset)
         view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.isVerticallyResizable = configuration.isScrollEnabled
-        view.isHorizontallyResizable = configuration.isScrollEnabled
+        view.isHorizontallyResizable = false
         view.allowsUndo = false
         view.usesAdaptiveColorMappingForDarkAppearance = true
         view.textContainer?.widthTracksTextView = true
@@ -220,10 +231,12 @@ final class TextKitStreamingController: ObservableObject {
 
     func installLinkHandler(on textView: NSTextView, _ handler: ((URL, String) -> Void)?) {
         (textView as? StreamingTextKit2View)?.linkActionHandler = handler
+        backend.onHostedLink = handler
     }
 
     func installHoverHandler(on textView: NSTextView, _ handler: ((URL?, String, CGRect?) -> Void)?) {
         (textView as? StreamingTextKit2View)?.hoverHandler = handler
+        backend.onHostedHover = handler
     }
 #endif
 }
@@ -241,7 +254,20 @@ final class TextKitStreamingBackend {
         var content: AttributedString
         var nsAttributed: NSAttributedString
         var length: Int
+#if canImport(AppKit)
+        var table: RenderedTable? = nil
+        var tableSnapshot: TableSnapshot? = nil
+        var hostedAttachments: [HostedRecord] = []
+#endif
     }
+
+#if canImport(AppKit)
+    private struct HostedRecord {
+        var attachment: PicoHostedAttachment
+        var offset: Int
+        var indent: CGFloat
+    }
+#endif
 
     private struct DeferredUpdate {
         var blocks: [RenderedBlock]
@@ -249,6 +275,15 @@ final class TextKitStreamingBackend {
     }
 
     private var storage = NSTextStorage()
+#if canImport(AppKit)
+    private weak var contentStorage: NSTextContentStorage?
+    private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedRefreshIDs: Set<BlockID> = []
+    private var shouldResetDocument = false
+    var onHostedHover: ((URL?, String, CGRect?) -> Void)?
+    var onHostedLink: ((URL, String) -> Void)?
+    var onHostedContentSizeChanged: ((NSRange) -> Void)?
+#endif
 
     var length: Int {
         storage.length
@@ -263,13 +298,50 @@ final class TextKitStreamingBackend {
     }
 
     func apply(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
+#if canImport(AppKit)
+        if let contentStorage {
+            var result = selection
+            contentStorage.performEditingTransaction {
+                result = applyToStorage(blocks: blocks, diffs: diffs, selection: selection)
+            }
+            return result
+        }
+#endif
+        return applyToStorage(blocks: blocks, diffs: diffs, selection: selection)
+    }
+
+    private func applyToStorage(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
         if isPaused {
             deferred = DeferredUpdate(blocks: blocks, diffs: diffs)
             return selection.clamped(maxLength: storage.length)
         }
+#if canImport(AppKit)
+        let selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
+        if shouldResetDocument {
+            shouldResetDocument = false
+            if storage.length > 0 {
+                storage.beginEditing()
+                storage.setAttributedString(NSAttributedString())
+                storage.endEditing()
+            }
+            records.removeAll()
+            blockOffsets = [0]
+            indexByID.removeAll()
+            hostedTables.removeAll()
+        }
+#endif
         if deferred != nil {
             deferred = nil
         }
+#if canImport(AppKit)
+        hostedRefreshIDs = diffs.isEmpty ? Set(blocks.map(\.id)) : Set(diffs.flatMap { diff in
+            diff.changes.compactMap { change in
+                if case .blockEnded(let id) = change { return id }
+                return nil
+            }
+        })
+        defer { hostedRefreshIDs.removeAll(keepingCapacity: true) }
+#endif
         guard !diffs.isEmpty else {
             return applyFullScan(blocks: blocks, selection: selection)
         }
@@ -285,6 +357,9 @@ final class TextKitStreamingBackend {
                 records = []
                 blockOffsets = [0]
                 indexByID = [:]
+#if canImport(AppKit)
+                hostedTables.removeAll()
+#endif
                 return NSRange(location: 0, length: 0)
             }
             storage.beginEditing()
@@ -293,14 +368,17 @@ final class TextKitStreamingBackend {
             records = []
             blockOffsets = [0]
             indexByID = [:]
+#if canImport(AppKit)
+            hostedTables.removeAll()
+#endif
             return NSRange(location: 0, length: 0)
         }
 
         let blockData: [(block: RenderedBlock, attributed: NSAttributedString)] = blocks.enumerated().map { index, block in
-            if index < records.count && records[index].id == block.id && records[index].content == block.content {
+            if index < records.count && records[index].id == block.id && recordMatches(records[index], block: block) {
                 return (block: block, attributed: records[index].nsAttributed)
             } else {
-                return (block: block, attributed: NSAttributedString.picoConverted(from: block.content))
+                return (block: block, attributed: attributedString(for: block))
             }
         }
 
@@ -309,7 +387,7 @@ final class TextKitStreamingBackend {
         }
 
         // Check if any content actually changed before editing
-        let hasChanges = zip(records, blockData).contains { $0.0.content != $0.1.block.content }
+        let hasChanges = zip(records, blockData).contains { !recordMatches($0.0, block: $0.1.block) }
         guard hasChanges else {
             return selection.clamped(maxLength: storage.length)
         }
@@ -321,7 +399,10 @@ final class TextKitStreamingBackend {
         for index in records.indices {
             let record = records[index]
             let data = blockData[index]
-            if record.content == data.block.content { continue }
+            if recordMatches(record, block: data.block) { continue }
+#if canImport(AppKit)
+            if updateHostedTableOnly(at: index, block: data.block) { continue }
+#endif
 
             let oldLength = record.length
             let range = rangeForBlock(at: index, data: blockData)
@@ -331,6 +412,7 @@ final class TextKitStreamingBackend {
             records[index].content = data.block.content
             records[index].length = data.attributed.length
             records[index].nsAttributed = data.attributed
+            updateTableRecord(at: index, block: data.block)
 
             // Incremental offset update - O(1) for last block updates (streaming!)
             let delta = data.attributed.length - oldLength
@@ -424,7 +506,7 @@ final class TextKitStreamingBackend {
     private func insertRecord(_ block: RenderedBlock,
                               at index: Int,
                               selection: NSRange) -> NSRange {
-        let attributed = NSAttributedString.picoConverted(from: block.content)
+        let attributed = attributedString(for: block)
         let record = BlockRecord(id: block.id,
                                  content: block.content,
                                  nsAttributed: attributed,
@@ -436,6 +518,7 @@ final class TextKitStreamingBackend {
         storage.replaceCharacters(in: editedRange, with: attributed)
 
         records.insert(record, at: clampedIndex)
+        updateTableRecord(at: clampedIndex, block: block)
         for i in clampedIndex..<records.count {
             indexByID[records[i].id] = i
         }
@@ -452,17 +535,31 @@ final class TextKitStreamingBackend {
         }
         let block = blocks[index]
         let record = records[index]
-        guard record.content != block.content else { return selection }
+        guard !recordMatches(record, block: block) else { return selection }
+#if canImport(AppKit)
+        if updateHostedTableOnly(at: index, block: block) { return selection }
+#endif
 
-        let newAttributed = NSAttributedString.picoConverted(from: block.content)
+        let newAttributed = attributedString(for: block)
         let range = rangeForRecord(at: index)
+#if canImport(AppKit)
+        // Preserve the already-rendered prefix of an open paragraph/code block.
+        // Its terminal newline moves as text streams; only that tail is edited.
+        let prefixLength = reusablePrefixLength(old: record.nsAttributed, new: newAttributed)
+        let edit = NSRange(location: range.location + prefixLength, length: range.length - prefixLength)
+        let replacement = newAttributed.attributedSubstring(from: NSRange(location: prefixLength, length: newAttributed.length - prefixLength))
+        storage.replaceCharacters(in: edit, with: replacement)
+        let updatedSelection = adjust(selection: selection, editedRange: edit, replacementLength: replacement.length)
+#else
         storage.replaceCharacters(in: range, with: newAttributed)
         let updatedSelection = adjust(selection: selection, editedRange: range, replacementLength: newAttributed.length)
+#endif
 
         let oldLength = record.length
         records[index].content = block.content
         records[index].length = newAttributed.length
         records[index].nsAttributed = newAttributed
+        updateTableRecord(at: index, block: block)
 
         let delta = newAttributed.length - oldLength
         if delta != 0 {
@@ -490,6 +587,9 @@ final class TextKitStreamingBackend {
         let removed = records[removalRange]
         for record in removed {
             indexByID[record.id] = nil
+#if canImport(AppKit)
+            hostedTables.removeValue(forKey: record.id)
+#endif
         }
         records.removeSubrange(removalRange)
         for i in lower..<records.count {
@@ -514,11 +614,16 @@ final class TextKitStreamingBackend {
         storage.setAttributedString(composed)
         storage.endEditing()
         rebuildRecords(using: blockData)
+#if canImport(AppKit)
+        let liveIDs = Set(blockData.map { $0.block.id })
+        hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
+#endif
         return selection.clamped(maxLength: storage.length)
     }
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
         records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
+        for index in records.indices { updateTableRecord(at: index, block: blockData[index].block) }
         indexByID = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
         rebuildOffsets()
     }
@@ -621,6 +726,19 @@ final class TextKitStreamingBackend {
         let editEnd = editedRange.location + editedRange.length
         let selectionEnd = result.location + result.length
 
+#if canImport(AppKit)
+        if delta == 0 { return result }
+        if editEnd <= result.location {
+            result.location += delta
+        } else if editedRange.location < selectionEnd {
+            let start = min(result.location, editedRange.location)
+            let end = selectionEnd >= editEnd
+                ? selectionEnd + delta
+                : editedRange.location + min(replacementLength, selectionEnd - editedRange.location)
+            result = NSRange(location: start, length: max(0, end - start))
+        }
+        return result
+#else
         if editEnd <= result.location {
             result.location += delta
         } else if editedRange.location >= selectionEnd {
@@ -631,16 +749,8 @@ final class TextKitStreamingBackend {
         }
 
         return result
-    }
-
-#if canImport(AppKit)
-    fileprivate func connect(to layoutManager: NSLayoutManager) {
-        for manager in storage.layoutManagers {
-            storage.removeLayoutManager(manager)
-        }
-        storage.addLayoutManager(layoutManager)
-    }
 #endif
+    }
 
     func cachedAttributedString(forBlockAt index: Int) -> NSAttributedString? {
         guard records.indices.contains(index) else { return nil }
@@ -659,16 +769,115 @@ final class TextKitStreamingBackend {
         }
     }
 #elseif canImport(AppKit)
-    fileprivate func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
-        // Adopt the content storage's existing text storage so the TextKit2 observation
-        // chain stays intact. Writing to this storage will flow through
-        // NSTextContentStorage → NSTextLayoutManager → NSTextContainer → view.
+    func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
+        contentStorage = textContentStorage
         if let existingStorage = textContentStorage.textStorage {
-            self.storage = existingStorage
+            storage = existingStorage
         } else {
             textContentStorage.textStorage = storage
         }
     }
+
+#endif
+
+    private func recordMatches(_ record: BlockRecord, block: RenderedBlock) -> Bool {
+#if canImport(AppKit)
+        return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
+#else
+        return record.content == block.content
+#endif
+    }
+
+    private func updateTableRecord(at index: Int, block: RenderedBlock) {
+#if canImport(AppKit)
+        records[index].table = block.table
+        records[index].tableSnapshot = block.snapshot.table
+        let attributed = records[index].nsAttributed
+        var hosted: [HostedRecord] = []
+        attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
+            guard let attachment = value as? PicoHostedAttachment else { return }
+            let paragraph = attributed.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
+            let indent = max(paragraph?.headIndent ?? 0, paragraph?.firstLineHeadIndent ?? 0)
+            hosted.append(HostedRecord(attachment: attachment, offset: range.location, indent: indent))
+            let id = block.id
+            attachment.onLayoutInvalidated = { [weak self] _ in
+                guard let self, let index = self.indexByID[id] else { return }
+                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+            }
+        }
+        records[index].hostedAttachments = hosted
+#endif
+    }
+
+    private func attributedString(for block: RenderedBlock) -> NSAttributedString {
+#if canImport(AppKit)
+        guard let table = block.table, let snapshot = block.snapshot.table else {
+            hostedTables.removeValue(forKey: block.id)
+            return NSAttributedString.picoConverted(from: block.content)
+        }
+        let entry: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)
+        if let existing = hostedTables[block.id] {
+            entry = existing
+            entry.model.update(table: table, snapshot: snapshot, refreshExisting: hostedRefreshIDs.contains(block.id))
+        } else {
+            let model = PicoHostedTableModel(table: table, snapshot: snapshot)
+            model.onOpenLink = { [weak self] url, text in
+                if let handler = self?.onHostedLink { handler(url, text) }
+                else { NSWorkspace.shared.open(url) }
+            }
+            model.onHoverLink = { [weak self] url, text, rect in self?.onHostedHover?(url, text, rect) }
+            let attachment = PicoHostedAttachment(interaction: .selectableBlock,
+                markdown: { model.markdownRepresentation() }) { context in
+                    PicoHostedTableView(model: model, context: context)
+                }
+            entry = (model, attachment)
+            hostedTables[block.id] = entry
+        }
+        let attributed = NSMutableAttributedString(attributedString: .picoConverted(from: block.content))
+        let marker = (attributed.string as NSString).range(of: "\u{FFFC}")
+        if marker.location != NSNotFound {
+            attributed.addAttribute(.attachment, value: entry.attachment, range: marker)
+        }
+        return attributed
+#else
+        return NSAttributedString.picoConverted(from: block.content)
+#endif
+    }
+
+#if canImport(AppKit)
+    private func updateHostedTableOnly(at index: Int, block: RenderedBlock) -> Bool {
+        guard records[index].content == block.content,
+              let table = block.table, let snapshot = block.snapshot.table,
+              let entry = hostedTables[block.id] else { return false }
+        entry.model.update(table: table, snapshot: snapshot, refreshExisting: hostedRefreshIDs.contains(block.id))
+        entry.attachment.invalidateSize()
+        updateTableRecord(at: index, block: block)
+        return true
+    }
+
+    private func reusablePrefixLength(old: NSAttributedString, new: NSAttributedString) -> Int {
+        guard old.length > 0, new.length >= old.length else { return 0 }
+        let length = old.string.hasSuffix("\n") ? old.length - 1 : old.length
+        guard length > 0,
+              old.attributedSubstring(from: NSRange(location: 0, length: length))
+                .isEqual(to: new.attributedSubstring(from: NSRange(location: 0, length: length))) else { return 0 }
+        return length
+    }
+
+    func updateHostedAttachments(width: CGFloat, selection: [NSRange]) {
+        for index in records.indices where !records[index].hostedAttachments.isEmpty {
+            let range = rangeForRecord(at: index)
+            for hosted in records[index].hostedAttachments {
+                let markerRange = NSRange(location: range.location + hosted.offset, length: 1)
+                let selected = selection.contains { NSIntersectionRange($0, markerRange).length > 0 }
+                hosted.attachment.update(availableWidth: max(1, width - hosted.indent), isSelected: selected)
+            }
+        }
+    }
+
+    func resetDocumentOnNextApply() { shouldResetDocument = true }
+
+    func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? { hostedTables[id]?.attachment }
 #endif
 
     func snapshotAttributedString() -> NSAttributedString {
@@ -680,7 +889,7 @@ final class TextKitStreamingBackend {
     func needsFullApply(for blocks: [RenderedBlock]) -> Bool {
         guard blocks.count == records.count else { return true }
         for i in blocks.indices {
-            if blocks[i].id != records[i].id || blocks[i].content != records[i].content {
+            if blocks[i].id != records[i].id || !recordMatches(records[i], block: blocks[i]) {
                 return true
             }
         }
@@ -813,230 +1022,6 @@ private extension UITextView {
     }
 }
 
-#elseif canImport(AppKit)
-@MainActor
-private final class StreamingTextKit2View: NSTextView {
-    var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
-    var onContentSizeChanged: ((CGSize) -> Void)?
-    var linkActionHandler: ((URL, String) -> Void)?
-    private var lastMermaidWidthBucket: Int?
-    private var lastLaidOutWidth: CGFloat = -1
-    private var lastReportedContentSize: CGSize = CGSize(width: -1, height: -1)
-    var hoverHandler: ((URL?, String, CGRect?) -> Void)?
-    private var hoverTrackingArea: NSTrackingArea?
-    private var lastHoverLinkStart: Int?
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
-        let area = NSTrackingArea(rect: .zero,
-                                  options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                  owner: self, userInfo: nil)
-        addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        notifyHover(at: convert(event.locationInWindow, from: nil))
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        super.mouseExited(with: event)
-        clearHover()
-    }
-
-    private func notifyHover(at point: NSPoint) {
-        guard let hoverHandler else { return }
-        if let info = hoverLink(at: point) {
-            guard info.linkStart != lastHoverLinkStart else { return }
-            lastHoverLinkStart = info.linkStart
-            hoverHandler(info.url, info.displayText, info.rect)
-        } else {
-            clearHover()
-        }
-    }
-
-    private func clearHover() {
-        guard lastHoverLinkStart != nil, let hoverHandler else { return }
-        lastHoverLinkStart = nil
-        hoverHandler(nil, "", nil)
-    }
-
-    init(backend: TextKitStreamingBackend) {
-        // Use TextKit 1 initialization: the backend storage connection works by
-        // adding a layout manager to the backend's own NSTextStorage. TextKit 2's
-        // NSTextContentStorage observation chain does not properly relay
-        // programmatic NSTextStorage edits on macOS, resulting in blank views.
-        let layoutManager = BlockquoteBarLayoutManager()
-        let textContainer = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                         height: CGFloat.greatestFiniteMagnitude))
-        layoutManager.addTextContainer(textContainer)
-        backend.connect(to: layoutManager)
-        super.init(frame: .zero, textContainer: textContainer)
-        isVerticallyResizable = true
-        isHorizontallyResizable = true
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func clicked(onLink link: Any, at charIndex: Int) {
-        guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
-            super.clicked(onLink: link, at: charIndex)
-            return
-        }
-        handler(url, linkDisplayText(at: charIndex))
-    }
-
-    override var intrinsicContentSize: NSSize {
-        guard !isVerticallyResizable else { return super.intrinsicContentSize }
-        return sizeThatFits()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil {
-            needsLayout = true
-            needsDisplay = true
-            invalidateIntrinsicContentSize()
-        }
-    }
-
-    override func layout() {
-        super.layout()
-        notifyMermaidContentWidthIfNeeded()
-        notifyContentSizeIfNeeded()
-        relayoutIfUsableWidthChanged()
-        if !isVerticallyResizable {
-            invalidateIntrinsicContentSize()
-        }
-    }
-
-    private func notifyContentSizeIfNeeded() {
-        guard let onContentSizeChanged, bounds.width > 0,
-              let textContainer, let layoutManager else { return }
-        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: textContainer)
-        let used = layoutManager.usedRect(for: textContainer)
-        let newSize = CGSize(width: bounds.width, height: used.height + textContainerInset.height * 2)
-        guard abs(newSize.width - lastReportedContentSize.width) > 0.5
-                || abs(newSize.height - lastReportedContentSize.height) > 0.5 else { return }
-        lastReportedContentSize = newSize
-        onContentSizeChanged(newSize)
-    }
-
-    /// Force a one-shot full text relayout when the usable width changes. On a cold
-    /// launch the first blocks (notably the H1 title) can be laid out at a transient
-    /// narrow width before the split view settles; the automatic width tracking does
-    /// not always reflow that early layout, leaving the heading wrapped/stale until a
-    /// later relayout (which is why re-selecting the example "fixes" it). Re-laying out
-    /// whenever the width actually changes makes the settled width win on first render.
-    private func relayoutIfUsableWidthChanged() {
-        guard let layoutManager, let textContainer else { return }
-        let width = bounds.width
-        guard width > 0, abs(width - lastLaidOutWidth) > 0.5 else { return }
-        lastLaidOutWidth = width
-        let length = layoutManager.textStorage?.length ?? 0
-        guard length > 0 else { return }
-        layoutManager.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
-                                       actualCharacterRange: nil)
-        layoutManager.ensureLayout(for: textContainer)
-        needsDisplay = true
-    }
-
-    private func sizeThatFits() -> NSSize {
-        guard let textContainer = textContainer, let layoutManager = layoutManager else {
-            return super.intrinsicContentSize
-        }
-        // Defer measurement until SwiftUI has assigned a real width. The old fallback
-        // laid out at an infinite container width when bounds.width == 0, which happens
-        // on a cold launch: ContentView auto-selects the first example in .onAppear, so
-        // the text view starts receiving streamed edits before its frame is set. Measuring
-        // (and drawing) at infinite width mis-sizes the content and leaves stale glyph
-        // fragments stacked at the top. Reporting "no intrinsic metric" here is corrected
-        // automatically — layout()/viewDidMoveToWindow() invalidate the intrinsic size as
-        // soon as a real width arrives.
-        guard bounds.width > 0 else {
-            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
-        }
-        textContainer.containerSize = NSSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude)
-        layoutManager.ensureLayout(for: textContainer)
-        let used = layoutManager.usedRect(for: textContainer)
-        return NSSize(width: NSView.noIntrinsicMetric, height: used.height + textContainerInset.height * 2)
-    }
-
-    private func notifyMermaidContentWidthIfNeeded() {
-        let width = bounds.width - textContainerInset.width * 2
-        let normalized = width > 0 ? width : nil
-        let bucket = normalized.map { Int(($0 / 8).rounded(.toNearestOrAwayFromZero)) }
-        guard bucket != lastMermaidWidthBucket else { return }
-        lastMermaidWidthBucket = bucket
-        onMermaidContentWidthChanged?(normalized)
-    }
-}
-
-private extension NSTextView {
-    /// Normalizes the `link` value AppKit hands to `clicked(onLink:at:)` — it
-    /// may be an `URL` or a `String` depending on how the attribute was set —
-    /// into a `URL`. Our renderer stores `.link` as an `URL`, but accepting
-    /// both keeps this robust.
-    static func linkURL(from link: Any) -> URL? {
-        if let url = link as? URL { return url }
-        if let string = link as? String { return URL(string: string) }
-        return nil
-    }
-
-    /// The visible text of the link containing `charIndex`, used to populate a
-    /// tag's `displayText`. Walks the `.link` attribute's effective range so
-    /// the whole link substring is returned, not just the clicked glyph.
-    func linkDisplayText(at charIndex: Int) -> String {
-        guard let storage = textStorage, charIndex >= 0, charIndex < storage.length else { return "" }
-        var effectiveRange = NSRange(location: 0, length: 0)
-        _ = storage.attribute(.link, at: charIndex, longestEffectiveRange: &effectiveRange,
-                              in: NSRange(location: 0, length: storage.length))
-        let clamped = effectiveRange.clamped(maxLength: storage.length)
-        guard clamped.length > 0 else { return "" }
-        return storage.attributedSubstring(from: clamped).string
-    }
-
-    /// Hit-tests a point (in view coordinates) against the laid-out glyphs and,
-    /// if it lands on a `.link` run, returns the link URL, its visible text, the
-    /// link's start character index, and its bounding rect in view coordinates
-    /// (for a host to anchor a hover popover). Returns `nil` when the point is
-    /// past the text or not on a link.
-    ///
-    /// `linkStart` is the location of the link's `.link` effective range — the
-    /// same value for every character within one link — so callers can de-dup
-    /// hover events on it and fire only when entering or switching links, not on
-    /// every character the cursor crosses inside the same link (which would
-    /// re-report an identical url/displayText/rect).
-    func hoverLink(at point: NSPoint) -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
-        guard let layoutManager, let textContainer, let storage = textStorage, storage.length > 0 else { return nil }
-        let containerPoint = NSPoint(x: point.x - textContainerInset.width,
-                                     y: point.y - textContainerInset.height)
-        // Reject points beyond the glyphs so trailing whitespace doesn't match.
-        var fraction: CGFloat = 0
-        let glyphIndex = layoutManager.glyphIndex(for: containerPoint, in: textContainer,
-                                                  fractionOfDistanceThroughGlyph: &fraction)
-        let glyphRect = layoutManager.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1),
-                                                   in: textContainer)
-        guard glyphRect.contains(containerPoint) else { return nil }
-        let charIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        guard charIndex < storage.length else { return nil }
-        var effectiveRange = NSRange(location: 0, length: 0)
-        guard let link = storage.attribute(.link, at: charIndex, longestEffectiveRange: &effectiveRange,
-                                           in: NSRange(location: 0, length: storage.length)) else { return nil }
-        let url = Self.linkURL(from: link)
-        let displayText = linkDisplayText(at: charIndex)
-        let glyphRange = layoutManager.glyphRange(forCharacterRange: effectiveRange, actualCharacterRange: nil)
-        var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-        rect.origin.x += textContainerInset.width
-        rect.origin.y += textContainerInset.height
-        return (url, displayText, effectiveRange.location, rect)
-    }
-}
 #endif
 
 #endif

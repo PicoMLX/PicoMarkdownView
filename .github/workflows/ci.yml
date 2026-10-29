@@ -12,15 +12,15 @@ concurrency:
 jobs:
   test-macos:
     name: macOS (swift test)
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      # swift-tools-version 6.2 requires Xcode 26; pick the newest installed.
-      - name: Select latest Xcode 26
+      # Hosted attachments require the macOS 27 runtime and Xcode 27 SDK.
+      - name: Select latest Xcode 27
         run: |
-          LATEST=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          LATEST=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1 || true)
           if [ -n "$LATEST" ]; then
             sudo xcode-select -s "$LATEST/Contents/Developer"
           fi
@@ -31,8 +31,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build
-          key: spm-macos-${{ hashFiles('Package.resolved') }}
-          restore-keys: spm-macos-
+          key: spm-macos27-${{ hashFiles('Package.resolved') }}
+          restore-keys: spm-macos27-
 
       # Benchmarks (PicoMarkdownViewBenchmarks) are excluded: they measure
       # throughput and are meant for local before/after comparisons, not a
