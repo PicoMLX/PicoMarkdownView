@@ -1442,6 +1442,13 @@ struct StreamingParser {
                 return
             }
         }
+        // Each line of a paragraph loses its leading spaces and tabs
+        // (CommonMark): its text starts at its first other character. A line
+        // of only whitespace so far is left to the checks below.
+        if !lineEmittedContent, !lineIsSettled, paragraphIsOpen(ctx) || ctx.kind.isFootnoteDefinition {
+            let leading = lineQuotePrefix + lineContent.prefix { $0 == " " || $0 == "\t" }.count
+            if emittedCount < leading, leading < lineBuffer.count { emittedCount = leading }
+        }
         let sourceLine: String = includeTerminatingNewline ? lineBuffer + "\n" : lineBuffer
         let start: String.Index
         if emittedLineBlockID == ctx.id, let byteOffset = emittedLineUTF8Offset,
