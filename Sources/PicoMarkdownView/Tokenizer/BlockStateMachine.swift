@@ -220,6 +220,9 @@ struct StreamingParser {
     /// item's indentation alone does not count, so a later opener on the
     /// same line is still allowed.
     private var lineEmittedContent = false
+    /// A definition on the line that comes too late for references already
+    /// shown as text: the line is shown, and defines the label at its end.
+    private var lineLateDefinition: (label: String, url: String, title: String?)?
     /// How many runs of open list items, outermost first, have judged the
     /// current line (`analyzeListContainers`); a re-analysis only routes
     /// its content through them.
@@ -430,7 +433,7 @@ struct StreamingParser {
             return
         }
         if isLineComplete, !unmarkedInsideQuote, let ctx = currentBlock, case .listItem = ctx.kind,
-           let linkDefinition = detectLinkDefinition(lineBuffer) {
+           let linkDefinition = detectLinkDefinition(lineBuffer), !showsLateDefinition(linkDefinition) {
             linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
             lineIsLinkDefinition = true
             emittedCount = lineBuffer.count
@@ -874,7 +877,7 @@ struct StreamingParser {
             // A definition cannot interrupt the item's open paragraph.
             if isLineComplete, lineOpenedListItems == 0, !lineEmittedContent, let current = currentBlock,
                current.kind.isListItem, !paragraphIsOpen(current),
-               let linkDefinition = detectLinkDefinition(content) {
+               let linkDefinition = detectLinkDefinition(content), !showsLateDefinition(linkDefinition) {
                 linkReferenceStore.define(label: linkDefinition.label, url: linkDefinition.url, title: linkDefinition.title)
                 lineIsLinkDefinition = true
                 emittedCount = lineBuffer.count
@@ -1573,6 +1576,9 @@ struct StreamingParser {
 
     private mutating func finalizeLine(terminated: Bool, force: Bool) {
         if !terminated && !force { return }
+        if let late = lineLateDefinition {
+            linkReferenceStore.define(label: late.label, url: late.url, title: late.title)
+        }
         if lineIsLinkDefinition {
             resetLineState()
             return
@@ -1716,6 +1722,7 @@ struct StreamingParser {
 
     private mutating func resetLineState() {
         lineBuffer.removeAll(keepingCapacity: true)
+        lineLateDefinition = nil
         lineTrailingBackslashes = 0
         emittedCount = 0
         emittedLineUTF8Offset = nil
@@ -1769,7 +1776,14 @@ struct StreamingParser {
                 return true
             }
             if !"\"'(".unicodeScalars.contains(first), definitionHoldIsComplete() {
+                // Resolving may replay held lines, so the line in hand waits.
+                let line = lineBuffer
+                let backslashes = lineTrailingBackslashes
+                resetLineState()
                 resolveDefinitionHold(isFinal: true)
+                lineBuffer = line
+                lineTrailingBackslashes = backslashes
+                lineAnalyzed = false
                 return false
             }
             lineDeferredUntilComplete = true
@@ -1815,6 +1829,17 @@ struct StreamingParser {
         while !rest.isEmpty {
             switch parseLinkDefinition(rest, isFinal: isFinal, progress: &definitionTitleProgress) {
             case .definition(let label, let url, let title, let end):
+                if linkReferenceStore.isUsedUndefined(label: label) {
+                    // The text already used this label, and those references
+                    // went out as text: hidden, the definition would leave
+                    // them pointing nowhere (a list of sources after the text
+                    // that cites them). It shows as a paragraph of its own,
+                    // before it defines the label for the references after it.
+                    var text = String(rest[..<end])
+                    if !text.hasSuffix("\n") { text += "\n" }
+                    suppressDefinitionHold = true
+                    process(text + "\n", isFinal: false)
+                }
                 linkReferenceStore.define(label: label, url: url, title: title)
                 rest = rest[end...]
             case .incomplete:
@@ -3044,6 +3069,16 @@ struct StreamingParser {
         }
         // Four or more spaces is indented code, or a paragraph's continuation.
         return leadingSpaces <= 3
+    }
+
+    /// Whether a definition on the current line comes too late for
+    /// references already shown as text (`isUsedUndefined`). The line is
+    /// then text, as it would be if the definition were hidden and they
+    /// pointed nowhere, and it defines the label once it ends.
+    private mutating func showsLateDefinition(_ definition: (label: String, url: String, title: String?)) -> Bool {
+        guard linkReferenceStore.isUsedUndefined(label: definition.label) else { return false }
+        lineLateDefinition = definition
+        return true
     }
 
     private func detectLinkDefinition(_ line: String) -> (label: String, url: String, title: String?)? {
