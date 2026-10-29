@@ -2450,7 +2450,28 @@ struct InlineParser {
             return .handled(nextIndex: endIndex)
         }
 
-        parsing: while index < text.endIndex {
+        /// Math that never closed, once the text is final: its opener is
+        /// text (`$` stays itself, `\(` and `\[` are escaped brackets, as in
+        /// CommonMark), and what followed it is parsed as usual, from where
+        /// its content began. Returns whether any of the text is left.
+        func reparseUnclosedMath() -> Bool {
+            guard includeUnterminated, let state = mathState else { return false }
+            let contentIndex = mathContentIndex(state)
+            mathState = nil
+            switch state.delimiter {
+            case .dollar:
+                appendPlain(state.openingMarker)
+            case .command(let closing, _):
+                appendPlain(String(state.openingMarker.dropFirst()))
+                commandMathUnclosedFrom[closing] = min(commandMathUnclosedFrom[closing] ?? contentIndex, contentIndex)
+            }
+            index = contentIndex
+            plainStart = contentIndex
+            consumedEnd = contentIndex
+            return index < text.endIndex
+        }
+
+        parsing: while index < text.endIndex || reparseUnclosedMath() {
             // The text of the innermost link or image ends at its `]`.
             if mathState == nil, let context = contexts.last, index >= context.close {
                 index = closeContext()
@@ -2590,7 +2611,11 @@ struct InlineParser {
             }
             if byte == 0x5C {
                 let next = bytes.index(after: index)
-                if next < bytes.endIndex, bytes[next] == 0x28 || bytes[next] == 0x5B {
+                // Within the reach of an opener of the same kind that found no
+                // closer, none is found either: the backslash is an escape.
+                let unclosed = next < bytes.endIndex
+                    && commandMathUnclosedFrom[bytes[next] == 0x28 ? 0x29 : 0x5D].map { bytes.index(after: next) >= $0 } == true
+                if next < bytes.endIndex, bytes[next] == 0x28 || bytes[next] == 0x5B, !(includeUnterminated && unclosed) {
                     flushPlain(upTo: index)
                     let display = bytes[next] == 0x5B
                     let markerEnd = bytes.index(after: next)
@@ -2978,15 +3003,6 @@ struct InlineParser {
             state.resumeUTF8Offset = text.utf8.distance(from: text.utf8.startIndex, to: index)
             mathState = state
             consumedAll = false
-        }
-
-        if includeUnterminated, let state = mathState {
-            let contentIndex = mathContentIndex(state)
-            let remaining = String(text[contentIndex...])
-            appendPlain(state.openingMarker + remaining)
-            consumedEnd = text.endIndex
-            plainStart = text.endIndex
-            mathState = nil
         }
 
         if includeUnterminated || consumedAll {
