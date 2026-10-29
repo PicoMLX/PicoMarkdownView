@@ -2,9 +2,6 @@
 # One per line: example number, then the spec section. Keep in example order.
 # The conformance suite fails when a listed example starts passing (remove it
 # here) or an unlisted one starts failing (fix it, or list it with a reason).
-5 Tabs
-6 Tabs
-7 Tabs
 12 Backslash escapes
 14 Backslash escapes
 23 Backslash escapes

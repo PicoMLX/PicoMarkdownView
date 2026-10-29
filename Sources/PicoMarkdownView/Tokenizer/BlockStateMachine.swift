@@ -244,6 +244,13 @@ struct StreamingParser {
     /// quote's again.
     private var lineQuoteRunStart = 0
     private var lineQuoteRunBase = 0
+    /// Columns of the last tab in the line's container prefix that reach
+    /// past the container's content column: they are indentation of the
+    /// content, though their character went to the prefix.
+    private var linePrefixOvershoot = 0
+    /// Spaces that start the line's indented code text: the columns of a
+    /// tab in its prefix that reach past the code's four.
+    private var lineCodePadding = 0
     /// End of the deepest run of quotes whose `>` markers the line carries,
     /// as a stack index; 0 when it carries none.
     private var lineMarkedQuoteEnd = 0
@@ -399,6 +406,7 @@ struct StreamingParser {
         // afresh each time the line grows.
         lineContainerIndex = 0
         lineContainerBase = 0
+        linePrefixOvershoot = 0
 
         // Outermost list items judge a line by its indentation before
         // anything else: a line they do not keep ends them first, so a
@@ -654,13 +662,14 @@ struct StreamingParser {
                     // prefix: `>` alone is a blank code line, and the code's
                     // own four columns follow the prefix.
                     let content = String(lineContent)
-                    if let prefixLength = detectIndentedCodePrefix(content) {
-                        let strip = lineQuotePrefix + prefixLength
+                    if let code = indentedCodePrefix(content, startColumn: 0, extraColumns: linePrefixOvershoot) {
+                        let strip = lineQuotePrefix + code.characters
                         ctx.linePrefixToStrip = strip
                         setCurrentBlock(ctx)
                         if emittedCount < strip {
                             emittedCount = min(lineBuffer.count, strip)
                         }
+                        if !lineEmittedContent { lineCodePadding = code.padding }
                         lineAnalyzed = true
                         return
                     }
@@ -822,6 +831,7 @@ struct StreamingParser {
                                                       in: String(lineBuffer.dropFirst(lineContainerBase)))
             let prefix = lineContainerBase + covered
             lineQuotePrefix = prefix
+            linePrefixOvershoot = endsOnTabStop(lineContainerBase) ? contentColumn - item.listContentColumn : 0
             if runEnd < contextStack.count, contextStack[runEnd].kind == .blockquote {
                 lineContainerBase = prefix
                 lineContainerIndex = runEnd
@@ -840,12 +850,13 @@ struct StreamingParser {
                     lineAnalyzed = true
                     return .handled
                 case .fencedCode:
-                    if let codePrefix = detectIndentedCodePrefix(content, startColumn: contentColumn) {
-                        child.linePrefixToStrip = prefix + codePrefix
+                    if let code = indentedCodePrefix(content, startColumn: contentColumn, extraColumns: linePrefixOvershoot) {
+                        child.linePrefixToStrip = prefix + code.characters
                         setCurrentBlock(child)
-                        if emittedCount < prefix + codePrefix {
-                            emittedCount = min(lineBuffer.count, prefix + codePrefix)
+                        if emittedCount < prefix + code.characters {
+                            emittedCount = min(lineBuffer.count, prefix + code.characters)
                         }
+                        if !lineEmittedContent { lineCodePadding = code.padding }
                         lineAnalyzed = true
                         return .handled
                     }
@@ -1107,6 +1118,7 @@ struct StreamingParser {
            quote.markerCount <= activeLevel,
            !(isIndentedCodeBlock(top) && line.dropFirst(quote.prefixLength).contains(">")) {
             lineQuotePrefix = base + quote.prefixLength
+            linePrefixOvershoot = endsOnTabStop(base) ? quoteTabOvershoot(line, prefixLength: quote.prefixLength) : 0
             lineMarkedQuoteEnd = start + quote.markerCount
             if emittedCount < lineQuotePrefix {
                 emittedCount = min(lineBuffer.count, lineQuotePrefix)
@@ -1135,6 +1147,7 @@ struct StreamingParser {
         }
 
         lineQuotePrefix = base + quote.prefixLength
+        linePrefixOvershoot = endsOnTabStop(base) ? quoteTabOvershoot(line, prefixLength: quote.prefixLength) : 0
         lineMarkedQuoteEnd = start + quote.markerCount
         if emittedCount < lineQuotePrefix {
             emittedCount = min(lineBuffer.count, lineQuotePrefix)
@@ -1253,10 +1266,12 @@ struct StreamingParser {
         }
         // Four columns after the marker are indented code (CommonMark), which
         // cannot interrupt a paragraph: there the line is paragraph text.
-        if !paragraphIsOpen, let codePrefix = detectIndentedCodePrefix(line, startColumn: columnBase) {
+        if !paragraphIsOpen,
+           let code = indentedCodePrefix(line, startColumn: columnBase, extraColumns: linePrefixOvershoot) {
             beginChild()
-            openIndentedCode(prefixLength: prefix + codePrefix)
-            emittedCount = min(lineBuffer.count, prefix + codePrefix)
+            openIndentedCode(prefixLength: prefix + code.characters)
+            emittedCount = min(lineBuffer.count, prefix + code.characters)
+            lineCodePadding = code.padding
             lineAnalyzed = true
             return true
         }
@@ -1485,7 +1500,13 @@ struct StreamingParser {
                 break
             }
         }
-        let delta = String(sourceLine[start...])
+        var delta = String(sourceLine[start...])
+        // The columns of a tab the line's prefix only partly consumed are
+        // the code's own spaces, ahead of everything else on the line.
+        if lineCodePadding > 0, isIndentedCodeBlock(context) {
+            delta = String(repeating: " ", count: lineCodePadding) + delta
+            lineCodePadding = 0
+        }
         if case .math = context.kind, context.pendingSameLineClose {
             emittedCount = lineBuffer.count
             setCurrentBlock(context)
@@ -1704,6 +1725,8 @@ struct StreamingParser {
         lineContainerIndex = 0
         lineContainerBase = 0
         lineMarkedQuoteEnd = 0
+        linePrefixOvershoot = 0
+        lineCodePadding = 0
         lineConsumedByRule = false
         lineBufferTrimmed = 0
         lineDeferredUntilComplete = false
@@ -2749,6 +2772,27 @@ struct StreamingParser {
     }
 
     /// `maxMarkers` stops after that many `>`; what follows is content.
+    /// Whether the line's first `characters` end on a tab stop (a multiple
+    /// of four columns). Containers measure tabs from where their part of
+    /// the line starts, which agrees with the line's own tab stops only
+    /// there; elsewhere a partly consumed tab is not carried into code.
+    private func endsOnTabStop(_ characters: Int) -> Bool {
+        var column = 0
+        for character in lineBuffer.prefix(characters) { column += character == "\t" ? 4 - column % 4 : 1 }
+        return column % 4 == 0
+    }
+
+    /// Columns of a tab right after a quote's last `>` beyond the one the
+    /// marker's optional space takes: indentation of the quoted content
+    /// (CommonMark), though the tab itself is part of the prefix.
+    private func quoteTabOvershoot(_ line: String, prefixLength: Int) -> Int {
+        let prefix = Array(line.prefix(prefixLength))
+        guard prefix.count >= 2, prefix[prefix.count - 1] == "\t", prefix[prefix.count - 2] == ">" else { return 0 }
+        var column = 0
+        for character in prefix.dropLast() { column += character == "\t" ? 4 - column % 4 : 1 }
+        return 4 - column % 4 - 1
+    }
+
     private func detectBlockquote(_ line: String, maxMarkers: Int? = nil) -> BlockquoteInfo? {
         var prefixLength = 0
         var markerCount = 0
@@ -2794,17 +2838,26 @@ struct StreamingParser {
     /// to the next multiple of four, counted from `startColumn`, where the
     /// line starts), or `nil` when the line is less indented.
     private func detectIndentedCodePrefix(_ line: String, startColumn: Int = 0) -> Int? {
-        guard !line.isEmpty else { return nil }
-        if line.trimmingCharacters(in: .whitespaces).isEmpty {
-            return nil
-        }
-        var column = 0
+        indentedCodePrefix(line, startColumn: startColumn, extraColumns: 0)?.characters
+    }
+
+    /// Indented code's prefix on `line`, which starts at column
+    /// `startColumn`, `extraColumns` past its container's content column
+    /// (the rest of a tab the container's prefix only partly consumed): the
+    /// characters that make up four columns counted from the content
+    /// column, and how far the last of them, a tab, reaches past them. Those
+    /// columns are the code's own leading spaces (CommonMark). `nil` when
+    /// the line is less indented, or blank.
+    private func indentedCodePrefix(_ line: String, startColumn: Int, extraColumns: Int) -> (characters: Int, padding: Int)? {
+        guard line.contains(where: { $0 != " " && $0 != "\t" }) else { return nil }
+        if extraColumns >= 4 { return (0, extraColumns - 4) }
+        var column = extraColumns
         var count = 0
         for character in line {
             guard character == " " || character == "\t" else { break }
-            column += character == "\t" ? 4 - (startColumn + column) % 4 : 1
+            column += character == "\t" ? 4 - (startColumn + column - extraColumns) % 4 : 1
             count += 1
-            if column >= 4 { return count }
+            if column >= 4 { return (count, column - 4) }
         }
         return nil
     }
