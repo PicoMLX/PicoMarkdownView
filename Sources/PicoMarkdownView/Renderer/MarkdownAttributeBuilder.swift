@@ -23,6 +23,31 @@ actor MarkdownAttributeBuilder {
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private var runtimeMermaidMaxWidth: CGFloat?
 
+#if canImport(AppKit)
+    private struct CachedTable {
+        var sourceHeaders: [[InlineRun]]?
+        var alignments: [TableAlignment]?
+        var columnCount: Int
+        var headers: [AttributedString]?
+        var rows: [[AttributedString]] = []
+        var images: [RenderedImage] = []
+        var imageCounter = 0
+    }
+
+    private var tableCache: [BlockID: CachedTable] = [:]
+    private var tableRenderVersions: [BlockID: UInt64] = [:]
+    private var nextTableRenderVersion: UInt64 = 0
+
+    /// Image availability and available-width changes can alter existing cells.
+    /// Ordinary table events only append rows and reuse their rendered prefix.
+    func invalidateTableCache(for ids: Set<BlockID>) {
+        for id in ids {
+            tableCache[id] = nil
+            tableRenderVersions[id] = nil
+        }
+    }
+#endif
+
     // Resolved platform types — created once at init, isolated to this actor.
     private let bodyFont: PlatformFont
     private let codeFont: PlatformFont
@@ -133,7 +158,12 @@ actor MarkdownAttributeBuilder {
                                blockquoteLevel: Int, markerOnFirstChild: Bool) async -> RenderedContentResult {
         switch snapshot.kind {
         case .table:
+#if canImport(AppKit)
+            let (fallback, table, images) = await renderTable(snapshot, font: bodyFont,
+                                                             previousBlockKind: previousBlockKind)
+#else
             let (fallback, table, images) = await renderTable(snapshot, font: bodyFont)
+#endif
             return RenderedContentResult(attributed: AttributedString(fallback),
                                         table: table,
                                         listItem: nil,
@@ -373,49 +403,15 @@ actor MarkdownAttributeBuilder {
             .foregroundColor: PlatformColor.rendererSecondaryLabel
         ])
         #else
-        // Use a 1-column NSTextTable that spans 100% width with a top border to emulate an HR
-        let table = NSTextTable()
-        table.numberOfColumns = 1
-        table.collapsesBorders = false
-        table.setContentWidth(100, type: .percentageValueType)
-
-        let block = NSTextTableBlock(table: table, startingRow: 0, rowSpan: 1, startingColumn: 0, columnSpan: 1)
-        // Minimal vertical padding so the rule is a thin line
-        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .minY)
-        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxY)
-        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .minX)
-        block.setWidth(0, type: .absoluteValueType, for: .padding, edge: .maxX)
-        // Draw a single hairline using secondary label color; zero-out other edges
-        block.setWidth(horizontalRuleBorderWidth, type: .absoluteValueType, for: .border, edge: .minY)
-        block.setBorderColor(PlatformColor.rendererSecondaryLabel, for: .minY)
-        block.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxY)
-        block.setBorderColor(nil, for: .maxY)
-        block.setWidth(0, type: .absoluteValueType, for: .border, edge: .minX)
-        block.setBorderColor(nil, for: .minX)
-        block.setWidth(0, type: .absoluteValueType, for: .border, edge: .maxX)
-        block.setBorderColor(nil, for: .maxX)
-
-        let blockParagraph = NSMutableParagraphStyle()
-        blockParagraph.textBlocks = [block]
-        blockParagraph.alignment = .left
-        blockParagraph.lineBreakMode = .byWordWrapping
-        blockParagraph.paragraphSpacing = 20
-        blockParagraph.paragraphSpacingBefore = 20
-
-        let result = NSMutableAttributedString()
-        // Add a thin, non-breaking space to instantiate the block
-        let cellContent = NSAttributedString(string: "\u{00A0}", attributes: [
-            .paragraphStyle: blockParagraph,
-            .font: bodyFont,
-            .foregroundColor: PlatformColor.rendererLabel
-        ])
-        result.append(cellContent)
-        // Trailing spacing beneath the rule kept minimal; rely on next block's own spacing
-//        result.append(NSAttributedString(string: "\n", attributes: [
-//            .font: bodyFont,
-//            .paragraphStyle: blockParagraph
-//        ]))
-        // No extra blank paragraph appended here
+        let ruleParagraph = NSMutableParagraphStyle()
+        ruleParagraph.paragraphSpacing = 20
+        ruleParagraph.paragraphSpacingBefore = 20
+        let result = NSMutableAttributedString(attachment: MacHorizontalRuleAttachment())
+        result.addAttributes([.paragraphStyle: ruleParagraph, .font: bodyFont],
+                             range: NSRange(location: 0, length: result.length))
+        result.append(NSAttributedString(string: "\n", attributes: [
+            .paragraphStyle: ruleParagraph, .font: bodyFont
+        ]))
         return result
         #endif
     }
@@ -1017,130 +1013,88 @@ actor MarkdownAttributeBuilder {
         return (rowAttributed, renderedCells)
     }
 #else
-    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
+    private func renderTable(_ snapshot: BlockSnapshot, font: PlatformFont,
+                             previousBlockKind: BlockKind?) async -> (NSAttributedString, RenderedTable?, [RenderedImage]) {
         guard let table = snapshot.table else { return (NSAttributedString(), nil, []) }
 
-        let maxRowColumns = table.rows.reduce(0) { max($0, $1.count) }
-        let columnCount = max(table.headerCells?.count ?? 0, maxRowColumns)
+        // The assembler's emitted table rows are immutable. Inspect only newly
+        // appended rows; explicit image/width refreshes invalidate this cache.
+        var cached = tableCache[snapshot.id]
+        if let existing = cached,
+           existing.sourceHeaders != table.headerCells || existing.alignments != table.alignments ||
+            existing.rows.count > table.rows.count {
+            cached = nil
+        }
+        let renderedRowCount = cached?.rows.count ?? 0
+        let appendedColumnCount = table.rows[renderedRowCount...].reduce(0) { max($0, $1.count) }
+        let columnCount = max(table.headerCells?.count ?? 0, cached?.columnCount ?? 0, appendedColumnCount)
         guard columnCount > 0 else { return (NSAttributedString(), nil, []) }
+        if cached?.columnCount != columnCount { cached = nil }
+        var state = cached ?? CachedTable(sourceHeaders: table.headerCells,
+                                         alignments: table.alignments, columnCount: columnCount)
 
-        let textTable = NSTextTable()
-        textTable.numberOfColumns = columnCount
-        textTable.collapsesBorders = false
-        textTable.setContentWidth(100, type: .percentageValueType)
-        textTable.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border)
-        textTable.setBorderColor(PlatformColor.rendererTableBorder)
+        nextTableRenderVersion &+= 1
+        let version = nextTableRenderVersion
+        tableRenderVersions[snapshot.id] = version
 
-        var renderedTable = RenderedTable(headers: nil, rows: [], alignments: table.alignments)
-        var collectedImages: [RenderedImage] = []
-        var imageIndex = 0
-        let result = NSMutableAttributedString()
-        var currentRow = 0
-
-        if let headers = table.headerCells, !headers.isEmpty {
-            let (headerAttributed, headerCells) = await renderTableRow(cells: headers,
-                                                                 rowIndex: currentRow,
-                                                                 numberOfColumns: columnCount,
-                                                                 textTable: textTable,
-                                                                 font: font,
-                                                                 alignments: table.alignments,
-                                                                 blockID: snapshot.id,
-                                                                 imageCounter: &imageIndex,
-                                                                 collectedImages: &collectedImages,
-                                                                 isHeader: true)
-            renderedTable.headers = headerCells
-            result.append(headerAttributed)
-            currentRow += 1
+        if cached == nil, let headers = table.headerCells, !headers.isEmpty {
+            state.headers = await renderHostedTableRow(cells: headers, numberOfColumns: columnCount,
+                                                      font: font, alignments: table.alignments,
+                                                      blockID: snapshot.id, imageCounter: &state.imageCounter,
+                                                      collectedImages: &state.images, isHeader: true)
+        }
+        for row in table.rows[state.rows.count...] {
+            let cells = await renderHostedTableRow(cells: row, numberOfColumns: columnCount,
+                                                   font: font, alignments: table.alignments,
+                                                   blockID: snapshot.id, imageCounter: &state.imageCounter,
+                                                   collectedImages: &state.images, isHeader: false)
+            state.rows.append(cells)
         }
 
-        var renderedRows: [[AttributedString]] = []
-        for row in table.rows {
-            let (rowAttributed, renderedCells) = await renderTableRow(cells: row,
-                                                                rowIndex: currentRow,
-                                                                numberOfColumns: columnCount,
-                                                                textTable: textTable,
-                                                                font: font,
-                                                                alignments: table.alignments,
-                                                                blockID: snapshot.id,
-                                                                imageCounter: &imageIndex,
-                                                                collectedImages: &collectedImages,
-                                                                isHeader: false)
-            renderedRows.append(renderedCells)
-            result.append(rowAttributed)
-            currentRow += 1
+        // An image lookup can suspend this actor. A newer render or explicit
+        // invalidation must win over the older render's cached prefix.
+        if tableRenderVersions[snapshot.id] == version {
+            tableCache[snapshot.id] = snapshot.isClosed ? nil : state
+            if snapshot.isClosed { tableRenderVersions[snapshot.id] = nil }
         }
 
-        renderedTable.rows = renderedRows
-        result.append(NSAttributedString(string: "\n", attributes: [.font: font]))
-        return (result, renderedTable, collectedImages)
+        let paragraph = makeParagraphStyle(collapsedSpacing(for: .table, previousKind: previousBlockKind))
+        let placeholder = NSAttributedString(string: "\u{FFFC}\n", attributes: [
+            .font: font, .paragraphStyle: paragraph
+        ])
+        let rendered = RenderedTable(headers: state.headers, rows: state.rows, alignments: state.alignments)
+        return (placeholder, rendered, state.images)
     }
 
-    private func renderTableRow(cells: [[InlineRun]],
-                                rowIndex: Int,
-                                numberOfColumns: Int,
-                                textTable: NSTextTable,
-                                font: PlatformFont,
-                                alignments: [TableAlignment]?,
-                                blockID: BlockID,
-                                imageCounter: inout Int,
-                                collectedImages: inout [RenderedImage],
-                                isHeader: Bool) async -> (NSAttributedString, [AttributedString]) {
-        let rowAttributed = NSMutableAttributedString()
+    private func renderHostedTableRow(cells: [[InlineRun]], numberOfColumns: Int,
+                                      font: PlatformFont, alignments: [TableAlignment]?, blockID: BlockID,
+                                      imageCounter: inout Int, collectedImages: inout [RenderedImage],
+                                      isHeader: Bool) async -> [AttributedString] {
         var renderedCells: [AttributedString] = []
+        renderedCells.reserveCapacity(numberOfColumns)
         let displayFont = isHeader ? boldFont(from: font) : font
 
         for column in 0..<numberOfColumns {
-            let block = NSTextTableBlock(table: textTable, startingRow: rowIndex, rowSpan: 1, startingColumn: column, columnSpan: 1)
-            block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-            block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .maxX)
-            block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .minY)
-            block.setWidth(8, type: .absoluteValueType, for: .padding, edge: .maxY)
-            block.setWidth(tableBorderWidth, type: .absoluteValueType, for: .border)
-            block.setBorderColor(PlatformColor.rendererTableBorder)
-            block.backgroundColor = isHeader ? PlatformColor.rendererTableHeaderBackground : PlatformColor.rendererTableRowBackground
-
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.textBlocks = [block]
-            paragraph.alignment = tableTextAlignment(for: column, alignments: alignments)
-            paragraph.lineBreakMode = .byWordWrapping
-            paragraph.paragraphSpacing = 0
-            paragraph.paragraphSpacingBefore = rowIndex == 0 ? 0 : 0
-
             let inlineRuns = column < cells.count ? cells[column] : []
             let inline = await renderInline(inlineRuns, font: displayFont)
-            let images = collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter)
-            if !images.isEmpty {
-                collectedImages.append(contentsOf: images)
-            }
-
+            collectedImages.append(contentsOf: collectImages(from: inlineRuns, blockID: blockID, counter: &imageCounter))
             let cellContent = inline.length > 0 ? NSMutableAttributedString(attributedString: inline) : NSMutableAttributedString(string: " ")
             let cellRange = NSRange(location: 0, length: cellContent.length)
-            // The table block/alignment must cover the whole cell, but the
-            // run-level fonts and colors produced by inline styling (bold,
-            // italic, code, links) must survive — only fill the base font and
-            // label color where a run didn't set one.
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = tableTextAlignment(for: column, alignments: alignments)
+            paragraph.lineBreakMode = .byWordWrapping
             cellContent.addAttribute(.paragraphStyle, value: paragraph, range: cellRange)
-            cellContent.enumerateAttribute(.font, in: cellRange, options: []) { value, range, _ in
-                if value == nil {
-                    cellContent.addAttribute(.font, value: displayFont, range: range)
-                }
+            cellContent.enumerateAttribute(.font, in: cellRange) { value, range, _ in
+                if value == nil { cellContent.addAttribute(.font, value: displayFont, range: range) }
             }
-            cellContent.enumerateAttribute(.foregroundColor, in: cellRange, options: []) { value, range, _ in
-                if value == nil {
-                    cellContent.addAttribute(.foregroundColor, value: PlatformColor.rendererLabel, range: range)
-                }
+            cellContent.enumerateAttribute(.foregroundColor, in: cellRange) { value, range, _ in
+                if value == nil { cellContent.addAttribute(.foregroundColor, value: PlatformColor.rendererLabel, range: range) }
             }
-
             renderedCells.append(AttributedString(cellContent))
-            rowAttributed.append(cellContent)
-            rowAttributed.append(NSAttributedString(string: "\n", attributes: [
-                .paragraphStyle: paragraph,
-                .font: displayFont
-            ]))
         }
-
-        return (rowAttributed, renderedCells)
+        return renderedCells
     }
+
 #endif
 
     private func tableTextAlignment(for column: Int, alignments: [TableAlignment]?) -> NSTextAlignment {
@@ -1154,16 +1108,6 @@ actor MarkdownAttributeBuilder {
             return .right
         }
     }
-
-#if canImport(AppKit)
-    private var tableBorderWidth: CGFloat {
-        return 1.0
-    }
-
-    private var horizontalRuleBorderWidth: CGFloat {
-        return 0.1
-    }
-#endif
 
     private func render(run: InlineRun, baseFont: PlatformFont) async -> NSAttributedString {
         if run.style.contains(.math), let payload = run.math {

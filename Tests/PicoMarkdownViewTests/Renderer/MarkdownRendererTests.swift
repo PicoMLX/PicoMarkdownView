@@ -88,7 +88,7 @@ struct MarkdownRendererTests {
         #expect(rendered.contains("• Second item"))
     }
 
-    @Test("Table rendering flattens rows with separators")
+    @Test("Table rendering exposes structured cells")
     func tableRendering() async {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
@@ -103,11 +103,18 @@ struct MarkdownRendererTests {
         let output = await renderer.currentAttributedString()
         let rendered = String(output.characters)
         let normalized = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
+#if canImport(AppKit)
+        #expect(normalized == "\u{FFFC}")
+        let tables = await renderer.renderedBlocks().compactMap(\.table)
+        #expect(tables.first?.headers?.map { String($0.characters) } == ["A", "B"])
+        #expect(tables.first?.rows.first?.map { String($0.characters) } == ["1", "2"])
+#else
         #expect(normalized.contains("A"))
         #expect(normalized.contains("B"))
         #expect(normalized.contains("1"))
         #expect(normalized.contains("2"))
         #expect(!normalized.contains("|"))
+#endif
     }
 
     @Test("Table cell inline bold survives cell base styling")
@@ -171,8 +178,14 @@ struct MarkdownRendererTests {
         let diff2 = await assembler.apply(final)
         _ = await renderer.apply(diff2)
 
+#if canImport(AppKit)
+        let tables = await renderer.renderedBlocks().compactMap(\.table)
+        let cells = (tables.first?.headers ?? []) + (tables.first?.rows.flatMap { $0 } ?? [])
+        let rendered = cells.map { NSAttributedString($0).string }.joined(separator: " ")
+#else
         let output = await renderer.currentAttributedString()
         let rendered = NSAttributedString(output).string
+#endif
 
         #expect(rendered.contains("Formula"))
         #expect(rendered.contains("integral"))
@@ -541,8 +554,8 @@ struct MarkdownRendererTests {
         #expect(renderedString.contains("diagram"))
     }
 
-    @Test("Tables render with text table blocks")
-    func tablesRenderWithStyledBlocks() async {
+    @Test("Tables preserve styled headers and column alignment")
+    func tablesRenderWithStyledBlocks() async throws {
         let tokenizer = MarkdownTokenizer()
         let assembler = MarkdownAssembler()
         let renderer = MarkdownRenderer { id in
@@ -569,21 +582,22 @@ struct MarkdownRendererTests {
         let ns = NSAttributedString(output)
 
 #if canImport(AppKit)
-        let searchRange = NSRange(location: 0, length: ns.length)
-        var foundTableBlock = false
-        ns.enumerateAttribute(.paragraphStyle, in: searchRange, options: []) { value, _, stop in
-            guard let paragraph = value as? NSParagraphStyle else { return }
-            if paragraph.textBlocks.contains(where: { $0 is NSTextTableBlock }) {
-                foundTableBlock = true
-                stop.pointee = true
+        #expect(ns.string == "\u{FFFC}\n")
+        let blocks = await renderer.renderedBlocks()
+        let table = try #require(blocks.first?.table)
+        #expect(table.alignments == [.left, .right])
+        for cell in (table.headers ?? []) + table.rows.flatMap({ $0 }) {
+            let attributed = NSAttributedString(cell)
+            attributed.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: attributed.length)) { value, _, _ in
+                #expect((value as? NSParagraphStyle)?.textBlocks.isEmpty != false)
             }
         }
-
-        #expect(foundTableBlock)
+        let header = NSAttributedString(try #require(table.headers?.first))
 #else
         // iOS has no NSTextTable; tables render as text rows with a thin
         // U+2502 separator between cells.
         #expect(ns.string.contains("\u{2502}"))
+        let header = ns
 #endif
 
 #if canImport(UIKit)
@@ -592,7 +606,7 @@ struct MarkdownRendererTests {
         typealias TestFont = NSFont
 #endif
 
-        if ns.length > 0, let font = ns.attribute(.font, at: 0, effectiveRange: nil) as? TestFont {
+        if header.length > 0, let font = header.attribute(.font, at: 0, effectiveRange: nil) as? TestFont {
 #if canImport(UIKit)
             #expect(font.fontDescriptor.symbolicTraits.contains(.traitBold))
 #else

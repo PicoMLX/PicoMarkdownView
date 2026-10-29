@@ -276,6 +276,9 @@ actor MarkdownRenderer {
         .map(\.id)
 
         guard !orderedIDs.isEmpty else { return [] }
+#if canImport(AppKit)
+        await attributeBuilder.invalidateTableCache(for: Set(orderedIDs))
+#endif
 
         var refreshed: [BlockID] = []
         refreshed.reserveCapacity(orderedIDs.count)
@@ -298,6 +301,9 @@ actor MarkdownRenderer {
 
         var mutated = false
         let candidateIDs = blocks.filter(shouldRefreshForContentWidthChange).map(\.id)
+#if canImport(AppKit)
+        await attributeBuilder.invalidateTableCache(for: Set(candidateIDs))
+#endif
         for id in candidateIDs {
             mutated = await refreshBlock(id: id) || mutated
         }
@@ -328,7 +334,11 @@ actor MarkdownRenderer {
         let oldContent = blocks[index].content
         let newContent = rendered.attributed
 
+#if canImport(AppKit)
+        let didMutate = oldContent != newContent || blocks[index].table != rendered.table
+#else
         let didMutate = oldContent != newContent
+#endif
 
         blocks[index].kind = snapshot.kind
         blocks[index].snapshot = snapshot

@@ -4,7 +4,7 @@ This goal of this project is to create a SwiftUI view that displays plain text, 
 
 ## Non negotiable:
 
-- Written for SwiftUI on both macOS 15 Sequoia and iOS 18 and newer
+- Written for SwiftUI on both macOS 27 and iOS 18 and newer
 - Optimize speed and performance for streaming. Minimize the work done by the view and parser/tokenizer so there is no need to parse or repaint the view every time a new chunk is added. Ideas to consider:
     - Incremental tokenizer & parser (append-only): maintain a rolling buffer (rope/piece-table) and resume parsing from the last stable block boundary. No full reparse on each chunk.
     - AST → AttributedString translator that patches only changed ranges (use NSTextStorage edits in a single textContainer).
