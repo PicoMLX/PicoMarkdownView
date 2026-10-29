@@ -50,7 +50,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
             let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
             if attributes[.picoBlockquoteLevel] != nil || attributes[.picoCodeBlockBackgroundColor] != nil
-                || attributes[.attachment] is MacHorizontalRuleAttachment {
+                || attributes[.attachment] is MacHorizontalRuleAttachment || attributes[.picoHeadingUnderlinePadding] != nil {
                 return MacMarkdownTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
             }
         }

@@ -315,6 +315,153 @@ struct MacBlockDecorationTests {
         }
     }
 
+    @Test("Only first- and second-level headings paint a bottom border",
+          arguments: [300.0, 600.0], [1.0, 1.5])
+    func headingLevelPixels(width: Double, scale: Double) async throws {
+        let fixture = try await DecorationFixture(markdown: """
+        # First title
+
+        Body one.
+
+        ## Second title
+
+        Body two.
+
+        ### Third title
+
+        Body three.
+
+        #### Fourth title
+
+        Body four.
+
+        ##### Fifth title
+
+        Body five.
+
+        ###### Sixth title
+
+        Body six.
+
+        """, width: width, scale: scale, headingFonts: MarkdownRenderTheme.default().headingFonts)
+        defer { fixture.close() }
+        let bitmap = try fixture.capture()
+        for (title, bordered) in [("First title", true), ("Second title", true),
+                                  ("Third title", false), ("Fourth title", false),
+                                  ("Fifth title", false), ("Sixth title", false)] {
+            let heading = try fixture.headingParagraph(containing: title)
+            let bands = bitmap.fullWidthBands(in: heading.borderSearchRect)
+            #expect(bands.count == (bordered ? 1 : 0), "\(title): painted bands \(bands)")
+            if bordered { try expectHeadingBorder(heading, bitmap: bitmap) }
+        }
+        #expect(try fixture.horizontalRuleRows().isEmpty, "heading borders must not introduce horizontal-rule attachments")
+        #expect(fixture.view.textLayoutManager != nil)
+    }
+
+    @Test("A wrapped heading has one border after its final line and reflows at larger text sizes",
+          arguments: [false, true], [1.0, 1.5])
+    func wrappedHeadingBorderPixels(dark: Bool, scale: Double) async throws {
+        let title = "A long first-level heading that wraps over several lines and still has only one bottom border"
+        let fixture = try await DecorationFixture(markdown: "# \(title)\n\nFollowing body.\n\n", width: 300,
+                                                  scale: scale, dark: dark,
+                                                  headingFonts: MarkdownRenderTheme.default().headingFonts)
+        defer { fixture.close() }
+        let heading = try fixture.headingParagraph(containing: "A long first-level")
+        #expect(heading.lines.count > 1)
+        let bitmap = try fixture.capture()
+        try expectHeadingBorder(heading, bitmap: bitmap)
+        let complete = CGRect(x: heading.expectedBorder.minX, y: heading.lines[0].minY,
+                              width: heading.expectedBorder.width,
+                              height: heading.expectedBorder.maxY - heading.lines[0].minY + 2)
+        #expect(bitmap.fullWidthBands(in: complete).count == 1,
+                "wrapping must not produce a separator under every visual line")
+        let body = try fixture.row(containing: "Following body")
+        #expect(body.minY > heading.expectedBorder.maxY,
+                "the reserved heading margin must keep the separator above following text")
+
+        await fixture.resize(to: 600)
+        let resized = try fixture.headingParagraph(containing: "A long first-level")
+        #expect(resized.lines.count <= heading.lines.count)
+        #expect(abs(resized.expectedBorder.width - 568) <= 1)
+        try expectHeadingBorder(resized, bitmap: fixture.capture())
+        let partial = try fixture.capture(rect: resized.expectedBorder.insetBy(dx: -4, dy: -3))
+        #expect(partial.fullWidthBands(in: resized.borderSearchRect).count == 1)
+        #expect(fixture.view.string.contains(title), "decoration must leave native heading text intact")
+    }
+
+    @Test("Heading borders respect quote and list content gutters", arguments: [false, true])
+    func nestedHeadingBorderPixels(dark: Bool) async throws {
+        let fixture = try await DecorationFixture(markdown: """
+        > ## Quoted title
+        >
+        > Following quote.
+
+        - ## List title
+
+          Following list.
+
+        Outside.
+
+        """, width: 360, scale: 1, dark: dark, headingFonts: MarkdownRenderTheme.default().headingFonts)
+        defer { fixture.close() }
+        let bitmap = try fixture.capture()
+        for title in ["Quoted title", "List title"] {
+            let heading = try fixture.headingParagraph(containing: title)
+            #expect(heading.expectedBorder.minX > fixture.view.textContainerOrigin.x + 6,
+                    "\(title): separator must leave the quote/list gutter clear")
+            try expectHeadingBorder(heading, bitmap: bitmap)
+        }
+        let quote = try fixture.row(containing: "Quoted title")
+        #expect(bitmap.isBar(at: CGPoint(x: fixture.view.textContainerOrigin.x + 1.5, y: quote.midY)))
+    }
+
+    @Test("A terminal quoted heading keeps its gutter beside the bottom border", arguments: [false, true])
+    func terminalQuotedHeadingBorderPixels(dark: Bool) async throws {
+        let fixture = try await DecorationFixture(markdown: "> ## Terminal quoted title\n\nOutside.\n\n",
+                                                  width: 360, scale: 1, dark: dark,
+                                                  headingFonts: MarkdownRenderTheme.default().headingFonts)
+        defer { fixture.close() }
+        let heading = try fixture.headingParagraph(containing: "Terminal quoted title")
+        let bitmap = try fixture.capture()
+        try expectHeadingBorder(heading, bitmap: bitmap)
+        let band = try #require(bitmap.fullWidthBands(in: heading.borderSearchRect).only)
+        #expect(bitmap.isBar(at: CGPoint(x: fixture.view.textContainerOrigin.x + 1.5,
+                                        y: (band.lowerBound + band.upperBound) / 2)),
+                "the quote gutter must extend alongside its heading's separator")
+    }
+
+    @Test("Streaming past a decorated heading preserves native text selection and copying")
+    func streamingHeadingBorderPixels() async throws {
+        let fixture = try await DecorationFixture(markdown: "Selected prefix.\n\n", width: 300, scale: 1,
+                                                  chunkSize: 1, finish: false,
+                                                  headingFonts: MarkdownRenderTheme.default().headingFonts)
+        defer { fixture.close() }
+        let selection = NSRange(location: 0, length: 8)
+        fixture.view.setSelectedRange(selection)
+        try await fixture.append("## Streamed title\n\n", chunkSize: 1, finish: false)
+        try expectHeadingBorder(fixture.headingParagraph(containing: "Streamed title"), bitmap: fixture.capture())
+        let prefix = fixture.view.string
+        try await fixture.append("Following streamed body.\n\n", chunkSize: 1, finish: true)
+        #expect(fixture.view.string.hasPrefix(prefix))
+        #expect(fixture.view.selectedRange() == selection)
+        try expectHeadingBorder(fixture.headingParagraph(containing: "Streamed title"), bitmap: fixture.capture())
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.declareTypes([.string], owner: nil)
+        #expect(fixture.view.writeSelection(to: pasteboard, types: [.string]))
+        #expect(pasteboard.string(forType: .string) == "Selected")
+        #expect(fixture.view.textLayoutManager != nil)
+    }
+
+    private func expectHeadingBorder(_ heading: HeadingParagraph, bitmap: DecorationBitmap) throws {
+        let band = try #require(bitmap.fullWidthBands(in: heading.borderSearchRect).only,
+                                "expected one painted heading separator at \(heading.expectedBorder)")
+        #expect(abs(band.lowerBound - heading.expectedBorder.minY) <= 1)
+        #expect(band.upperBound - band.lowerBound <= 2, "heading border must remain a hairline")
+        #expect(!bitmap.isHeadingBorder(at: CGPoint(x: heading.expectedBorder.minX - 4, y: band.lowerBound)))
+        #expect(!bitmap.isHeadingBorder(at: CGPoint(x: heading.expectedBorder.maxX + 4, y: band.lowerBound)))
+    }
+
     @Test("Appending a nested quote repaints the earlier paragraph's joining gutter", arguments: [1, 17])
     func streamingQuotePixels(chunkSize: Int) async throws {
         let fixture = try await DecorationFixture(markdown: "> First streamed paragraph.\n>\n", width: 300, scale: 1,
@@ -343,14 +490,14 @@ private final class DecorationFixture {
     private let configuration: PicoTextKitConfiguration
 
     init(markdown: String, width: Double, scale: Double, chunkSize: Int = 11, finish: Bool = true,
-         dark: Bool = false) async throws {
+         dark: Bool = false, headingFonts: [Int: FontSpec] = [:]) async throws {
         _ = NSApplication.shared
         configuration = PicoTextKitConfiguration(backgroundColor: dark ? .black : .white,
             contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         let font = FontSpec(size: 15)
         let theme = MarkdownRenderTheme(bodyFont: font, codeFont: font,
             blockquoteColor: ThemeColor(.init(red: 1, green: 0, blue: 1)), linkColor: .link,
-            headingFonts: [:], codeBlockTheme: CodeBlockTheme(font: font,
+            headingFonts: headingFonts, codeBlockTheme: CodeBlockTheme(font: font,
                 foregroundColor: ThemeColor(.init(red: 0, green: 0, blue: 0)),
                 backgroundColor: ThemeColor(.init(red: 0, green: 0.8, blue: 0.8))),
             codeHighlighter: AnyCodeSyntaxHighlighter(PlainCodeSyntaxHighlighter())).scaled(by: scale)
@@ -408,6 +555,28 @@ private final class DecorationFixture {
             if value is MacHorizontalRuleAttachment { indexes.append(range.location) }
         }
         return try indexes.map { try row(at: $0) }
+    }
+
+    func headingParagraph(containing text: String) throws -> HeadingParagraph {
+        let manager = try #require(view.textLayoutManager)
+        let content = try #require(manager.textContentManager)
+        let location = try #require(content.location(content.documentRange.location, offsetBy: index(of: text)))
+        let fragment = try #require(manager.textLayoutFragment(for: location))
+        let paragraph = try #require(fragment.textElement as? NSTextParagraph)
+        let attributes = paragraph.attributedString.attributes(at: paragraph.attributedString.length - 1, effectiveRange: nil)
+        let style = try #require(attributes[.paragraphStyle] as? NSParagraphStyle)
+        let font = try #require(attributes[.font] as? NSFont)
+        let lines = fragment.textLineFragments.filter { $0.characterRange.length > 0 }.map {
+            $0.typographicBounds.offsetBy(dx: fragment.layoutFragmentFrame.minX + view.textContainerOrigin.x,
+                                          dy: fragment.layoutFragmentFrame.minY + view.textContainerOrigin.y)
+        }
+        let last = try #require(lines.last)
+        let left = max(0, style.headIndent, style.firstLineHeadIndent)
+        let container = try #require(view.textContainer)
+        let right = style.tailIndent > 0 ? style.tailIndent : container.size.width + style.tailIndent
+        return HeadingParagraph(lines: lines,
+            expectedBorder: CGRect(x: view.textContainerOrigin.x + left, y: last.maxY + font.pointSize * 0.3,
+                                   width: right - left, height: 1))
     }
 
     private func settleLayout() async {
@@ -505,16 +674,37 @@ private struct DecorationBitmap {
             && color.blueComponent - color.greenComponent > 0.2
     }
     func isRule(at point: CGPoint) -> Bool {
+        isGrayLine(at: point, minimumContrast: 0.12)
+    }
+    func isHeadingBorder(at point: CGPoint) -> Bool {
+        // separatorColor is deliberately subtler than a horizontal rule: on
+        // the native light bitmap its fully painted pixel is ~0.92 on white.
+        isGrayLine(at: point, minimumContrast: 0.03)
+    }
+    private func isGrayLine(at point: CGPoint, minimumContrast: CGFloat) -> Bool {
         guard let sample = color(at: point), let background = color(at: CGPoint(x: rect.minX + 1, y: rect.minY + 1)) else { return false }
         let components = [sample.redComponent, sample.greenComponent, sample.blueComponent]
         let gray = components.reduce(0, +) / 3
         let backgroundGray = (background.redComponent + background.greenComponent + background.blueComponent) / 3
-        return (components.max()! - components.min()!) < 0.12 && abs(gray - backgroundGray) > 0.12
+        return (components.max()! - components.min()!) < 0.12 && abs(gray - backgroundGray) > minimumContrast
     }
     func horizontalRuleY(in row: CGRect) -> CGFloat? {
         stride(from: row.minY, through: row.maxY, by: 0.5).first { y in
             coverage(from: row.minX + 3, to: row.maxX - 3) { isRule(at: CGPoint(x: $0, y: y)) } > 0.98
         }
+    }
+    func fullWidthBands(in region: CGRect) -> [ClosedRange<CGFloat>] {
+        var bands: [ClosedRange<CGFloat>] = []
+        var start: CGFloat?
+        var previous: CGFloat = region.minY
+        for y in stride(from: region.minY, through: region.maxY, by: 0.5) {
+            let painted = coverage(from: region.minX + 3, to: region.maxX - 3) { isHeadingBorder(at: CGPoint(x: $0, y: y)) } > 0.98
+            if painted { if start == nil { start = y } }
+            else if let first = start { bands.append(first...previous); start = nil }
+            previous = y
+        }
+        if let start { bands.append(start...previous) }
+        return bands
     }
     func isCode(at point: CGPoint) -> Bool {
         guard let color = color(at: point) else { return false }
@@ -549,6 +739,16 @@ private struct DecorationBitmap {
         let samples = Array(stride(from: start, through: end, by: 0.5))
         return Double(samples.filter(predicate).count) / Double(samples.count)
     }
+}
+
+private struct HeadingParagraph {
+    let lines: [CGRect]
+    let expectedBorder: CGRect
+    var borderSearchRect: CGRect { expectedBorder.insetBy(dx: 0, dy: -2) }
+}
+
+private extension Array {
+    var only: Element? { count == 1 ? first : nil }
 }
 
 /// Frozen from main's BlockquoteBarLayoutManager. Production TK2 code must not

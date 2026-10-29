@@ -3,6 +3,9 @@ import CoreGraphics
 import CoreText
 import Foundation
 import Testing
+#if canImport(AppKit)
+import AppKit
+#endif
 @testable import PicoMarkdownView
 
 @Suite
@@ -50,6 +53,10 @@ struct PeleDiagramProviderTests {
 
     @Test("Identical requests are served from the cache")
     func cachesResults() async throws {
+#if canImport(AppKit)
+        // Keep the appearance cache key stable while native-view tests start AppKit.
+        await MainActor.run { _ = NSApplication.shared }
+#endif
         let provider = PeleDiagramProvider(theme: .default())
         let request = MermaidRenderRequest(source: flowchart, targetWidth: 500, scale: 2)
         let first = try #require(await provider.render(request))

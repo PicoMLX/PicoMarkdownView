@@ -814,6 +814,9 @@ final class TextKitStreamingBackend {
         guard let table = block.table, let snapshot = block.snapshot.table else {
             hostedTables.removeValue(forKey: block.id)
             let attributed = NSAttributedString.picoConverted(from: block.content)
+            if case .heading(let level) = block.kind, level == 1 || level == 2 {
+                return MacHeadingUnderline.applying(to: attributed)
+            }
             guard case .fencedCode = block.kind, block.codeBlock != nil, block.mermaidDiagram == nil,
                   attributed.length > 0,
                   let color = attributed.attribute(.backgroundColor, at: attributed.length - 1, effectiveRange: nil) as? NSColor else {

@@ -37,8 +37,9 @@ final class MacMarkdownTextLayoutFragment: NSTextLayoutFragment {
         let nextLevel = nextValues[.picoBlockquoteLevel] as? Int ?? 0
         let nextInset = nextValues[.picoBlockquoteBarInset] as? CGFloat ?? 0
         let joinsNext = nextLevel > 0 && abs(inset - nextInset) < 0.5
+        let contentBottom = max(content.maxY, MacHeadingUnderline.rect(for: self)?.maxY ?? content.maxY)
         return (0..<level).map { index in
-            var bottom = content.maxY
+            var bottom = contentBottom
             if joinsNext, index < nextLevel, let next,
                let nextContent = Self.contentBounds(of: next) {
                 bottom = max(bottom, next.layoutFragmentFrame.minY - layoutFragmentFrame.minY + nextContent.minY)
@@ -63,6 +64,9 @@ final class MacMarkdownTextLayoutFragment: NSTextLayoutFragment {
         var result: [Decoration] = []
         if let background = MacCodeBlockBackground.decoration(for: self) {
             result.append(Decoration(rect: background.rect, color: background.color))
+        }
+        if let rect = MacHeadingUnderline.rect(for: self) {
+            result.append(Decoration(rect: rect, color: .separatorColor))
         }
         if attributes[.attachment] is MacHorizontalRuleAttachment,
            let line = textLineFragments.first(where: { $0.characterRange.length > 0 }) {
