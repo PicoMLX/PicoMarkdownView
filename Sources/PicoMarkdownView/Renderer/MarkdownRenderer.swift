@@ -129,6 +129,13 @@ actor MarkdownRenderer {
     private let snapshotProvider: SnapshotProvider
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
+#if canImport(AppKit)
+    /// Links to preceding blocks let empty containers be skipped locally,
+    /// without rescanning a message's rendered prefix on every chunk.
+    private var previousBlockIDs: [BlockID: BlockID] = [:]
+    private var trailingParagraphSpacings: [BlockID: CGFloat] = [:]
+    private var visibleQuoteBodies: Set<BlockID> = []
+#endif
     private var mermaidContentWidthBucket: Int?
     private var runtimeMermaidContentWidth: CGFloat?
     private var textScale: CGFloat = 1
@@ -187,6 +194,9 @@ actor MarkdownRenderer {
                 if blocks[current].snapshot == snapshot {
                     blocks[current].listPlacement = placement
                     blocks[current].updatePresentation(from: rendered)
+#if canImport(AppKit)
+                    cacheSpacing(for: snapshot, after: rendered.paragraphSpacingAfter)
+#endif
                     break
                 }
             }
@@ -197,16 +207,35 @@ actor MarkdownRenderer {
     /// Renders with the current builder, again if the builder changed while
     /// an image or diagram was awaited, so old fonts never land.
     private func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind?, blockquoteLevel: Int,
-                        placement: ListPlacement) async -> RenderedContentResult {
+                        placement: ListPlacement, precedingBlockID: BlockID? = nil) async -> RenderedContentResult {
         while true {
             let generation = builderGeneration
-            let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: previousBlockKind,
+#if canImport(AppKit)
+            let previous = previousVisibleBlock(for: snapshot, placement: placement, precedingBlockID: precedingBlockID)
+            let effectivePreviousKind = previous?.kind
+            let spacing = spacingContext(for: snapshot, placement: placement, previous: previous)
+#else
+            let effectivePreviousKind = previousBlockKind
+            let spacing: BlockSpacingContext? = nil
+#endif
+            let rendered = await attributeBuilder.render(snapshot: snapshot, previousBlockKind: effectivePreviousKind,
                                                          blockquoteLevel: blockquoteLevel,
                                                          listIndent: placement.indent,
                                                          listMarker: placement.marker,
                                                          markerOnFirstChild: placement.markerOnFirstChild,
-                                                         blockquoteBarInset: placement.barInset)
-            if generation == builderGeneration { return rendered }
+                                                         blockquoteBarInset: placement.barInset,
+                                                         spacingContext: spacing)
+            if generation == builderGeneration {
+#if canImport(AppKit)
+                // A preceding block can be refreshed or retained away while
+                // this block waits for an image, without changing this snapshot.
+                let currentPrevious = previousVisibleBlock(for: snapshot, placement: placement,
+                                                            precedingBlockID: precedingBlockID)
+                let currentSpacing = spacingContext(for: snapshot, placement: placement, previous: currentPrevious)
+                guard currentPrevious?.kind == effectivePreviousKind, currentSpacing == spacing else { continue }
+#endif
+                return rendered
+            }
         }
     }
 
@@ -246,6 +275,13 @@ actor MarkdownRenderer {
                 mutated = await refreshBlock(id: id) || mutated
             case .blocksDiscarded(let range):
                 removeBlocks(in: range)
+#if canImport(AppKit)
+                // Repair the local container links, then refresh only the
+                // first visible successor (or first retained visible block).
+                if let successor = relinkVisibleSuccessor(startingAt: max(0, range.lowerBound)) {
+                    _ = await refreshBlock(id: successor)
+                }
+#endif
                 mutated = true
             }
         }
@@ -314,38 +350,72 @@ actor MarkdownRenderer {
     private func insertBlock(id: BlockID, at position: Int) async {
         guard indexByID[id] == nil else { return }
         let snapshot = await snapshotProvider(id)
+#if canImport(AppKit)
+        let precedingID = position > 0 && position <= blocks.count ? blocks[position - 1].id : nil
+#else
+        let precedingID: BlockID? = nil
+#endif
         let previousKind = previousBlockKind(at: position)
-        let block = await buildRenderedBlock(id: id, snapshot: snapshot, previousBlockKind: previousKind)
+        let prepared = await buildRenderedBlock(id: id, snapshot: snapshot, previousBlockKind: previousKind,
+                                                precedingBlockID: precedingID)
+#if canImport(AppKit)
+        guard indexByID[id] == nil else { return }
+#endif
         let index = max(0, min(position, blocks.count))
 
-        blocks.insert(block, at: index)
+        blocks.insert(prepared.block, at: index)
         rebuildIndex(startingAt: index)
+#if canImport(AppKit)
+        previousBlockIDs[id] = index > 0 ? blocks[index - 1].id : nil
+        cacheSpacing(for: snapshot, after: prepared.paragraphSpacingAfter)
+        if let successor = relinkVisibleSuccessor(startingAt: index + 1) {
+            _ = await refreshBlock(id: successor)
+        }
+#endif
     }
 
     private func refreshBlock(id: BlockID) async -> Bool {
-        guard let index = indexByID[id] else { return false }
-        let snapshot = await snapshotProvider(id)
-        let previousKind = previousBlockKind(at: index)
-        let quoteLevel = blockquoteLevel(for: snapshot)
-        let placement = listPlacement(for: snapshot)
-        let rendered = await render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel,
-                                    placement: placement)
-
-        let oldContent = blocks[index].content
-        let newContent = rendered.attributed
+        while true {
+            guard let initialIndex = indexByID[id] else { return false }
+#if canImport(AppKit)
+            let previousSnapshot = blocks[initialIndex].snapshot
+#endif
+            let snapshot = await snapshotProvider(id)
+#if canImport(AppKit)
+            guard let renderIndex = indexByID[id] else { return false }
+            guard blocks[renderIndex].snapshot == previousSnapshot || blocks[renderIndex].snapshot == snapshot else { continue }
+#else
+            let renderIndex = initialIndex
+#endif
+            let previousKind = previousBlockKind(at: renderIndex)
+            let quoteLevel = blockquoteLevel(for: snapshot)
+            let placement = listPlacement(for: snapshot)
+            let rendered = await render(snapshot: snapshot, previousBlockKind: previousKind, blockquoteLevel: quoteLevel,
+                                        placement: placement)
+#if canImport(AppKit)
+            guard let acceptedIndex = indexByID[id] else { return false }
+            guard blocks[acceptedIndex].snapshot == previousSnapshot || blocks[acceptedIndex].snapshot == snapshot else { continue }
+#else
+            let acceptedIndex = renderIndex
+#endif
+            let oldContent = blocks[acceptedIndex].content
+            let newContent = rendered.attributed
 
 #if canImport(AppKit)
-        let didMutate = oldContent != newContent || blocks[index].table != rendered.table
+            let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
 #else
-        let didMutate = oldContent != newContent
+            let didMutate = oldContent != newContent
 #endif
-
-        blocks[index].kind = snapshot.kind
-        blocks[index].snapshot = snapshot
-        blocks[index].blockquoteLevel = quoteLevel
-        blocks[index].listPlacement = placement
-        blocks[index].updatePresentation(from: rendered)
-        return didMutate
+            blocks[acceptedIndex].kind = snapshot.kind
+            blocks[acceptedIndex].snapshot = snapshot
+            blocks[acceptedIndex].blockquoteLevel = quoteLevel
+            blocks[acceptedIndex].listPlacement = placement
+            blocks[acceptedIndex].updatePresentation(from: rendered)
+#if canImport(AppKit)
+            cacheSpacing(for: snapshot, after: rendered.paragraphSpacingAfter)
+#endif
+            return didMutate
+        }
     }
 
     private func removeBlocks(in range: Range<Int>) {
@@ -359,6 +429,11 @@ actor MarkdownRenderer {
         blocks.removeSubrange(removalRange)
         for block in removed {
             indexByID[block.id] = nil
+#if canImport(AppKit)
+            previousBlockIDs[block.id] = nil
+            trailingParagraphSpacings[block.id] = nil
+            visibleQuoteBodies.remove(block.id)
+#endif
         }
         rebuildIndex(startingAt: lower)
     }
@@ -374,6 +449,101 @@ actor MarkdownRenderer {
         guard index > 0, index <= blocks.count else { return nil }
         return blocks[index - 1].kind
     }
+
+#if canImport(AppKit)
+    private func relinkVisibleSuccessor(startingAt start: Int) -> BlockID? {
+        var index = start
+        var previous = start > 0 && start <= blocks.count ? blocks[start - 1].id : nil
+        // An invisible quote/item contributes no margin. Walk only the local
+        // chain of container nodes before the following rendered block.
+        while index < blocks.count {
+            previousBlockIDs[blocks[index].id] = previous
+            if !blocks[index].content.characters.isEmpty { return blocks[index].id }
+            previous = blocks[index].id
+            index += 1
+        }
+        return nil
+    }
+
+    private func previousVisibleBlock(for snapshot: BlockSnapshot, placement: ListPlacement,
+                                      precedingBlockID: BlockID?) -> RenderedBlock? {
+        var candidate = precedingBlockID ?? previousBlockIDs[snapshot.id]
+        var skipped: [BlockID] = []
+        while let id = candidate, let index = indexByID[id] {
+            let block = blocks[index]
+            // A first child's marker is transferred from an empty item when
+            // that child starts; the parent refresh follows this render.
+            let handingOffMarker = id == snapshot.parentID && placement.marker != nil
+            let emptyQuoteParent = id == snapshot.parentID && block.kind == .blockquote
+                && !visibleQuoteBodies.contains(id)
+            if !block.content.characters.isEmpty && !handingOffMarker && !emptyQuoteParent {
+                for skippedID in skipped { previousBlockIDs[skippedID] = id }
+                return block
+            }
+            skipped.append(id)
+            candidate = previousBlockIDs[id]
+        }
+        for skippedID in skipped { previousBlockIDs[skippedID] = nil }
+        return nil
+    }
+
+    private func cacheSpacing(for snapshot: BlockSnapshot, after: CGFloat?) {
+        trailingParagraphSpacings[snapshot.id] = after
+        let hasQuoteBody = snapshot.kind == .blockquote && (snapshot.inlineRuns ?? []).contains { run in
+            run.image != nil || run.math != nil || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if hasQuoteBody { visibleQuoteBodies.insert(snapshot.id) }
+        else { visibleQuoteBodies.remove(snapshot.id) }
+    }
+
+    private func spacingContext(for snapshot: BlockSnapshot, placement: ListPlacement,
+                                previous: RenderedBlock?) -> BlockSpacingContext {
+        let gap: BlockSpacingContext.Gap
+        switch snapshot.kind {
+        case .paragraph, .blockquote:
+            if placement.marker != nil {
+                let itemParent = snapshot.parentID.flatMap { indexByID[$0] }.flatMap { blocks[$0].snapshot.parentID }
+                gap = itemParent == previous?.id ? .none : .listItem
+            } else {
+                gap = .paragraph
+            }
+        case .listItem(let ordered, _, _):
+            if previous?.id == snapshot.parentID {
+                gap = .none
+            } else if let previous, case .listItem = previous.kind,
+                      isSameList(as: snapshot, ordered: ordered, previous: previous) {
+                gap = .listItem
+            } else {
+                gap = .paragraph
+            }
+        default:
+            gap = .standard
+        }
+        let previousAfter = previous.flatMap { trailingParagraphSpacings[$0.id] }
+        let suppressTrailing: Bool
+        if case .listItem = snapshot.kind,
+           let firstChild = snapshot.childIDs.first.flatMap({ indexByID[$0] }),
+           case .listItem = blocks[firstChild].kind {
+            suppressTrailing = true
+        } else {
+            suppressTrailing = false
+        }
+        return BlockSpacingContext(previousSpacingAfter: previousAfter, gap: gap,
+                                   suppressTrailingListSpacing: suppressTrailing)
+    }
+
+    private func isSameList(as snapshot: BlockSnapshot, ordered: Bool, previous: RenderedBlock) -> Bool {
+        var candidate: RenderedBlock? = previous
+        while let block = candidate {
+            if case .listItem(let previousOrdered, _, _) = block.kind,
+               block.snapshot.parentID == snapshot.parentID, block.snapshot.depth == snapshot.depth {
+                return previousOrdered == ordered
+            }
+            candidate = block.snapshot.parentID.flatMap { indexByID[$0] }.map { blocks[$0] }
+        }
+        return false
+    }
+#endif
 
     private func shouldRefreshForContentWidthChange(_ block: RenderedBlock) -> Bool {
         if !block.images.isEmpty {
@@ -418,12 +588,13 @@ actor MarkdownRenderer {
         return Int((width / 8).rounded(.toNearestOrAwayFromZero))
     }
 
-    private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil) async -> RenderedBlock {
+    private func buildRenderedBlock(id: BlockID, snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
+                                    precedingBlockID: BlockID? = nil) async -> (block: RenderedBlock, paragraphSpacingAfter: CGFloat?) {
         let quoteLevel = blockquoteLevel(for: snapshot)
         let placement = listPlacement(for: snapshot)
         let rendered = await render(snapshot: snapshot, previousBlockKind: previousBlockKind, blockquoteLevel: quoteLevel,
-                                    placement: placement)
-        return RenderedBlock(id: id,
+                                    placement: placement, precedingBlockID: precedingBlockID)
+        let block = RenderedBlock(id: id,
                              kind: snapshot.kind,
                              content: rendered.attributed,
                              snapshot: snapshot,
@@ -436,6 +607,7 @@ actor MarkdownRenderer {
                              mermaidDiagram: rendered.mermaidDiagram,
                              blockquoteLevel: quoteLevel,
                              listPlacement: placement)
+        return (block, rendered.paragraphSpacingAfter)
     }
 
     /// How many blockquotes enclose a block (the block's own, when it is
