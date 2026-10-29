@@ -85,7 +85,7 @@ struct HostedTableRendererTests {
         #expect(result.images.first?.source == imageURL.absoluteString)
     }
 
-    @Test("Horizontal rules use a resizable attachment without text blocks")
+    @Test("Horizontal rules reserve resizable layout space without text blocks")
     @MainActor
     func horizontalRuleTracksAvailableWidth() async throws {
         let builder = MarkdownAttributeBuilder(theme: .default())
@@ -107,7 +107,6 @@ struct HostedTableRendererTests {
         #expect(wide.width == 368)
         #expect(narrow.width == 168)
         #expect(wide.height == 1)
-        #expect(attachment.image(for: narrow, attributes: [:], location: location, textContainer: nil)?.size == narrow.size)
     }
 
     private func imageRun(_ alt: String, url: URL) -> InlineRun {

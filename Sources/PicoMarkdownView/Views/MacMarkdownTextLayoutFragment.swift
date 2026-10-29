@@ -64,6 +64,16 @@ final class MacMarkdownTextLayoutFragment: NSTextLayoutFragment {
         if let background = MacCodeBlockBackground.decoration(for: self) {
             result.append(Decoration(rect: background.rect, color: background.color))
         }
+        if attributes[.attachment] is MacHorizontalRuleAttachment,
+           let line = textLineFragments.first(where: { $0.characterRange.length > 0 }) {
+            let bounds = line.typographicBounds
+            // Attachment coordinates sit on the text baseline; the line's
+            // typographic bounds also include the paragraph's leading space.
+            let rect = CGRect(x: bounds.minX,
+                              y: bounds.minY + line.glyphOrigin.y - MacHorizontalRuleAttachment.thickness,
+                              width: bounds.width, height: MacHorizontalRuleAttachment.thickness)
+            result.append(Decoration(rect: rect, color: .secondaryLabelColor))
+        }
         result.append(contentsOf: quoteBars)
         return result
     }

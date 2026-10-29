@@ -199,6 +199,122 @@ struct MacBlockDecorationTests {
                                    from: before.midY, to: after.midY) > 0.98)
     }
 
+    @Test("Horizontal rules paint a full-width line in light and dark appearances",
+          arguments: [300.0, 600.0], [false, true])
+    func horizontalRulePixels(width: Double, dark: Bool) async throws {
+        let fixture = try await DecorationFixture(markdown: """
+        Before rules.
+
+        ---
+
+        Between first and second.
+
+        ***
+
+        Between second and third.
+
+        ___
+
+        After rules.
+
+        """, width: width, scale: 1, dark: dark)
+        defer { fixture.close() }
+        let rows = try fixture.horizontalRuleRows()
+        #expect(rows.count == 3, "all thematic-break spellings must reach the native renderer")
+        try expectRulePixels(in: fixture)
+
+        let resizedWidth = width == 300 ? 600.0 : 300.0
+        await fixture.resize(to: resizedWidth)
+        let resized = try fixture.horizontalRuleRows()
+        #expect(resized.count == 3)
+        for row in resized {
+            #expect(abs(row.width - (resizedWidth - 32)) <= 1,
+                    "the line must follow the available width after reflow")
+        }
+        try expectRulePixels(in: fixture)
+        if let row = resized.first {
+            let partial = try fixture.capture(rect: row.insetBy(dx: -4, dy: -3))
+            #expect(partial.horizontalRuleY(in: row) != nil,
+                    "a partial redraw must retain the rule")
+        }
+        #expect(fixture.view.textLayoutManager != nil)
+    }
+
+    @Test("Rules retain quote gutters and list indentation", arguments: [false, true])
+    func nestedHorizontalRulePixels(dark: Bool) async throws {
+        let fixture = try await DecorationFixture(markdown: """
+        > Before quoted rule.
+        >
+        > ---
+        >
+        > After quoted rule.
+
+        - Before list rule.
+
+          ***
+
+          After list rule.
+
+        Outside.
+
+        """, width: 360, scale: 1, dark: dark)
+        defer { fixture.close() }
+        let rows = try fixture.horizontalRuleRows()
+        #expect(rows.count == 2)
+        try expectRulePixels(in: fixture)
+        let quoted = try #require(rows.first)
+        let bitmap = try fixture.capture()
+        let y = try #require(bitmap.horizontalRuleY(in: quoted))
+        #expect(bitmap.isBar(at: CGPoint(x: fixture.view.textContainerOrigin.x + 1.5, y: y)),
+                "the enclosing quote bar must coexist with its horizontal rule")
+        #expect(quoted.minX > fixture.view.textContainerOrigin.x + 6,
+                "a quoted rule must leave its gutter clear")
+        if rows.count == 2 {
+            #expect(rows[1].minX > fixture.view.textContainerOrigin.x + 6,
+                    "a list-contained rule must retain the list indentation")
+        }
+    }
+
+    @Test("Character-by-character rules draw without disturbing selected streamed text",
+          arguments: ["---", "***", "___"])
+    func streamingHorizontalRulePixels(spelling: String) async throws {
+        let fixture = try await DecorationFixture(markdown: "Selected prefix.\n\n", width: 300, scale: 1,
+                                                  chunkSize: 1, finish: false)
+        defer { fixture.close() }
+        let selection = NSRange(location: 0, length: 8)
+        fixture.view.setSelectedRange(selection)
+        try await fixture.append(String(spelling.prefix(2)), chunkSize: 1, finish: false)
+        #expect(try fixture.horizontalRuleRows().isEmpty,
+                "an incomplete delimiter must not emit a provisional rule")
+        try await fixture.append(String(spelling.suffix(1)) + "\n\n", chunkSize: 1, finish: false)
+        #expect(try fixture.horizontalRuleRows().count == 1)
+        try expectRulePixels(in: fixture)
+        let beforeAppend = fixture.view.string
+        try await fixture.append("After streamed rule.\n\n", chunkSize: 1, finish: true)
+        #expect(fixture.view.string.hasPrefix(beforeAppend))
+        #expect(fixture.view.selectedRange() == selection)
+        #expect(try fixture.horizontalRuleRows().count == 1)
+        try expectRulePixels(in: fixture)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.declareTypes([.string], owner: nil)
+        #expect(fixture.view.writeSelection(to: pasteboard, types: [.string]))
+        #expect(pasteboard.string(forType: .string) == "Selected")
+        #expect(fixture.view.textLayoutManager != nil)
+    }
+
+    private func expectRulePixels(in fixture: DecorationFixture) throws {
+        let bitmap = try fixture.capture()
+        for row in try fixture.horizontalRuleRows() {
+            let y = try #require(bitmap.horizontalRuleY(in: row),
+                                 "the native bitmap must contain a full-width horizontal line at \(row)")
+            #expect(!bitmap.isRule(at: CGPoint(x: row.minX - 4, y: y)), "rule paints outside its left boundary")
+            #expect(!bitmap.isRule(at: CGPoint(x: row.maxX + 4, y: y)), "rule paints outside its right boundary")
+            #expect(!bitmap.isRule(at: CGPoint(x: row.midX, y: row.minY - 3)))
+            #expect(!bitmap.isRule(at: CGPoint(x: row.midX, y: row.maxY + 3)))
+        }
+    }
+
     @Test("Appending a nested quote repaints the earlier paragraph's joining gutter", arguments: [1, 17])
     func streamingQuotePixels(chunkSize: Int) async throws {
         let fixture = try await DecorationFixture(markdown: "> First streamed paragraph.\n>\n", width: 300, scale: 1,
@@ -224,11 +340,13 @@ private final class DecorationFixture {
     let pipeline: MarkdownStreamingPipeline
     private let window: NSWindow
     private let oldWindow: NSWindow
-    private let configuration = PicoTextKitConfiguration(backgroundColor: .white,
-        contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
+    private let configuration: PicoTextKitConfiguration
 
-    init(markdown: String, width: Double, scale: Double, chunkSize: Int = 11, finish: Bool = true) async throws {
+    init(markdown: String, width: Double, scale: Double, chunkSize: Int = 11, finish: Bool = true,
+         dark: Bool = false) async throws {
         _ = NSApplication.shared
+        configuration = PicoTextKitConfiguration(backgroundColor: dark ? .black : .white,
+            contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         let font = FontSpec(size: 15)
         let theme = MarkdownRenderTheme(bodyFont: font, codeFont: font,
             blockquoteColor: ThemeColor(.init(red: 1, green: 0, blue: 1)), linkColor: .link,
@@ -239,7 +357,7 @@ private final class DecorationFixture {
         pipeline = MarkdownStreamingPipeline(theme: theme)
         view = controller.makeTextKit2View(configuration: configuration)
         view.frame = NSRect(x: 0, y: 0, width: width, height: 1400)
-        view.appearance = NSAppearance(named: .aqua)
+        view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         view.drawsBackground = true
         view.usesAdaptiveColorMappingForDarkAppearance = false
         window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -254,9 +372,9 @@ private final class DecorationFixture {
         manager.addTextContainer(container)
         baseline = NSTextView(frame: view.frame, textContainer: container)
         baseline.textContainerInset = NSSize(width: 16, height: 16)
-        baseline.backgroundColor = .white
+        baseline.backgroundColor = dark ? .black : .white
         baseline.drawsBackground = true
-        baseline.appearance = NSAppearance(named: .aqua)
+        baseline.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         baseline.usesAdaptiveColorMappingForDarkAppearance = false
         baseline.isEditable = false
         oldWindow = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
@@ -275,6 +393,24 @@ private final class DecorationFixture {
         if finish { apply(await pipeline.finish()) }
         let storage = try #require(view.textStorage)
         baseline.textStorage?.setAttributedString(storage)
+        await settleLayout()
+    }
+
+    func resize(to width: Double) async {
+        view.setFrameSize(NSSize(width: width, height: view.frame.height))
+        await settleLayout()
+    }
+
+    func horizontalRuleRows() throws -> [CGRect] {
+        let storage = try #require(view.textStorage)
+        var indexes: [Int] = []
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if value is MacHorizontalRuleAttachment { indexes.append(range.location) }
+        }
+        return try indexes.map { try row(at: $0) }
+    }
+
+    private func settleLayout() async {
         for _ in 0..<3 {
             if let manager = view.textLayoutManager, let content = manager.textContentManager {
                 manager.ensureLayout(for: content.documentRange)
@@ -291,6 +427,9 @@ private final class DecorationFixture {
         guard let update else { return }
         controller.update(textView: view, blocks: update.blocks, diffs: [update.diff],
                           replaceToken: 1, configuration: configuration)
+        // Keep the fixture's fixed pixel colors; the controller enables
+        // adaptive mapping for normal application content on every update.
+        view.usesAdaptiveColorMappingForDarkAppearance = false
     }
 
     func close() { window.close(); oldWindow.close() }
@@ -341,7 +480,9 @@ private final class DecorationFixture {
     private func bitmap(of target: NSTextView, rect requested: CGRect?) throws -> DecorationBitmap {
         let rect = requested ?? CGRect(x: 0, y: 0, width: target.bounds.width, height: min(1200, target.bounds.height))
         let representation = try #require(target.bitmapImageRepForCachingDisplay(in: rect))
-        target.cacheDisplay(in: rect, to: representation)
+        target.effectiveAppearance.performAsCurrentDrawingAppearance {
+            target.cacheDisplay(in: rect, to: representation)
+        }
         return DecorationBitmap(representation: representation, rect: rect)
     }
 }
@@ -358,7 +499,22 @@ private struct DecorationBitmap {
     }
     func isBar(at point: CGPoint) -> Bool {
         guard let color = color(at: point) else { return false }
-        return color.redComponent > 0.8 && color.blueComponent > 0.8 && color.greenComponent < 0.8
+        // The quote theme uses translucent magenta. Its chroma remains
+        // distinct against both the fixture's white and black backgrounds.
+        return color.redComponent - color.greenComponent > 0.2
+            && color.blueComponent - color.greenComponent > 0.2
+    }
+    func isRule(at point: CGPoint) -> Bool {
+        guard let sample = color(at: point), let background = color(at: CGPoint(x: rect.minX + 1, y: rect.minY + 1)) else { return false }
+        let components = [sample.redComponent, sample.greenComponent, sample.blueComponent]
+        let gray = components.reduce(0, +) / 3
+        let backgroundGray = (background.redComponent + background.greenComponent + background.blueComponent) / 3
+        return (components.max()! - components.min()!) < 0.12 && abs(gray - backgroundGray) > 0.12
+    }
+    func horizontalRuleY(in row: CGRect) -> CGFloat? {
+        stride(from: row.minY, through: row.maxY, by: 0.5).first { y in
+            coverage(from: row.minX + 3, to: row.maxX - 3) { isRule(at: CGPoint(x: $0, y: y)) } > 0.98
+        }
     }
     func isCode(at point: CGPoint) -> Bool {
         guard let color = color(at: point) else { return false }

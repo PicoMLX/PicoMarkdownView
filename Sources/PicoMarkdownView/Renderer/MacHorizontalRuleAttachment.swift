@@ -1,8 +1,11 @@
 #if canImport(AppKit)
 import AppKit
 
-/// A one-point rule whose width follows TextKit 2's current line fragment.
+/// Reserves a rule's layout space. MacMarkdownTextLayoutFragment paints it;
+/// AppKit's default attachment cell has no image to draw.
 final class MacHorizontalRuleAttachment: NSTextAttachment {
+    static let thickness: CGFloat = 1
+
     init() {
         super.init(data: nil, ofType: nil)
     }
@@ -16,16 +19,7 @@ final class MacHorizontalRuleAttachment: NSTextAttachment {
                                    proposedLineFragment: CGRect, position: CGPoint) -> CGRect {
         let proposedWidth = proposedLineFragment.maxX - position.x
         let width = proposedWidth.isFinite ? max(1, proposedWidth) : 1
-        return CGRect(x: 0, y: 0, width: width, height: 1)
-    }
-
-    override func image(for imageBounds: CGRect, attributes: [NSAttributedString.Key: Any],
-                        location: any NSTextLocation, textContainer: NSTextContainer?) -> NSImage? {
-        NSImage(size: imageBounds.size, flipped: false) { rect in
-            NSColor.secondaryLabelColor.setFill()
-            NSBezierPath(rect: rect).fill()
-            return true
-        }
+        return CGRect(x: 0, y: 0, width: width, height: Self.thickness)
     }
 }
 #endif
