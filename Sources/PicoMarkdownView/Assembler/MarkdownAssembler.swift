@@ -163,12 +163,16 @@ public actor MarkdownAssembler {
 
         // A definition for a label the text already used: the blocks holding
         // it link it from now on. Their text does not change.
+        // A block is reported once per chunk, however many of its labels
+        // resolve in it, and again when a later label of it resolves.
         var relinked: [BlockID] = []
+        var relinkedInChunk = Set<BlockID>()
         for (label, url) in chunk.lateLinkDefinitions where lateLinkTargets[label] == nil {
             lateLinkTargets[label] = url
             for id in blocksByPendingLabel.removeValue(forKey: label) ?? [] {
                 pendingLabelsByBlock[id]?.remove(label)
-                if relinkableBlocks.insert(id).inserted { relinked.append(id) }
+                relinkableBlocks.insert(id)
+                if relinkedInChunk.insert(id).inserted { relinked.append(id) }
             }
         }
 

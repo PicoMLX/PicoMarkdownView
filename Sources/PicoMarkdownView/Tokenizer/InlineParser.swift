@@ -1698,9 +1698,10 @@ struct InlineParser {
         /// letters, digits, spaces and a few separators (`[1]`, `[a]`,
         /// `[Smith 2020]`), so the one run it becomes holds exactly the text
         /// the literal bracket would have: nothing in it is markup, a
-        /// replacement or a tag.
+        /// replacement or a tag (no configured tag prefix may start in it).
         func isPlainReferenceLabel(_ label: Substring) -> Bool {
-            guard label.unicodeScalars.count <= 64, !label.contains("--"), !label.contains("..") else { return false }
+            guard label.unicodeScalars.count <= 64, !label.contains("--"), !label.contains(".."),
+                  !label.contains(where: parserTagPrefixOpeningFirstChars.contains) else { return false }
             return label.unicodeScalars.allSatisfy {
                 CharacterSet.alphanumerics.contains($0) || $0 == " " || $0 == "-" || $0 == "." || $0 == ","
             } && !label.lowercased().contains("www.")
@@ -1957,8 +1958,9 @@ struct InlineParser {
             case .literal:
                 return nil
             case .reference(let end, let label):
-                // Inside a link or image the brackets are that one's text.
-                guard contextLinkURL == nil, imageDepth == 0 else { return nil }
+                // Inside a link or image the brackets are that one's text,
+                // also where a nested parse reads it (`[see *[1]*](url)`).
+                guard contextLinkURL == nil, imageDepth == 0, !insideLinkText else { return nil }
                 appendStructured(InlineRun(text: String(text[opener..<end]), referenceLabel: label))
                 consumedEnd = end
                 plainStart = end

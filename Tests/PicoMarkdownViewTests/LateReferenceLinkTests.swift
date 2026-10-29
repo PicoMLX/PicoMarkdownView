@@ -91,6 +91,35 @@ struct LateReferenceLinkTests {
         #expect(after[0].inlineRuns?.first { $0.text == "[1]" }?.linkURL == "https://a.example")
     }
 
+    @Test("A block is reported again when another of its labels resolves in a later chunk")
+    func laterLabelRelinksAgain() async {
+        let tokenizer = MarkdownTokenizer()
+        let assembler = MarkdownAssembler()
+        _ = await assembler.apply(await tokenizer.feed("See [1] and [2].\n\n"))
+        let first = await assembler.apply(await tokenizer.feed("[1]: https://a.example\n\nmore\n\n"))
+        let second = await assembler.apply(await tokenizer.feed("[2]: https://b.example\n\nend\n"))
+        let citing = await assembler.makeSnapshot()[0]
+        #expect(first.relinkedBlocks.contains(citing.id))
+        #expect(second.relinkedBlocks.contains(citing.id))
+        #expect((citing.inlineRuns ?? []).compactMap(\.linkURL) == ["https://a.example", "https://b.example"])
+    }
+
+    @Test("Text inside a link's nested formatting, or holding a tag prefix, is not tagged")
+    func nestedLinkTextAndTagPrefixes() async {
+        let nested = await parse(["[see *[1]*](https://outer.example)\n\n[1]: https://inner.example\n"])
+        let nestedRuns = (nested.blocks.first?.inlineRuns ?? []).filter { $0.text.contains("1") }
+        #expect(!nestedRuns.isEmpty)
+        #expect(nestedRuns.allSatisfy { $0.referenceLabel == nil && $0.linkURL == "https://outer.example" })
+
+        let tokenizer = MarkdownTokenizer(tagPrefixes: [TagPrefix(opening: "-")])
+        let assembler = MarkdownAssembler()
+        _ = await assembler.apply(await tokenizer.feed("[see -topic]\n\n"))
+        _ = await assembler.apply(await tokenizer.finish())
+        let runs = await assembler.makeSnapshot().flatMap { $0.inlineRuns ?? [] }
+        #expect(runs.allSatisfy { $0.referenceLabel == nil })
+        #expect(runs.contains { $0.tag != nil }, "the tag inside the brackets is still a tag")
+    }
+
     @Test("An evicted block is neither relinked nor reported")
     func evictedBlockIsPruned() async {
         let parsed = await parse(["See [1].\n\nfiller one\n\nfiller two\n\n[1]: https://a.example\n"],
