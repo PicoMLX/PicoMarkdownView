@@ -6,7 +6,6 @@
 6 Tabs
 7 Tabs
 12 Backslash escapes
-14 Backslash escapes
 23 Backslash escapes
 28 Entity and numeric character references
 33 Entity and numeric character references
@@ -60,7 +59,6 @@
 560 Links
 561 Links
 562 Links
-563 Links
 565 Links
 566 Links
 568 Links
@@ -79,5 +77,4 @@
 588 Images
 589 Images
 591 Images
-592 Images
 593 Images

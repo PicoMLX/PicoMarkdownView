@@ -108,7 +108,13 @@ struct SpecInlineFixesTests {
         ("foo *\\**\n\n", "foo <i>*</i>"),
         // Text the replacement engine holds stays before a following run.
         ("(`x`)\n\n", "(<code>x</code>)"),
-        ("(c`x`)\n\n", "(c<code>x</code>)")
+        ("(c`x`)\n\n", "(c<code>x</code>)"),
+        // Math that never closes is text, and what follows its opener is
+        // parsed as usual: `\[` and `\(` are escaped brackets, `$` stays.
+        ("\\[not a link](/foo) \\*no\\* *yes*\n\n", "[not a link](/foo) *no* <i>yes</i>"),
+        ("a \\(b `c` **d**\n\n", "a (b <code>c</code> <b>d</b>"),
+        ("costs $5 and **really** good\n\n", "costs $5 and <b>really</b> good"),
+        ("a $$x *y*\n\n", "a $$x <i>y</i>")
     ]
 
     static let documents = cases.map(\.markdown)
@@ -181,7 +187,8 @@ struct SpecInlineFixesTests {
     func unclosedCommandMathIsLinear() {
         let count = 4_000
         let runs = InlineParser.parseAll("**" + String(repeating: "\\(x ", count: count) + "end**")
-        #expect(runs.map(\.text).joined() == String(repeating: "\\(x ", count: count) + "end")
+        // Each unclosed `\(` is an escaped `(` (CommonMark).
+        #expect(runs.map(\.text).joined() == String(repeating: "(x ", count: count) + "end")
         #expect(runs.allSatisfy { $0.style.contains(.bold) })
     }
 
