@@ -731,7 +731,7 @@ final class TextKitStreamingBackend {
         if editEnd <= result.location {
             result.location += delta
         } else if editedRange.location < selectionEnd {
-            let start = min(result.location, editedRange.location)
+            let start = min(result.location, editedRange.location + replacementLength)
             let end = selectionEnd >= editEnd
                 ? selectionEnd + delta
                 : editedRange.location + min(replacementLength, selectionEnd - editedRange.location)

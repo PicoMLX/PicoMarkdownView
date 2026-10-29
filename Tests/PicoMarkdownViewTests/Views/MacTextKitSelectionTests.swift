@@ -59,6 +59,24 @@ struct MacTextKitSelectionTests {
         #expect(view.textLayoutManager != nil)
     }
 
+    @Test("A styled block append preserves a caret or selection inside its existing text",
+          arguments: [NSRange(location: 2, length: 0), NSRange(location: 2, length: 3)])
+    func appendWithRestyledPrefixKeepsSelection(_ selection: NSRange) {
+        let backend = TextKitStreamingBackend()
+        func block(_ text: String, size: CGFloat) -> RenderedBlock {
+            let content = NSAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: size)])
+            return RenderedBlock(id: 1, kind: .paragraph, content: .picoConverted(from: content),
+                                 snapshot: BlockSnapshot(id: 1, kind: .paragraph, isClosed: false),
+                                 table: nil, listItem: nil, blockquote: nil, math: nil)
+        }
+        _ = backend.apply(blocks: [block("Hello\n", size: 15)], selection: .init(location: 0, length: 0))
+        let result = backend.apply(blocks: [block("Hello world\n", size: 16)],
+                                   diffs: [AssemblerDiff(documentVersion: 1, changes: [.blockEnded(id: 1)])],
+                                   selection: selection)
+        #expect(result == selection)
+        #expect(backend.snapshotAttributedString().string == "Hello world\n")
+    }
+
     private func hostedAttachment(in storage: NSTextStorage) -> PicoHostedAttachment? {
         var result: PicoHostedAttachment?
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, stop in
