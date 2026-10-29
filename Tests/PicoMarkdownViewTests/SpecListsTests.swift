@@ -80,6 +80,13 @@ struct SpecListsTests {
         ("- a\n  1. b\n  \t```\n  x\n  ```\n\n", #"[ul[[p("a"), ol[[p("b")]], code(-, "x")]]]"#),
         ("- a\n  1. b\n  \tc\n\n", #"[ul[[p("a"), ol[[p("b c")]]]]]"#),
         ("  \tfoo\n\n", #"[code(-, "foo")]"#),
+        // A tab that a container's prefix only partly consumes leaves its
+        // remaining columns to the content: in code, as spaces.
+        ("- foo\n\n\t\tbar\n\t\tbaz\n\n", #"[ul[[p("foo"), code(-, "  bar\n  baz")]]]"#),
+        (">\t\tfoo\n>\t\tbar\n\n", #"[quote[code(-, "  foo\n  bar")]]"#),
+        ("-\t\tfoo\n \t\tbar\n\n", #"[ul[[code(-, "  foo\n  bar")]]]"#),
+        ("- a\n  > - b\n  >\n  >\t\tc\n\n", #"[ul[[p("a"), quote[ul[[p("b"), p("c")]]]]]]"#),
+        ("> -\t\tfoo\n\n", #"[quote[ul[[code(-, "foo")]]]]"#),
         // Quotes inside items: markers after the item's indentation, lazy
         // lines, quoted children, and the quote ending at a blank line, an
         // unmarked block, or a line its item does not keep.
