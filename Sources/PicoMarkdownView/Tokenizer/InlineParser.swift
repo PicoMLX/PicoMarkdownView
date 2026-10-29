@@ -11,10 +11,26 @@ final class LinkReferenceStore {
     /// those references went out as text.
     private var usedUndefined: Set<String> = []
 
+    /// Definitions of labels the text had already used, since the last
+    /// `drainLateDefinitions()`: normalized label to destination.
+    private var lateDefinitions: [String: String] = [:]
+
     func define(label: String, url: String, title: String?) {
         let key = normalizeLinkLabel(label)
         guard definitions[key] == nil else { return }
         definitions[key] = LinkDefinition(url: url, title: title)
+        if usedUndefined.contains(key) { lateDefinitions[key] = url }
+    }
+
+    /// The late definitions since the last call, for the chunk result.
+    func drainLateDefinitions() -> [String: String] {
+        defer { lateDefinitions.removeAll(keepingCapacity: true) }
+        return lateDefinitions
+    }
+
+    /// The key a label is looked up by (`InlineRun.referenceLabel`).
+    func key(for label: String) -> String {
+        normalizeLinkLabel(label)
     }
 
     func resolve(label: String) -> LinkDefinition? {
@@ -1369,7 +1385,7 @@ struct InlineParser {
                             continue
                         case .needMore:
                             return suspend(at: cursor)
-                        case .decided(.literal):
+                        case .decided(.literal), .decided(.reference):
                             break
                         }
                     }
@@ -1518,6 +1534,10 @@ struct InlineParser {
             case link(close: String.Index, end: String.Index, url: String)
             case image(close: String.Index, end: String.Index, source: String, title: String?)
             case footnote(end: String.Index, id: String)
+            /// A shortcut reference to a label nothing defines yet: text, as
+            /// a literal bracket is, but one run tagged with the label (its
+            /// normalized key), which links once a definition arrives.
+            case reference(end: String.Index, label: String)
             case literal
         }
 
@@ -1674,6 +1694,18 @@ struct InlineParser {
             return !blank
         }
 
+        /// A label a reference may be tagged with for a late definition:
+        /// letters, digits, spaces and a few separators (`[1]`, `[a]`,
+        /// `[Smith 2020]`), so the one run it becomes holds exactly the text
+        /// the literal bracket would have: nothing in it is markup, a
+        /// replacement or a tag.
+        func isPlainReferenceLabel(_ label: Substring) -> Bool {
+            guard label.unicodeScalars.count <= 64, !label.contains("--"), !label.contains("..") else { return false }
+            return label.unicodeScalars.allSatisfy {
+                CharacterSet.alphanumerics.contains($0) || $0 == " " || $0 == "-" || $0 == "." || $0 == ","
+            } && !label.lowercased().contains("www.")
+        }
+
         /// The link label at the `[` at `open`; an empty one is `[]`.
         func linkLabel(at open: String.Index) -> LabelScan {
             let scalars = text.unicodeScalars
@@ -1731,10 +1763,16 @@ struct InlineParser {
                     .decided(opener.image ? .image(close: close, end: end, source: destination, title: title)
                                           : .link(close: close, end: end, url: destination))
                 }
-                func reference(_ label: Substring, end: String.Index) -> BracketScan {
+                func reference(_ label: Substring, end: String.Index, shortcut: Bool = true) -> BracketScan {
                     guard isLinkLabel(label) else { return .decided(.literal) }
-                    guard let definition = linkReferences?.resolve(label: String(label)) else {
+                    guard let store = linkReferences, let definition = store.resolve(label: String(label)) else {
                         linkReferences?.noteUndefined(label: String(label))
+                        // A shortcut reference with a plain label is tagged for a
+                        // definition that may still arrive. (A full reference's
+                        // `[label]` is decided again as a shortcut of its own.)
+                        if shortcut, !opener.image, let store = linkReferences, isPlainReferenceLabel(label) {
+                            return .decided(.reference(end: end, label: store.key(for: String(label))))
+                        }
                         return .decided(.literal)
                     }
                     return made(end: end, destination: definition.url, title: definition.title)
@@ -1756,7 +1794,7 @@ struct InlineParser {
                     switch linkLabel(at: after) {
                     case .label(let inner, let end):
                         // `[text][]` takes its label from the text.
-                        return reference(inner.isEmpty ? label : inner, end: end)
+                        return reference(inner.isEmpty ? label : inner, end: end, shortcut: false)
                     case .needMore:
                         return .needMore
                     case .invalid:
@@ -1892,7 +1930,7 @@ struct InlineParser {
                         cursor = end
                     case .image(_, let end, _, _), .footnote(let end, _):
                         cursor = end
-                    case .literal:
+                    case .literal, .reference:
                         cursor = scalars.index(after: cursor)
                     }
                     // The first opener can no longer be a link once one forms
@@ -1918,6 +1956,13 @@ struct InlineParser {
             switch outcome {
             case .literal:
                 return nil
+            case .reference(let end, let label):
+                // Inside a link or image the brackets are that one's text.
+                guard contextLinkURL == nil, imageDepth == 0 else { return nil }
+                appendStructured(InlineRun(text: String(text[opener..<end]), referenceLabel: label))
+                consumedEnd = end
+                plainStart = end
+                return end
             case .footnote(let end, let id):
                 guard let registry = footnoteRegistry else { return nil }
                 appendStructured(InlineRun(text: String(registry.index(for: id)), style: [.footnote, .superscript]))

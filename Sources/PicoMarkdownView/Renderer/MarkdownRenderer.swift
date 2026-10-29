@@ -251,7 +251,7 @@ actor MarkdownRenderer {
     /// `currentAttributedString()`.
     @discardableResult
     func apply(_ diff: AssemblerDiff) async -> Bool {
-        guard !diff.changes.isEmpty else { return false }
+        guard !diff.changes.isEmpty || !diff.relinkedBlocks.isEmpty else { return false }
 
         var mutated = false
 
@@ -284,6 +284,11 @@ actor MarkdownRenderer {
 #endif
                 mutated = true
             }
+        }
+        // References whose definition arrived link now; the text and so the
+        // layout are as before, only the link attributes are new.
+        for id in diff.relinkedBlocks where indexByID[id] != nil {
+            mutated = await refreshBlock(id: id) || mutated
         }
 
         return mutated

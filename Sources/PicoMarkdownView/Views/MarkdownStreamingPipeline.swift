@@ -28,7 +28,7 @@ actor MarkdownStreamingPipeline {
         guard !chunk.isEmpty else { return nil }
         let result = await tokenizer.feed(chunk)
         let rawDiff = await assembler.apply(result)
-        guard !rawDiff.changes.isEmpty else { return nil }
+        guard !rawDiff.changes.isEmpty || !rawDiff.relinkedBlocks.isEmpty else { return nil }
         _ = await renderer.apply(rawDiff)
         let diff = nextEmittedDiff(from: rawDiff)
         let blocks = await renderer.renderedBlocks()
@@ -38,7 +38,7 @@ actor MarkdownStreamingPipeline {
     func finish() async -> StreamingUpdate? {
         let result = await tokenizer.finish()
         let rawDiff = await assembler.apply(result)
-        guard !rawDiff.changes.isEmpty else { return nil }
+        guard !rawDiff.changes.isEmpty || !rawDiff.relinkedBlocks.isEmpty else { return nil }
         _ = await renderer.apply(rawDiff)
         let diff = nextEmittedDiff(from: rawDiff)
         let blocks = await renderer.renderedBlocks()
@@ -74,9 +74,12 @@ actor MarkdownStreamingPipeline {
         await renderer.renderedBlocks()
     }
 
+    /// The diff the views see. A relinked block's text is unchanged, so it
+    /// reaches them as a refresh (`.blockEnded`), as `refreshBlocks` does.
     private func nextEmittedDiff(from diff: AssemblerDiff) -> AssemblerDiff {
-        guard !diff.changes.isEmpty else { return diff }
+        guard !diff.changes.isEmpty || !diff.relinkedBlocks.isEmpty else { return diff }
         emittedDiffVersion &+= 1
-        return AssemblerDiff(documentVersion: emittedDiffVersion, changes: diff.changes)
+        let refreshes = diff.relinkedBlocks.map { AssemblerDiff.Change.blockEnded(id: $0) }
+        return AssemblerDiff(documentVersion: emittedDiffVersion, changes: diff.changes + refreshes)
     }
 }

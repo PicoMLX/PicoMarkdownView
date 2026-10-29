@@ -60,7 +60,10 @@ struct MathIsolationTests {
     @Test("Unclosed math retains its literal TeX without corrections")
     func unclosedMathIsLiteral() async {
         let result = await parse(["Equation: $", #"\frac{a}{b} * [x]"#])
-        #expect(result.runs == [InlineRun(text: #"Equation: $\frac{a}{b} * [x]"#)])
+        // `[x]` is a reference nothing defines: the same text, in a run of its
+        // own tagged with its label, which links if a definition follows.
+        #expect(result.runs == [InlineRun(text: #"Equation: $\frac{a}{b} * "#),
+                                InlineRun(text: "[x]", referenceLabel: "x")])
     }
 
     @Test("Long math remains local and emits only when closed")

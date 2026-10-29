@@ -296,7 +296,8 @@ struct StreamingParser {
         closePendingSameLineBlocks()
         process(normalizeLineEndings(chunk), isFinal: false)
         flushPendingInlineTailForOpenBlocks()
-        let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks())
+        let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks(),
+                                 lateLinkDefinitions: linkReferenceStore.drainLateDefinitions())
         events.removeAll(keepingCapacity: true)
         return result
     }
@@ -305,7 +306,8 @@ struct StreamingParser {
         closePendingSameLineBlocks()
         process("", isFinal: true)
         flushPendingInlineTailForOpenBlocks()
-        let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks())
+        let result = ChunkResult(events: events, openBlocks: snapshotOpenBlocks(),
+                                 lateLinkDefinitions: linkReferenceStore.drainLateDefinitions())
         events.removeAll(keepingCapacity: true)
         return result
     }
