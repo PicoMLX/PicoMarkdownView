@@ -204,6 +204,74 @@ struct MacMermaidCanvasTests {
         #expect(view.accessibilityLabel() == "Mermaid diagram")
     }
 
+    @Test("Pointer navigation does not keep controls visible after hover ends")
+    @available(macOS 27.0, *)
+    func pointerFocusDoesNotLatchControls() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 240),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let model = makeModel()
+        let view = PicoHostedMermaidCanvasView(model: model)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        let zoom = try #require(descendants(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == "Zoom in" })
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+                                                       modifierFlags: [], timestamp: 0,
+                                                       windowNumber: window.windowNumber, context: nil,
+                                                       eventNumber: 0, trackingNumber: 0, userData: nil))
+        let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero,
+                                                      modifierFlags: [], timestamp: 0,
+                                                      windowNumber: window.windowNumber, context: nil,
+                                                      eventNumber: 0, trackingNumber: 0, userData: nil))
+        view.mouseEntered(with: enter)
+        #expect(zoom.superview?.alphaValue == 1)
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 100, y: 100),
+                                                   modifierFlags: [], timestamp: 0,
+                                                   windowNumber: window.windowNumber, context: nil,
+                                                   eventNumber: 0, clickCount: 1, pressure: 0))
+        view.mouseDown(with: click)
+        view.mouseExited(with: exit)
+        #expect(window.firstResponder === view, "Panning may retain the responder for keyboard navigation")
+        #expect(zoom.superview?.alphaValue == 0, "Pointer focus must not latch the toolbar open")
+        #expect(zoom.hitTest(CGPoint(x: zoom.frame.midX, y: zoom.frame.midY)) == nil, "Hidden controls do not intercept pointer selection")
+
+        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                               timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                               characters: "+", charactersIgnoringModifiers: "+",
+                                               isARepeat: false, keyCode: 24))
+        view.keyDown(with: key)
+        #expect(zoom.superview?.alphaValue == 1, "Keyboard navigation reveals its controls")
+        #expect(model.zoom > 1)
+        #expect(window.makeFirstResponder(nil))
+        #expect(zoom.superview?.alphaValue == 0)
+        #expect(view.accessibilityCustomActions()?.contains { $0.name == "Copy source" } == true)
+    }
+
+    @Test("Detaching a hovered diagram clears stale toolbar visibility")
+    @available(macOS 27.0, *)
+    func detachingClearsHover() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 240),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = PicoHostedMermaidCanvasView(model: makeModel())
+        window.contentView = view
+        let button = try #require(descendants(of: view).compactMap { $0 as? NSButton }.first)
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+                                                       modifierFlags: [], timestamp: 0,
+                                                       windowNumber: window.windowNumber, context: nil,
+                                                       eventNumber: 0, trackingNumber: 0, userData: nil))
+        view.mouseEntered(with: enter)
+        #expect(button.superview?.alphaValue == 1)
+        window.contentView = nil
+        #expect(button.superview?.alphaValue == 0)
+        #expect(button.hitTest(CGPoint(x: button.frame.midX, y: button.frame.midY)) == nil)
+    }
+
     private func descendants(of view: NSView) -> [NSView] {
         [view] + view.subviews.flatMap { descendants(of: $0) }
     }

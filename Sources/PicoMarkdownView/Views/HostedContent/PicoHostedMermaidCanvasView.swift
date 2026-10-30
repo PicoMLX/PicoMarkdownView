@@ -14,6 +14,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     private var expandButton: PicoHostedMermaidButton?
     private var isPointerInside = false
     private var hasControlFocus = false
+    private var isTakingPointerFocus = false
+    private var controlsAreVisible = false
     private var tracking: NSTrackingArea?
     private var dragPoint: CGPoint?
     private var accessibilitySource: String?
@@ -56,16 +58,35 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         let width = CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing) - Self.buttonSpacing
         toolbar.frame = CGRect(x: max(4, bounds.width - width - 6), y: 5,
                                width: width, height: Self.buttonSize)
+        refreshPointerPresence()
         needsDisplay = true
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let next = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+        let next = NSTrackingArea(rect: .zero,
+                                  options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag],
                                   owner: self, userInfo: nil)
         addTrackingArea(next)
         tracking = next
+        refreshPointerPresence()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { hasControlFocus = false }
+        refreshPointerPresence()
+    }
+
+    private func refreshPointerPresence() {
+        if let window, window.isKeyWindow {
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            isPointerInside = bounds.intersection(visibleRect).contains(point)
+        } else {
+            isPointerInside = false
+        }
+        updateToolbarVisibility()
     }
 
     override func mouseEntered(with event: NSEvent) { isPointerInside = true; updateToolbarVisibility() }
@@ -73,7 +94,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { hasControlFocus = true; updateToolbarVisibility() }
+        if accepted { hasControlFocus = !isTakingPointerFocus; updateToolbarVisibility() }
         return accepted
     }
 
@@ -112,7 +133,11 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     override func mouseDown(with event: NSEvent) {
+        isTakingPointerFocus = true
         window?.makeFirstResponder(self)
+        isTakingPointerFocus = false
+        hasControlFocus = false
+        updateToolbarVisibility()
         model.activateNavigation()
         dragPoint = convert(event.locationInWindow, from: nil)
     }
@@ -136,6 +161,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     override func magnify(with event: NSEvent) { model.zoom(by: exp(event.magnification)) }
 
     override func keyDown(with event: NSEvent) {
+        hasControlFocus = true
+        updateToolbarVisibility()
         switch event.charactersIgnoringModifiers {
         case "+", "=": zoomIn(nil)
         case "-": zoomOut(nil)
@@ -186,6 +213,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     private func setupToolbar() {
+        toolbar.alphaValue = 0
         addSubview(toolbar)
         addButton("minus.magnifyingglass", label: "Zoom out", action: #selector(zoomOut(_:)))
         addButton("plus.magnifyingglass", label: "Zoom in", action: #selector(zoomIn(_:)))
@@ -217,6 +245,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     private func updateToolbarVisibility() {
         let shown = isPointerInside || hasControlFocus
+        guard shown != controlsAreVisible else { return }
+        controlsAreVisible = shown
         toolbar.alphaValue = shown ? 1 : 0
         for button in toolbarButtons { button.acceptsPointerHit = shown }
     }
@@ -234,12 +264,13 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 private final class PicoHostedMermaidButton: NSButton, PicoHostedAttachmentHitTarget {
     var acceptsPointerHit = false
     var onFocusChanged: ((Bool) -> Void)?
+    private var isTakingPointerFocus = false
 
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool { acceptsPointerHit && bounds.contains(point) }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { onFocusChanged?(true) }
+        if accepted { onFocusChanged?(!isTakingPointerFocus) }
         return accepted
     }
 
@@ -247,6 +278,18 @@ private final class PicoHostedMermaidButton: NSButton, PicoHostedAttachmentHitTa
         let accepted = super.resignFirstResponder()
         if accepted { onFocusChanged?(false) }
         return accepted
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isTakingPointerFocus = true
+        onFocusChanged?(false)
+        defer { isTakingPointerFocus = false }
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        onFocusChanged?(true)
+        super.keyDown(with: event)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { acceptsPointerHit ? super.hitTest(point) : nil }
