@@ -7,9 +7,10 @@ import AppKit
 final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     let model: PicoHostedMermaidModel
     var isSelected = false { didSet { needsDisplay = true } }
-    private static let buttonSize: CGFloat = 28
-    private static let buttonSpacing: CGFloat = 3
-    private let toolbar = NSView()
+    private static let buttonSize: CGFloat = 32
+    private static let buttonSpacing: CGFloat = 6
+    private let toolbar = NSGlassEffectContainerView()
+    private let toolbarContent = NSView()
     private var toolbarButtons: [PicoHostedMermaidButton] = []
     private var expandButton: PicoHostedMermaidButton?
     private var isPointerInside = false
@@ -58,6 +59,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         let width = CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing) - Self.buttonSpacing
         toolbar.frame = CGRect(x: max(4, bounds.width - width - 6), y: 5,
                                width: width, height: Self.buttonSize)
+        toolbarContent.frame = toolbar.bounds
         refreshPointerPresence()
         needsDisplay = true
     }
@@ -214,6 +216,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     private func setupToolbar() {
         toolbar.alphaValue = 0
+        toolbar.spacing = 0
+        toolbar.contentView = toolbarContent
         addSubview(toolbar)
         addButton("minus.magnifyingglass", label: "Zoom out", action: #selector(zoomOut(_:)))
         addButton("plus.magnifyingglass", label: "Zoom in", action: #selector(zoomIn(_:)))
@@ -229,8 +233,10 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         button.setAccessibilityLabel(label) // [VERIFY] The labels describe the supplied toolbar actions.
         button.toolTip = label
-        button.bezelStyle = .texturedRounded
-        button.controlSize = .small
+        button.bezelStyle = .glass
+        button.borderShape = .circle
+        button.controlSize = .regular
+        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         button.imagePosition = .imageOnly
         button.onFocusChanged = { [weak self] focused in
             self?.hasControlFocus = focused
@@ -238,7 +244,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         }
         button.frame = CGRect(x: CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing),
                               y: 0, width: Self.buttonSize, height: Self.buttonSize)
-        toolbar.addSubview(button)
+        toolbarContent.addSubview(button)
         toolbarButtons.append(button)
         return button
     }

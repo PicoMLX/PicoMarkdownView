@@ -227,7 +227,7 @@ struct MacMermaidCanvasTests {
                                                       windowNumber: window.windowNumber, context: nil,
                                                       eventNumber: 0, trackingNumber: 0, userData: nil))
         view.mouseEntered(with: enter)
-        #expect(zoom.superview?.alphaValue == 1)
+        #expect(isControlVisible(zoom, in: view))
         let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: CGPoint(x: 100, y: 100),
                                                    modifierFlags: [], timestamp: 0,
                                                    windowNumber: window.windowNumber, context: nil,
@@ -235,7 +235,7 @@ struct MacMermaidCanvasTests {
         view.mouseDown(with: click)
         view.mouseExited(with: exit)
         #expect(window.firstResponder === view, "Panning may retain the responder for keyboard navigation")
-        #expect(zoom.superview?.alphaValue == 0, "Pointer focus must not latch the toolbar open")
+        #expect(!isControlVisible(zoom, in: view), "Pointer focus must not latch the toolbar open")
         #expect(zoom.hitTest(CGPoint(x: zoom.frame.midX, y: zoom.frame.midY)) == nil, "Hidden controls do not intercept pointer selection")
 
         let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
@@ -243,10 +243,10 @@ struct MacMermaidCanvasTests {
                                                characters: "+", charactersIgnoringModifiers: "+",
                                                isARepeat: false, keyCode: 24))
         view.keyDown(with: key)
-        #expect(zoom.superview?.alphaValue == 1, "Keyboard navigation reveals its controls")
+        #expect(isControlVisible(zoom, in: view), "Keyboard navigation reveals its controls")
         #expect(model.zoom > 1)
         #expect(window.makeFirstResponder(nil))
-        #expect(zoom.superview?.alphaValue == 0)
+        #expect(!isControlVisible(zoom, in: view))
         #expect(view.accessibilityCustomActions()?.contains { $0.name == "Copy source" } == true)
     }
 
@@ -266,10 +266,19 @@ struct MacMermaidCanvasTests {
                                                        windowNumber: window.windowNumber, context: nil,
                                                        eventNumber: 0, trackingNumber: 0, userData: nil))
         view.mouseEntered(with: enter)
-        #expect(button.superview?.alphaValue == 1)
+        #expect(isControlVisible(button, in: view))
         window.contentView = nil
-        #expect(button.superview?.alphaValue == 0)
+        #expect(!isControlVisible(button, in: view))
         #expect(button.hitTest(CGPoint(x: button.frame.midX, y: button.frame.midY)) == nil)
+    }
+
+    private func isControlVisible(_ control: NSView, in canvas: NSView) -> Bool {
+        var current: NSView? = control
+        while let view = current, view !== canvas {
+            if view.isHidden || view.alphaValue == 0 { return false }
+            current = view.superview
+        }
+        return current === canvas
     }
 
     private func descendants(of view: NSView) -> [NSView] {
