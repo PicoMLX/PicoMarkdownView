@@ -90,8 +90,6 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 0, bounds.height > 0,
               let context = NSGraphicsContext.current?.cgContext else { return }
-        NSColor.textBackgroundColor.setFill()
-        bounds.fill()
         context.saveGState()
         context.clip(to: viewport)
         if let document = model.document {
@@ -101,16 +99,6 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
             document.draw(in: context, strokesAsFills: true)
         }
         context.restoreGState()
-        // Filled outlines avoid the macOS accelerated wide-line renderer,
-        // which can submit an empty Metal draw when strokes are clipped.
-        let border = CGPath(roundedRect: bounds.insetBy(dx: min(0.5, bounds.width / 2),
-                                                       dy: min(0.5, bounds.height / 2)),
-                            cornerWidth: 6, cornerHeight: 6, transform: nil)
-        context.addPath(border)
-        context.setLineWidth(isSelected ? 2 : 1)
-        context.replacePathWithStrokedPath()
-        context.setFillColor((isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor)
-        context.fillPath()
         if isSelected {
             NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
             bounds.fill()
