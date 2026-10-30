@@ -105,6 +105,27 @@ struct MacMermaidCanvasTests {
         #expect(view.frame.height == 238)
     }
 
+    @Test("Floating controls reserve no strip above the vector drawing")
+    @available(macOS 27.0, *)
+    func controlsOverlayDrawing() throws {
+        _ = NSApplication.shared
+        let model = PicoHostedMermaidModel(svg: "<svg width=\"200\" height=\"100\"><rect width=\"200\" height=\"100\" fill=\"#ff0000\"/></svg>",
+                                           source: "flowchart LR\nA-->B", language: "mermaid", isClosed: true)
+        let view = PicoHostedMermaidCanvasView(model: model)
+        view.frame = CGRect(x: 0, y: 0, width: 400, height: 200)
+        view.layoutSubtreeIfNeeded()
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let center = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.sRGB))
+        #expect(center.alphaComponent > 0.99 && center.redComponent > center.greenComponent + 0.5,
+                "The vector drawing paints the center of the viewport")
+        for y in [2, bitmap.pixelsHigh - 3] {
+            let color = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: y)?.usingColorSpace(.sRGB))
+            #expect(color == center, "Both edges match the rendered center, with no empty toolbar strip")
+        }
+        #expect(model.drawingRect(in: view.bounds.size) == view.bounds)
+    }
+
     @Test("Hosted canvas survives initial and narrow measurement before controls become usable")
     @available(macOS 27.0, *)
     func initialAndNarrowHostedMeasurement() async throws {

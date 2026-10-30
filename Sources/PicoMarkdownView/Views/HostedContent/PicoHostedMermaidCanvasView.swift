@@ -5,7 +5,6 @@ import AppKit
 /// Zoom changes drawing coordinates, never a previously rasterized image.
 @MainActor
 final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
-    static let toolbarHeight: CGFloat = 38
     let model: PicoHostedMermaidModel
     var isSelected = false { didSet { needsDisplay = true } }
     private static let buttonSize: CGFloat = 28
@@ -47,10 +46,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     required init?(coder: NSCoder) { fatalError("Create a Mermaid canvas with its model") }
 
-    private var viewport: CGRect {
-        CGRect(x: 0, y: Self.toolbarHeight, width: bounds.width,
-               height: max(1, bounds.height - Self.toolbarHeight))
-    }
+    private var viewport: CGRect { bounds }
 
     override func layout() {
         super.layout()

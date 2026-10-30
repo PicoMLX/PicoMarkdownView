@@ -10,7 +10,7 @@ struct PicoHostedMermaidView: View {
     var body: some View {
         PicoHostedMermaidCanvas(model: model, isSelected: context.isSelected)
             .frame(width: context.availableWidth,
-                   height: model.viewportHeight(availableWidth: context.availableWidth) + PicoHostedMermaidCanvasView.toolbarHeight)
+                   height: model.viewportHeight(availableWidth: context.availableWidth))
     }
 }
 
@@ -30,7 +30,7 @@ private struct PicoHostedMermaidCanvas: NSViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedMermaidCanvasView, context: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite ? max(1, $0) : nil } ?? 1
         return CGSize(width: width,
-                      height: model.viewportHeight(availableWidth: width) + PicoHostedMermaidCanvasView.toolbarHeight)
+                      height: model.viewportHeight(availableWidth: width))
     }
 }
 #endif
