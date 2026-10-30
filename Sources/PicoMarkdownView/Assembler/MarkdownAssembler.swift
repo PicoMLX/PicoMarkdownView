@@ -3,10 +3,15 @@ import Foundation
 public struct AssemblerDiff: Sendable, Equatable {
     public var documentVersion: UInt64
     public var changes: [Change]
+    /// Blocks whose text is unchanged but whose tagged references
+    /// (`InlineRun.referenceLabel`) now link, because their definition
+    /// arrived: their snapshots carry the links, so render them again.
+    public var relinkedBlocks: [BlockID]
 
-    public init(documentVersion: UInt64, changes: [Change]) {
+    public init(documentVersion: UInt64, changes: [Change], relinkedBlocks: [BlockID] = []) {
         self.documentVersion = documentVersion
         self.changes = changes
+        self.relinkedBlocks = relinkedBlocks
     }
 
     public enum Change: Sendable, Equatable {
@@ -28,6 +33,16 @@ public actor MarkdownAssembler {
     private var closedBlockCount: Int = 0
     private var approximateBytes: Int = 0
     private var openStack: [BlockID] = []
+    /// Destinations of labels defined after the text used them, by
+    /// normalized label (`ChunkResult.lateLinkDefinitions`).
+    private var lateLinkTargets: [String: String] = [:]
+    /// Blocks holding runs tagged with a label nothing defines yet, by
+    /// label, and the same the other way round, to prune evicted blocks.
+    private var blocksByPendingLabel: [String: Set<BlockID>] = [:]
+    private var pendingLabelsByBlock: [BlockID: Set<String>] = [:]
+    /// Blocks holding tagged runs whose label is now defined: their
+    /// snapshots link those runs.
+    private var relinkableBlocks: Set<BlockID> = []
 
     public init(config: AssemblerConfig = AssemblerConfig()) {
         self.config = config
@@ -69,6 +84,15 @@ public actor MarkdownAssembler {
                 approximateBytes += addedBytes
                 if addedRuns > 0 {
                     changes.append(.runsAppended(id: id, added: addedRuns))
+                }
+                for run in runs {
+                    guard let label = run.referenceLabel else { continue }
+                    if lateLinkTargets[label] != nil {
+                        relinkableBlocks.insert(id)
+                    } else {
+                        blocksByPendingLabel[label, default: []].insert(id)
+                        pendingLabelsByBlock[id, default: []].insert(label)
+                    }
                 }
 
             case .blockAppendFencedCode(let id, let textChunk):
@@ -137,16 +161,35 @@ public actor MarkdownAssembler {
 
         openStack = chunk.openBlocks.map { $0.id }
 
+        // A definition for a label the text already used: the blocks holding
+        // it link it from now on. Their text does not change.
+        // A block is reported once per chunk, however many of its labels
+        // resolve in it, and again when a later label of it resolves.
+        var relinked: [BlockID] = []
+        var relinkedInChunk = Set<BlockID>()
+        for (label, url) in chunk.lateLinkDefinitions where lateLinkTargets[label] == nil {
+            lateLinkTargets[label] = url
+            for id in blocksByPendingLabel.removeValue(forKey: label) ?? [] {
+                pendingLabelsByBlock[id]?.remove(label)
+                relinkableBlocks.insert(id)
+                if relinkedInChunk.insert(id).inserted { relinked.append(id) }
+            }
+        }
+
         if let truncation = enforceTruncationIfNeeded() {
             changes.append(.blocksDiscarded(range: truncation))
         }
+        // In document order, as the other changes are.
+        relinked = relinked.compactMap { id in indexByID[id].map { (id, $0) } }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
 
-        guard !changes.isEmpty else {
+        guard !changes.isEmpty || !relinked.isEmpty else {
             return AssemblerDiff(documentVersion: documentVersion, changes: [])
         }
 
         documentVersion &+= 1
-        return AssemblerDiff(documentVersion: documentVersion, changes: changes)
+        return AssemblerDiff(documentVersion: documentVersion, changes: changes, relinkedBlocks: relinked)
     }
 
     public func blockCount() -> Int {
@@ -162,11 +205,25 @@ public actor MarkdownAssembler {
         guard let index = indexByID[id] else {
             preconditionFailure("Block with id \(id) not found")
         }
-        return blocks[index].makeSnapshot()
+        return linkingLateReferences(blocks[index].makeSnapshot())
     }
 
     public func makeSnapshot() -> [BlockSnapshot] {
-        blocks.map { $0.makeSnapshot() }
+        blocks.map { linkingLateReferences($0.makeSnapshot()) }
+    }
+
+    /// `snapshot` with its tagged references linked where their label is
+    /// now defined, styled as a reference link is.
+    private func linkingLateReferences(_ snapshot: BlockSnapshot) -> BlockSnapshot {
+        guard relinkableBlocks.contains(snapshot.id), var runs = snapshot.inlineRuns else { return snapshot }
+        for index in runs.indices {
+            guard let label = runs[index].referenceLabel, let url = lateLinkTargets[label] else { continue }
+            runs[index].linkURL = url
+            runs[index].style.insert(.link)
+        }
+        var linked = snapshot
+        linked.inlineRuns = runs
+        return linked
     }
 
     private func firstClosedBlockIndex() -> Int? {
@@ -195,6 +252,11 @@ public actor MarkdownAssembler {
         while shouldTruncate(), let index = firstClosedBlockIndex() {
             let removed = blocks.remove(at: index)
             indexByID[removed.id] = nil
+            relinkableBlocks.remove(removed.id)
+            for label in pendingLabelsByBlock.removeValue(forKey: removed.id) ?? [] {
+                blocksByPendingLabel[label]?.remove(removed.id)
+                if blocksByPendingLabel[label]?.isEmpty == true { blocksByPendingLabel[label] = nil }
+            }
             approximateBytes -= removed.approxBytes
             if approximateBytes < 0 { approximateBytes = 0 }
             if removed.isClosed {

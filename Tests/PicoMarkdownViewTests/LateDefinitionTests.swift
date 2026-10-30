@@ -37,10 +37,11 @@ struct LateDefinitionTests {
         let blocks = await parse([Self.documents[0]])
         #expect(blocks.map(\.kind) == [.paragraph, .paragraph, .paragraph, .paragraph])
         #expect(blocks.map(text) == ["See [1] and [2].", "[1]: https://a.example", "[2]: https://b.example \"B\"", "Again 1."])
-        // The citations stay text; the sources' addresses are links.
-        #expect(links(blocks[0]).isEmpty)
-        #expect(links(blocks[1]) == ["https://a.example"])
-        #expect(links(blocks[2]) == ["https://b.example"])
+        // The citations keep their streamed text and link once their source
+        // arrives; so does each source's own marker, beside its address.
+        #expect(links(blocks[0]) == ["https://a.example", "https://b.example"])
+        #expect(links(blocks[1]) == ["https://a.example", "https://a.example"])
+        #expect(links(blocks[2]) == ["https://b.example", "https://b.example"])
         // A reference after its definition is a link, as usual.
         #expect(links(blocks[3]) == ["https://a.example"])
     }
