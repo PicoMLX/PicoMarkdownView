@@ -221,6 +221,8 @@ To keep mermaid fences as plain code:
 let theme = MarkdownRenderTheme.default().withMermaidRendering(.disabled)
 ```
 
+Diagram coverage runs in the normal unit tests and both CI jobs. `PeleSkillExamplesTests` covers all 32 bundled diagram families; `PeleDemoExamplesTests` renders the 58 published examples shown in the demo through the real Pele bundle and native SVG drawing, including the macOS vector stroke path. These regression samples do not prove 100% syntax, configuration or visual fidelity. The native SVG drawer deliberately skips unsupported browser features such as embedded images, filters, masks and `foreignObject`. Performance benchmarks live in `PicoMarkdownViewBenchmarks` and are excluded from CI; they measure tokenizer/assembler throughput, not diagram feature coverage.
+
 The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele version, verifies the npm tarball checksum, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/pele-bundle.js` by hand — bump the version in the script and rerun it.
 
 #### Teaching your model to draw
