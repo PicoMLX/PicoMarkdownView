@@ -851,11 +851,11 @@ final class TextKitStreamingBackend {
             if let existing = hostedMermaids[block.id] {
                 entry = existing
                 entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
-                                   isClosed: block.snapshot.isClosed)
+                                   isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
             } else {
                 let model = PicoHostedMermaidModel(svg: svg, source: diagram.source,
                                                   language: block.codeBlock?.language,
-                                                  isClosed: block.snapshot.isClosed)
+                                                  isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
                 let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                     markdown: { model.markdownRepresentation() }) { context in
                         PicoHostedMermaidView(model: model, context: context)
@@ -924,7 +924,7 @@ final class TextKitStreamingBackend {
               let diagram = block.mermaidDiagram, let svg = diagram.svg,
               let entry = hostedMermaids[block.id] else { return false }
         entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
-                           isClosed: block.snapshot.isClosed)
+                           isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
         entry.attachment.invalidateSize()
         updateTableRecord(at: index, block: block)
         return true

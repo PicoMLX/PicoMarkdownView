@@ -783,4 +783,7 @@ struct RenderedMermaidDiagram: Sendable, Equatable {
     /// macOS replays the vector drawing in a hosted attachment. Bitmap-only
     /// providers and UIKit keep their existing image attachment path.
     var svg: String? = nil
+    /// The effective renderer width also bounds the hosted viewport. Some
+    /// diagrams keep a wider intrinsic SVG even when Pele receives this cap.
+    var maxWidth: CGFloat? = nil
 }

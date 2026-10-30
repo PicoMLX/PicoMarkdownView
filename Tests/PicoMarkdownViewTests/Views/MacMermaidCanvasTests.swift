@@ -164,6 +164,43 @@ struct MacMermaidCanvasTests {
         #expect(attachment.markdownRepresentation() == model.markdownRepresentation())
     }
 
+    @Test("Narrow diagrams wrap every control into reachable balanced rows", arguments: [CGFloat(120), CGFloat(200)])
+    @available(macOS 27.0, *)
+    func controlsWrapAtNarrowWidths(width: CGFloat) throws {
+        _ = NSApplication.shared
+        let model = makeModel()
+        let view = PicoHostedMermaidCanvasView(model: model)
+        view.frame = CGRect(x: 0, y: 0, width: width, height: 140)
+        view.layoutSubtreeIfNeeded()
+        let buttons = descendants(of: view).compactMap { $0 as? NSButton }
+        #expect(buttons.count == 6)
+        let frames = buttons.map { $0.convert($0.bounds, to: view) }
+        for frame in frames {
+            #expect(view.bounds.contains(frame), "Every action remains inside a narrow diagram")
+            #expect(frame.width >= 32 && frame.height >= 32)
+        }
+        #expect(Set(frames.map(\.minY)).count == (width == 200 ? 2 : 3))
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
+                                                       modifierFlags: [], timestamp: 0,
+                                                       windowNumber: 0, context: nil,
+                                                       eventNumber: 0, trackingNumber: 0, userData: nil))
+        let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero,
+                                                      modifierFlags: [], timestamp: 0,
+                                                      windowNumber: 0, context: nil,
+                                                      eventNumber: 0, trackingNumber: 0, userData: nil))
+        let zoom = try #require(buttons.first { $0.accessibilityLabel() == "Zoom in" })
+        let fit = try #require(buttons.first { $0.accessibilityLabel() == "Fit diagram" })
+        view.mouseEntered(with: enter)
+        #expect(buttons.allSatisfy { isControlVisible($0, in: view) })
+        zoom.performClick(nil)
+        #expect(model.zoom > 1)
+        #expect(isControlVisible(zoom, in: view))
+        fit.performClick(nil)
+        #expect(model.zoom == 1)
+        view.mouseExited(with: exit)
+        #expect(buttons.allSatisfy { !isControlVisible($0, in: view) })
+    }
+
     @Test("Wheel scroll passes to the transcript until zoomed, and chains at a pan boundary")
     @available(macOS 27.0, *)
     func wheelRouting() throws {

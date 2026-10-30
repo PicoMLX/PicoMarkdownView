@@ -821,7 +821,8 @@ actor MarkdownAttributeBuilder {
                                          mermaidDiagram: RenderedMermaidDiagram(source: source,
                                                                               size: diagram.intrinsicSize,
                                                                               diagnostics: diagram.diagnostics,
-                                                                              svg: diagram.svg))
+                                                                              svg: diagram.svg,
+                                                                              maxWidth: mermaidMaxWidth))
         }
 #endif
         guard snapshot.isClosed else { return nil }

@@ -54,12 +54,24 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     override func layout() {
         super.layout()
         model.updateViewport(viewport.size)
-        // Keep the native controls at a feasible size even while SwiftUI
-        // measures the attachment with a zero or narrow width proposal.
-        let width = CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing) - Self.buttonSpacing
-        toolbar.frame = CGRect(x: max(4, bounds.width - width - 6), y: 5,
-                               width: width, height: Self.buttonSize)
+        // Balance short rows so narrow diagrams retain all six actions.
+        // Initial zero-width measurement still gets finite, clipped controls.
+        let count = max(1, toolbarButtons.count)
+        let step = Self.buttonSize + Self.buttonSpacing
+        let available = max(0, bounds.width - 16)
+        let capacity = max(1, min(count, Int((available + Self.buttonSpacing) / step)))
+        let rows = (count + capacity - 1) / capacity
+        let columns = (count + rows - 1) / rows
+        let width = CGFloat(columns) * step - Self.buttonSpacing
+        let height = CGFloat(rows) * step - Self.buttonSpacing
+        toolbar.frame = CGRect(x: max(8, bounds.width - width - 8), y: 8,
+                               width: width, height: height)
         toolbarContent.frame = toolbar.bounds
+        for (index, button) in toolbarButtons.enumerated() {
+            button.frame = CGRect(x: CGFloat(index % columns) * step,
+                                  y: CGFloat(rows - 1 - index / columns) * step,
+                                  width: Self.buttonSize, height: Self.buttonSize)
+        }
         refreshPointerPresence()
         needsDisplay = true
     }

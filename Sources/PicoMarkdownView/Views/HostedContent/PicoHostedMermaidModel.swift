@@ -12,6 +12,7 @@ final class PicoHostedMermaidModel {
     private(set) var language: String?
     private(set) var isClosed: Bool
     private(set) var intrinsicSize: CGSize = .zero
+    private(set) var maxWidth: CGFloat?
     private(set) var zoom: CGFloat = 1
     private(set) var pan = CGPoint.zero
     private(set) var fit: Fit = .diagram
@@ -25,16 +26,19 @@ final class PicoHostedMermaidModel {
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
-    init(svg: String, source: String, language: String?, isClosed: Bool) {
+    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
         self.svg = svg
         self.source = source
         self.language = language
         self.isClosed = isClosed
+        self.maxWidth = Self.normalizedMaxWidth(maxWidth)
         parse(svg)
     }
 
-    func update(svg: String, source: String, language: String?, isClosed: Bool) {
-        guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed else { return }
+    func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
+        let maxWidth = Self.normalizedMaxWidth(maxWidth)
+        guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed
+                || self.maxWidth != maxWidth else { return }
         if self.svg != svg {
             self.svg = svg
             parse(svg)
@@ -42,15 +46,21 @@ final class PicoHostedMermaidModel {
         self.source = source
         self.language = language
         self.isClosed = isClosed
+        self.maxWidth = maxWidth
         pan = clamped(pan)
         changed()
     }
 
     var isRenderable: Bool { document != nil }
 
+    func viewportWidth(availableWidth: CGFloat) -> CGFloat {
+        let available = availableWidth.isFinite ? max(1, availableWidth) : 1
+        return min(available, maxWidth ?? available)
+    }
+
     func viewportHeight(availableWidth: CGFloat) -> CGFloat {
         if isExpanded { return 600 }
-        let width = availableWidth.isFinite ? max(1, availableWidth) : 1
+        let width = viewportWidth(availableWidth: availableWidth)
         let height = intrinsicSize.height * width / max(1, intrinsicSize.width)
         return min(360, max(140, height))
     }
@@ -163,7 +173,7 @@ final class PicoHostedMermaidModel {
 
     private func baseScale(in size: CGSize) -> CGFloat {
         guard intrinsicSize.width > 0, intrinsicSize.height > 0 else { return 1 }
-        let widthScale = max(1, size.width) / intrinsicSize.width
+        let widthScale = viewportWidth(availableWidth: size.width) / intrinsicSize.width
         if fit == .width { return widthScale }
         return min(widthScale, max(1, size.height) / intrinsicSize.height)
     }
@@ -174,6 +184,10 @@ final class PicoHostedMermaidModel {
         let x = max(0, (intrinsicSize.width * scale - size.width) / 2)
         let y = max(0, (intrinsicSize.height * scale - size.height) / 2)
         return CGPoint(x: min(x, max(-x, point.x)), y: min(y, max(-y, point.y)))
+    }
+
+    private static func normalizedMaxWidth(_ width: CGFloat?) -> CGFloat? {
+        width.flatMap { $0.isFinite && $0 > 0 ? max(1, $0) : nil }
     }
 
     private func changed() {
