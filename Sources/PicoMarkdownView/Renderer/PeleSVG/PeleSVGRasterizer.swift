@@ -63,7 +63,10 @@ extension PeleSVGDocument {
 
     /// Draws into a context whose user space is points with the y axis
     /// pointing down and the origin at the drawing's top-left corner.
-    func draw(in context: CGContext) {
+    /// `strokesAsFills` is used by the macOS hosted vector canvas to avoid
+    /// QuartzCore's accelerated line-stroking backend. Outline geometry stays
+    /// vector based; bitmap rendering keeps the original stroke path.
+    func draw(in context: CGContext, strokesAsFills: Bool = false) {
         context.saveGState()
         context.setShouldAntialias(true)
         context.setAllowsAntialiasing(true)
@@ -75,7 +78,7 @@ extension PeleSVGDocument {
 
         var style = PeleSVGStyle()
         style.apply(element: root)
-        drawChildren(of: root, style: style, in: context)
+        drawChildren(of: root, style: style, in: context, strokesAsFills: strokesAsFills)
         context.restoreGState()
     }
 
@@ -84,13 +87,13 @@ extension PeleSVGDocument {
         "image", "foreignObject", "style", "script", "clipPath", "mask", "filter", "pattern", "marker", "symbol", "use"
     ]
 
-    private func drawChildren(of element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext) {
+    private func drawChildren(of element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         for case let .element(child) in element.children {
-            draw(child, parentStyle: style, in: context)
+            draw(child, parentStyle: style, in: context, strokesAsFills: strokesAsFills)
         }
     }
 
-    private func draw(_ element: PeleSVGElement, parentStyle: PeleSVGStyle, in context: CGContext) {
+    private func draw(_ element: PeleSVGElement, parentStyle: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         guard !Self.skippedElements.contains(element.name) else { return }
         var style = parentStyle
         style.apply(element: element)
@@ -105,24 +108,24 @@ extension PeleSVGDocument {
         switch element.name {
         case "g", "a", "switch":
             withGroupOpacity(style.opacity, in: context) {
-                drawChildren(of: element, style: style, in: context)
+                drawChildren(of: element, style: style, in: context, strokesAsFills: strokesAsFills)
             }
         case "svg":
             applyNestedViewport(of: element, in: context)
             withGroupOpacity(style.opacity, in: context) {
-                drawChildren(of: element, style: style, in: context)
+                drawChildren(of: element, style: style, in: context, strokesAsFills: strokesAsFills)
             }
         case "path", "rect", "circle", "ellipse", "line", "polygon", "polyline":
             if let path = makePath(for: element, style: style) {
                 // `opacity` applies to the shape as a whole, so fill and
                 // stroke must be composited together, not each at half.
                 withGroupOpacity(style.opacity, in: context) {
-                    paint(path, style: style, in: context)
+                    paint(path, style: style, in: context, strokesAsFills: strokesAsFills)
                 }
             }
         case "text":
             withGroupOpacity(style.opacity, in: context) {
-                drawText(element, style: style, in: context)
+                drawText(element, style: style, in: context, strokesAsFills: strokesAsFills)
             }
         default:
             break
@@ -214,7 +217,7 @@ extension PeleSVGDocument {
         }
     }
 
-    private func paint(_ path: CGPath, style: PeleSVGStyle, in context: CGContext) {
+    private func paint(_ path: CGPath, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         if case let .gradient(id, _) = style.fill, let gradient = gradients[id] {
             fill(path, with: gradient, opacity: style.fillOpacity, in: context)
         } else if let color = style.resolvedColor(style.fill, opacity: style.fillOpacity) {
@@ -230,8 +233,25 @@ extension PeleSVGDocument {
             context.setLineJoin(style.lineJoin)
             context.setLineDash(phase: style.dashOffset, lengths: style.dashes)
             context.addPath(path)
-            context.strokePath()
+            strokeCurrentPath(in: context, color: color, strokesAsFills: strokesAsFills)
         }
+    }
+
+    private func strokeCurrentPath(in context: CGContext, color: CGColor, strokesAsFills: Bool) {
+        #if os(macOS)
+        if strokesAsFills {
+            // CoreGraphics expands with the current width, dash, cap, join
+            // and transform. Filling the result preserves the stroke without
+            // submitting line primitives when scrolling clips the drawing.
+            context.replacePathWithStrokedPath()
+            if !context.isPathEmpty {
+                context.setFillColor(color)
+                context.fillPath()
+            }
+            return
+        }
+        #endif
+        context.strokePath()
     }
 
     private func fill(_ path: CGPath, with gradient: PeleSVGGradient, opacity: CGFloat, in context: CGContext) {
@@ -269,7 +289,7 @@ extension PeleSVGDocument {
     /// Draws `<text>` with its `<tspan>` children. Runs are grouped into
     /// chunks at every absolute `x`/`y`; `text-anchor` aligns a whole chunk,
     /// so a line made of differently styled spans stays centered as one.
-    private func drawText(_ element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext) {
+    private func drawText(_ element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         var runs: [TextRun] = []
         var pending = (x: element.length("x"), y: element.length("y"))
         collectRuns(of: element, style: style, pending: &pending, into: &runs)
@@ -310,7 +330,7 @@ extension PeleSVGDocument {
                     context.setLineDash(phase: 0, lengths: [])
                     context.move(to: CGPoint(x: x, y: y))
                     context.addLine(to: CGPoint(x: x + line.width, y: y))
-                    context.strokePath()
+                    strokeCurrentPath(in: context, color: color, strokesAsFills: strokesAsFills)
                 }
                 x += line.width
             }

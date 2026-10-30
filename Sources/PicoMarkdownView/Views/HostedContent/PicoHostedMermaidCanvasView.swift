@@ -8,7 +8,9 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     static let toolbarHeight: CGFloat = 38
     let model: PicoHostedMermaidModel
     var isSelected = false { didSet { needsDisplay = true } }
-    private let toolbar = NSStackView()
+    private static let buttonSize: CGFloat = 28
+    private static let buttonSpacing: CGFloat = 3
+    private let toolbar = NSView()
     private var toolbarButtons: [PicoHostedMermaidButton] = []
     private var expandButton: PicoHostedMermaidButton?
     private var isPointerInside = false
@@ -24,6 +26,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     init(model: PicoHostedMermaidModel) {
         self.model = model
         super.init(frame: .zero)
+        clipsToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Mermaid diagram")
@@ -52,9 +55,11 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     override func layout() {
         super.layout()
         model.updateViewport(viewport.size)
-        let size = toolbar.fittingSize
-        toolbar.frame = CGRect(x: max(4, bounds.width - size.width - 6), y: 5,
-                               width: min(max(1, bounds.width - 8), size.width), height: 28)
+        // Keep the native controls at a feasible size even while SwiftUI
+        // measures the attachment with a zero or narrow width proposal.
+        let width = CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing) - Self.buttonSpacing
+        toolbar.frame = CGRect(x: max(4, bounds.width - width - 6), y: 5,
+                               width: width, height: Self.buttonSize)
         needsDisplay = true
     }
 
@@ -83,7 +88,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        guard bounds.width > 0, bounds.height > 0,
+              let context = NSGraphicsContext.current?.cgContext else { return }
         NSColor.textBackgroundColor.setFill()
         bounds.fill()
         context.saveGState()
@@ -92,13 +98,19 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
             let destination = model.drawingRect(in: viewport.size).offsetBy(dx: viewport.minX, dy: viewport.minY)
             context.translateBy(x: destination.minX, y: destination.minY)
             context.scaleBy(x: destination.width / document.width, y: destination.height / document.height)
-            document.draw(in: context)
+            document.draw(in: context, strokesAsFills: true)
         }
         context.restoreGState()
-        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
-        (isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
-        border.lineWidth = isSelected ? 2 : 1
-        border.stroke()
+        // Filled outlines avoid the macOS accelerated wide-line renderer,
+        // which can submit an empty Metal draw when strokes are clipped.
+        let border = CGPath(roundedRect: bounds.insetBy(dx: min(0.5, bounds.width / 2),
+                                                       dy: min(0.5, bounds.height / 2)),
+                            cornerWidth: 6, cornerHeight: 6, transform: nil)
+        context.addPath(border)
+        context.setLineWidth(isSelected ? 2 : 1)
+        context.replacePathWithStrokedPath()
+        context.setFillColor((isSelected ? NSColor.controlAccentColor : NSColor.separatorColor).cgColor)
+        context.fillPath()
         if isSelected {
             NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
             bounds.fill()
@@ -190,9 +202,6 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     private func setupToolbar() {
-        toolbar.orientation = .horizontal
-        toolbar.spacing = 3
-        toolbar.alignment = .centerY
         addSubview(toolbar)
         addButton("minus.magnifyingglass", label: "Zoom out", action: #selector(zoomOut(_:)))
         addButton("plus.magnifyingglass", label: "Zoom in", action: #selector(zoomIn(_:)))
@@ -215,7 +224,9 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
             self?.hasControlFocus = focused
             self?.updateToolbarVisibility()
         }
-        toolbar.addArrangedSubview(button)
+        button.frame = CGRect(x: CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing),
+                              y: 0, width: Self.buttonSize, height: Self.buttonSize)
+        toolbar.addSubview(button)
         toolbarButtons.append(button)
         return button
     }

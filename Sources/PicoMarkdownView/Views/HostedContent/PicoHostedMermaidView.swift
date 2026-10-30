@@ -26,5 +26,11 @@ private struct PicoHostedMermaidCanvas: NSViewRepresentable {
         view.isSelected = isSelected
         view.refreshPresentation()
     }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedMermaidCanvasView, context: Context) -> CGSize? {
+        let width = proposal.width.flatMap { $0.isFinite ? max(1, $0) : nil } ?? 1
+        return CGSize(width: width,
+                      height: model.viewportHeight(availableWidth: width) + PicoHostedMermaidCanvasView.toolbarHeight)
+    }
 }
 #endif

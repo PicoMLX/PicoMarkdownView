@@ -105,6 +105,44 @@ struct MacMermaidCanvasTests {
         #expect(view.frame.height == 238)
     }
 
+    @Test("Hosted canvas survives initial and narrow measurement before controls become usable")
+    @available(macOS 27.0, *)
+    func initialAndNarrowHostedMeasurement() async throws {
+        _ = NSApplication.shared
+        let model = makeModel()
+        let attachment = PicoHostedAttachment(interaction: .selectableBlock,
+                                               markdown: { model.markdownRepresentation() }) { context in
+            PicoHostedMermaidView(model: model, context: context)
+        }
+        let hosting = attachment.loadHostedView()
+        for width: CGFloat in [0, 1, 40, 420] {
+            attachment.update(availableWidth: width, isSelected: false)
+            hosting.frame = CGRect(x: 0, y: 0, width: width, height: 1)
+            for _ in 0..<3 {
+                hosting.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            let size = hosting.fittingSize
+            #expect(size.width.isFinite && size.width > 0)
+            #expect(size.height.isFinite && size.height > 0)
+        }
+        let canvas = try #require(descendants(of: hosting).compactMap { $0 as? PicoHostedMermaidCanvasView }.first)
+        canvas.layoutSubtreeIfNeeded()
+        let buttons = descendants(of: canvas).compactMap { $0 as? NSButton }
+        #expect(buttons.count == 6)
+        for button in buttons {
+            let frame = button.convert(button.bounds, to: canvas)
+            #expect(frame.width > 0 && frame.height > 0)
+            #expect(canvas.bounds.contains(frame), "Controls fit after the attachment receives its actual width")
+        }
+        let zoomIn = try #require(buttons.first { $0.accessibilityLabel() == "Zoom in" })
+        zoomIn.performClick(nil)
+        #expect(model.zoom > 1, "Controls still act on the same model after startup sizing")
+        #expect(canvas.model === model)
+        #expect(model.parseCount == 1)
+        #expect(attachment.markdownRepresentation() == model.markdownRepresentation())
+    }
+
     @Test("Wheel scroll passes to the transcript until zoomed, and chains at a pan boundary")
     @available(macOS 27.0, *)
     func wheelRouting() throws {
@@ -143,6 +181,10 @@ struct MacMermaidCanvasTests {
         #expect(actions.contains("Fit width"))
         #expect(actions.contains("Copy source"))
         #expect(view.accessibilityLabel() == "Mermaid diagram")
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants(of: $0) }
     }
 
     private func makeModel() -> PicoHostedMermaidModel {
