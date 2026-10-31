@@ -18,6 +18,7 @@ public final class PicoHostedAttachment: NSTextAttachment {
     public private(set) var measuredSize = CGSize(width: 1, height: 1)
     public var onSizeChanged: (@MainActor (CGSize) -> Void)?
     var onLayoutInvalidated: (@MainActor (CGSize) -> Void)?
+    var accessibilityStatus: (@MainActor () -> String?)?
     public var hostingView: NSView? { hostedView }
 
     private let markdown: @MainActor () -> String
@@ -62,6 +63,9 @@ public final class PicoHostedAttachment: NSTextAttachment {
         setMeasuredSize(size)
     }
 
+    /// Compatibility for the chart branch's original geometry helper.
+    func estimateSize(_ size: CGSize) { seedSizeBeforeViewCreation(size) }
+
     public func markdownRepresentation() -> String { markdown() }
 
     /// Coalesces an intrinsic-size refresh after model or layout changes.
@@ -90,9 +94,13 @@ public final class PicoHostedAttachment: NSTextAttachment {
 
     func loadHostedView() -> NSView {
         if let hostedView { return hostedView }
+        // TextKit may mount during its own layout before the parent supplies
+        // context. Start SwiftUI at the width already reserved for this view.
+        context.update(availableWidth: measuredSize.width, isSelected: context.isSelected)
         let root = PicoMeasuredHostedContent(context: context, content: content,
                                             onHeight: { [weak self] _ in self?.invalidateSize() })
-        let view = PicoHostedContentHostingView(rootView: root, interaction: interaction)
+        let view = PicoHostedContentHostingView(rootView: root, interaction: interaction,
+            accessibilityStatus: { [weak self] in self?.accessibilityStatus?() })
         view.sizingOptions = [.intrinsicContentSize]
         view.frame = CGRect(origin: .zero, size: measuredSize)
         hostedView = view

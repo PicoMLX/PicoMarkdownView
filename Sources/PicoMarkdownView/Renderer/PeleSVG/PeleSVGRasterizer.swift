@@ -95,6 +95,9 @@ extension PeleSVGDocument {
 
     private func draw(_ element: PeleSVGElement, parentStyle: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         guard !Self.skippedElements.contains(element.name) else { return }
+        #if os(macOS)
+        if dialect == .vega, VegaSVGCompatibility.isHidden(element) { return }
+        #endif
         var style = parentStyle
         style.apply(element: element)
 
@@ -104,6 +107,14 @@ extension PeleSVGDocument {
         if let transform = element.attributes["transform"] {
             context.concatenate(PeleSVGValue.transform(transform))
         }
+
+        #if os(macOS)
+        if dialect == .vega, let reference = element.attributes["clip-path"],
+           let id = VegaSVGCompatibility.localReference(reference), let path = vegaClipPaths[id] {
+            context.addPath(path)
+            context.clip()
+        }
+        #endif
 
         switch element.name {
         case "g", "a", "switch":
@@ -284,15 +295,24 @@ extension PeleSVGDocument {
         var style: PeleSVGStyle
         var x: CGFloat?
         var y: CGFloat?
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
     }
 
     /// Draws `<text>` with its `<tspan>` children. Runs are grouped into
-    /// chunks at every absolute `x`/`y`; `text-anchor` aligns a whole chunk,
+    /// chunks at every absolute `x`/`y` (or Vega relative `dx`/`dy`);
+    /// `text-anchor` aligns a whole chunk,
     /// so a line made of differently styled spans stays centered as one.
     private func drawText(_ element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         var runs: [TextRun] = []
         var pending = (x: element.length("x"), y: element.length("y"))
         collectRuns(of: element, style: style, pending: &pending, into: &runs)
+        #if os(macOS)
+        if dialect == .vega, !runs.isEmpty {
+            runs[0].dx += element.length("dx", default: 0)
+            runs[0].dy += element.length("dy", default: 0)
+        }
+        #endif
         runs = normalizeWhitespace(runs, preserve: style.preserveSpace)
         guard !runs.isEmpty else { return }
 
@@ -300,11 +320,14 @@ extension PeleSVGDocument {
         var index = 0
         while index < runs.count {
             var next = index + 1
-            while next < runs.count, runs[next].x == nil, runs[next].y == nil { next += 1 }
+            while next < runs.count, runs[next].x == nil, runs[next].y == nil,
+                  runs[next].dx == 0, runs[next].dy == 0 { next += 1 }
             let chunk = runs[index..<next]
 
             if let x = chunk.first?.x { pen.x = x }
             if let y = chunk.first?.y { pen.y = y }
+            pen.x += chunk.first?.dx ?? 0
+            pen.y += chunk.first?.dy ?? 0
 
             let lines = chunk.map(makeLine)
             let total = lines.reduce(CGFloat(0)) { $0 + $1.width }
@@ -352,7 +375,16 @@ extension PeleSVGDocument {
                 var spanStyle = style
                 spanStyle.apply(element: span)
                 var spanPending = (x: span.length("x") ?? pending.x, y: span.length("y") ?? pending.y)
+                #if os(macOS)
+                let start = runs.count
+                #endif
                 collectRuns(of: span, style: spanStyle, pending: &spanPending, into: &runs)
+                #if os(macOS)
+                if dialect == .vega, start < runs.count {
+                    runs[start].dx += span.length("dx", default: 0)
+                    runs[start].dy += span.length("dy", default: 0)
+                }
+                #endif
                 if spanPending.x == nil, spanPending.y == nil {
                     // The span emitted a run that consumed the position.
                     pending = (nil, nil)
@@ -402,7 +434,8 @@ extension PeleSVGDocument {
         let font = PeleSVGFonts.font(family: run.style.fontFamily,
                                      size: run.style.fontSize,
                                      bold: run.style.bold,
-                                     italic: run.style.italic)
+                                     italic: run.style.italic,
+                                     dialect: dialect)
         let color = run.style.resolvedColor(run.style.fill, opacity: run.style.fillOpacity)
             ?? PeleSVGValue.rgba(0, 0, 0, 0)
         var attributes: [NSAttributedString.Key: Any] = [
@@ -453,7 +486,11 @@ extension PeleSVGDocument {
 /// families become the system fonts, so diagrams match the surrounding
 /// text; named families are used when installed.
 enum PeleSVGFonts {
-    static func font(family: String, size: CGFloat, bold: Bool, italic: Bool) -> CTFont {
+    static func font(family: String, size: CGFloat, bold: Bool, italic: Bool,
+                     dialect: PeleSVGDocument.Dialect = .pele) -> CTFont {
+        #if os(macOS)
+        let family = dialect == .vega ? VegaSVGCompatibility.fontFamily(family) : family
+        #endif
         let platformFont = platformFont(family: family, size: max(size, 1), bold: bold, italic: italic)
         return platformFont as CTFont
     }

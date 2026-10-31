@@ -218,7 +218,7 @@ The callback is available on `PicoMarkdownView` on macOS. Apply it before genera
 
 Images mixed with prose, multiple images in one paragraph, heading images, and table-cell images keep their existing rendering and do not invoke this callback. An open image paragraph keeps its native attachment until closure, since more streamed prose may still follow. Existing asynchronous image loading and block-local refreshes are reused. iOS image rendering is unchanged.
 
-The macOS example owns a lightbox over its whole window content, with zoom, pan, Copy Image, Save and Escape dismissal. Mermaid and SVG retain their inline controls.
+The macOS example owns a lightbox over its whole window content, with zoom, pan, Copy Image, Save and Escape dismissal. Mermaid, SVG and Vega-Lite retain their inline controls.
 
 ### Diagrams (Mermaid)
 
@@ -252,6 +252,85 @@ The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele vers
 #### Teaching your model to draw
 
 Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
+
+### Charts (Vega-Lite, macOS 27)
+
+Closed fenced blocks with the exact `vega-lite` language render as native vector
+charts on macOS, enabled by default. The bundled official Vega-Lite compiler and
+Vega runtime run in JavaScriptCore, generate SVG, and reuse the same native host,
+zoom/pan controls, and source copying as Mermaid. No WebView is used. Ordinary
+`json` and `vega` fences remain code, and iOS retains its existing code renderer.
+
+````markdown
+```vega-lite
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "data": {"values": [{"region": "North", "units": 28}, {"region": "South", "units": 19}]},
+  "mark": "bar",
+  "encoding": {
+    "x": {"field": "region", "type": "nominal"},
+    "y": {"field": "units", "type": "quantitative"}
+  }
+}
+```
+````
+
+While a chart fence is open, one compact hosted row replaces its raw JSON.
+After 350 ms it shows a native spinner and “Receiving chart…”; fast charts appear
+directly without waiting. Its height stays fixed while source arrives, and its
+reveal deadline starts once per block. Paused or cancelled streams show a static
+status instead of a continuing spinner. Charts compile only at fence closure
+(or normal end of stream); invalid or unsupported final specs fall back to code.
+Only that block compiles, without reparsing earlier Markdown. Native selection
+crosses the loading row or finished chart atomically and exports the original
+fenced JSON, not the generated SVG. Quote/list indentation and `imageMaxWidth`
+also apply to chart viewports; zoom stays inside the frame. Math is unchanged.
+
+The current profile supports **static charts with inline data**, bounded
+`filter`, `calculate` and conditional `test` expressions, and standard repeat
+references. External resources, unsupported arbitrary expressions, geospatial
+projections, unbounded data generators and unsupported SVG features fall back to
+the original code block. Input, geometry and output are bounded. Chart marks
+expose Vega's generated accessibility data descriptions to VoiceOver. Chart colors can be specified in the source; otherwise
+labels follow the surrounding theme and the chart background is transparent.
+
+To display charts as code:
+
+```swift
+let theme = MarkdownRenderTheme.default().withVegaLiteRendering(false)
+```
+
+See **Charts** in the example app for bar, temporal line, scatter, list, and quote
+examples. `Scripts/bundle-vega-lite.sh` pins and verifies the bundled upstream
+packages; the bundled licenses and provenance are in `Resources/VegaLite`.
+
+The macOS example app also includes **Charts-Gallery**, imported from the official
+Vega-Lite 6.5.0 gallery: 203 placements of 189 distinct specifications. Its native
+preview keeps all example headings and links, renders **128 supported placements
+(115 distinct specifications)** with their exact exported source, and gives
+short notices for the **75 placements** outside the current profile. The
+five-example **Charts** page remains available for quick checks. Both pages use
+the same word-by-word stream at a nominal 30 words per second. The live **10×**
+toggle switches to about 300 words per second without restarting the stream.
+Chart fences keep a stable delayed loading row while source arrives and compile
+when they close. The performance benchmark has no artificial delivery delay.
+
+The complete, unmodified gallery export includes every dataset in full and is
+about 64 MiB of Markdown (9.2 MiB in compressed storage). It remains a separate
+export and opt-in stress corpus. Displaying all of its oversized code fallbacks
+at once proved unsuitable for the normal viewer: a real-window stress run spent
+most main-thread time in full-document TextKit sizing/line breaking and reached
+roughly 9 GB peak physical footprint. The preview replaces unsupported source
+fallbacks with notices; the complete export retains every original specification.
+
+`Scripts/export-vega-lite-gallery.py` regenerates the pinned, offline-capable
+corpus, manifest, licenses and data attribution. See
+[the fixture instructions](Tests/Fixtures/VegaLiteGallery/README.md) for a standalone
+Markdown export and preview regeneration. Coverage tests validate all 203 exact
+fenced sources; the heavier render/pipeline benchmark is opt-in. The
+[gallery performance report](Tests/PicoMarkdownViewBenchmarks/vega-gallery-results.md)
+separates successful charts, cache hits, native drawing and source fallbacks,
+and explains the limits of the recorded debug measurements.
 
 ### SVG graphics (macOS, opt-in)
 

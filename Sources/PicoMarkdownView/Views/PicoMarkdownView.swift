@@ -166,6 +166,7 @@ public struct PicoMarkdownView: View {
                           hoverHandler: makeHoverHandler())
 #if os(macOS)
             .withDocumentIdentity(viewModel.documentIdentity)
+            .withHostedStreamActive(viewModel.isHostedStreamActive)
             .withImageTapHandler(imageTapHandler)
 #endif
             .task(id: consumeTaskID) {
@@ -299,7 +300,14 @@ import AppKit
 private struct TextKit2Container: NSViewRepresentable {
     var controller: TextKitStreamingController
     var documentIdentity: UInt64 = 0
+    var isHostedStreamActive = false
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+
+    func withHostedStreamActive(_ active: Bool) -> Self {
+        var container = self
+        container.isHostedStreamActive = active
+        return container
+    }
 
     func withImageTapHandler(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
         var container = self
@@ -332,6 +340,8 @@ private struct TextKit2Container: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
+        // Cancellation changes loading presentation without a block diff.
+        controller.setHostedStreamActive(isHostedStreamActive)
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration, documentIdentity: documentIdentity)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
         controller.installContentSizeObserver(on: nsView, onContentSize)

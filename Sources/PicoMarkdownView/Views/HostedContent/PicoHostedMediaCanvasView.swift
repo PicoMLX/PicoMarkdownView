@@ -21,6 +21,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     private var tracking: NSTrackingArea?
     private var dragPoint: CGPoint?
     private var accessibilitySource: String?
+    private var accessibilityKind: PicoHostedMediaModel.Kind?
     private let reducesMotion: @MainActor () -> Bool
     private var zoomAnimationTask: Task<Void, Never>?
     private var zoomAnimationGeneration: UInt64 = 0
@@ -246,7 +247,15 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
             zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)
             zoomControl.setEnabled(model.zoom < 8, forSegment: 1)
             zoomControl.setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent")
-            setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview").")
+            let state = "\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview")."
+            setAccessibilityValue([state, model.document?.accessibilitySummary].compactMap { $0 }.joined(separator: " "))
+            if accessibilityKind != model.kind {
+                accessibilityKind = model.kind
+                zoomControl.setAccessibilityLabel(model.kind.noun + " zoom")
+                zoomControl.setAccessibilityHelp("Zoom within the " + model.kind.noun.lowercased() + " frame. Press Escape to reset zoom and return to the text.")
+                configureCopyLabels()
+                accessibilitySource = nil
+            }
             if accessibilitySource != model.source {
                 accessibilitySource = model.source
                 setAccessibilityLabel(model.accessibilityLabel)
@@ -286,8 +295,8 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
             zoomControl.setImage(image, forSegment: index)
             zoomControl.setToolTip(item.2, forSegment: index)
         }
-        zoomControl.setAccessibilityLabel("Diagram zoom")
-        zoomControl.setAccessibilityHelp("Zoom within the diagram frame. Press Escape to reset zoom and return to the text.")
+        zoomControl.setAccessibilityLabel(model.kind.noun + " zoom")
+        zoomControl.setAccessibilityHelp("Zoom within the " + model.kind.noun.lowercased() + " frame. Press Escape to reset zoom and return to the text.")
         zoomGlass.contentView = zoomControl
         zoomGlass.cornerRadius = Self.buttonSize / 2
         zoomGlass.effectIsInteractive = true
@@ -295,10 +304,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
 
         copyButton.target = self
         copyButton.action = #selector(copyMarkdown(_:))
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: model.kind.copyTitle)
-        copyButton.setAccessibilityLabel(model.kind.copyTitle)
-        copyButton.setAccessibilityHelp(model.kind.copyHelp)
-        copyButton.toolTip = model.kind.copyToolTip
+        configureCopyLabels()
         copyButton.bezelStyle = .glass
         copyButton.borderShape = .circle
         copyButton.controlSize = .regular
@@ -312,6 +318,13 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
         }
         zoomControl.onFocusChanged = focusChanged
         copyButton.onFocusChanged = focusChanged
+    }
+
+    private func configureCopyLabels() {
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: model.kind.copyTitle)
+        copyButton.setAccessibilityLabel(model.kind.copyTitle)
+        copyButton.setAccessibilityHelp(model.kind.copyHelp)
+        copyButton.toolTip = model.kind.copyToolTip
     }
 
     private func updateToolbarVisibility() {

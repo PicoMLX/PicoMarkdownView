@@ -23,6 +23,8 @@ public struct MarkdownRenderTheme: Sendable {
     public let mermaidRenderingMode: MermaidRenderingMode
     /// Render completed `svg` fences as hosted vectors on macOS. UIKit keeps code rendering.
     public let svgRenderingEnabled: Bool
+    /// Renders closed `vega-lite` fences as native vector charts on macOS.
+    public let vegaLiteRenderingEnabled: Bool
 
     public init(bodyFont: FontSpec,
                 codeFont: FontSpec,
@@ -33,7 +35,8 @@ public struct MarkdownRenderTheme: Sendable {
                 codeBlockTheme: CodeBlockTheme? = nil,
                 codeHighlighter: AnyCodeSyntaxHighlighter? = nil,
                 mermaidRenderingMode: MermaidRenderingMode = .onFenceClose,
-                svgRenderingEnabled: Bool = false) {
+                svgRenderingEnabled: Bool = false,
+                vegaLiteRenderingEnabled: Bool = true) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
@@ -44,6 +47,7 @@ public struct MarkdownRenderTheme: Sendable {
         self.codeHighlighter = codeHighlighter
         self.mermaidRenderingMode = mermaidRenderingMode
         self.svgRenderingEnabled = svgRenderingEnabled
+        self.vegaLiteRenderingEnabled = vegaLiteRenderingEnabled
     }
 
     public static func `default`() -> MarkdownRenderTheme {
@@ -92,7 +96,25 @@ public struct MarkdownRenderTheme: Sendable {
                             codeBlockTheme: codeBlockTheme,
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
-                            svgRenderingEnabled: svgRenderingEnabled)
+                            svgRenderingEnabled: svgRenderingEnabled,
+                            vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
+    }
+
+    /// Returns a copy that enables or disables native Vega-Lite charts on macOS.
+    /// Open chart fences use a delayed loading row; compilation starts only
+    /// when the fence closes. Unsupported final sources remain native code.
+    public func withVegaLiteRendering(_ enabled: Bool) -> MarkdownRenderTheme {
+        MarkdownRenderTheme(bodyFont: bodyFont,
+                            codeFont: codeFont,
+                            blockquoteColor: blockquoteColor,
+                            linkColor: linkColor,
+                            headingFonts: headingFonts,
+                            imageMaxWidth: imageMaxWidth,
+                            codeBlockTheme: codeBlockTheme,
+                            codeHighlighter: codeHighlighter,
+                            mermaidRenderingMode: mermaidRenderingMode,
+                            svgRenderingEnabled: svgRenderingEnabled,
+                            vegaLiteRenderingEnabled: enabled)
     }
 
     /// A copy with every font size multiplied by `scale`, except the code
@@ -119,7 +141,8 @@ public struct MarkdownRenderTheme: Sendable {
                                    codeBlockTheme: scaledCodeTheme,
                                    codeHighlighter: codeHighlighter,
                                    mermaidRenderingMode: mermaidRenderingMode,
-                                   svgRenderingEnabled: svgRenderingEnabled)
+                                   svgRenderingEnabled: svgRenderingEnabled,
+                                   vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 }
 
@@ -172,6 +195,19 @@ actor MarkdownRenderer {
     /// parse is untouched: block ids, order and snapshots stay as they are.
     /// Returns the re-rendered blocks, or `nil` when the scale is unchanged.
     func updateTextScale(_ scale: CGFloat, codeBlockScale: CGFloat? = nil) async -> [RenderedBlock]? {
+#if os(macOS)
+        guard !Task.isCancelled else { return nil }
+        // Provider cancellation means "retain code" during stream consumption.
+        // A bounded presentation refresh must instead finish once accepted.
+        return await Task.immediate {
+            await self.updateTextScaleToCompletion(scale, codeBlockScale: codeBlockScale)
+        }.value
+#else
+        return await updateTextScaleToCompletion(scale, codeBlockScale: codeBlockScale)
+#endif
+    }
+
+    private func updateTextScaleToCompletion(_ scale: CGFloat, codeBlockScale: CGFloat?) async -> [RenderedBlock]? {
         let factor = scale.isFinite && scale > 0 ? scale : 1
         let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? factor
         guard factor != textScale || codeFactor != codeBlockTextScale else { return nil }
@@ -359,6 +395,17 @@ actor MarkdownRenderer {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
+#if os(macOS)
+        guard !Task.isCancelled else { return nil }
+        return await Task.immediate {
+            await self.updateContentWidthToCompletion(width)
+        }.value
+#else
+        return await updateContentWidthToCompletion(width)
+#endif
+    }
+
+    private func updateContentWidthToCompletion(_ width: CGFloat?) async -> [RenderedBlock]? {
         let effectiveWidth = effectiveMermaidContentWidth(for: width)
         let bucket = mermaidWidthBucket(for: effectiveWidth)
         guard bucket != mermaidContentWidthBucket else { return nil }
@@ -437,6 +484,7 @@ actor MarkdownRenderer {
             let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
                 || blocks[acceptedIndex].mermaidDiagram != rendered.mermaidDiagram
                 || blocks[acceptedIndex].svgGraphic != rendered.svgGraphic
+                || blocks[acceptedIndex].vegaLiteChart != rendered.vegaLiteChart
 #else
             let didMutate = oldContent != newContent
 #endif
@@ -583,6 +631,13 @@ actor MarkdownRenderer {
         if !block.images.isEmpty {
             return true
         }
+#if os(macOS)
+        if theme.vegaLiteRenderingEnabled {
+            if block.vegaLiteChart != nil { return true }
+            if block.snapshot.isClosed, case let .fencedCode(language) = block.kind,
+               isVegaLiteLanguage(language) { return true }
+        }
+#endif
         guard theme.mermaidRenderingMode.isEnabled else { return false }
         if block.mermaidDiagram != nil {
             return true
@@ -640,6 +695,7 @@ actor MarkdownRenderer {
                              codeBlock: rendered.codeBlock,
                              mermaidDiagram: rendered.mermaidDiagram,
                              svgGraphic: rendered.svgGraphic,
+                             vegaLiteChart: rendered.vegaLiteChart,
                              blockquoteLevel: quoteLevel,
                              listPlacement: placement)
         return (block, rendered.paragraphSpacingAfter)
@@ -671,9 +727,8 @@ actor MarkdownRenderer {
 #if os(macOS)
             if case .fencedCode(let language) = kind {
                 if theme.svgRenderingEnabled, SVGDiagramSupport.isSVGLanguage(language) { return true }
-                if theme.mermaidRenderingMode.isEnabled {
-                    return ["mermaid", "mmd", "mermaidjs"].contains(language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
-                }
+                if theme.vegaLiteRenderingEnabled, isVegaLiteLanguage(language) { return true }
+                if theme.mermaidRenderingMode.isEnabled { return isMermaidLanguage(language) }
             }
 #endif
             return kind == .paragraph
@@ -721,6 +776,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram?
     var svgGraphic: RenderedSVGGraphic? = nil
+    var vegaLiteChart: RenderedVegaLiteChart? = nil
     /// Enclosing quote depth (0 outside any quote); drives the bars and
     /// indent children of a quote are drawn with.
     var blockquoteLevel: Int = 0
@@ -751,6 +807,7 @@ extension RenderedBlock {
         codeBlock = rendered.codeBlock
         mermaidDiagram = rendered.mermaidDiagram
         svgGraphic = rendered.svgGraphic
+        vegaLiteChart = rendered.vegaLiteChart
     }
 
     static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
@@ -765,7 +822,8 @@ extension RenderedBlock {
         lhs.images == rhs.images &&
         lhs.codeBlock == rhs.codeBlock &&
         lhs.mermaidDiagram == rhs.mermaidDiagram &&
-        lhs.svgGraphic == rhs.svgGraphic
+        lhs.svgGraphic == rhs.svgGraphic &&
+        lhs.vegaLiteChart == rhs.vegaLiteChart
     }
 }
 
@@ -810,4 +868,17 @@ struct RenderedMermaidDiagram: Sendable, Equatable {
     /// The effective renderer width also bounds the hosted viewport. Some
     /// diagrams keep a wider intrinsic SVG even when Pele receives this cap.
     var maxWidth: CGFloat? = nil
+}
+
+struct RenderedVegaLiteChart: Sendable, Equatable {
+    var source: String
+    var language: String?
+    var svg: String
+    var intrinsicSize: CGSize
+    var maxWidth: CGFloat?
+}
+
+/// The whole fence info string must identify Vega-Lite; JSON and Vega stay code.
+func isVegaLiteLanguage(_ language: String?) -> Bool {
+    language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "vega-lite"
 }

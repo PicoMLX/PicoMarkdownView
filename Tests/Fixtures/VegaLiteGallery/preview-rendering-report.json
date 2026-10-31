@@ -1,0 +1,1897 @@
+{
+  "version": 1,
+  "kind": "gallery-rendering-classification",
+  "benchmarkReportSHA256": "f4191ff00a2e95366eb0237b96abeab325ad988c7ad0877a21a76d4475b9e92d",
+  "sourceMarkdownSHA256": "44153d851aa7c09754c545a24444e5eca368701709bde93c71033822b2cc702f",
+  "galleryEntries": 203,
+  "markdownBytes": 67025394,
+  "uniqueSpecs": 189,
+  "samples": [
+    {
+      "id": "bar",
+      "outcome": "chart",
+      "sourceBytes": 415,
+      "dataMarkCount": 9,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_size_responsive",
+      "outcome": "chart",
+      "sourceBytes": 71878,
+      "dataMarkCount": 3,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_aggregate",
+      "outcome": "chart",
+      "sourceBytes": 27442,
+      "dataMarkCount": 19,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_aggregate_sort_by_encoding",
+      "outcome": "chart",
+      "sourceBytes": 27450,
+      "dataMarkCount": 19,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_grouped",
+      "outcome": "chart",
+      "sourceBytes": 600,
+      "dataMarkCount": 9,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_grouped_repeated",
+      "outcome": "chart",
+      "sourceBytes": 1281975,
+      "dataMarkCount": 26,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_bar_weather",
+      "outcome": "chart",
+      "sourceBytes": 159631,
+      "dataMarkCount": 54,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_bar_count_corner_radius_mark",
+      "outcome": "chart",
+      "sourceBytes": 159482,
+      "dataMarkCount": 54,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_bar_h",
+      "outcome": "chart",
+      "sourceBytes": 8564,
+      "dataMarkCount": 60,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_bar_normalize",
+      "outcome": "chart",
+      "sourceBytes": 27503,
+      "dataMarkCount": 38,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_bar_h_normalized_labeled",
+      "outcome": "chart",
+      "sourceBytes": 27791,
+      "dataMarkCount": 76,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_gantt",
+      "outcome": "chart",
+      "sourceBytes": 376,
+      "dataMarkCount": 3,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_color_disabled_scale",
+      "outcome": "chart",
+      "sourceBytes": 390,
+      "dataMarkCount": 3,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_layered_transparent",
+      "outcome": "chart",
+      "sourceBytes": 27638,
+      "dataMarkCount": 38,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_diverging_stack_population_pyramid",
+      "outcome": "chart",
+      "sourceBytes": 27926,
+      "dataMarkCount": 38,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_diverging_stack_transform",
+      "outcome": "chart",
+      "sourceBytes": 4517,
+      "dataMarkCount": 40,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_bar_labels",
+      "outcome": "chart",
+      "sourceBytes": 486,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_bar_labels_grey",
+      "outcome": "chart",
+      "sourceBytes": 1282010,
+      "dataMarkCount": 26,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_month_temporal_initial",
+      "outcome": "policy-fallback",
+      "sourceBytes": 159539,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "bar_month_temporal_band_center",
+      "outcome": "chart",
+      "sourceBytes": 159437,
+      "dataMarkCount": 12,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_negative",
+      "outcome": "chart",
+      "sourceBytes": 654,
+      "dataMarkCount": 9,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_negative_horizontal_label",
+      "outcome": "policy-fallback",
+      "sourceBytes": 857,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "bar_axis_space_saving",
+      "outcome": "chart",
+      "sourceBytes": 72234,
+      "dataMarkCount": 3,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_heatlane",
+      "outcome": "chart",
+      "sourceBytes": 72936,
+      "dataMarkCount": 20,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "histogram",
+      "outcome": "chart",
+      "sourceBytes": 1281714,
+      "dataMarkCount": 9,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_binned_data",
+      "outcome": "policy-fallback",
+      "sourceBytes": 560,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "histogram_log",
+      "outcome": "chart",
+      "sourceBytes": 672,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "histogram_nonlinear",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1189,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "histogram_rel_freq",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72575,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "area_density",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1281843,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "area_density_stacked",
+      "outcome": "policy-fallback",
+      "sourceBytes": 51045,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "circle_binned",
+      "outcome": "chart",
+      "sourceBytes": 1281790,
+      "dataMarkCount": 64,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "rect_binned_heatmap",
+      "outcome": "chart",
+      "sourceBytes": 1282043,
+      "dataMarkCount": 379,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "area_cumulative_freq",
+      "outcome": "chart",
+      "sourceBytes": 1281967,
+      "dataMarkCount": 1,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_cumulative_histogram",
+      "outcome": "chart",
+      "sourceBytes": 1282324,
+      "dataMarkCount": 18,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "circle_wilkinson_dotplot",
+      "outcome": "chart",
+      "sourceBytes": 400,
+      "dataMarkCount": 21,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "isotype_bar_chart",
+      "outcome": "chart",
+      "sourceBytes": 5761,
+      "dataMarkCount": 37,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "isotype_bar_chart_emoji",
+      "outcome": "runtime-or-svg-fallback",
+      "sourceBytes": 2267,
+      "outcomesByWidth": {
+        "336": "runtime-or-svg-fallback",
+        "480": "runtime-or-svg-fallback"
+      }
+    },
+    {
+      "id": "bar_percent_of_total",
+      "outcome": "chart",
+      "sourceBytes": 640,
+      "dataMarkCount": 5,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "point_2d",
+      "outcome": "chart",
+      "sourceBytes": 71966,
+      "dataMarkCount": 392,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "tick_dot",
+      "outcome": "chart",
+      "sourceBytes": 159366,
+      "dataMarkCount": 1461,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "tick_strip",
+      "outcome": "chart",
+      "sourceBytes": 71968,
+      "dataMarkCount": 400,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "point_color_with_shape",
+      "outcome": "chart",
+      "sourceBytes": 51042,
+      "dataMarkCount": 342,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "point_bubble",
+      "outcome": "chart",
+      "sourceBytes": 72042,
+      "dataMarkCount": 392,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "point_invalid_color",
+      "outcome": "chart",
+      "sourceBytes": 1281919,
+      "dataMarkCount": 3201,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "circle",
+      "outcome": "chart",
+      "sourceBytes": 71878,
+      "dataMarkCount": 392,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "circle_bubble_health_income",
+      "outcome": "policy-fallback",
+      "sourceBytes": 20842,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "circle_natural_disasters",
+      "outcome": "chart",
+      "sourceBytes": 45892,
+      "dataMarkCount": 686,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "text_scatterplot_colored",
+      "outcome": "chart",
+      "sourceBytes": 72037,
+      "dataMarkCount": 392,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "scatter_image",
+      "outcome": "policy-fallback",
+      "sourceBytes": 381,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "circle_custom_tick_labels",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1281936,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "point_offset_random",
+      "outcome": "runtime-or-svg-fallback",
+      "sourceBytes": 72126,
+      "outcomesByWidth": {
+        "336": "runtime-or-svg-fallback",
+        "480": "runtime-or-svg-fallback"
+      }
+    },
+    {
+      "id": "line",
+      "outcome": "chart",
+      "sourceBytes": 30437,
+      "dataMarkCount": 1,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_overlay",
+      "outcome": "chart",
+      "sourceBytes": 30485,
+      "dataMarkCount": 56,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_overlay_stroked",
+      "outcome": "chart",
+      "sourceBytes": 30512,
+      "dataMarkCount": 56,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_color",
+      "outcome": "chart",
+      "sourceBytes": 30444,
+      "dataMarkCount": 5,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "repeat_layer",
+      "outcome": "chart",
+      "sourceBytes": 1281939,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_color_halo",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30970,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "line_slope",
+      "outcome": "chart",
+      "sourceBytes": 8808,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_step",
+      "outcome": "chart",
+      "sourceBytes": 30473,
+      "dataMarkCount": 1,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_monotone",
+      "outcome": "chart",
+      "sourceBytes": 30423,
+      "dataMarkCount": 1,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_conditional_axis",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31027,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "connected_scatterplot",
+      "outcome": "chart",
+      "sourceBytes": 3190,
+      "dataMarkCount": 56,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_bump",
+      "outcome": "chart",
+      "sourceBytes": 780,
+      "dataMarkCount": 17,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trail_color",
+      "outcome": "chart",
+      "sourceBytes": 30492,
+      "dataMarkCount": 5,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trail_comet",
+      "outcome": "policy-fallback",
+      "sourceBytes": 9274,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "line_skip_invalid_mid_overlay",
+      "outcome": "chart",
+      "sourceBytes": 320,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_line_co2_concentration",
+      "outcome": "chart",
+      "sourceBytes": 46521,
+      "dataMarkCount": 8,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "window_rank",
+      "outcome": "chart",
+      "sourceBytes": 1225,
+      "dataMarkCount": 4,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "sequence_line_fold",
+      "outcome": "policy-fallback",
+      "sourceBytes": 509,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "line_strokedash",
+      "outcome": "chart",
+      "sourceBytes": 30449,
+      "dataMarkCount": 5,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "line_dashed_part",
+      "outcome": "chart",
+      "sourceBytes": 638,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "area",
+      "outcome": "chart",
+      "sourceBytes": 185896,
+      "dataMarkCount": 1,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "area_gradient",
+      "outcome": "chart",
+      "sourceBytes": 30605,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "area_overlay",
+      "outcome": "chart",
+      "sourceBytes": 30471,
+      "dataMarkCount": 70,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_area",
+      "outcome": "chart",
+      "sourceBytes": 185940,
+      "dataMarkCount": 14,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_area_normalize",
+      "outcome": "chart",
+      "sourceBytes": 185987,
+      "dataMarkCount": 14,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "stacked_area_stream",
+      "outcome": "chart",
+      "sourceBytes": 185997,
+      "dataMarkCount": 14,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "area_horizon",
+      "outcome": "chart",
+      "sourceBytes": 1066,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "rect_heatmap",
+      "outcome": "chart",
+      "sourceBytes": 71957,
+      "dataMarkCount": 9,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "rect_heatmap_weather",
+      "outcome": "chart",
+      "sourceBytes": 159710,
+      "dataMarkCount": 366,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "circle_github_punchcard",
+      "outcome": "chart",
+      "sourceBytes": 41709,
+      "dataMarkCount": 168,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_text_heatmap",
+      "outcome": "chart",
+      "sourceBytes": 72328,
+      "dataMarkCount": 18,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "rect_lasagna",
+      "outcome": "chart",
+      "sourceBytes": 30876,
+      "dataMarkCount": 492,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "rect_mosaic_labelled_with_offset",
+      "outcome": "chart",
+      "sourceBytes": 74014,
+      "dataMarkCount": 21,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "point_angle_windvector",
+      "outcome": "policy-fallback",
+      "sourceBytes": 403607,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "arc_pie",
+      "outcome": "chart",
+      "sourceBytes": 408,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "arc_pie_normalize_tooltip",
+      "outcome": "chart",
+      "sourceBytes": 447,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "arc_donut",
+      "outcome": "chart",
+      "sourceBytes": 436,
+      "dataMarkCount": 6,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_arc_label",
+      "outcome": "chart",
+      "sourceBytes": 573,
+      "dataMarkCount": 12,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "arc_radial",
+      "outcome": "chart",
+      "sourceBytes": 531,
+      "dataMarkCount": 12,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "arc_pie_pyramid",
+      "outcome": "chart",
+      "sourceBytes": 745,
+      "dataMarkCount": 3,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "joinaggregate_mean_difference",
+      "outcome": "chart",
+      "sourceBytes": 1282095,
+      "dataMarkCount": 19,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "joinaggregate_mean_difference_by_year",
+      "outcome": "chart",
+      "sourceBytes": 1282490,
+      "dataMarkCount": 34,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "joinaggregate_residual_graph",
+      "outcome": "chart",
+      "sourceBytes": 1282386,
+      "dataMarkCount": 2972,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "waterfall_chart",
+      "outcome": "policy-fallback",
+      "sourceBytes": 2276,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "window_top_k",
+      "outcome": "chart",
+      "sourceBytes": 1189,
+      "dataMarkCount": 5,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "window_top_k_others",
+      "outcome": "chart",
+      "sourceBytes": 1282362,
+      "dataMarkCount": 10,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "lookup",
+      "outcome": "policy-fallback",
+      "sourceBytes": 923,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "parallel_coordinate",
+      "outcome": "policy-fallback",
+      "sourceBytes": 52860,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "bar_argmax",
+      "outcome": "chart",
+      "sourceBytes": 1281886,
+      "dataMarkCount": 13,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_line_mean_point_raw",
+      "outcome": "chart",
+      "sourceBytes": 30611,
+      "dataMarkCount": 69,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_line_rolling_mean_point_raw",
+      "outcome": "chart",
+      "sourceBytes": 159891,
+      "dataMarkCount": 1462,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_line_window",
+      "outcome": "chart",
+      "sourceBytes": 8100,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "point_quantile_quantile",
+      "outcome": "policy-fallback",
+      "sourceBytes": 25879,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "layer_point_line_regression",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1282322,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "layer_point_line_loess",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1282034,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "window_impute_null",
+      "outcome": "chart",
+      "sourceBytes": 799,
+      "dataMarkCount": 9,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "ternary",
+      "outcome": "policy-fallback",
+      "sourceBytes": 7511,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "layer_point_errorbar_ci",
+      "outcome": "chart",
+      "sourceBytes": 8824,
+      "dataMarkCount": 20,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_point_errorbar_stdev",
+      "outcome": "chart",
+      "sourceBytes": 8827,
+      "dataMarkCount": 20,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_line_errorband_ci",
+      "outcome": "chart",
+      "sourceBytes": 72045,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_scatter_errorband_1D_stdev_global_mean",
+      "outcome": "chart",
+      "sourceBytes": 72237,
+      "dataMarkCount": 394,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "boxplot_minmax_2D_vertical",
+      "outcome": "chart",
+      "sourceBytes": 51008,
+      "dataMarkCount": 3,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "boxplot_2D_vertical",
+      "outcome": "chart",
+      "sourceBytes": 51019,
+      "dataMarkCount": 5,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "boxplot_preaggregated",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1070,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "layer_bar_fruit",
+      "outcome": "chart",
+      "sourceBytes": 863,
+      "dataMarkCount": 8,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_bar_annotations",
+      "outcome": "chart",
+      "sourceBytes": 1243,
+      "dataMarkCount": 16,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_precipitation_mean",
+      "outcome": "chart",
+      "sourceBytes": 159596,
+      "dataMarkCount": 13,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_histogram_global_mean",
+      "outcome": "chart",
+      "sourceBytes": 1281845,
+      "dataMarkCount": 10,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_falkensee",
+      "outcome": "chart",
+      "sourceBytes": 2189,
+      "dataMarkCount": 41,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_likert",
+      "outcome": "chart",
+      "sourceBytes": 9886,
+      "dataMarkCount": 53,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "concat_layer_voyager_result",
+      "outcome": "chart",
+      "sourceBytes": 2170,
+      "dataMarkCount": 14,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_candlestick",
+      "outcome": "chart",
+      "sourceBytes": 5628,
+      "dataMarkCount": 88,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_ranged_dot",
+      "outcome": "chart",
+      "sourceBytes": 90965,
+      "dataMarkCount": 15,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "facet_bullet",
+      "outcome": "chart",
+      "sourceBytes": 1442,
+      "dataMarkCount": 30,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "layer_dual_axis",
+      "outcome": "chart",
+      "sourceBytes": 382270,
+      "dataMarkCount": 2,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "bar_layered_weather",
+      "outcome": "chart",
+      "sourceBytes": 2697,
+      "dataMarkCount": 50,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "wheat_wages",
+      "outcome": "chart",
+      "sourceBytes": 5212,
+      "dataMarkCount": 84,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_bar",
+      "outcome": "chart",
+      "sourceBytes": 27617,
+      "dataMarkCount": 38,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_stacked_bar",
+      "outcome": "chart",
+      "sourceBytes": 8646,
+      "dataMarkCount": 120,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_scatter",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1281817,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "trellis_bar_histogram",
+      "outcome": "chart",
+      "sourceBytes": 71914,
+      "dataMarkCount": 20,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_anscombe",
+      "outcome": "chart",
+      "sourceBytes": 1790,
+      "dataMarkCount": 44,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_barley",
+      "outcome": "chart",
+      "sourceBytes": 9131,
+      "dataMarkCount": 120,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_area",
+      "outcome": "chart",
+      "sourceBytes": 30697,
+      "dataMarkCount": 4,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "trellis_area_seattle",
+      "outcome": "policy-fallback",
+      "sourceBytes": 741381,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "area_density_facet",
+      "outcome": "policy-fallback",
+      "sourceBytes": 51026,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "facet_grid_bar",
+      "outcome": "chart",
+      "sourceBytes": 1614,
+      "dataMarkCount": 27,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "vconcat_weather",
+      "outcome": "chart",
+      "sourceBytes": 382074,
+      "dataMarkCount": 38,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "repeat_histogram",
+      "outcome": "policy-fallback",
+      "sourceBytes": 71963,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_splom",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72594,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "concat_marginal_histograms",
+      "outcome": "chart",
+      "sourceBytes": 1282222,
+      "dataMarkCount": 83,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "concat_bar_scales_discretize",
+      "outcome": "chart",
+      "sourceBytes": 1465,
+      "dataMarkCount": 27,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "nested_concat_align",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1282220,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "concat_population_pyramid",
+      "outcome": "chart",
+      "sourceBytes": 28263,
+      "dataMarkCount": 76,
+      "outcomesByWidth": {
+        "336": "chart",
+        "480": "chart"
+      }
+    },
+    {
+      "id": "geo_choropleth",
+      "outcome": "policy-fallback",
+      "sourceBytes": 735371,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_circle",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 5046287,
+      "outcomesByWidth": {
+        "336": "source-size-fallback",
+        "480": "source-size-fallback"
+      }
+    },
+    {
+      "id": "geo_layer",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1116493,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_rule",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 2339182,
+      "outcomesByWidth": {
+        "336": "source-size-fallback",
+        "480": "source-size-fallback"
+      }
+    },
+    {
+      "id": "geo_repeat",
+      "outcome": "policy-fallback",
+      "sourceBytes": 648043,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_text",
+      "outcome": "policy-fallback",
+      "sourceBytes": 646644,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_line",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1590747,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_trellis",
+      "outcome": "policy-fallback",
+      "sourceBytes": 693699,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_layer_line_london",
+      "outcome": "policy-fallback",
+      "sourceBytes": 98471,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "geo_params_projections",
+      "outcome": "policy-fallback",
+      "sourceBytes": 120004,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_geo_earthquakes",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1339035,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_geo_facet_species",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 3049805,
+      "outcomesByWidth": {
+        "336": "source-size-fallback",
+        "480": "source-size-fallback"
+      }
+    },
+    {
+      "id": "interactive_bar_select_highlight",
+      "outcome": "policy-fallback",
+      "sourceBytes": 855,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_histogram_full_height_hover",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1282046,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_legend",
+      "outcome": "policy-fallback",
+      "sourceBytes": 186157,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "point_href",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72223,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_brush",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72118,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_area_brush",
+      "outcome": "policy-fallback",
+      "sourceBytes": 186007,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_paintbrush",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72096,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "selection_translate_scatterplot_drag",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72047,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_query_widgets",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72577,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "selection_layer_bar_month",
+      "outcome": "policy-fallback",
+      "sourceBytes": 159784,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_line_hover",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31298,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_line_point_hover",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30899,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_multi_line_label",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31179,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_multi_line_pivot_tooltip",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31028,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_multi_line_tooltip",
+      "outcome": "policy-fallback",
+      "sourceBytes": 159931,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "isotype_grid",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1897,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "brush_table",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72844,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "selection_heatmap",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1056,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "bar_count_minimap",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72218,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_index_chart",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31291,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_bin_extent",
+      "outcome": "policy-fallback",
+      "sourceBytes": 446726,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "dynamic_color_legend",
+      "outcome": "policy-fallback",
+      "sourceBytes": 160744,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "param_search_input",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72136,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "selection_type_point_zorder",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72224,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_overview_detail",
+      "outcome": "policy-fallback",
+      "sourceBytes": 5399,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_crossfilter",
+      "outcome": "policy-fallback",
+      "sourceBytes": 178977,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_layered_crossfilter",
+      "outcome": "policy-fallback",
+      "sourceBytes": 179099,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_concat_layer",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1282573,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "interactive_seattle_weather",
+      "outcome": "policy-fallback",
+      "sourceBytes": 160463,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    },
+    {
+      "id": "airport_connections",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 2614390,
+      "outcomesByWidth": {
+        "336": "source-size-fallback",
+        "480": "source-size-fallback"
+      }
+    },
+    {
+      "id": "interactive_global_development",
+      "outcome": "policy-fallback",
+      "sourceBytes": 69296,
+      "outcomesByWidth": {
+        "336": "policy-fallback",
+        "480": "policy-fallback"
+      }
+    }
+  ],
+  "testedWidths": [
+    336,
+    480
+  ],
+  "benchmarkReports": [
+    {
+      "targetWidth": 336,
+      "sha256": "40a0beb46268224af6ddb5a745fc7b736e6486696dae7620051dcfc425239f07",
+      "file": "pico-vega-gallery-providers-336.json"
+    },
+    {
+      "targetWidth": 480,
+      "sha256": "59dec741ce356e0450e19eacffa9f97a46caa547f0d2ee5058b0cd909413c15c",
+      "file": "pico-vega-gallery-providers-480.json"
+    }
+  ],
+  "baselineSuccessfulIDs": [
+    "arc_donut",
+    "arc_pie",
+    "arc_pie_normalize_tooltip",
+    "arc_pie_pyramid",
+    "arc_radial",
+    "bar",
+    "bar_axis_space_saving",
+    "bar_color_disabled_scale",
+    "bar_gantt",
+    "bar_grouped",
+    "bar_layered_weather",
+    "bar_size_responsive",
+    "boxplot_2D_vertical",
+    "boxplot_minmax_2D_vertical",
+    "circle",
+    "circle_github_punchcard",
+    "circle_wilkinson_dotplot",
+    "concat_bar_scales_discretize",
+    "connected_scatterplot",
+    "facet_bullet",
+    "facet_grid_bar",
+    "isotype_bar_chart",
+    "layer_arc_label",
+    "layer_bar_fruit",
+    "layer_bar_labels",
+    "layer_falkensee",
+    "layer_line_errorband_ci",
+    "layer_point_errorbar_ci",
+    "layer_point_errorbar_stdev",
+    "layer_ranged_dot",
+    "layer_scatter_errorband_1D_stdev_global_mean",
+    "line_bump",
+    "line_color",
+    "line_dashed_part",
+    "line_overlay",
+    "line_overlay_stroked",
+    "line_skip_invalid_mid_overlay",
+    "line_slope",
+    "line_strokedash",
+    "point_2d",
+    "point_bubble",
+    "point_color_with_shape",
+    "rect_heatmap",
+    "stacked_bar_h",
+    "tick_strip",
+    "trail_color",
+    "trellis_anscombe",
+    "trellis_bar_histogram",
+    "trellis_barley",
+    "trellis_stacked_bar",
+    "window_rank"
+  ],
+  "sourceByteLimit": 2097152
+}

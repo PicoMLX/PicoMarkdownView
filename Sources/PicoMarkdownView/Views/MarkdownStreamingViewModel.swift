@@ -38,7 +38,12 @@ final class MarkdownStreamingViewModel {
 #if os(macOS)
     /// Published with the blocks, separately from presentation-only refreshes.
     var documentIdentity: UInt64 = 0
+    /// Presentation activity is independent of canonical block closure: a
+    /// cancelled source can leave a hosted fence incomplete.
+    private(set) var isHostedStreamActive = false
     private var pendingDocumentIdentity: UInt64 = 0
+    private var textScaleRequestRevision: UInt64 = 0
+    private var contentWidthRequestRevision: UInt64 = 0
 #endif
 
     private var pendingBlocks: [RenderedBlock]?
@@ -102,11 +107,15 @@ final class MarkdownStreamingViewModel {
             // be mistaken for a redundant re-delivery.
             activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
+#if os(macOS)
+            await consumeMacStream(factory: factory, pipeline: freshPipeline, generation: generation)
+#else
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
             _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
             enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
             await consume(stream: stream, pipeline: freshPipeline, generation: generation)
+#endif
         }
     }
 
@@ -120,12 +129,43 @@ final class MarkdownStreamingViewModel {
         cancelMermaidPreview()
 #endif
         pipelineGeneration &+= 1
+#if os(macOS)
+        isHostedStreamActive = true
+#endif
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
                                                     mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
                                                     mermaidPreviewTiming: mermaidPreviewTiming)
         pipeline = newPipeline
         return (newPipeline, pipelineGeneration)
     }
+
+#if os(macOS)
+    /// Stop loading chrome promptly even when cancellation cannot resume a
+    /// suspended factory. This never finishes the tokenizer or a newer input.
+    private func consumeMacStream(factory: @escaping @Sendable () async -> AsyncStream<String>,
+                                  pipeline: MarkdownStreamingPipeline,
+                                  generation: UInt64) async {
+        await withTaskCancellationHandler {
+            defer { endHostedStream(generation: generation) }
+            _ = await pipeline.updateMermaidContentWidth(mermaidContentWidth)
+            _ = await pipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
+            guard !Task.isCancelled, generation == pipelineGeneration else { return }
+            enqueueUpdate(blocks: [], diff: nil)
+            let stream = await factory()
+            guard !Task.isCancelled, generation == pipelineGeneration else { return }
+            await consume(stream: stream, pipeline: pipeline, generation: generation)
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                self?.endHostedStream(generation: generation)
+            }
+        }
+    }
+
+    private func endHostedStream(generation: UInt64) {
+        guard generation == pipelineGeneration else { return }
+        isHostedStreamActive = false
+    }
+#endif
 
     private func consume(chunks: [String]) async {
         // A `.chunks` input describes a complete document, and `finish()` has
@@ -134,6 +174,9 @@ final class MarkdownStreamingViewModel {
         // but still publish after every chunk so long replays render (and
         // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
+#if os(macOS)
+        defer { endHostedStream(generation: generation) }
+#endif
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
         _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
 
@@ -217,6 +260,9 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("Replacing Markdown: characters=\(value.count)")
         #endif
         let (freshPipeline, generation) = makeFreshPipeline()
+#if os(macOS)
+        defer { endHostedStream(generation: generation) }
+#endif
         var latestBlocks: [RenderedBlock] = []
 
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
@@ -262,24 +308,59 @@ final class MarkdownStreamingViewModel {
     /// without restarting the parse or the stream. Published as a full
     /// replace, which keeps the selection.
     func updateTextScale(_ scale: CGFloat, codeBlockScale: CGFloat? = nil) async {
+#if os(macOS)
+        guard !Task.isCancelled else { return }
+        // Once accepted, finish this bounded presentation change independently
+        // of SwiftUI cancelling its task; cancellation is not a code fallback.
+        await Task.immediate {
+            await self.updateTextScaleToCompletion(scale, codeBlockScale: codeBlockScale)
+        }.value
+#else
+        await updateTextScaleToCompletion(scale, codeBlockScale: codeBlockScale)
+#endif
+    }
+
+    private func updateTextScaleToCompletion(_ scale: CGFloat, codeBlockScale: CGFloat?) async {
         let factor = scale.isFinite && scale > 0 ? scale : 1
         let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         guard factor != textScale || codeFactor != codeBlockTextScale else { return }
+#if os(macOS)
+        textScaleRequestRevision &+= 1
+        let revision = textScaleRequestRevision
+#endif
         textScale = factor
         codeBlockTextScale = codeFactor
         let generation = pipelineGeneration
         if let blocks = await pipeline.updateTextScale(factor, codeBlockScale: codeFactor), generation == pipelineGeneration {
+#if os(macOS)
+            guard revision == textScaleRequestRevision else { return }
+#endif
             enqueueUpdate(blocks: blocks, diff: nil)
         }
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async {
+#if os(macOS)
+        guard !Task.isCancelled else { return }
+        await Task.immediate {
+            await self.updateContentWidthToCompletion(width)
+        }.value
+#else
+        await updateContentWidthToCompletion(width)
+#endif
+    }
+
+    private func updateContentWidthToCompletion(_ width: CGFloat?) async {
         let normalizedWidth: CGFloat? = {
             guard let width, width > 0 else { return nil }
             return width
         }()
         let nextBucket = mermaidWidthBucket(for: normalizedWidth)
         guard nextBucket != mermaidContentWidthBucket else { return }
+#if os(macOS)
+        contentWidthRequestRevision &+= 1
+        let revision = contentWidthRequestRevision
+#endif
 
         mermaidContentWidth = normalizedWidth
         mermaidContentWidthBucket = nextBucket
@@ -289,7 +370,7 @@ final class MarkdownStreamingViewModel {
 #endif
         if let updatedBlocks = await pipeline.updateMermaidContentWidth(normalizedWidth) {
 #if os(macOS)
-            guard generation == pipelineGeneration else { return }
+            guard generation == pipelineGeneration, revision == contentWidthRequestRevision else { return }
 #endif
             enqueueUpdate(blocks: updatedBlocks, diff: nil)
         }

@@ -18,18 +18,33 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
+    /// Large offline fixtures load asynchronously and omit the extra diagnostic views.
+    let isLargeFixture: Bool
     /// Only the SVG demo opts into rendering SVG fences as native graphics.
     let svgRenderingEnabled: Bool
 
     init(localFilename: String,
          webURL: String,
+         displayName: String? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         isLargeFixture: Bool = false,
          svgRenderingEnabled: Bool = false) {
-        self.name = localFilename
-        self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
+        self.name = displayName ?? localFilename
+        self.localPath = (Bundle.main.path(forResource: localFilename, ofType: "md")
+            ?? Bundle.main.path(forResource: localFilename, ofType: "md.deflate"))!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
+        self.isLargeFixture = isLargeFixture
         self.svgRenderingEnabled = svgRenderingEnabled
+    }
+
+    func loadMarkdown() throws -> String {
+        let data = try Data(contentsOf: URL(fileURLWithPath: localPath))
+        if localPath.hasSuffix(".deflate") {
+            let decoded = try (data as NSData).decompressed(using: .zlib) as Data
+            return String(decoding: decoded, as: UTF8.self)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     func hash(into hasher: inout Hasher) {
@@ -37,7 +52,8 @@ struct MarkdownExample: Identifiable, Hashable {
         hasher.combine(webURL)
     }
 
-    static let examples = [
+    static let examples: [MarkdownExample] = {
+        var examples = [
         MarkdownExample(
             localFilename: "Tags",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Tags.md",
@@ -70,13 +86,25 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "Diagrams",
             webURL: "https://pele.run/examples"),
         MarkdownExample(
+            localFilename: "Charts",
+            webURL: "https://vega.github.io/vega-lite/examples/"),
+        MarkdownExample(
             localFilename: "SVG",
             webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
             svgRenderingEnabled: true),
         MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
-    ]
+        ]
+        #if os(macOS)
+        let charts = examples.firstIndex { $0.name == "Charts" }!
+        examples.insert(MarkdownExample(localFilename: "Charts-Gallery-Preview",
+                                        webURL: "https://vega.github.io/vega-lite/examples/",
+                                        displayName: "Charts-Gallery",
+                                        isLargeFixture: true), at: charts + 1)
+        #endif
+        return examples
+    }()
 }
 
 struct ContentView: View {    
@@ -100,6 +128,7 @@ struct ContentView: View {
 #if os(macOS)
                     .onImageTap { selectedImage = ExampleImagePresentation(image: $0) }
 #endif
+                    .id(selectedExample.id)
             } else {
                 Text("Select an Example")
             }

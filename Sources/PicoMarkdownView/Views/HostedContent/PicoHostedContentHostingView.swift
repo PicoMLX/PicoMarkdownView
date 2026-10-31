@@ -31,19 +31,40 @@ struct PicoMeasuredHostedContent: View {
 @MainActor
 final class PicoHostedContentHostingView: NSHostingView<PicoMeasuredHostedContent> {
     let interaction: PicoHostedAttachmentInteraction
+    private let statusLabel: @MainActor () -> String?
 
-    init(rootView: PicoMeasuredHostedContent, interaction: PicoHostedAttachmentInteraction) {
+    init(rootView: PicoMeasuredHostedContent, interaction: PicoHostedAttachmentInteraction,
+         accessibilityStatus: @escaping @MainActor () -> String? = { nil }) {
         self.interaction = interaction
+        self.statusLabel = accessibilityStatus
         super.init(rootView: rootView)
     }
 
     required init(rootView: PicoMeasuredHostedContent) {
         interaction = .interactive
+        statusLabel = { nil }
         super.init(rootView: rootView)
     }
 
     @MainActor required dynamic init?(coder: NSCoder) {
         fatalError("Use init(rootView:interaction:)")
+    }
+
+    // NSHostingView can omit the SwiftUI status subtree inside a TextKit
+    // attachment. Project its visible status onto the native host itself.
+    override func isAccessibilityElement() -> Bool {
+        let inherited = super.isAccessibilityElement()
+        return statusLabel() != nil || inherited
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? {
+        let inherited = super.accessibilityRole()
+        return statusLabel() != nil ? .staticText : inherited
+    }
+
+    override func accessibilityLabel() -> String? {
+        let inherited = super.accessibilityLabel()
+        return statusLabel() ?? inherited
     }
 
     /// Search only live, visible attachment views under the gesture point.
