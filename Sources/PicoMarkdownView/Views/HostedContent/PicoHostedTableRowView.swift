@@ -28,7 +28,9 @@ struct PicoHostedTableRowView: View {
                                     width: max(1, columnWidth - 24),
                                     alignment: model.alignments.flatMap { column < $0.count ? $0[column] : nil } ?? .none,
                                     onOpenLink: { model.open($0) },
-                                    onHoverLink: { model.onHoverLink?($0, $1, $2) })
+                                    onHoverLink: { model.onHoverLink?($0, $1, $2) },
+                                    onLinkContextMenu: { model.onLinkContextMenu?($0, $1) },
+                                    registerLinkMenuPresenter: { row.registerLinkMenuPresenter(in: column, $0) })
                     .frame(width: max(1, columnWidth - 24))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -41,6 +43,7 @@ struct PicoHostedTableRowView: View {
         .accessibilityActions {
             ForEach(row.links) { link in
                 Button("Open \(link.label)") { model.open(link) }
+                Button("Actions for \(link.label)") { row.showLinkMenu(for: link) }
             }
         }
     }

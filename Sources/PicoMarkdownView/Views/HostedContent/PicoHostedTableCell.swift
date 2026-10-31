@@ -11,6 +11,8 @@ struct PicoHostedTableCell: NSViewRepresentable {
     let alignment: TableAlignment
     let onOpenLink: @MainActor (PicoHostedTableLink) -> Void
     let onHoverLink: @MainActor (URL?, String, CGRect?) -> Void
+    let onLinkContextMenu: @MainActor (URL, String) -> NSMenu?
+    let registerLinkMenuPresenter: @MainActor (@escaping (PicoHostedTableLink) -> Void) -> Void
 
     func makeNSView(context: Context) -> PicoHostedTableCellTextView {
         let view = PicoHostedTableCellTextView(usingTextLayoutManager: true)
@@ -30,7 +32,9 @@ struct PicoHostedTableCell: NSViewRepresentable {
     func updateNSView(_ view: PicoHostedTableCellTextView, context: Context) {
         view.onOpenLink = onOpenLink
         view.onHoverLink = onHoverLink
+        view.onLinkContextMenu = onLinkContextMenu
         view.update(content: content, width: width, alignment: alignment)
+        registerLinkMenuPresenter { [weak view] link in view?.showLinkContextMenu(for: link) }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedTableCellTextView, context: Context) -> CGSize? {

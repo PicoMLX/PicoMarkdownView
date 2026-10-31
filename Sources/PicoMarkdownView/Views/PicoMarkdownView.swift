@@ -24,6 +24,9 @@ public struct PicoMarkdownView: View {
     @Environment(\.picoOnTagTap) private var onTagTap
     @Environment(\.picoOnTagHover) private var onTagHover
     @Environment(\.picoOnLinkHover) private var onLinkHover
+#if os(macOS)
+    @Environment(\.picoLinkContextMenu) private var linkContextMenu
+#endif
     @Environment(\.picoOnContentSize) private var onContentSize
 #if os(macOS)
     @Environment(\.picoOnOpenUIAction) private var onOpenUIAction
@@ -169,6 +172,7 @@ public struct PicoMarkdownView: View {
                           hoverHandler: makeHoverHandler())
 #if os(macOS)
             .withDocumentIdentity(viewModel.documentIdentity)
+            .withLinkContextMenu(linkContextMenu)
             .withHostedStreamActive(viewModel.isHostedStreamActive)
             .withImageTapHandler(imageTapHandler)
             .withOpenUIAction(onOpenUIAction)
@@ -304,6 +308,14 @@ import AppKit
 private struct TextKit2Container: NSViewRepresentable {
     var controller: TextKitStreamingController
     var documentIdentity: UInt64 = 0
+    var linkContextMenu: ((URL, String, NSMenu) -> Void)?
+
+    func withLinkContextMenu(_ customize: ((URL, String, NSMenu) -> Void)?) -> Self {
+        var container = self
+        container.linkContextMenu = customize
+        return container
+    }
+
     var isHostedStreamActive = false
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
@@ -347,6 +359,7 @@ private struct TextKit2Container: NSViewRepresentable {
         controller.installContentSizeObserver(on: view, onContentSize)
         controller.installLinkHandler(on: view, linkHandler)
         controller.installHoverHandler(on: view, hoverHandler)
+        controller.installLinkContextMenu(on: view, linkContextMenu)
         controller.installImageTapHandler(on: view, imageTapHandler)
         return view
     }
@@ -360,6 +373,7 @@ private struct TextKit2Container: NSViewRepresentable {
         controller.installContentSizeObserver(on: nsView, onContentSize)
         controller.installLinkHandler(on: nsView, linkHandler)
         controller.installHoverHandler(on: nsView, hoverHandler)
+        controller.installLinkContextMenu(on: nsView, linkContextMenu)
         controller.installImageTapHandler(on: nsView, imageTapHandler)
     }
 }

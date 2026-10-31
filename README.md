@@ -483,10 +483,48 @@ Pass `tagPrefixes: []` to disable inline-tag recognition entirely.
 | `.onOpenLink { URL in }` | a regular link is tapped (and tags, if no `onTagTap` is set — they arrive as a `pico-tag://` URL) | `URL` |
 | `.onTagHover { (TagReference?, CGRect?) in }` | **macOS only** — hover enters/exits a tag | `TagReference` + bounding rect on enter, `(nil, nil)` on exit |
 | `.onLinkHover { (URL?, CGRect?) in }` | **macOS only** — hover enters/exits a regular link | `URL` + bounding rect on enter, `(nil, nil)` on exit |
+| `.linkContextMenu { url, label, menu in }` | **macOS only** — a link's native context menu opens | Original `URL`, visible label and mutable `NSMenu` |
 | `.onContentSize { CGSize in }` | rendered content size changes (e.g. streaming adds a line) | content `CGSize` |
 
 The hover rect is in the text view's coordinate space — anchor a popover
 against it. On iOS the hover modifiers are no-ops (iOS has no hover).
+
+On macOS, right-click or Control-click a link to open its native context menu.
+Web links offer Open Link, Open in Default Browser and Copy Link. Local
+`file://` URLs and absolute path destinations such as `[Report](/Users/me/report.md)`
+offer Open File, Open With (installed applications), Copy Path and Reveal in
+Finder; readable files also offer Save As… and Copy File Contents (UTF-8 text).
+Relative paths need the host app's document base URL, so their default menu
+remains Open Link / Copy Link. Remote file URLs are not inspected for local
+file actions. These menus also work for links inside tables and inline tags;
+tags have no external-browser action.
+Table rows also expose an “Actions for <link label>” accessibility action to
+open the same menu without using a pointer.
+
+Open Link / Open File follows the existing `onOpenLink` or `onTagTap` callback,
+with the original URL. Open With and Open in Default Browser explicitly open
+an external application. Sandboxed hosts must provide access to local files.
+
+Use `linkContextMenu` to add, remove or reorder native `NSMenuItem`s, including
+submenus and app-specific actions:
+
+```swift
+#if os(macOS)
+PicoMarkdownView(markdown)
+    .linkContextMenu { url, label, menu in
+        let item = NSMenuItem(title: "Open in New Tab",
+                              action: #selector(LinkActions.openInNewTab(_:)),
+                              keyEquivalent: "")
+        item.target = linkActions  // your retained application action handler
+        item.representedObject = url
+        menu.insertItem(item, at: 0)
+    }
+#endif
+```
+
+The host owns destinations such as new tabs, new windows and code reviews, and
+any remote “Save Link As…” download behavior. Menu customization is read live
+when a menu opens, including for already-rendered table cells.
 
 The `$` ticker is **not** in the defaults because it collides with TeX/KaTeX
 inline math (`$x = mc^2$`). Enable it only when the content does not

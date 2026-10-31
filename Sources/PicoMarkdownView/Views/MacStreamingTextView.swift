@@ -13,6 +13,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     var onContentSizeChanged: ((CGSize) -> Void)?
     var linkActionHandler: ((URL, String) -> Void)?
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
+    var linkContextMenu: ((URL, String, NSMenu) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
     private var lastReportedContentSize = CGSize(width: -1, height: -1)
@@ -153,6 +154,13 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         }
         if let link = linkHit(at: point, includeImageActivation: true)?.url,
            backend.isImageActivationLink(link) { return NSMenu() }
+        if let hit = hoverLink(at: point), let url = hit.url {
+            clearHover()
+            return PicoLinkContextMenu.make(url: url, displayText: hit.displayText, openLink: { [weak self] url, text in
+                if let handler = self?.linkActionHandler { handler(url, text) }
+                else { NSWorkspace.shared.open(url) }
+            }, customize: linkContextMenu)
+        }
         let menu = super.menu(for: event) ?? NSMenu()
         guard let id = codeBlockID(at: point),
               backend.codeBlockForCopy(id: id) != nil else { return menu }

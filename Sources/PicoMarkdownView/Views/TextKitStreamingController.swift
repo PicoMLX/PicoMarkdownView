@@ -264,6 +264,11 @@ final class TextKitStreamingController: ObservableObject {
         (textView as? StreamingTextKit2View)?.hoverHandler = handler
         backend.onHostedHover = handler
     }
+
+    func installLinkContextMenu(on textView: NSTextView, _ customize: ((URL, String, NSMenu) -> Void)?) {
+        (textView as? StreamingTextKit2View)?.linkContextMenu = customize
+        backend.onHostedLinkContextMenu = customize
+    }
 #endif
 }
 
@@ -324,6 +329,7 @@ final class TextKitStreamingBackend {
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
     var onHostedLink: ((URL, String) -> Void)?
+    var onHostedLinkContextMenu: ((URL, String, NSMenu) -> Void)?
     var onHostedContentSizeChanged: ((NSRange) -> Void)?
     var onDocumentReset: (() -> Void)?
     private(set) var documentGeneration: UInt64 = 0
@@ -1069,6 +1075,12 @@ final class TextKitStreamingBackend {
                 else { NSWorkspace.shared.open(url) }
             }
             model.onHoverLink = { [weak self] url, text, rect in self?.onHostedHover?(url, text, rect) }
+            model.onLinkContextMenu = { [weak self] url, text in
+                PicoLinkContextMenu.make(url: url, displayText: text, openLink: { [weak self] url, text in
+                    if let handler = self?.onHostedLink { handler(url, text) }
+                    else { NSWorkspace.shared.open(url) }
+                }, customize: self?.onHostedLinkContextMenu)
+            }
             let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                 markdown: { model.markdownRepresentation() }) { context in
                     PicoHostedTableView(model: model, context: context)
