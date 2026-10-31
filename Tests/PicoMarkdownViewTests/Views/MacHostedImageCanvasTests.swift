@@ -22,11 +22,12 @@ struct MacHostedImageCanvasTests {
         #expect(model.drawingRect(in: viewport) == CGRect(origin: .zero, size: viewport))
         #expect(!model.capturesScroll)
         model.zoom(by: 2)
-        #expect(model.drawingRect(in: viewport) == CGRect(x: -100, y: -200, width: 400, height: 800))
-        #expect(model.viewportHeight(availableWidth: 200) == 400, "Zoom never expands the text attachment")
-        #expect(model.capturesScroll)
-        #expect(model.pan(by: CGPoint(x: 100_000, y: -100_000)))
-        #expect(model.pan == CGPoint(x: 100, y: -200))
+        model.activateNavigation()
+        #expect(model.drawingRect(in: viewport) == CGRect(origin: .zero, size: viewport))
+        #expect(model.viewportHeight(availableWidth: 200) == 400)
+        #expect(!model.capturesScroll, "Image navigation belongs to the app-owned viewer")
+        #expect(!model.pan(by: CGPoint(x: 100_000, y: -100_000)))
+        #expect(model.pan == .zero)
         model.fitDiagram()
         #expect(model.zoom == 1 && model.pan == .zero && !model.capturesScroll)
         #expect(model.parseCount == 0)
@@ -91,17 +92,12 @@ struct MacHostedImageCanvasTests {
         canvas.layoutSubtreeIfNeeded()
         #expect(canvas.accessibilityLabel() == "Four colored corners")
         #expect(canvas.accessibilityHelp()?.contains("Corner sample") == true)
-        #expect(Set(canvas.accessibilityCustomActions()?.map(\.name) ?? []) == Set(["Zoom in", "Zoom out", "Copy Image Markdown"]))
-        let (zoom, copy) = try controls(in: canvas)
-        #expect(zoom.segmentCount == 2 && zoom.trackingMode == .momentary)
-        #expect(zoom.accessibilityLabel() == "Image zoom")
-        #expect(zoom.accessibilityHelp()?.contains("image frame") == true)
-        #expect(zoom.toolTip(forSegment: 0)?.contains("Zoom out") == true)
-        #expect(zoom.toolTip(forSegment: 1)?.contains("Zoom in") == true)
-        #expect(copy.accessibilityLabel() == "Copy Image Markdown")
-        #expect(copy.toolTip?.contains("Image Markdown") == true)
-        #expect(copy.accessibilityHelp()?.contains("alternative text") == true)
-        #expect(copy.bezelStyle == .glass)
+        #expect(canvas.accessibilityRole() == .image)
+        #expect(!canvas.accessibilityPerformPress(), "An image without a callback is static")
+        let actionNames = canvas.accessibilityCustomActions()?.map(\.name) ?? []
+        #expect(!actionNames.contains("Zoom in"))
+        #expect(!actionNames.contains("Zoom out"))
+        #expect(descendants(of: canvas).compactMap { $0 as? NSControl }.allSatisfy { !isVisible($0, in: canvas) })
         let menu = try #require(canvas.menu(for: try mouse(.rightMouseDown)))
         #expect(menu.items.map(\.title) == ["Copy Image Markdown"])
 
@@ -115,12 +111,11 @@ struct MacHostedImageCanvasTests {
         #expect(canvas.accessibilityHelp()?.contains("New caption") == true)
     }
 
-    @Test("Small images keep available controls inside their natural frame", arguments: [
+    @Test("Images keep native document input and have no inline controls", arguments: [
         CGSize(width: 24, height: 24), CGSize(width: 60, height: 60),
-        CGSize(width: 100, height: 50), CGSize(width: 100, height: 100),
-        CGSize(width: 200, height: 50)
+        CGSize(width: 100, height: 50), CGSize(width: 320, height: 160)
     ])
-    func compactControls(size: CGSize) throws {
+    func staticImageInteraction(size: CGSize) throws {
         _ = NSApplication.shared
         let (image, _) = try makeImage()
         let model = PicoHostedMediaModel(image: image, size: size, markdown: markdown, altText: "Corners")
@@ -128,53 +123,41 @@ struct MacHostedImageCanvasTests {
         canvas.frame = CGRect(origin: .zero, size: size)
         canvas.layoutSubtreeIfNeeded()
         canvas.mouseEntered(with: try mouse(.mouseEntered))
-        let (zoom, copy) = try controls(in: canvas)
-        for control in [zoom, copy] as [NSView] where isVisible(control, in: canvas) {
-            #expect(canvas.bounds.contains(control.convert(control.bounds, to: canvas)),
-                    "Native controls are never partially clipped to fit a small image")
-        }
-        if size.width < 48 || size.height < 48 {
-            #expect(!isVisible(zoom, in: canvas) && !isVisible(copy, in: canvas))
-        } else if size.width < 80 {
-            #expect(!isVisible(zoom, in: canvas) && isVisible(copy, in: canvas))
-        } else {
-            #expect(isVisible(zoom, in: canvas))
-            #expect(zoom.segmentCount == 2, "Zoom remains a connected pair")
-            let alignment = zoom.alignmentRect(forFrame: zoom.frame)
-            #expect(alignment.width == 64)
-            if size.width >= 120 || size.height >= 88 { #expect(isVisible(copy, in: canvas)) }
-        }
-        #expect(canvas.accessibilityCustomActions()?.contains { $0.name == "Zoom in" } == true,
-                "Actions remain available even when the image is too small for floating controls")
+        #expect(descendants(of: canvas).compactMap { $0 as? NSControl }.allSatisfy { !isVisible($0, in: canvas) })
+        #expect(!canvas.acceptsHostedAttachmentHit(at: CGPoint(x: size.width / 2, y: size.height / 2)))
+        #expect(!canvas.acceptsHostedAttachmentMagnification(at: CGPoint(x: size.width / 2, y: size.height / 2)))
         canvas.keyDown(with: try key("+"))
-        #expect(model.zoom == 1.25)
+        #expect(model.zoom == 1 && model.pan == .zero && !model.capturesScroll)
         #expect(model.parseCount == 0)
     }
 
-    @Test("Image zoom uses the shared ease-out transition and respects Reduce Motion", .timeLimit(.minutes(1)), arguments: [false, true])
-    func imageZoomAnimation(reduceMotion: Bool) async throws {
+    @Test("Image activation follows callback replacement and removal through accessibility and keyboard")
+    func imageActivation() throws {
         _ = NSApplication.shared
         let (image, _) = try makeImage()
-        let model = PicoHostedMediaModel(image: image, size: CGSize(width: 320, height: 160),
-                                         markdown: markdown, altText: "Corners")
-        let canvas = PicoHostedMediaCanvasView(model: model, reducesMotion: { reduceMotion })
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 160),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = canvas
-        canvas.layoutSubtreeIfNeeded()
-        let start = model.drawingRect(in: canvas.bounds.size)
-        let revision = model.presentationRevision
-        canvas.keyDown(with: try key("+", window: window))
-        #expect(model.zoom == 1.25)
-        #expect(canvas.presentedDrawingRect == (reduceMotion ? nil : start))
-        await canvas.waitForZoomAnimation()
-        #expect(canvas.presentedDrawingRect == nil)
-        #expect(model.presentationRevision == revision + 1, "Animation frames do not publish document changes")
-        #expect(model.parseCount == 0)
+        let model = PicoHostedMediaModel(image: image, size: image.size, markdown: markdown, altText: "Corners")
+        let canvas = PicoHostedMediaCanvasView(model: model)
+        canvas.frame = CGRect(origin: .zero, size: image.size)
+        var first = 0
+        var second = 0
+        model.onImageTap = { first += 1 }
+        canvas.refreshPresentation()
+        #expect(canvas.accessibilityRole() == .button)
+        #expect(canvas.accessibilityPerformPress())
+        #expect(first == 1)
+        canvas.keyDown(with: try key(" "))
+        #expect(first == 2)
+        model.onImageTap = { second += 1 }
+        canvas.refreshPresentation()
+        canvas.keyDown(with: try key("\r"))
+        #expect(first == 2 && second == 1)
+        model.onImageTap = nil
+        canvas.refreshPresentation()
+        #expect(!canvas.accessibilityPerformPress())
+        #expect(canvas.accessibilityRole() == .image)
+        #expect(first == 2 && second == 1)
+        #expect(model.zoom == 1 && model.pan == .zero)
         #expect(model.markdownRepresentation() == markdown)
-        #expect(canvas.frame.size == CGSize(width: 320, height: 160))
     }
 
     private func makeImage() throws -> (NSImage, NSBitmapImageRep) {
@@ -217,12 +200,6 @@ struct MacHostedImageCanvasTests {
         #expect(abs(actual.greenComponent - expected.greenComponent) < 0.02)
         #expect(abs(actual.blueComponent - expected.blueComponent) < 0.02)
         #expect(actual.alphaComponent > 0.99)
-    }
-
-    private func controls(in view: NSView) throws -> (NSSegmentedControl, NSButton) {
-        let views = descendants(of: view)
-        return try (#require(views.compactMap { $0 as? NSSegmentedControl }.first),
-                    #require(views.compactMap { $0 as? NSButton }.first))
     }
 
     private func descendants(of view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants(of: $0) } }

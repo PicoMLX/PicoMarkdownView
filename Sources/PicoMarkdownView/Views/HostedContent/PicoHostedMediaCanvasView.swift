@@ -1,8 +1,8 @@
 #if os(macOS)
 import AppKit
 
-/// Draws source images and parsed SVG paths into the current display context.
-/// Selection, navigation and floating controls share the same attachment lifecycle.
+/// Draws vector content into the current display context.
+/// Zoom changes drawing coordinates, never a previously rasterized image.
 @MainActor
 final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, PicoHostedAttachmentMagnificationTarget {
     let model: PicoHostedMediaModel
@@ -29,7 +29,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     private(set) var presentedDrawingRect: CGRect?
 
     override var isFlipped: Bool { true }
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { !model.isImage || model.canActivateImage }
 
     init(model: PicoHostedMediaModel,
          reducesMotion: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
@@ -38,24 +38,15 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
         super.init(frame: .zero)
         clipsToBounds = true
         setAccessibilityElement(true)
-        setAccessibilityRole(.group)
+        setAccessibilityRole(model.isImage ? .image : .group)
         setAccessibilityLabel(model.accessibilityLabel)
         focusRingType = .exterior
-        setupToolbar()
-        var actions = [
-            NSAccessibilityCustomAction(name: "Zoom in") { [weak self] in self?.zoomIn(nil); return self != nil },
-            NSAccessibilityCustomAction(name: "Zoom out") { [weak self] in self?.zoomOut(nil); return self != nil },
-            NSAccessibilityCustomAction(name: model.copyLabel) { [weak model] in model?.copyMarkdown() ?? false }
-        ]
-        if !model.isImage {
-            actions.append(NSAccessibilityCustomAction(name: "Copy source") { [weak model] in model?.copySource() ?? false })
-        }
-        setAccessibilityCustomActions(actions)
+        if !model.isImage { setupToolbar() }
         model.onPresentationChanged = { [weak self] in self?.refreshPresentation() }
         refreshPresentation()
     }
 
-    required init?(coder: NSCoder) { fatalError("Create a media canvas with its model") }
+    required init?(coder: NSCoder) { fatalError("Create a vector canvas with its model") }
 
     deinit { zoomAnimationTask?.cancel() }
 
@@ -65,33 +56,20 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
         super.layout()
         if let size = zoomAnimationViewportSize, size != viewport.size { cancelZoomAnimation() }
         model.updateViewport(viewport.size)
+        guard !model.isImage else { needsDisplay = true; return }
         // Keep the zoom pair connected, including when Copy wraps below it.
         let zoomWidth = Self.buttonSize * 2
         let rowWidth = zoomWidth + Self.groupSpacing + Self.buttonSize
         let stacked = bounds.width - 16 < rowWidth
-        let stackedHeight = Self.buttonSize * 2 + Self.groupSpacing
-        var showsZoom = true
-        var showsCopy = true
-        if model.isImage {
-            // Small images keep their natural frame. Actions that cannot fit
-            // remain available through the canvas's accessibility actions.
-            showsZoom = bounds.width >= zoomWidth + 16 && bounds.height >= Self.buttonSize + 16
-            showsCopy = bounds.width >= Self.buttonSize + 16 && bounds.height >= Self.buttonSize + 16
-                && (!showsZoom || !stacked || bounds.height >= stackedHeight + 16)
-        }
-        let stacksControls = stacked && showsZoom && showsCopy
-        let width = showsZoom ? (showsCopy && !stacked ? rowWidth : zoomWidth) : Self.buttonSize
-        let height = stacksControls ? stackedHeight : Self.buttonSize
-        toolbar.isHidden = !showsZoom && !showsCopy
-        zoomGlass.isHidden = !showsZoom
-        copyButton.isHidden = !showsCopy
+        let width = stacked ? zoomWidth : rowWidth
+        let height = stacked ? Self.buttonSize * 2 + Self.groupSpacing : Self.buttonSize
         toolbar.frame = CGRect(x: max(8, bounds.width - width - 8), y: 8,
                                width: width, height: height)
         toolbarContent.frame = toolbar.bounds
-        zoomGlass.frame = CGRect(x: 0, y: stacksControls ? Self.buttonSize + Self.groupSpacing : 0,
+        zoomGlass.frame = CGRect(x: 0, y: stacked ? Self.buttonSize + Self.groupSpacing : 0,
                                  width: zoomWidth, height: Self.buttonSize)
         zoomControl.frame = zoomGlass.bounds
-        copyButton.frame = CGRect(x: stacksControls || !showsZoom ? width - Self.buttonSize : zoomWidth + Self.groupSpacing,
+        copyButton.frame = CGRect(x: stacked ? width - Self.buttonSize : zoomWidth + Self.groupSpacing,
                                   y: 0, width: Self.buttonSize, height: Self.buttonSize)
         refreshPointerPresence()
         needsDisplay = true
@@ -99,6 +77,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        guard !model.isImage else { return }
         if let tracking { removeTrackingArea(tracking) }
         let next = NSTrackingArea(rect: .zero,
                                   options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag],
@@ -161,14 +140,19 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool {
-        viewport.contains(point) && model.capturesScroll
+        !model.isImage && viewport.contains(point) && model.capturesScroll
     }
 
     func acceptsHostedAttachmentMagnification(at point: NSPoint) -> Bool {
-        viewport.contains(point)
+        !model.isImage && viewport.contains(point)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        model.isImage ? model.activateImage() : super.accessibilityPerformPress()
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard !model.isImage else { super.mouseDown(with: event); return }
         cancelZoomAnimation()
         isTakingPointerFocus = true
         window?.makeFirstResponder(self)
@@ -180,6 +164,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard !model.isImage else { super.mouseDragged(with: event); return }
         let next = convert(event.locationInWindow, from: nil)
         if let dragPoint { model.pan(by: CGPoint(x: next.x - dragPoint.x, y: next.y - dragPoint.y)) }
         dragPoint = next
@@ -196,11 +181,18 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     override func magnify(with event: NSEvent) {
+        guard !model.isImage else { super.magnify(with: event); return }
         cancelZoomAnimation()
         model.zoom(by: exp(event.magnification))
     }
 
     override func keyDown(with event: NSEvent) {
+        if model.isImage {
+            if event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+               [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? ""), model.activateImage() { return }
+            super.keyDown(with: event)
+            return
+        }
         hasControlFocus = true
         updateToolbarVisibility()
         switch event.charactersIgnoringModifiers {
@@ -213,6 +205,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     override func cancelOperation(_ sender: Any?) {
+        guard !model.isImage else { super.cancelOperation(sender); return }
         cancelZoomAnimation()
         model.fitDiagram()
         var ancestor = superview
@@ -225,7 +218,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
-        let markdown = NSMenuItem(title: model.copyLabel, action: #selector(copyMarkdown(_:)), keyEquivalent: "")
+        let markdown = NSMenuItem(title: model.kind.copyTitle, action: #selector(copyMarkdown(_:)), keyEquivalent: "")
         markdown.target = self
         menu.addItem(markdown)
         if !model.isImage {
@@ -239,14 +232,32 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     func refreshPresentation() {
         // Source, pan and gesture updates interrupt an in-flight button zoom.
         if !isApplyingAnimatedZoom { cancelZoomAnimation() }
-        zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)
-        zoomControl.setEnabled(model.zoom < 8, forSegment: 1)
-        zoomControl.setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent")
-        setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview").")
-        setAccessibilityLabel(model.accessibilityLabel)
-        if accessibilitySource != model.accessibilityHelp {
-            accessibilitySource = model.accessibilityHelp
-            setAccessibilityHelp(model.accessibilityHelp)
+        if model.isImage {
+            setAccessibilityRole(model.canActivateImage ? .button : .image)
+            setAccessibilityLabel(model.accessibilityLabel)
+            setAccessibilityHelp(model.imageAccessibilityHelp)
+            setAccessibilityValue(nil)
+            var actions = [NSAccessibilityCustomAction(name: model.kind.copyTitle) { [weak model] in model?.copyMarkdown() ?? false }]
+            if model.canActivateImage {
+                actions.insert(NSAccessibilityCustomAction(name: "Open image") { [weak model] in model?.activateImage() ?? false }, at: 0)
+            }
+            setAccessibilityCustomActions(actions)
+        } else {
+            zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)
+            zoomControl.setEnabled(model.zoom < 8, forSegment: 1)
+            zoomControl.setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent")
+            setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview").")
+            if accessibilitySource != model.source {
+                accessibilitySource = model.source
+                setAccessibilityLabel(model.accessibilityLabel)
+                setAccessibilityHelp("Source: " + model.source)
+            }
+            setAccessibilityCustomActions([
+                NSAccessibilityCustomAction(name: "Zoom in") { [weak self] in self?.zoomIn(nil); return self != nil },
+                NSAccessibilityCustomAction(name: "Zoom out") { [weak self] in self?.zoomOut(nil); return self != nil },
+                NSAccessibilityCustomAction(name: model.kind.copyTitle) { [weak model] in model?.copyMarkdown() ?? false },
+                NSAccessibilityCustomAction(name: "Copy source") { [weak model] in model?.copySource() ?? false }
+            ])
         }
         needsDisplay = true
         updateToolbarVisibility()
@@ -275,8 +286,8 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
             zoomControl.setImage(image, forSegment: index)
             zoomControl.setToolTip(item.2, forSegment: index)
         }
-        zoomControl.setAccessibilityLabel(model.zoomLabel)
-        zoomControl.setAccessibilityHelp(model.zoomHelp)
+        zoomControl.setAccessibilityLabel("Diagram zoom")
+        zoomControl.setAccessibilityHelp("Zoom within the diagram frame. Press Escape to reset zoom and return to the text.")
         zoomGlass.contentView = zoomControl
         zoomGlass.cornerRadius = Self.buttonSize / 2
         zoomGlass.effectIsInteractive = true
@@ -284,10 +295,10 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
 
         copyButton.target = self
         copyButton.action = #selector(copyMarkdown(_:))
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: model.copyLabel)
-        copyButton.setAccessibilityLabel(model.copyLabel) // [VERIFY] confirm the label matches Markdown export.
-        copyButton.setAccessibilityHelp(model.copyHelp)
-        copyButton.toolTip = model.copyToolTip
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: model.kind.copyTitle)
+        copyButton.setAccessibilityLabel(model.kind.copyTitle)
+        copyButton.setAccessibilityHelp(model.kind.copyHelp)
+        copyButton.toolTip = model.kind.copyToolTip
         copyButton.bezelStyle = .glass
         copyButton.borderShape = .circle
         copyButton.controlSize = .regular
@@ -304,7 +315,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     private func updateToolbarVisibility() {
-        let shown = isPointerInside || hasControlFocus
+        let shown = !model.isImage && (isPointerInside || hasControlFocus)
         guard shown != controlsAreVisible else { return }
         controlsAreVisible = shown
         toolbar.alphaValue = shown ? 1 : 0
@@ -377,9 +388,10 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     @objc private func copySource(_ sender: Any?) { model.copySource() }
 }
 
+typealias PicoHostedVectorCanvasView = PicoHostedMediaCanvasView
 typealias PicoHostedMermaidCanvasView = PicoHostedMediaCanvasView
 
-/// Interpolates source drawing coordinates; no cached image is scaled.
+/// Interpolates vector drawing coordinates; no cached image is scaled.
 struct PicoMediaZoomAnimation {
     static let duration: TimeInterval = 0.18
     let from: CGRect
@@ -394,6 +406,7 @@ struct PicoMediaZoomAnimation {
     }
 }
 
+typealias PicoVectorZoomAnimation = PicoMediaZoomAnimation
 typealias PicoMermaidZoomAnimation = PicoMediaZoomAnimation
 
 @MainActor

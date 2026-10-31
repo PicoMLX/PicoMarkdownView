@@ -11,7 +11,7 @@ struct MacMermaidZoomAnimationTests {
         let from = CGRect(x: 0, y: 0, width: 400, height: 200)
         let to = CGRect(x: 200 - 200 * scale, y: 100 - 100 * scale,
                         width: 400 * scale, height: 200 * scale)
-        let transition = PicoMermaidZoomAnimation(from: from, to: to)
+        let transition = PicoVectorZoomAnimation(from: from, to: to)
         #expect(transition.rect(at: 0) == from)
         #expect(transition.rect(at: 1) == to)
         #expect(transition.rect(at: -1) == from)
@@ -27,7 +27,7 @@ struct MacMermaidZoomAnimationTests {
             #expect(rect.width / rect.height == 2)
             #expect(rect.midX == 200 && rect.midY == 100)
         }
-        #expect(PicoMermaidZoomAnimation.duration == 0.18)
+        #expect(PicoVectorZoomAnimation.duration == 0.18)
     }
 
     @Test("Buttons and keyboard update the target immediately and finish vector zoom", .timeLimit(.minutes(1)), arguments: [false, true])
@@ -125,20 +125,20 @@ struct MacMermaidZoomAnimationTests {
     private static let svg = "<svg width=\"400\" height=\"200\"><rect width=\"400\" height=\"200\" fill=\"#ff0000\"/></svg>"
 
     private func makeFixture(reducesMotion: @escaping @MainActor () -> Bool = { false })
-        -> (window: NSWindow, view: PicoHostedMermaidCanvasView, model: PicoHostedMermaidModel) {
+        -> (window: NSWindow, view: PicoHostedVectorCanvasView, model: PicoHostedVectorModel) {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 200),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let model = PicoHostedMermaidModel(svg: Self.svg, source: "flowchart LR\n A --> B\n",
+        let model = PicoHostedVectorModel(svg: Self.svg, source: "flowchart LR\n A --> B\n",
                                           language: "mermaid", isClosed: true)
-        let view = PicoHostedMermaidCanvasView(model: model, reducesMotion: reducesMotion)
+        let view = PicoHostedVectorCanvasView(model: model, reducesMotion: reducesMotion)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         return (window, view, model)
     }
 
-    private func zoomIn(_ view: PicoHostedMermaidCanvasView, button: Bool) throws {
+    private func zoomIn(_ view: PicoHostedVectorCanvasView, button: Bool) throws {
         if button {
             let control = try #require(descendants(of: view).compactMap { $0 as? NSSegmentedControl }.first)
             let mode = control.trackingMode

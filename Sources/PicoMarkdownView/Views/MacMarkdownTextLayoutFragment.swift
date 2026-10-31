@@ -20,10 +20,13 @@ final class MacMarkdownTextLayoutFragment: NSTextLayoutFragment {
 
     private static func contentBounds(of fragment: NSTextLayoutFragment) -> CGRect? {
         // The synthetic empty line at the document end is not part of the quote.
-        fragment.textLineFragments.filter { $0.characterRange.length > 0 }
-            .map(\.typographicBounds).reduce(nil) { bounds, line in
+        guard let bounds = fragment.textLineFragments.filter({ $0.characterRange.length > 0 })
+            .map(\.typographicBounds).reduce(nil as CGRect?, { bounds, line in
                 bounds.map { $0.union(line) } ?? line
-            }
+            }) else { return nil }
+        let header = attributes(of: fragment)[.picoCodeBlockToolbarHeight] as? CGFloat ?? 0
+        return CGRect(x: bounds.minX, y: bounds.minY - header,
+                      width: bounds.width, height: bounds.height + header)
     }
 
     private var quoteBars: [Decoration] {
@@ -80,6 +83,10 @@ final class MacMarkdownTextLayoutFragment: NSTextLayoutFragment {
         }
         result.append(contentsOf: quoteBars)
         return result
+    }
+
+    override var topMargin: CGFloat {
+        super.topMargin + (attributes[.picoCodeBlockToolbarHeight] as? CGFloat ?? 0)
     }
 
     override var renderingSurfaceBounds: CGRect {

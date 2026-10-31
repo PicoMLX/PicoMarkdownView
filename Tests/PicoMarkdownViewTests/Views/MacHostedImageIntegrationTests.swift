@@ -136,7 +136,7 @@ struct MacHostedImageIntegrationTests {
         #expect(!copied.contains("\u{FFFC}"))
     }
 
-    @Test("Preferred image aspect, width cap and zoom survive streaming and resize")
+    @Test("Preferred image aspect and width cap survive streaming and resize")
     @available(macOS 27.0, *)
     func hostedImageKeepsSizeAndInteractionState() async throws {
         let (controller, view) = makeView(width: 800)
@@ -164,13 +164,13 @@ struct MacHostedImageIntegrationTests {
         #expect(canvas.bounds.width <= 200.5)
         #expect(abs(canvas.bounds.height - canvas.bounds.width / 2) < 0.5)
         model.zoom(by: 2)
-        #expect(model.zoom == 2)
+        #expect(model.zoom == 1, "Inline image zoom is disabled; apps own image navigation")
         #expect(model.markdownRepresentation().contains("\"A caption\""))
 
         await feed("Tail paragraph.\n\n", pipeline: pipeline, controller: controller, view: view)
         #expect(hostedAttachments(in: storage).first === original)
         #expect(findCanvas(in: host)?.model === model)
-        #expect(model.zoom == 2)
+        #expect(model.zoom == 1, "Inline image zoom is disabled; apps own image navigation")
 
         for width: CGFloat in [120, 800] {
             view.setFrameSize(CGSize(width: width, height: 900))
@@ -179,7 +179,7 @@ struct MacHostedImageIntegrationTests {
             await layout(view, host: host)
             #expect(hostedAttachments(in: storage).first === original)
             #expect(findCanvas(in: host)?.model === model)
-            #expect(model.zoom == 2)
+            #expect(model.zoom == 1, "Inline image zoom is disabled; apps own image navigation")
             #expect(abs(canvas.bounds.width - min(original.context.availableWidth, min(width, 200))) < 0.5)
             #expect(abs(model.intrinsicSize.width / model.intrinsicSize.height - 2) < 0.001)
         }
@@ -189,6 +189,8 @@ struct MacHostedImageIntegrationTests {
     @available(macOS 27.0, *)
     func delayedImageRefreshIsBlockLocal() async throws {
         let (controller, view) = makeView()
+        var activations: [MarkdownImageActivation] = []
+        controller.installImageTapHandler(on: view) { activations.append($0) }
         let provider = ImageFixtureProvider(available: false)
         let pipeline = MarkdownStreamingPipeline(imageProvider: provider)
         await feed("Before paragraph.\n\n![pending](https://example.com/image.png)\n\nAfter paragraph.\n\n",
@@ -213,6 +215,14 @@ struct MacHostedImageIntegrationTests {
         #expect(storage.attribute(sentinel, at: currentBefore.location, effectiveRange: nil) as? String == "before")
         #expect(storage.attribute(sentinel, at: currentAfter.location, effectiveRange: nil) as? String == "after")
         #expect(view.textLayoutManager != nil)
+        let attachment = try #require(hostedAttachments(in: storage).first)
+        let host = attachment.loadHostedView()
+        await layout(view, host: host)
+        let canvas = try #require(findCanvas(in: host))
+        #expect(canvas.accessibilityPerformPress())
+        #expect(activations.count == 1)
+        #expect(activations.first?.sourceURL.absoluteString == "https://example.com/image.png")
+        #expect(activations.first?.altText == "pending")
     }
 
     @Test("Replacing a document retires its image host and Markdown export")

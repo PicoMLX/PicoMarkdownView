@@ -7,11 +7,41 @@ import Observation
 @Observable
 final class PicoHostedMediaModel {
     enum Fit: Equatable { case diagram, width }
-    private enum Content { case mermaid, image }
+    enum Kind {
+        case mermaid, svg, image
 
-    private let content: Content
+        var defaultLanguage: String {
+            switch self { case .mermaid: "mermaid"; case .svg: "svg"; case .image: "" }
+        }
+        var accessibilityLabel: String {
+            switch self { case .mermaid: "Mermaid diagram"; case .svg: "SVG graphic"; case .image: "Image" }
+        }
+        var copyTitle: String {
+            switch self { case .mermaid: "Copy Mermaid"; case .svg: "Copy SVG"; case .image: "Copy Image Markdown" }
+        }
+        var copyHelp: String {
+            switch self {
+            case .mermaid: "Copies the diagram's Mermaid source as Markdown, including its code fences."
+            case .svg: "Copies the graphic's SVG source as Markdown, including its code fences."
+            case .image: "Copies the image's Markdown, including its source, alternative text and title."
+            }
+        }
+        var copyToolTip: String {
+            switch self {
+            case .mermaid: "Copy Mermaid Markdown, including code fences."
+            case .svg: "Copy SVG Markdown, including code fences."
+            case .image: "Copy Image Markdown."
+            }
+        }
+    }
+
+    let kind: Kind
     private(set) var altText = ""
     private(set) var title: String?
+    /// Optional activation belongs to the app; images remain static otherwise.
+    var onImageTap: (@MainActor () -> Void)? {
+        didSet { onPresentationChanged?() }
+    }
 
     private(set) var source: String
     private(set) var language: String?
@@ -26,14 +56,14 @@ final class PicoHostedMediaModel {
     private(set) var presentationRevision: UInt64 = 0
     private(set) var parseCount = 0
 
-    @ObservationIgnored private(set) var document: PeleSVGDocument?
+    @ObservationIgnored private(set) var document: PicoHostedVectorDocument?
     @ObservationIgnored private var svg: String
     @ObservationIgnored private var image: NSImage?
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
-    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
-        self.content = .mermaid
+    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
+        self.kind = kind
         self.svg = svg
         self.source = source
         self.language = language
@@ -44,7 +74,7 @@ final class PicoHostedMediaModel {
 
     init(image: NSImage, size: CGSize, markdown: String, altText: String,
          title: String? = nil, maxWidth: CGFloat? = nil) {
-        self.content = .image
+        self.kind = .image
         self.svg = ""
         self.image = image
         self.source = markdown
@@ -68,7 +98,6 @@ final class PicoHostedMediaModel {
         self.altText = altText
         self.title = title
         self.maxWidth = maxWidth
-        pan = clamped(pan)
         changed()
     }
 
@@ -88,35 +117,31 @@ final class PicoHostedMediaModel {
         changed()
     }
 
-    var isImage: Bool { content == .image }
+    var isImage: Bool { kind == .image }
     var isRenderable: Bool { isImage ? image != nil : document != nil }
+    var canActivateImage: Bool { isImage && image != nil && onImageTap != nil }
 
     var accessibilityLabel: String {
-        guard isImage else { return "Mermaid diagram" }
-        return !altText.isEmpty ? altText : title.flatMap { $0.isEmpty ? nil : $0 } ?? "Image"
+        if isImage { return !altText.isEmpty ? altText : title.flatMap { $0.isEmpty ? nil : $0 } ?? "Image" }
+        let description = document?.accessibilityDescription
+        return description.map { kind.accessibilityLabel + ": " + $0 } ?? kind.accessibilityLabel
     }
 
-    var accessibilityHelp: String {
-        guard isImage else { return "Diagram source: " + source }
-        let caption = title.flatMap { $0.isEmpty ? nil : $0 }.map { $0 + ". " } ?? ""
-        return caption + "Image Markdown: " + source
+    var imageAccessibilityHelp: String? {
+        let caption = title.flatMap { $0.isEmpty ? nil : $0 }
+        let activation = canActivateImage ? "Open image. Press Space or Return to activate." : nil
+        let parts = [caption, activation].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ". ")
     }
 
-    var copyLabel: String { isImage ? "Copy Image Markdown" : "Copy Mermaid" }
-    var copyHelp: String {
-        isImage ? "Copies the image's Markdown, including its source, alternative text and title."
-            : "Copies the diagram's Mermaid source as Markdown, including its code fences."
-    }
-    var copyToolTip: String {
-        isImage ? "Copy Image Markdown." : "Copy Mermaid Markdown, including code fences."
-    }
-    var zoomLabel: String { isImage ? "Image zoom" : "Diagram zoom" }
-    var zoomHelp: String {
-        "Zoom within the \(isImage ? "image" : "diagram") frame. Press Escape to reset zoom and return to the text."
+    @discardableResult
+    func activateImage() -> Bool {
+        guard canActivateImage, let onImageTap else { return false }
+        onImageTap()
+        return true
     }
 
-    /// Draw directly from the source image or parsed vector document at the
-    /// current zoom; attachment sizing never creates another bitmap.
+    /// Source images retain their own resolution; vector decoders stay separate.
     func draw(in context: CGContext, destination: CGRect) {
         guard destination.width > 0, destination.height > 0 else { return }
         if let image {
@@ -130,7 +155,7 @@ final class PicoHostedMediaModel {
             context.saveGState()
             context.translateBy(x: destination.minX, y: destination.minY)
             context.scaleBy(x: destination.width / document.width, y: destination.height / document.height)
-            document.draw(in: context, strokesAsFills: true)
+            document.draw(in: context)
             context.restoreGState()
         }
     }
@@ -166,18 +191,19 @@ final class PicoHostedMediaModel {
     }
 
     var capturesScroll: Bool {
+        guard !isImage else { return false }
         let rect = drawingRect(in: viewport)
         return isNavigationActive && (rect.width > viewport.width + 0.5 || rect.height > viewport.height + 0.5)
     }
 
     func activateNavigation() {
-        guard !isNavigationActive else { return }
+        guard !isImage, !isNavigationActive else { return }
         isNavigationActive = true
         changed()
     }
 
     func zoom(by factor: CGFloat) {
-        guard factor.isFinite, factor > 0 else { return }
+        guard !isImage, factor.isFinite, factor > 0 else { return }
         let next = min(8, max(0.25, zoom * factor))
         guard next != zoom else { return }
         zoom = next
@@ -187,6 +213,7 @@ final class PicoHostedMediaModel {
     }
 
     func fitDiagram() {
+        guard !isImage else { return }
         fit = .diagram
         zoom = 1
         pan = .zero
@@ -195,6 +222,7 @@ final class PicoHostedMediaModel {
     }
 
     func fitWidth() {
+        guard !isImage else { return }
         fit = .width
         zoom = 1
         pan = .zero
@@ -203,13 +231,14 @@ final class PicoHostedMediaModel {
     }
 
     func toggleExpanded() {
+        guard !isImage else { return }
         isExpanded.toggle()
         changed()
     }
 
     @discardableResult
     func pan(by delta: CGPoint) -> Bool {
-        guard delta.x.isFinite, delta.y.isFinite else { return false }
+        guard !isImage, delta.x.isFinite, delta.y.isFinite else { return false }
         let next = clamped(CGPoint(x: pan.x + delta.x, y: pan.y + delta.y))
         guard next != pan else { return false }
         pan = next
@@ -219,7 +248,7 @@ final class PicoHostedMediaModel {
 
     func markdownRepresentation() -> String {
         if isImage { return source }
-        let info = language ?? "mermaid"
+        let info = language ?? kind.defaultLanguage
         let marker: Character = info.contains("`") ? "~" : "`"
         var longest = 0
         var run = 0
@@ -250,9 +279,17 @@ final class PicoHostedMediaModel {
 
     private func parse(_ svg: String) {
         parseCount += 1
-        guard let parsed = PeleSVGDocument(svg: svg) else { return }
-        document = parsed
-        intrinsicSize = CGSize(width: parsed.width, height: parsed.height)
+        switch kind {
+        case .mermaid:
+            // A streaming Mermaid preview keeps its last successful drawing.
+            guard let parsed = PeleSVGDocument(svg: svg) else { return }
+            document = .pele(parsed)
+        case .svg:
+            // User-supplied SVG must fall back to source if a later update is invalid.
+            document = NativeSVGDocument(svg: svg).map(PicoHostedVectorDocument.svg)
+        case .image: return
+        }
+        intrinsicSize = document.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
     }
 
     private func baseScale(in size: CGSize) -> CGFloat {
@@ -286,6 +323,30 @@ final class PicoHostedMediaModel {
         onPresentationChanged?()
     }
 }
-// Mermaid uses the same navigation state and canvas as block images.
+typealias PicoHostedVectorModel = PicoHostedMediaModel
 typealias PicoHostedMermaidModel = PicoHostedMediaModel
+
+/// Vector sources share a viewport and controls; their decoders stay separate.
+@MainActor
+enum PicoHostedVectorDocument {
+    case pele(PeleSVGDocument)
+    case svg(NativeSVGDocument)
+
+    var width: CGFloat {
+        switch self { case .pele(let document): document.width; case .svg(let document): document.width }
+    }
+    var height: CGFloat {
+        switch self { case .pele(let document): document.height; case .svg(let document): document.height }
+    }
+    var accessibilityDescription: String? {
+        if case .svg(let document) = self { return document.accessibilityDescription }
+        return nil
+    }
+    func draw(in context: CGContext) {
+        switch self {
+        case .pele(let document): document.draw(in: context, strokesAsFills: true)
+        case .svg(let document): document.draw(in: context)
+        }
+    }
+}
 #endif

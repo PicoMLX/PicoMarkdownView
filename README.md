@@ -160,6 +160,8 @@ Built-in `CodeBlockTheme` presets:
 - `.prismDefault()` — the previous Prism-flavored palette
 - `.monospaced()` — no token coloring
 
+On macOS, native code blocks have a Liquid Glass Copy button in a reserved header. It appears when the pointer is over the block or the control receives keyboard or accessibility focus. Copy exports the current code body as plain text, preserving whitespace and omitting Markdown fences; it also works while code is streaming. Right-click anywhere in a code block for **Copy code**. The code remains native selectable TextKit 2 text. The iOS rendering path is unchanged.
+
 To swap palettes, disable highlighting, or plug in a different engine entirely, use `withCodeHighlighting` on the theme. `CodeSyntaxHighlighter` is the extension point — any engine that can turn `(code, language)` into an `AttributedString` works (Splash, tree-sitter, a native highlighter, …):
 
 ```swift
@@ -198,9 +200,25 @@ The bundled grammar set is regenerated with `Scripts/bundle-prism.sh` (pins the 
 
 ### Images
 
-On macOS 27, a closed paragraph containing just one loaded image uses a TextKit 2 hosted attachment, including standalone images in lists and blockquotes. The image keeps its aspect ratio and existing `imageMaxWidth` limit without upscaling its initial size. Hover or keyboard focus reveals the same Liquid Glass zoom pair and Copy control used by diagrams. Zoom and pan stay inside the image frame; Escape resets navigation so wheel scrolling returns to the document. Copy exports image Markdown with its URL, alternative text and optional title. Reference-style image syntax is normalized to an inline destination.
+On macOS 27, a closed paragraph containing just one loaded image uses a TextKit 2 hosted attachment, including standalone images in lists and blockquotes. Images retain their aspect ratio and existing `imageMaxWidth` limit without initial upscaling. There are no inline image zoom controls; ordinary wheel scrolling and selection remain part of the document.
 
-Images mixed with prose, multiple images in one paragraph, heading images, and table-cell images keep their existing rendering. An open image paragraph keeps its native attachment until closure, since more streamed prose may still follow. Existing asynchronous image loading and block-local refreshes are reused. iOS image rendering is unchanged.
+Use `onImageTap` to present an app-owned viewer. The callback receives the loaded source image, source URL, alternative text and optional title, so the app can implement its own lightbox, zoom, copying and export without fetching the image again:
+
+```swift
+#if os(macOS)
+PicoMarkdownView(markdown)
+    .onImageTap { activation in
+        selectedImage = activation
+    }
+    .padding()
+#endif
+```
+
+The callback is available on `PicoMarkdownView` on macOS. Apply it before general SwiftUI view modifiers such as `padding`. A plain click, keyboard activation or VoiceOver press requests the viewer; dragging still selects Markdown across the image. Without a callback, the image stays static. Pass `nil` to remove a callback without replacing the view. Document selection and the image context menu copy image Markdown, including URL, alternative text and title. Reference-style image syntax is normalized to an inline destination.
+
+Images mixed with prose, multiple images in one paragraph, heading images, and table-cell images keep their existing rendering and do not invoke this callback. An open image paragraph keeps its native attachment until closure, since more streamed prose may still follow. Existing asynchronous image loading and block-local refreshes are reused. iOS image rendering is unchanged.
+
+The macOS example owns a lightbox over its whole window content, with zoom, pan, Copy Image, Save and Escape dismissal. Mermaid and SVG retain their inline controls.
 
 ### Diagrams (Mermaid)
 
@@ -234,6 +252,37 @@ The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele vers
 #### Teaching your model to draw
 
 Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
+
+### SVG graphics (macOS, opt-in)
+
+To display a fenced `svg` block as a graphic on macOS 27, enable SVG rendering on the theme:
+
+```swift
+let theme = MarkdownRenderTheme.default().withSVGRendering()
+PicoMarkdownView(markdown, theme: theme)
+```
+
+````markdown
+A native Markdown paragraph before the graphic.
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120">
+  <title>Two overlapping circles</title>
+  <circle cx="95" cy="60" r="44" fill="#4f46e5"/>
+  <circle cx="145" cy="60" r="44" fill="#06b6d4" opacity="0.75"/>
+</svg>
+```
+
+A native Markdown paragraph after the graphic.
+````
+
+SVG rendering is off by default. Only `svg` fences opt into this presentation; raw HTML and ordinary code fences keep their existing behavior. iOS continues to display SVG fences as code, and math keeps its current renderer.
+
+An open SVG fence remains source code while it streams. When the block closes, a valid, supported SVG becomes one TextKit 2 hosted attachment. Surrounding Markdown stays in the same text view; the tokenizer and assembler remain incremental. Resizing and zooming redraw the existing native image without reparsing the SVG source.
+
+SVG uses the same bounded viewport, hover/focus Liquid Glass zoom pair, pan behavior and whole-block selection as Mermaid. **Copy SVG** copies its fenced Markdown; **Copy source** copies only the SVG body. A document selection spanning prose and a graphic expands the attachment to its fenced source. The SVG’s own colors and transparency are retained, so authors should choose colors that work against the page background and supply a descriptive `<title>` or `<desc>`.
+
+The renderer uses AppKit’s native SVG image decoder, without a WebView or another package dependency. It supports static shapes and text, CSS styles, gradients, clipping, masks and internal references. It does not claim full browser SVG support: malformed content and unsupported features such as filters, `foreignObject`, scripts, animation and external resources stay visible as source code. The example app’s **SVG** page enables this option only for that page and includes supported graphics plus a source-fallback example.
 
 ### Resetting Content
 

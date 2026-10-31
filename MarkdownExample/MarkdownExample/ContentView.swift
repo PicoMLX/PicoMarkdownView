@@ -18,14 +18,18 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
+    /// Only the SVG demo opts into rendering SVG fences as native graphics.
+    let svgRenderingEnabled: Bool
 
     init(localFilename: String,
          webURL: String,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         svgRenderingEnabled: Bool = false) {
         self.name = localFilename
         self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
+        self.svgRenderingEnabled = svgRenderingEnabled
     }
 
     func hash(into hasher: inout Hasher) {
@@ -66,6 +70,10 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "Diagrams",
             webURL: "https://pele.run/examples"),
         MarkdownExample(
+            localFilename: "SVG",
+            webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
+            svgRenderingEnabled: true),
+        MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
     ]
@@ -74,6 +82,9 @@ struct MarkdownExample: Identifiable, Hashable {
 struct ContentView: View {    
     
     @State var selectedExample: MarkdownExample?
+#if os(macOS)
+    @State private var selectedImage: ExampleImagePresentation?
+#endif
     
     var body: some View {
         NavigationSplitView {
@@ -86,6 +97,9 @@ struct ContentView: View {
         } detail: {
             if let selectedExample {
                 MarkdownView(selectedExample)
+#if os(macOS)
+                    .onImageTap { selectedImage = ExampleImagePresentation(image: $0) }
+#endif
             } else {
                 Text("Select an Example")
             }
@@ -93,9 +107,31 @@ struct ContentView: View {
         .onAppear {
             selectedExample = MarkdownExample.examples.first
         }
+#if os(macOS)
+        // The app owns presentation above the entire split view, including
+        // the browser comparison pane. The Markdown renderer only reports
+        // activation and keeps its streaming view alive beneath the sheet.
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .sheet(item: $selectedImage) { presentation in
+                        ImageLightbox(image: presentation.image)
+                            .frame(width: max(320, geometry.size.width * 0.94),
+                                   height: max(280, geometry.size.height * 0.92))
+                    }
+            }
+        }
+#endif
     }
 }
 
 #Preview {
     ContentView()
 }
+
+#if os(macOS)
+private struct ExampleImagePresentation: Identifiable {
+    let id = UUID()
+    let image: MarkdownImageActivation
+}
+#endif

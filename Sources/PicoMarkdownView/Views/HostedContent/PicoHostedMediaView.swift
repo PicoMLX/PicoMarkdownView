@@ -34,5 +34,6 @@ private struct PicoHostedMediaCanvas: NSViewRepresentable {
                       height: model.viewportHeight(availableWidth: width))
     }
 }
+typealias PicoHostedVectorView = PicoHostedMediaView
 typealias PicoHostedMermaidView = PicoHostedMediaView
 #endif
