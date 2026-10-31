@@ -53,8 +53,8 @@ function scheduleSize() {
     // Wait until the host supplies space beyond the root's horizontal padding.
     if (rect.width <= 32) return;
     const height = contentHeight(rootElement, bodyPortals(rootElement));
-    if (!Number.isFinite(height) || height < 1 || height > 20000) {
-      reportErrors([{ code: 'invalid-content-height', message: 'OpenUI content exceeds the supported height.' }], sourceID);
+    if (!Number.isFinite(height) || height <= 0) {
+      reportErrors([{ code: 'invalid-content-height', message: 'OpenUI content has an invalid measured height.' }], sourceID);
       return;
     }
     if (lastSize?.sourceID === sourceID && lastSize.height === height) return;

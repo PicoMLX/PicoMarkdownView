@@ -80,6 +80,44 @@ struct MacOpenUIModelTests {
         #expect(model.renderCount == 0)
     }
 
+    @Test("The height limit applies after CSS pixels are converted to native points", .timeLimit(.minutes(1)))
+    func cssHeightLimitUsesNativePoints() async throws {
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        model.updateTextScale(0.5)
+        let sourceID = model.sourceID
+        let markdown = model.markdown
+        let initialHeight = model.measuredHeight
+        for height in [Double.nan, .infinity, -.infinity, 0, -10] {
+            model.receive(["kind": "size", "payload": ["height": height], "sourceID": sourceID])
+        }
+        #expect(model.sizeMessageCount == 0)
+        #expect(model.measuredHeight == initialHeight)
+        #expect(model.error == nil)
+        await waitForHeightChange(of: model) {
+            model.receive(["kind": "size", "payload": ["height": 25_000.0], "sourceID": sourceID])
+        }
+        #expect(model.measuredHeight == 12_500)
+        #expect(model.error == nil, "A CSS height over 20k can fit within the native inline limit")
+        let webView = try #require(model.makeWebView())
+        model.receive(["kind": "ready", "sourceID": sourceID])
+        let initialRenderCount = model.renderCount
+        model.updateTextScale(1)
+        #expect(model.error != nil, "25k native points exceed the inline limit")
+        #expect(model.measuredHeight == 12_500)
+        #expect(model.webView === webView)
+        model.updateTextScale(0.5)
+        #expect(model.error == nil)
+        #expect(model.measuredHeight == 12_500)
+        #expect(webView.pageZoom == 0.5)
+        #expect(model.webView === webView)
+        #expect(model.sourceID == sourceID)
+        #expect(model.markdown == markdown)
+        #expect(model.sizeMessageCount == 1)
+        #expect(model.webViewCreationCount == 1)
+        #expect(model.renderCount == initialRenderCount, "Scale changes must not resubmit the OpenUI program")
+    }
+
     @Test("Returning below the height limit restores content without another CSS measurement", .timeLimit(.minutes(1)))
     func textScaleRecoversFromHeightLimit() async {
         let model = PicoHostedOpenUIModel(source: source, language: "openui")

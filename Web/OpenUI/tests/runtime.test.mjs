@@ -118,6 +118,18 @@ console.log('PASS DOM: official chart');
 assert.ok(messages.some(message => message.kind === 'size' && message.payload.height === 480));
 assert.ok(messages.every(message => ['ready', 'size', 'action', 'error'].includes(message.kind)));
 console.log('PASS bridge: timer-based measurement works with suspended animation frames');
+await render(fixtures[0], 'css-height');
+layout.rootHeight = 25000;
+dom.window.dispatchEvent(new dom.window.Event('resize'));
+await waitFor(() => messages.findLast(message => message.kind === 'size' && message.sourceID === 'css-height')?.payload.height === 25000,
+  'large CSS measurement reaches the native scale-aware limit');
+assert.deepEqual(lastErrors('css-height'), [], 'CSS pixels are not prematurely limited as native points');
+layout.rootHeight = 480;
+dom.window.dispatchEvent(new dom.window.Event('resize'));
+await waitFor(() => messages.findLast(message => message.kind === 'size' && message.sourceID === 'css-height')?.payload.height === 480,
+  'normal CSS height restores after a large measurement');
+assert.deepEqual(lastErrors('css-height'), []);
+console.log('PASS bridge: large CSS heights reach the native host without a scale-blind error');
 await render(fixtures.find(fixture => fixture.id === 'date-picker'));
 const pickerInput = document.querySelector('.openui-date-picker-renderer-floating-input-container');
 pickerInput.click();
