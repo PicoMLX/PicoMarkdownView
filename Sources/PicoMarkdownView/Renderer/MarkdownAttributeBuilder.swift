@@ -16,6 +16,7 @@ struct RenderedContentResult {
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
     var svgGraphic: RenderedSVGGraphic? = nil
+    var openUI: RenderedOpenUIContent? = nil
     var paragraphSpacingAfter: CGFloat? = nil
 }
 
@@ -261,7 +262,26 @@ actor MarkdownAttributeBuilder {
         case .blockquote:
             return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                           level: max(1, blockquoteLevel))
-        case .fencedCode:
+        case .fencedCode(let language):
+#if os(macOS)
+            // Interpret only a completed, explicitly opted-in payload. The
+            // tokenizer and open-fence streaming continue using native code.
+            if theme.openUIRenderingEnabled, snapshot.isClosed,
+               language?.split(whereSeparator: \.isWhitespace).first?.lowercased() == "openui" {
+                let spacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
+                let paragraph = makeCodeParagraphStyle(lineHeightMultiple: 1,
+                    spacingBefore: spacing.spacingBefore, spacingAfter: spacing.spacingAfter)
+                let marker = NSAttributedString(string: "\u{FFFC}\n", attributes: [
+                    .font: bodyFont, .foregroundColor: PlatformColor.rendererLabel,
+                    .paragraphStyle: paragraph
+                ])
+                let source = snapshot.codeText ?? ""
+                return RenderedContentResult(attributed: .picoConverted(from: marker),
+                    table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                    codeBlock: RenderedCodeBlock(code: source, language: language),
+                    openUI: RenderedOpenUIContent(source: source, language: language, fontSize: bodyFont.pointSize))
+            }
+#endif
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
             }

@@ -102,6 +102,10 @@ final class TextKitStreamingController: ObservableObject {
         }
     }
 #elseif canImport(AppKit)
+    func installOpenUIActionHandler(_ handler: ((PicoOpenUIActionEvent) -> Void)?) {
+        backend.onOpenUIAction = handler
+    }
+
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)
@@ -271,6 +275,7 @@ final class TextKitStreamingBackend {
         var imageRuns: [InlineRun]? = nil
         var imageIsClosed = false
         var svgGraphic: RenderedSVGGraphic? = nil
+        var openUI: RenderedOpenUIContent? = nil
         var hostedAttachments: [HostedRecord] = []
 #endif
     }
@@ -297,7 +302,9 @@ final class TextKitStreamingBackend {
     private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
                                          activation: MarkdownImageActivation)] = [:]
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+    private var hostedOpenUIs: [BlockID: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
+    var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
     var onHostedLink: ((URL, String) -> Void)?
@@ -354,6 +361,7 @@ final class TextKitStreamingBackend {
             hostedMermaids.removeAll()
             hostedImages.removeAll()
             hostedSVGs.removeAll()
+            disposeOpenUIs()
         }
 #endif
         if deferred != nil {
@@ -388,6 +396,7 @@ final class TextKitStreamingBackend {
                 hostedMermaids.removeAll()
                 hostedImages.removeAll()
                 hostedSVGs.removeAll()
+                disposeOpenUIs()
 #endif
                 return NSRange(location: 0, length: 0)
             }
@@ -402,6 +411,7 @@ final class TextKitStreamingBackend {
             hostedMermaids.removeAll()
             hostedImages.removeAll()
             hostedSVGs.removeAll()
+            disposeOpenUIs()
 #endif
             return NSRange(location: 0, length: 0)
         }
@@ -646,6 +656,7 @@ final class TextKitStreamingBackend {
             hostedMermaids.removeValue(forKey: record.id)
             hostedImages.removeValue(forKey: record.id)
             hostedSVGs.removeValue(forKey: record.id)
+            hostedOpenUIs.removeValue(forKey: record.id)?.model.dispose()
 #endif
         }
         records.removeSubrange(removalRange)
@@ -677,6 +688,9 @@ final class TextKitStreamingBackend {
         hostedMermaids = hostedMermaids.filter { liveIDs.contains($0.key) }
         hostedImages = hostedImages.filter { liveIDs.contains($0.key) }
         hostedSVGs = hostedSVGs.filter { liveIDs.contains($0.key) }
+        for id in hostedOpenUIs.keys where !liveIDs.contains(id) {
+            hostedOpenUIs.removeValue(forKey: id)?.model.dispose()
+        }
 #endif
         return selection.clamped(maxLength: storage.length)
     }
@@ -845,6 +859,7 @@ final class TextKitStreamingBackend {
         return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
             && record.mermaidDiagram == block.mermaidDiagram
             && record.svgGraphic == block.svgGraphic
+            && record.openUI == block.openUI
             && (block.mermaidDiagram == nil || record.mermaidIsClosed == block.snapshot.isClosed)
             && (block.images.isEmpty || (record.imageIsClosed == block.snapshot.isClosed
                 && record.imageRuns == block.snapshot.inlineRuns))
@@ -858,11 +873,12 @@ final class TextKitStreamingBackend {
         records[index].table = block.table
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
-        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil ? block.codeBlock : nil
+        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil && block.openUI == nil ? block.codeBlock : nil
         records[index].mermaidIsClosed = block.snapshot.isClosed
         records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
         records[index].imageIsClosed = block.snapshot.isClosed
         records[index].svgGraphic = block.svgGraphic
+        records[index].openUI = block.openUI
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
@@ -882,6 +898,35 @@ final class TextKitStreamingBackend {
 
     private func attributedString(for block: RenderedBlock) -> NSAttributedString {
 #if canImport(AppKit)
+        if let content = block.openUI {
+            let entry: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)
+            if let existing = hostedOpenUIs[block.id],
+               existing.model.source == content.source, existing.model.language == content.language {
+                entry = existing
+            } else {
+                hostedOpenUIs.removeValue(forKey: block.id)?.model.dispose()
+                let model = PicoHostedOpenUIModel(source: content.source, language: content.language)
+                model.onAction = { [weak self] event in self?.onOpenUIAction?(event) }
+                let attachment = PicoHostedAttachment(interaction: .interactive,
+                    markdown: { model.markdown }) { context in
+                        PicoHostedOpenUIView(model: model, context: context)
+                    }
+                attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
+                attachment.attachmentCell = nil
+                attachment.seedSizeBeforeViewCreation(CGSize(width: 1, height: model.measuredHeight))
+                model.onHeightChanged = { [weak attachment] in attachment?.invalidateSize() }
+                entry = (model, attachment)
+                hostedOpenUIs[block.id] = entry
+            }
+            entry.model.updateTextScale(content.fontSize / 16)
+            let attributed = NSMutableAttributedString(attributedString: .picoConverted(from: block.content))
+            let marker = (attributed.string as NSString).range(of: "\u{FFFC}")
+            if marker.location != NSNotFound {
+                attributed.addAttribute(.attachment, value: entry.attachment, range: marker)
+            }
+            return attributed
+        }
+        hostedOpenUIs.removeValue(forKey: block.id)?.model.dispose()
         if let graphic = block.svgGraphic, let attributed = hostedSVGAttributedString(for: block, graphic: graphic) {
             hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
@@ -1080,6 +1125,11 @@ final class TextKitStreamingBackend {
         return content
     }
 
+    private func disposeOpenUIs() {
+        for entry in hostedOpenUIs.values { entry.model.dispose() }
+        hostedOpenUIs.removeAll()
+    }
+
     private func updateHostedSVGOnly(at index: Int, block: RenderedBlock) -> Bool {
         guard records[index].content == block.content,
               let graphic = block.svgGraphic,
@@ -1236,6 +1286,10 @@ final class TextKitStreamingBackend {
                     hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
                         height: svg.model.viewportHeight(availableWidth: availableWidth)))
                 }
+                if let openUI = hostedOpenUIs[records[index].id] {
+                    hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
+                        height: openUI.model.measuredHeight))
+                }
                 hosted.attachment.update(availableWidth: availableWidth, isSelected: selected)
             }
         }
@@ -1253,8 +1307,11 @@ final class TextKitStreamingBackend {
 
     func resetDocumentOnNextApply() { shouldResetDocument = true }
 
+    func hostedOpenUIModel(for id: BlockID) -> PicoHostedOpenUIModel? { hostedOpenUIs[id]?.model }
+
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
-        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment ?? hostedImages[id]?.attachment
+        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment
+            ?? hostedImages[id]?.attachment ?? hostedOpenUIs[id]?.attachment
     }
 #endif
 

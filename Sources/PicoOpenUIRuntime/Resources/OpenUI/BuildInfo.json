@@ -1,0 +1,25 @@
+{
+  "versions": {
+    "@openuidev/lang-core": "1.0.2",
+    "@openuidev/react-lang": "1.0.2",
+    "@openuidev/react-ui": "0.18.1",
+    "@openuidev/react-headless": "0.18.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "files": [
+    {
+      "name": "app.js",
+      "bytes": 3466705
+    },
+    {
+      "name": "app.css",
+      "bytes": 356480
+    },
+    {
+      "name": "index.html",
+      "bytes": 594
+    }
+  ],
+  "bundledPackageCount": 183
+}
