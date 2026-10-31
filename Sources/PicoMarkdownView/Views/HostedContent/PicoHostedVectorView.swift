@@ -9,9 +9,23 @@ struct PicoHostedVectorView: View {
 
     var body: some View {
         let width = model.viewportWidth(availableWidth: context.availableWidth)
-        PicoHostedVectorCanvas(model: model, isSelected: context.isSelected)
-            .frame(width: width,
-                   height: model.viewportHeight(availableWidth: width))
+        if model.isLoading {
+            Group {
+                if model.showsLoadingPlaceholder {
+                    PicoHostedLoadingView(activity: model.loadingActivity,
+                                          isSelected: context.isSelected) {
+                        Text(model.loadingAccessibilityLabel ?? "")
+                    }
+                } else {
+                    Color.clear.accessibilityHidden(true)
+                }
+            }
+            .frame(width: width, height: PicoHostedVectorModel.loadingHeight)
+        } else {
+            PicoHostedVectorCanvas(model: model, isSelected: context.isSelected)
+                .frame(width: width,
+                       height: model.viewportHeight(availableWidth: width))
+        }
     }
 }
 

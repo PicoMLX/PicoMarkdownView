@@ -16,6 +16,9 @@ final class PicoHostedVectorModel {
         var copyLabel: String { "Copy " + formatName }
     }
     enum Fit: Equatable { case diagram, width }
+    enum LoadingActivity: Equatable { case receiving, paused, stopped }
+    static let loadingDelay: Duration = .milliseconds(350)
+    static let loadingHeight: CGFloat = 48
 
     private(set) var kind: Kind
 
@@ -31,40 +34,111 @@ final class PicoHostedVectorModel {
     private(set) var isNavigationActive = false
     private(set) var presentationRevision: UInt64 = 0
     private(set) var parseCount = 0
+    private(set) var showsLoadingPlaceholder = false
+    private(set) var loadingActivity: LoadingActivity = .receiving
 
     @ObservationIgnored private(set) var document: PeleSVGDocument?
     @ObservationIgnored private var svg: String
+    @ObservationIgnored private var loadingTask: Task<Void, Never>?
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
-    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
+    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil,
+         kind: Kind = .mermaid, loadingTiming: HostedLoadingTiming = .continuous) {
         self.kind = kind
         self.svg = svg
         self.source = source
         self.language = language
         self.isClosed = isClosed
         self.maxWidth = Self.normalizedMaxWidth(maxWidth)
-        parse(svg)
+        if isLoading {
+            scheduleLoadingReveal(using: loadingTiming)
+        } else {
+            parse(svg)
+        }
     }
+
+    deinit { loadingTask?.cancel() }
 
     func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
         let maxWidth = Self.normalizedMaxWidth(maxWidth)
         guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed
                 || self.maxWidth != maxWidth || self.kind != kind else { return }
-        if self.svg != svg || self.kind != kind {
-            self.kind = kind
-            self.svg = svg
-            parse(svg)
-        }
+        let shouldParse = kind == .vegaLite
+            ? isClosed && (self.svg != svg || self.kind != kind || !self.isClosed)
+            : self.svg != svg || self.kind != kind
+        self.kind = kind
+        self.svg = svg
         self.source = source
         self.language = language
         self.isClosed = isClosed
         self.maxWidth = maxWidth
+        if shouldParse { parse(svg) }
+        if !isLoading {
+            loadingTask?.cancel()
+            loadingTask = nil
+            showsLoadingPlaceholder = false
+        }
         pan = clamped(pan)
         changed()
     }
 
     var isRenderable: Bool { document != nil }
+    var isLoading: Bool { kind == .vegaLite && !isClosed }
+
+    /// The native hosting root exposes this status while SwiftUI supplies the chrome.
+    var loadingAccessibilityLabel: String? {
+        guard isLoading, showsLoadingPlaceholder else { return nil }
+        switch loadingActivity {
+        case .receiving:
+            return String(localized: "Preparing chart…", table: "HostedLoading", bundle: .module,
+                          comment: "Status while a chart's source is still arriving.")
+        case .paused:
+            return String(localized: "Chart paused", table: "HostedLoading", bundle: .module,
+                          comment: "Status when displaying new chart source is paused.")
+        case .stopped:
+            return String(localized: "Chart incomplete", table: "HostedLoading", bundle: .module,
+                          comment: "Status when a chart stream stops before completion.")
+        }
+    }
+
+    func setLoadingActivity(_ activity: LoadingActivity) {
+        guard isLoading, loadingActivity != activity else { return }
+        loadingActivity = activity
+        if activity == .stopped {
+            loadingTask?.cancel()
+            loadingTask = nil
+            showsLoadingPlaceholder = true
+        }
+        changed()
+    }
+
+    /// Retired attachments must not reveal a delayed indicator or keep animating.
+    func finishLoading() {
+        guard kind == .vegaLite else { return }
+        loadingTask?.cancel()
+        loadingTask = nil
+        let didChange = showsLoadingPlaceholder || loadingActivity != .stopped
+        showsLoadingPlaceholder = false
+        loadingActivity = .stopped
+        if didChange { changed() }
+    }
+
+    func waitForLoadingDelay() async {
+        await loadingTask?.value
+    }
+
+    private func scheduleLoadingReveal(using timing: HostedLoadingTiming) {
+        let sleep = timing.sleep
+        loadingTask = Task { [weak self] in
+            do { try await sleep(Self.loadingDelay) }
+            catch { return }
+            guard !Task.isCancelled, let self, self.isLoading else { return }
+            self.showsLoadingPlaceholder = true
+            self.loadingTask = nil
+            self.changed()
+        }
+    }
 
     func viewportWidth(availableWidth: CGFloat) -> CGFloat {
         let available = availableWidth.isFinite ? max(1, availableWidth) : 1
@@ -72,6 +146,7 @@ final class PicoHostedVectorModel {
     }
 
     func viewportHeight(availableWidth: CGFloat) -> CGFloat {
+        if isLoading { return Self.loadingHeight }
         if isExpanded { return 600 }
         let width = viewportWidth(availableWidth: availableWidth)
         let height = intrinsicSize.height * width / max(1, intrinsicSize.width)

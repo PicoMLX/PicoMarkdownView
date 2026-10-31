@@ -7,8 +7,8 @@ import Testing
 @Suite("macOS native content height")
 @MainActor
 struct MacTextKitContentHeightTests {
-    @Test("Closing a large chart fence shrinks the document and keeps its last paragraph visible")
-    func chartClosureShrinksScrolledDocument() async throws {
+    @Test("A fixed-height loading chart grows on closure and keeps its final paragraph visible")
+    func chartLoadingGrowthKeepsScrolledTailVisible() async throws {
         _ = NSApplication.shared
         let controller = TextKitStreamingController()
         let view = controller.makeTextKit2View(configuration: .default())
@@ -37,16 +37,27 @@ struct MacTextKitContentHeightTests {
                 index = end
             }
             let openHeight = view.intrinsicContentSize.height
-            #expect(openHeight > scroll.contentView.bounds.height * 3)
+            #expect(!view.string.contains(source), "Streaming JSON must stay outside native text storage")
+            let loadingStorage = try #require(view.textStorage)
+            var loadingAttachment: PicoHostedAttachment?
+            loadingStorage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: loadingStorage.length)) { value, _, _ in
+                if let attachment = value as? PicoHostedAttachment { loadingAttachment = attachment }
+            }
+            #expect(loadingAttachment?.bounds.height == 48)
             let tail = "Final paragraph after chart \(cycle)."
             apply(await pipeline.feed("```\n\n" + tail + "\n\n"), controller, view)
+            for _ in 0..<6 {
+                view.layoutSubtreeIfNeeded()
+                await Task.yield()
+            }
+            #expect(await pipeline.blocksSnapshot().compactMap(\.vegaLiteChart).filter { !$0.svg.isEmpty }.count == cycle)
             #expect(view.string.filter { $0 == "\u{FFFC}" }.count == cycle,
                     "The completed fences must become real hosted charts")
             let height = view.intrinsicContentSize.height
             let tailFrame = try paragraphFrame(containing: tail, in: view)
             #expect(abs(height - ceil(tailFrame.maxY + view.textContainerInset.height * 2)) <= 1,
                     "The document must end at its final paragraph after the code collapses")
-            #expect(height < openHeight / 2)
+            #expect(height > openHeight, "The ready chart must grow beyond its fixed 48-point loading row")
             resizeAndScrollToEnd(view, document: document, scroll: scroll)
             view.layoutSubtreeIfNeeded()
             view.textLayoutManager?.textViewportLayoutController.layoutViewport()
@@ -56,6 +67,26 @@ struct MacTextKitContentHeightTests {
             await Task.yield()
         }
         apply(await pipeline.finish(), controller, view)
+    }
+
+    @Test("Native long-to-short replacement drops stale TextKit usage height")
+    func nativeReplacementShrinksMeasuredDocument() throws {
+        let controller = TextKitStreamingController()
+        let view = controller.makeTextKit2View(configuration: .default())
+        view.frame = NSRect(x: 0, y: 0, width: 336, height: 600)
+        let storage = try #require(view.textStorage)
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)]
+        let long = String(repeating: "A native code paragraph with enough text to wrap across the narrow document.\n", count: 512)
+        storage.setAttributedString(NSAttributedString(string: long, attributes: attributes))
+        let longHeight = view.intrinsicContentSize.height
+        try #require(longHeight > 2_000)
+        let short = "Only the final native paragraph remains.\n"
+        storage.setAttributedString(NSAttributedString(string: short, attributes: attributes))
+        let shortHeight = view.intrinsicContentSize.height
+        #expect(storage.string == short)
+        #expect(shortHeight > 0 && shortHeight < 100)
+        #expect(shortHeight < longHeight / 10, "A removed long document must not survive in cached usage bounds")
+        #expect(view.textLayoutManager != nil)
     }
 
     @Test("Empty content and trailing empty lines have finite intrinsic height")

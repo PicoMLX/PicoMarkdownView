@@ -96,6 +96,8 @@ public struct MarkdownRenderTheme: Sendable {
     }
 
     /// Returns a copy that enables or disables native Vega-Lite charts on macOS.
+    /// Open chart fences use a delayed loading row; compilation starts only
+    /// when the fence closes. Unsupported final sources remain native code.
     public func withVegaLiteRendering(_ enabled: Bool) -> MarkdownRenderTheme {
         MarkdownRenderTheme(bodyFont: bodyFont,
                             codeFont: codeFont,

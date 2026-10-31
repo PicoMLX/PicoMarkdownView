@@ -102,6 +102,10 @@ final class TextKitStreamingController: ObservableObject {
         }
     }
 #elseif canImport(AppKit)
+    func setHostedStreamActive(_ active: Bool) {
+        backend.setHostedStreamActive(active)
+    }
+
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)
@@ -282,6 +286,7 @@ final class TextKitStreamingBackend {
     private weak var contentStorage: NSTextContentStorage?
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedVectors: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedStreamActive = true
     private var hostedRefreshIDs: Set<BlockID> = []
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -294,8 +299,39 @@ final class TextKitStreamingBackend {
     }
 
     func setPaused(_ paused: Bool) {
+#if canImport(AppKit)
+        guard isPaused != paused else { return }
+#endif
         isPaused = paused
+#if canImport(AppKit)
+        updateHostedLoadingActivity()
+#endif
     }
+
+#if canImport(AppKit)
+    func setHostedStreamActive(_ active: Bool) {
+        guard hostedStreamActive != active else { return }
+        hostedStreamActive = active
+        updateHostedLoadingActivity()
+    }
+
+    private var hostedLoadingActivity: PicoHostedVectorModel.LoadingActivity {
+        isPaused ? .paused : (hostedStreamActive ? .receiving : .stopped)
+    }
+
+    private func updateHostedLoadingActivity() {
+        for entry in hostedVectors.values { entry.model.setLoadingActivity(hostedLoadingActivity) }
+    }
+
+    private func removeHostedVector(for id: BlockID) {
+        hostedVectors.removeValue(forKey: id)?.model.finishLoading()
+    }
+
+    private func removeAllHostedVectors() {
+        for entry in hostedVectors.values { entry.model.finishLoading() }
+        hostedVectors.removeAll()
+    }
+#endif
 
     func apply(blocks: [RenderedBlock], selection: NSRange) -> NSRange {
         apply(blocks: blocks, diffs: [], selection: selection)
@@ -332,7 +368,7 @@ final class TextKitStreamingBackend {
             blockOffsets = [0]
             indexByID.removeAll()
             hostedTables.removeAll()
-            hostedVectors.removeAll()
+            removeAllHostedVectors()
         }
 #endif
         if deferred != nil {
@@ -364,7 +400,7 @@ final class TextKitStreamingBackend {
                 indexByID = [:]
 #if canImport(AppKit)
                 hostedTables.removeAll()
-                hostedVectors.removeAll()
+                removeAllHostedVectors()
 #endif
                 return NSRange(location: 0, length: 0)
             }
@@ -376,7 +412,7 @@ final class TextKitStreamingBackend {
             indexByID = [:]
 #if canImport(AppKit)
             hostedTables.removeAll()
-            hostedVectors.removeAll()
+            removeAllHostedVectors()
 #endif
             return NSRange(location: 0, length: 0)
         }
@@ -618,7 +654,7 @@ final class TextKitStreamingBackend {
             indexByID[record.id] = nil
 #if canImport(AppKit)
             hostedTables.removeValue(forKey: record.id)
-            hostedVectors.removeValue(forKey: record.id)
+            removeHostedVector(for: record.id)
 #endif
         }
         records.removeSubrange(removalRange)
@@ -647,7 +683,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         let liveIDs = Set(blockData.map { $0.block.id })
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
-        hostedVectors = hostedVectors.filter { liveIDs.contains($0.key) }
+        for id in hostedVectors.keys.filter({ !liveIDs.contains($0) }) { removeHostedVector(for: id) }
 #endif
         return selection.clamped(maxLength: storage.length)
     }
@@ -863,9 +899,17 @@ final class TextKitStreamingBackend {
                     markdown: { model.markdownRepresentation() }) { context in
                         PicoHostedVectorView(model: model, context: context)
                     }
+                attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
+                if vector.kind == .vegaLite {
+                    // A nonnil transparent image bootstraps AppKit's lazy view
+                    // provider even before a chart has a vector document.
+                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
+                    attachment.attachmentCell = nil
+                }
                 entry = (model, attachment)
                 hostedVectors[block.id] = entry
             }
+            entry.model.setLoadingActivity(hostedLoadingActivity)
             // Offscreen attachments are laid out before their views exist.
             // Reserve the known vector viewport rather than a one-point row.
             let width = vector.maxWidth ?? entry.model.intrinsicSize.width
@@ -878,7 +922,7 @@ final class TextKitStreamingBackend {
             }
             return attributed
         }
-        hostedVectors.removeValue(forKey: block.id)
+        removeHostedVector(for: block.id)
         guard let table = block.table, let snapshot = block.snapshot.table else {
             hostedTables.removeValue(forKey: block.id)
             let attributed = NSAttributedString.picoConverted(from: block.content)
@@ -952,12 +996,15 @@ final class TextKitStreamingBackend {
         guard records[index].content == block.content,
               let vector = hostedVectorPresentation(for: block),
               let entry = hostedVectors[block.id] else { return false }
+        let wasLoading = entry.model.isLoading
         entry.model.update(svg: vector.svg, source: vector.source, language: vector.language,
                            isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth, kind: vector.kind)
+        entry.model.setLoadingActivity(hostedLoadingActivity)
         let width = vector.maxWidth ?? entry.model.intrinsicSize.width
         entry.attachment.estimateSize(CGSize(width: width,
             height: entry.model.viewportHeight(availableWidth: width)))
-        entry.attachment.invalidateSize()
+        // Source appends leave the loading row's geometry unchanged.
+        if !wasLoading || !entry.model.isLoading { entry.attachment.invalidateSize() }
         updateHostedRecord(at: index, block: block)
         return true
     }
@@ -996,6 +1043,10 @@ final class TextKitStreamingBackend {
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
         hostedTables[id]?.attachment ?? hostedVectors[id]?.attachment
+    }
+
+    func hostedVectorModel(for id: BlockID) -> PicoHostedVectorModel? {
+        hostedVectors[id]?.model
     }
 #endif
 

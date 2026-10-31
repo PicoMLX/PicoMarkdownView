@@ -153,8 +153,9 @@ struct VegaLiteGalleryTests {
             #expect(VegaLiteSpecPolicy.accepts(source), "\(id)")
             let pipeline = MarkdownStreamingPipeline()
             _ = await pipeline.feed("Before the official chart.\n\n```vega-lite\n" + source)
-            #expect(await pipeline.blocksSnapshot().allSatisfy { $0.vegaLiteChart == nil },
-                    "An open official fence must stay source code")
+            let loading = try #require(await pipeline.blocksSnapshot().compactMap(\.vegaLiteChart).first)
+            #expect(loading.svg.isEmpty, "An open official fence must not compile a chart")
+            #expect(loading.source == source)
             _ = await pipeline.feed("```\n\nAfter the official chart.\n\n")
             _ = await pipeline.finish()
             let blocks = await pipeline.blocksSnapshot()

@@ -18,6 +18,7 @@ public final class PicoHostedAttachment: NSTextAttachment {
     public private(set) var measuredSize = CGSize(width: 1, height: 1)
     public var onSizeChanged: (@MainActor (CGSize) -> Void)?
     var onLayoutInvalidated: (@MainActor (CGSize) -> Void)?
+    var accessibilityStatus: (@MainActor () -> String?)?
     public var hostingView: NSView? { hostedView }
 
     private let markdown: @MainActor () -> String
@@ -92,7 +93,8 @@ public final class PicoHostedAttachment: NSTextAttachment {
         if let hostedView { return hostedView }
         let root = PicoMeasuredHostedContent(context: context, content: content,
                                             onHeight: { [weak self] _ in self?.invalidateSize() })
-        let view = PicoHostedContentHostingView(rootView: root, interaction: interaction)
+        let view = PicoHostedContentHostingView(rootView: root, interaction: interaction,
+            accessibilityStatus: { [weak self] in self?.accessibilityStatus?() })
         view.sizingOptions = [.intrinsicContentSize]
         view.frame = CGRect(origin: .zero, size: measuredSize)
         hostedView = view

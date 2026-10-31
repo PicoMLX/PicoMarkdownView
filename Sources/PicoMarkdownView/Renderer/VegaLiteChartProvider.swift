@@ -8,7 +8,7 @@ struct VegaLiteRenderResult: Sendable, Equatable {
 }
 
 /// Completed, static, inline-data Vega-Lite charts. No work is requested for
-/// streaming prefixes; callers retain the code fence until it closes.
+/// streaming prefixes; the host retains a loading attachment until closure.
 actor VegaLiteChartProvider {
     private struct Key: Hashable {
         var source: String

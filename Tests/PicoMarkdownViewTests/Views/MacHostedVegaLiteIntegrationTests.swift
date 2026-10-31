@@ -6,7 +6,7 @@ import Testing
 @Suite("macOS hosted Vega-Lite integration")
 @MainActor
 struct MacHostedVegaLiteIntegrationTests {
-    @Test("A split closing fence replaces native source with one selectable vector chart")
+    @Test("A split closing fence upgrades the same loading attachment to one selectable vector chart")
     @available(macOS 27.0, *)
     func closurePreservesNativeProseAndExactSourceCopy() async throws {
         let (controller, view) = makeView()
@@ -17,21 +17,24 @@ struct MacHostedVegaLiteIntegrationTests {
         let storage = try #require(view.textStorage)
         let open = try #require(await pipeline.blocksSnapshot().first { $0.codeBlock != nil })
         #expect(open.snapshot.isClosed == false)
-        #expect(open.vegaLiteChart == nil)
-        #expect(hostedAttachments(in: storage).isEmpty)
-        #expect(storage.string.contains(source))
+        #expect(open.vegaLiteChart?.svg.isEmpty == true)
+        #expect(open.vegaLiteChart?.source == source)
+        let loadingAttachment = try #require(hostedAttachments(in: storage).first)
+        #expect(hostedAttachments(in: storage).count == 1)
+        #expect(storage.string.contains(source) == false)
 
         apply(await pipeline.feed("``"), controller: controller, view: view)
-        #expect(hostedAttachments(in: storage).isEmpty)
+        #expect(hostedAttachments(in: storage).first === loadingAttachment)
         apply(await pipeline.feed("`\n\nAfter paragraph stays native.\n\n"), controller: controller, view: view)
         apply(await pipeline.finish(), controller: controller, view: view)
         await settle(view)
 
         let attachment = try #require(hostedAttachments(in: storage).first)
         let chart = try #require(await pipeline.blocksSnapshot().compactMap(\.vegaLiteChart).first)
+        #expect(attachment === loadingAttachment)
         #expect(hostedAttachments(in: storage).count == 1)
         #expect(chart.source == source)
-        #expect(attachment.image == nil)
+        #expect(attachment.image != nil, "A transparent bootstrap image enables lazy TextKit hosting; the chart remains a native vector view")
         #expect(storage.string.contains("Before paragraph with 🧭."))
         #expect(storage.string.contains("After paragraph stays native."))
         #expect(storage.string.contains(source) == false)
