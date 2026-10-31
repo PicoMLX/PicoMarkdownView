@@ -15,6 +15,7 @@ struct RenderedContentResult {
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
+    var svgGraphic: RenderedSVGGraphic? = nil
     var paragraphSpacingAfter: CGFloat? = nil
 }
 
@@ -350,7 +351,9 @@ actor MarkdownAttributeBuilder {
                                         blockquote: nil,
                                         math: nil,
                                         images: [],
-                                        codeBlock: RenderedCodeBlock(code: text, language: language))
+                                        codeBlock: RenderedCodeBlock(code: text, language: language),
+                                        svgGraphic: SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+                                                                              maxWidth: theme.imageMaxWidth))
         case .horizontalRule:
             let content = renderHorizontalRule()
             return RenderedContentResult(attributed: AttributedString(content),

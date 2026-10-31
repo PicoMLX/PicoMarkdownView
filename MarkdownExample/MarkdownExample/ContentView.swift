@@ -18,14 +18,18 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
+    /// Only the SVG demo opts into rendering SVG fences as native graphics.
+    let svgRenderingEnabled: Bool
 
     init(localFilename: String,
          webURL: String,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         svgRenderingEnabled: Bool = false) {
         self.name = localFilename
         self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
+        self.svgRenderingEnabled = svgRenderingEnabled
     }
 
     func hash(into hasher: inout Hasher) {
@@ -65,6 +69,10 @@ struct MarkdownExample: Identifiable, Hashable {
         MarkdownExample(
             localFilename: "Diagrams",
             webURL: "https://pele.run/examples"),
+        MarkdownExample(
+            localFilename: "SVG",
+            webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
+            svgRenderingEnabled: true),
         MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
