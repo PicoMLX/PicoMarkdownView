@@ -1,0 +1,63 @@
+{
+  "generatedUTC": "2026-10-31T16:24:15.986260+00:00",
+  "baselineRevision": "184a8a64ccdad06aa8f35b91b14bce35fbd326eb",
+  "afterRevision": "184a8a64ccdad06aa8f35b91b14bce35fbd326eb+working-tree",
+  "note": "After implementation is identified exactly by the three production source hashes in its JSON artifacts. Environment capture can precede the final incremental harness rerun; artifactModifiedUTC records the final result-file write.",
+  "artifacts": [
+    {
+      "file": "before-native-80.json",
+      "sha256": "aadb470bd932e21c0d88a3ccf60273eca1b43dd44d1a9ce5f3d391ad52588c37",
+      "artifactModifiedUTC": "2026-10-31T16:17:43.453961+00:00"
+    },
+    {
+      "file": "before-native-80.log",
+      "sha256": "0a8223511a1e98b55ef901e7deb1fdace98b6676ad7fab38bfeb53b5ba5c7bc3",
+      "artifactModifiedUTC": "2026-10-31T16:17:43.554096+00:00"
+    },
+    {
+      "file": "before-html-80.json",
+      "sha256": "cf8afb2e02c8ed483196751d4cf928ea7a45b018f5f978fc2a18b0904f98e715",
+      "artifactModifiedUTC": "2026-10-31T16:19:05.337816+00:00"
+    },
+    {
+      "file": "before-html-80.log",
+      "sha256": "892a05074efc62e309d52a3ad67f994ecc47ca7ad209001a170b40f6c1f66829",
+      "artifactModifiedUTC": "2026-10-31T16:19:05.443394+00:00"
+    },
+    {
+      "file": "after-native-80.json",
+      "sha256": "1ab693e7c088d1a585ee6d60641db091896c73095b9d173b7f2bda158d5c4fb4",
+      "artifactModifiedUTC": "2026-10-31T16:20:04.722506+00:00"
+    },
+    {
+      "file": "after-native-80.log",
+      "sha256": "c23051cdbcf0463adee4e1a2933a570fb271d814a76cf9395447d0b6a7740698",
+      "artifactModifiedUTC": "2026-10-31T16:20:04.823431+00:00"
+    },
+    {
+      "file": "after-html-80.json",
+      "sha256": "51908d8e64e067cb8d86482239f5057b782408389eab41c2ad8790e7b6c09e56",
+      "artifactModifiedUTC": "2026-10-31T16:21:26.472829+00:00"
+    },
+    {
+      "file": "after-html-80.log",
+      "sha256": "5b5947c215cfeb21c95e90ea1df0dd7dcbc04369dae919112eab17c657b8cded",
+      "artifactModifiedUTC": "2026-10-31T16:21:26.588950+00:00"
+    },
+    {
+      "file": "before-environment.txt",
+      "sha256": "8574384937973198f6200f44a46e20ff9a7f3db10a38ec2cb9a4af708488c542",
+      "artifactModifiedUTC": "2026-10-31T16:11:55.345013+00:00"
+    },
+    {
+      "file": "after-environment.txt",
+      "sha256": "39d3c25184186f883f33fc4927e37ebfe28fb59f6d6dd089ae8ffe9bfe637949",
+      "artifactModifiedUTC": "2026-10-31T16:19:36.647604+00:00"
+    },
+    {
+      "file": "comparison.md",
+      "sha256": "2f809d7f80e57af6d9c758fbffafed1b443c26135f9389c1d428f98746727949",
+      "artifactModifiedUTC": "2026-10-31T16:22:13.086735+00:00"
+    }
+  ]
+}

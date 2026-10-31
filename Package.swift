@@ -49,6 +49,11 @@ let package = Package(
             name: "PicoMarkdownViewHTMLTests",
             dependencies: ["PicoMarkdownViewHTML"]
         ),
+        // Explicitly opt-in real-window latency/memory experiments; excluded from CI.
+        .testTarget(
+            name: "PicoMarkdownViewHTMLBenchmarks",
+            dependencies: ["PicoMarkdownView", "PicoMarkdownViewHTML"]
+        ),
         .testTarget(
             name: "PicoMarkdownViewTests",
             dependencies: ["PicoMarkdownView"]
