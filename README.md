@@ -160,6 +160,8 @@ Built-in `CodeBlockTheme` presets:
 - `.prismDefault()` — the previous Prism-flavored palette
 - `.monospaced()` — no token coloring
 
+On macOS, native code blocks have a Liquid Glass Copy button in a reserved header. It appears when the pointer is over the block or the control receives keyboard or accessibility focus. Copy exports the current code body as plain text, preserving whitespace and omitting Markdown fences; it also works while code is streaming. Right-click anywhere in a code block for **Copy code**. The code remains native selectable TextKit 2 text. The iOS rendering path is unchanged.
+
 To swap palettes, disable highlighting, or plug in a different engine entirely, use `withCodeHighlighting` on the theme. `CodeSyntaxHighlighter` is the extension point — any engine that can turn `(code, language)` into an `AttributedString` works (Splash, tree-sitter, a native highlighter, …):
 
 ```swift

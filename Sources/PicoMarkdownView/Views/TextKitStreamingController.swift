@@ -130,6 +130,7 @@ final class TextKitStreamingController: ObservableObject {
             let selection = backend.apply(blocks: blocks, selection: currentSelection)
             if configuration.isSelectable { textView.setSelectedRange(selection.clamped(maxLength: backend.length)) }
             Self.logger.debug("Text view content replaced: storageLength=\(self.backend.length)")
+            textView.needsLayout = true
             textView.needsDisplay = true
             textView.invalidateIntrinsicContentSize()
             return
@@ -141,6 +142,7 @@ final class TextKitStreamingController: ObservableObject {
             // force a full apply so the view stays in sync.
             if backend.needsFullApply(for: blocks) {
                 _ = backend.apply(blocks: blocks, selection: currentSelection)
+                textView.needsLayout = true
                 textView.needsDisplay = true
             } else if configuration.isSelectable {
                 textView.setSelectedRange(currentSelection.clamped(maxLength: backend.length))
@@ -155,6 +157,7 @@ final class TextKitStreamingController: ObservableObject {
         if configuration.isSelectable {
             textView.setSelectedRange(selection.clamped(maxLength: backend.length))
         }
+        textView.needsLayout = true
         textView.needsDisplay = true
         textView.invalidateIntrinsicContentSize()
     }
@@ -258,6 +261,7 @@ final class TextKitStreamingBackend {
         var table: RenderedTable? = nil
         var tableSnapshot: TableSnapshot? = nil
         var mermaidDiagram: RenderedMermaidDiagram? = nil
+        var codeBlockForCopy: RenderedCodeBlock? = nil
         var mermaidIsClosed = true
         var hostedAttachments: [HostedRecord] = []
 #endif
@@ -286,6 +290,8 @@ final class TextKitStreamingBackend {
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
     var onHostedLink: ((URL, String) -> Void)?
     var onHostedContentSizeChanged: ((NSRange) -> Void)?
+    var onDocumentReset: (() -> Void)?
+    private(set) var documentGeneration: UInt64 = 0
 #endif
 
     var length: Int {
@@ -321,6 +327,8 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         let selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
         if shouldResetDocument {
+            documentGeneration &+= 1
+            onDocumentReset?()
             shouldResetDocument = false
             if storage.length > 0 {
                 storage.beginEditing()
@@ -825,6 +833,7 @@ final class TextKitStreamingBackend {
         records[index].table = block.table
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
+        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil ? block.codeBlock : nil
         records[index].mermaidIsClosed = block.snapshot.isClosed
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
@@ -877,16 +886,16 @@ final class TextKitStreamingBackend {
             if case .heading(let level) = block.kind, level == 1 || level == 2 {
                 return MacHeadingUnderline.applying(to: attributed)
             }
-            guard case .fencedCode = block.kind, block.codeBlock != nil, block.mermaidDiagram == nil,
-                  attributed.length > 0,
-                  let color = attributed.attribute(.backgroundColor, at: attributed.length - 1, effectiveRange: nil) as? NSColor else {
+            guard case .fencedCode = block.kind, block.codeBlock != nil, attributed.length > 0 else {
                 return attributed
             }
-            let decorated = NSMutableAttributedString(attributedString: attributed)
-            decorated.addAttributes([
-                .picoCodeBlockID: NSNumber(value: block.id),
-                .picoCodeBlockBackgroundColor: color
-            ], range: NSRange(location: 0, length: decorated.length))
+            let decorated = MacCodeBlockCopy.applying(to: attributed, id: block.id)
+            if let color = attributed.attribute(.backgroundColor, at: attributed.length - 1, effectiveRange: nil) as? NSColor {
+                decorated.addAttributes([
+                    .picoCodeBlockID: NSNumber(value: block.id),
+                    .picoCodeBlockBackgroundColor: color
+                ], range: NSRange(location: 0, length: decorated.length))
+            }
             return decorated
         }
         let entry: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)
@@ -958,6 +967,16 @@ final class TextKitStreamingBackend {
                 hosted.attachment.update(availableWidth: max(1, width - hosted.indent), isSelected: selected)
             }
         }
+    }
+
+    func codeBlockForCopy(id: BlockID) -> RenderedCodeBlock? {
+        guard let index = indexByID[id] else { return nil }
+        return records[index].codeBlockForCopy
+    }
+
+    func codeBlockRangeForCopy(id: BlockID) -> NSRange? {
+        guard let index = indexByID[id], records[index].codeBlockForCopy != nil else { return nil }
+        return rangeForRecord(at: index)
     }
 
     func resetDocumentOnNextApply() { shouldResetDocument = true }
