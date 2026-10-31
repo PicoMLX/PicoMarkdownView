@@ -814,7 +814,17 @@ final class TextKitStreamingBackend {
     func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
         contentStorage = textContentStorage
         if let existingStorage = textContentStorage.textStorage {
+            guard existingStorage !== storage else { return }
+            // SwiftUI can recreate the native view while retaining this backend
+            // and its consumed diff versions. Move the already rendered document
+            // through the new TextKit 2 storage without rebuilding its attachments.
+            let renderedDocument = NSAttributedString(attributedString: storage)
             storage = existingStorage
+            if renderedDocument.length > 0 || existingStorage.length > 0 {
+                textContentStorage.performEditingTransaction {
+                    existingStorage.setAttributedString(renderedDocument)
+                }
+            }
         } else {
             textContentStorage.textStorage = storage
         }
