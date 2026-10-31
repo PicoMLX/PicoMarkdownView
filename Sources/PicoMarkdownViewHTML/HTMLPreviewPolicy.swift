@@ -71,7 +71,9 @@ nonisolated enum HTMLPreviewPolicy {
         }
         let bodyAttributes = builder.bodyAttributes.filter { $0.0 != "style" }
         let authorBodyStyle = builder.bodyAttributes.first { $0.0 == "style" }?.1 ?? ""
-        let bodyStyle = authorBodyStyle + ";margin:0!important;overflow:hidden!important"
+        // The outer HTML viewport clips the measured preview. Forcing body
+        // clipping would hide valid overflow when the author fixes its height.
+        let bodyStyle = authorBodyStyle + ";margin:0!important"
         let styles = builder.styles.map { stylesheet in
             let media = stylesheet.media.map { attributesHTML([("media", $0)]) } ?? ""
             return "<style" + media + ">" + escapeCSSRawText(stylesheet.css) + "</style>"
@@ -101,9 +103,10 @@ nonisolated enum HTMLPreviewPolicy {
         let family = safeFontFamily(style.fontFamily)
         let foreground = safeColor(style.foregroundCSS, fallback: style.isDark ? "#ffffff" : "#000000")
         let background = safeColor(style.backgroundCSS, fallback: "transparent")
+        // Contain ordinary block margins without overriding author flex/grid.
         let baseCSS = """
         html { color-scheme: \(style.isDark ? "dark" : "light"); }
-        body { margin: 0; font: \(fontSize)px \(family); color: \(foreground); background-color: \(background); overflow-wrap: anywhere; }
+        body { display: flow-root; margin: 0; font: \(fontSize)px \(family); color: \(foreground); background-color: \(background); overflow-wrap: anywhere; }
         pre { white-space: pre-wrap; } table { max-width: 100%; } th, td { overflow-wrap: anywhere; }
         """
         let staticCSS = "*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }"

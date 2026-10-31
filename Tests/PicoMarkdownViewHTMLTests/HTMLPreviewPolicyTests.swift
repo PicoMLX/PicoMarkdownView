@@ -90,7 +90,9 @@ struct HTMLPreviewPolicyTests {
         #expect(children.count == 1)
         #expect(children.first?.attribute(forName: "id")?.stringValue == "pico-html-content",
                 "Author IDs and physical direct children do not need a reserved measurement wrapper")
-        #expect(document.html.contains("margin:50px;overflow:auto;margin:0!important;overflow:hidden!important"))
+        #expect(body.attribute(forName: "style")?.stringValue == "margin:50px;overflow:auto;margin:0!important")
+        #expect(document.html.contains("<html style=\"margin:0!important;overflow:hidden!important\""),
+                "Clipping belongs to the outer viewport, not to the author's body box")
     }
 
     @Test("Images have a visible escaped alt fallback and never retain resources")

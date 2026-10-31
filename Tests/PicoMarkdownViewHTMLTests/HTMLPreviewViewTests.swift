@@ -74,6 +74,43 @@ struct HTMLPreviewViewTests {
         #expect(top >= 0 && bottom <= viewportHeight, "The actual report must be inside the rendered browser viewport")
     }
 
+    @Test("An authored short body keeps its visible overflowing report inside the bounded preview")
+    func shortBodyDoesNotClipVisibleOverflow() async throws {
+        let source = "<html><body style='height:20px'><div style='padding-top:100px'>Report</div></body></html>"
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        let ready = AsyncStream.makeStream(of: Void.self)
+        view.onReady = { ready.continuation.yield(()) }
+        defer { view.onReady = nil; ready.continuation.finish() }
+        if !view.isReady {
+            var iterator = ready.stream.makeAsyncIterator()
+            try #require(await iterator.next() != nil)
+        }
+        let page = try #require(view.page)
+        let result = try await page.callJavaScript("""
+            const report = document.querySelector('body > div');
+            const textRange = document.createRange();
+            textRange.selectNodeContents(report);
+            const textRect = textRange.getBoundingClientRect();
+            const reportRect = report.getBoundingClientRect();
+            const hit = document.elementFromPoint(textRect.left + textRect.width / 2, textRect.top + textRect.height / 2);
+            return { text: report.textContent, textTop: textRect.top, textBottom: textRect.bottom,
+                     reportBottom: reportRect.bottom, bodyHeight: document.body.getBoundingClientRect().height,
+                     viewportHeight: innerHeight, painted: hit === report || report.contains(hit) };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect(values["text"] as? String == "Report")
+        #expect(values["bodyHeight"] as? Double == 20, "The author's body height is preserved")
+        let textTop = try #require(values["textTop"] as? Double)
+        let textBottom = try #require(values["textBottom"] as? Double)
+        let reportBottom = try #require(values["reportBottom"] as? Double)
+        let viewportHeight = try #require(values["viewportHeight"] as? Double)
+        #expect(textTop >= 100)
+        #expect(textBottom <= viewportHeight)
+        #expect(view.measuredHeight >= ceil(reportBottom))
+        #expect(values["painted"] as? Bool == true, "The Report text must be painted, not merely measured beyond a clipping body")
+    }
+
     @Test("Body flex/grid layout and direct-child selectors retain their original structure", arguments: ["flex", "grid"])
     func bodyLayoutPreservesDirectChildren(display: String) async throws {
         let layout = display == "grid" ? "display:grid;grid-template-columns:120px 120px" : "display:flex;flex-direction:row"
