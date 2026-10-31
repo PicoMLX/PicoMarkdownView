@@ -364,13 +364,34 @@ final class HTMLPreviewContainer: NSView {
             // when a body or visible descendant extends outside the viewport.
             const outsideHorizontalViewport = rect => rect.left + window.scrollX < -1
               || rect.right + window.scrollX > window.innerWidth + 1;
+            const unsupportedGeneratedContent = element => ['::before', '::after'].some(selector => {
+              const pseudo = getComputedStyle(element, selector);
+              const active = pseudo.content !== 'none' && pseudo.content !== 'normal'
+                && pseudo.display !== 'none' && !['hidden', 'collapse'].includes(pseudo.visibility);
+              if (!active) return false;
+              // Element rectangles cannot describe positioned/transformed
+              // generated boxes or content attached outside the body shell.
+              return element === document.documentElement || pseudo.position !== 'static'
+                || ['transform', 'translate', 'rotate', 'scale'].some(property => pseudo[property] && pseudo[property] !== 'none');
+            });
             // Enlarging the viewport cannot reveal content above document
             // origin, including a bottom-anchored absolute body.
+            // scrollWidth also includes static generated boxes that have no
+            // element rectangle. This validates width only; it never sets height.
             let unsupported = bodyStyle.position === 'fixed' || bodyRect.top + window.scrollY < 0
-              || outsideHorizontalViewport(bodyRect);
-            for (const element of body.querySelectorAll('*')) {
+              || outsideHorizontalViewport(bodyRect) || body.scrollWidth > window.innerWidth + 1;
+            const suppressed = new Set();
+            for (const element of [document.documentElement, body, ...body.querySelectorAll('*')]) {
+              const style = element === body ? bodyStyle : getComputedStyle(element);
+              if (style.display === 'none' || suppressed.has(element.parentElement)) {
+                suppressed.add(element);
+                continue;
+              }
+              // Check before geometry: an empty box can still generate a
+              // visible pseudo-element, while display:none ancestors cannot.
+              if (unsupportedGeneratedContent(element)) unsupported = true;
+              if (element === document.documentElement || element === body) continue;
               const rect = element.getBoundingClientRect();
-              const style = getComputedStyle(element);
               const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
               if (!visible) continue;
               // Viewport-fixed or heightless content has no usable intrinsic

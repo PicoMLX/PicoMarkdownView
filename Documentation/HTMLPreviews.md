@@ -105,7 +105,7 @@ Selection and copying remain owned by the surrounding TextKit document. An offsc
 
 The adapter uses WebKit only in the optional macOS product. It permits a bounded subset of semantic HTML and CSS, including simple cards, lists, tables, flex/grid layouts, and gradients. Author-provided scripts, event handlers, forms, embedded browsing contexts, navigation, and animations are disabled or removed. External resources are not loaded; images become their alternative text. Use text labels for information that would otherwise depend on an image or color alone.
 
-The app uses its own isolated script to measure layout. That does not enable JavaScript supplied by the HTML block. CSS is scoped to the embedded document and does not style the Markdown around it.
+The app uses its own isolated script to measure layout. That does not enable JavaScript supplied by the HTML block. CSS is scoped to the embedded document and does not style the Markdown around it. Positioned or transformed `::before`/`::after` content, and generated content on the document root, use source fallback because their bounds cannot be measured reliably. Ordinary static in-flow generated content on the body and its descendants remains supported when it fits the viewport.
 
 Apps that link only `PicoMarkdownView` keep the existing HTML source rendering and gain no WebKit dependency from this feature. iOS retains its existing renderer; the optional preview adapter is macOS-only.
 
