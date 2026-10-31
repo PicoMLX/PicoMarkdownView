@@ -6,6 +6,9 @@ import AppKit
 @MainActor
 final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     private let backend: TextKitStreamingBackend
+    private(set) lazy var codeBlockCopyControls = MacCodeBlockCopyControls(textView: self) { [weak backend = self.backend] id in
+        backend?.codeBlockForCopy(id: id)?.code
+    }
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
     var linkActionHandler: ((URL, String) -> Void)?
@@ -14,6 +17,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     private var lastLaidOutWidth: CGFloat = -1
     private var lastReportedContentSize = CGSize(width: -1, height: -1)
     private var hoverTrackingArea: NSTrackingArea?
+    private weak var codeCopyClipView: NSClipView?
     private var lastHoverLinkStart: Int?
     private var measuring = false
 
@@ -37,6 +41,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         textContainer?.widthTracksTextView = true
         register([.onScrollingOutOfViewport, .onEditingInlineParagraphs],
                  forTextAttachmentViewProviderType: PicoHostedAttachmentViewProvider.self)
+        backend.onDocumentReset = { [weak self] in self?.codeBlockCopyControls.clear() }
         backend.onHostedContentSizeChanged = { [weak self] range in
             self?.invalidateHostedLayout(in: range)
         }
@@ -50,6 +55,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
             let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
             if attributes[.picoBlockquoteLevel] != nil || attributes[.picoCodeBlockBackgroundColor] != nil
+                || attributes[.picoCodeBlockToolbarHeight] != nil
                 || attributes[.attachment] is MacHorizontalRuleAttachment || attributes[.picoHeadingUnderlinePadding] != nil {
                 return MacMarkdownTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
             }
@@ -93,6 +99,37 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return pboard.setString(markdownForSelection(), forType: .string)
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        guard let id = codeBlockID(at: convert(event.locationInWindow, from: nil)),
+              backend.codeBlockForCopy(id: id) != nil else { return menu }
+        let item = NSMenuItem(title: "Copy code", action: #selector(copyCodeBlock(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = CodeBlockCopyRequest(id: id, generation: backend.documentGeneration)
+        menu.insertItem(item, at: 0)
+        menu.insertItem(.separator(), at: 1)
+        return menu
+    }
+
+    @objc private func copyCodeBlock(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? CodeBlockCopyRequest,
+              request.generation == backend.documentGeneration,
+              let code = backend.codeBlockForCopy(id: request.id)?.code else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+    }
+
+    private struct CodeBlockCopyRequest {
+        let id: BlockID
+        let generation: UInt64
+    }
+
+    private func codeBlockID(at point: NSPoint) -> BlockID? {
+        guard let fragment = textLayoutManager?.textLayoutFragment(for: CGPoint(
+            x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)) else { return nil }
+        return MacCodeBlockCopy.blockID(in: fragment)
+    }
+
     private var selectionContainsHostedContent: Bool {
         guard let storage = textStorage else { return false }
         for value in selectedRanges {
@@ -133,11 +170,36 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeCodeCopyViewport()
+        if window == nil { codeBlockCopyControls.clear() }
         if window != nil {
             needsLayout = true
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func observeCodeCopyViewport() {
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: codeCopyClipView)
+        codeCopyClipView = window == nil ? nil : enclosingScrollView?.contentView
+        if let codeCopyClipView {
+            codeCopyClipView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(codeCopyViewportChanged(_:)),
+                name: NSView.boundsDidChangeNotification, object: codeCopyClipView)
+        }
+    }
+
+    @objc private func codeCopyViewportChanged(_ notification: Notification) {
+        codeBlockCopyControls.updateLayout()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        let buttons = codeBlockCopyControls.buttons.values.sorted { $0.frame.minY < $1.frame.minY }
+        for button in buttons where !children.contains(where: { ($0 as? NSView) === button }) {
+            children.append(button)
+        }
+        return children
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -154,6 +216,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         updateHostedContent()
         notifyMermaidContentWidthIfNeeded()
         let size = measuredContentSize()
+        codeBlockCopyControls.updateLayout()
         if let onContentSizeChanged, bounds.width > 0,
            abs(size.width - lastReportedContentSize.width) > 0.5 || abs(size.height - lastReportedContentSize.height) > 0.5 {
             lastReportedContentSize = size
@@ -215,8 +278,14 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         hoverTrackingArea = area
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        codeBlockCopyControls.updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        codeBlockCopyControls.updateHover(at: convert(event.locationInWindow, from: nil))
         guard let hoverHandler else { return }
         if let info = hoverLink(at: convert(event.locationInWindow, from: nil)) {
             guard info.linkStart != lastHoverLinkStart else { return }
@@ -227,6 +296,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        codeBlockCopyControls.updateHover(at: nil)
         clearHover()
     }
 

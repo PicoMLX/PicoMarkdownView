@@ -1,4 +1,5 @@
 import XCTest
+import Observation
 @testable import PicoMarkdownView
 
 #if canImport(UIKit)
@@ -39,7 +40,9 @@ final class MarkdownStreamingViewModelTests: XCTestCase {
     }
 
     func testRemoteImagePrefetchDoesNotBlockStreamingAndRefreshesBlock() async {
-        let provider = ControlledImagePrefetchProvider()
+        let prefetchSuspended = expectation(description: "Image prefetch has suspended")
+        let consumptionFinished = expectation(description: "Later chunks consume while prefetch is suspended")
+        let provider = ControlledImagePrefetchProvider(prefetchSuspended: prefetchSuspended)
         let viewModel = await MainActor.run { MarkdownStreamingViewModel(imageProvider: provider) }
 
         let input = MarkdownStreamingInput.chunks([
@@ -49,56 +52,38 @@ final class MarkdownStreamingViewModelTests: XCTestCase {
 
         let consumeTask = Task {
             await viewModel.consume(input)
+            consumptionFinished.fulfill()
         }
 
         let providerAsMarkdown: MarkdownImageProvider = provider
         XCTAssertTrue(providerAsMarkdown is any MarkdownImagePrefetchingProvider)
 
-        var prefetchStarted = false
-        for _ in 0..<200 {
-            if await provider.hasSuspendedPrefetch {
-                prefetchStarted = true
-                break
-            }
-            await drainMainQueue()
-            await Task.yield()
-        }
-        XCTAssertTrue(prefetchStarted, "Expected image prefetch to start and suspend")
-
-        var preRefreshBlocks: [RenderedBlock] = []
-        var sawTailWhileSuspended = false
-        for _ in 0..<200 {
-            await drainMainQueue()
-            preRefreshBlocks = await MainActor.run { viewModel.blocks }
-            let text = renderedText(from: preRefreshBlocks)
-            if text.contains("Tail paragraph") {
-                sawTailWhileSuspended = true
-                break
-            }
-            await Task.yield()
-        }
-        XCTAssertTrue(sawTailWhileSuspended,
+        await fulfillment(of: [prefetchSuspended, consumptionFinished], timeout: 30)
+        let hasSuspendedPrefetch = await provider.hasSuspendedPrefetch
+        XCTAssertTrue(hasSuspendedPrefetch, "Expected image prefetch to start and suspend")
+        await drainMainQueue()
+        let preRefreshBlocks = await MainActor.run { viewModel.blocks }
+        XCTAssertTrue(renderedText(from: preRefreshBlocks).contains("Tail paragraph"),
                       "Later chunks should render even while image prefetch is suspended")
         XCTAssertTrue(renderedText(from: preRefreshBlocks).contains("diagram"),
                       "Fallback alt text should be shown before the image is cached")
         XCTAssertEqual(attachmentCount(in: preRefreshBlocks), 0)
 
+        let imageRefreshed = expectation(description: "Prefetched image publishes a block-local refresh")
+        await MainActor.run {
+            withObservationTracking {
+                _ = viewModel.blocks
+            } onChange: {
+                imageRefreshed.fulfill()
+            }
+        }
         await provider.resumePrefetches()
         await consumeTask.value
-
-        var postRefreshBlocks: [RenderedBlock] = []
-        var attachmentSeen = false
-        for _ in 0..<200 {
-            await drainMainQueue()
-            postRefreshBlocks = await MainActor.run { viewModel.blocks }
-            if attachmentCount(in: postRefreshBlocks) > 0 {
-                attachmentSeen = true
-                break
-            }
-            await Task.yield()
-        }
-
-        XCTAssertTrue(attachmentSeen, "Expected a block-local refresh to insert the image attachment")
+        await fulfillment(of: [imageRefreshed], timeout: 30)
+        await drainMainQueue()
+        let postRefreshBlocks = await MainActor.run { viewModel.blocks }
+        XCTAssertGreaterThan(attachmentCount(in: postRefreshBlocks), 0,
+                             "Expected a block-local refresh to insert the image attachment")
         let prefetchCallCount = await provider.prefetchCallCount()
         XCTAssertEqual(prefetchCallCount, 1)
     }
@@ -131,11 +116,14 @@ private func attachmentCount(in blocks: [RenderedBlock]) -> Int {
 
 private actor ControlledImagePrefetchProvider: MarkdownImagePrefetchingProvider {
     private let result: MarkdownImageResult
+    private let prefetchSuspended: XCTestExpectation
     private var cache: [URL: MarkdownImageResult] = [:]
     private var continuations: [CheckedContinuation<Void, Never>] = []
     private var callCount = 0
+    private var isReleased = false
 
-    init() {
+    init(prefetchSuspended: XCTestExpectation) {
+        self.prefetchSuspended = prefetchSuspended
         let size = CGSize(width: 32, height: 20)
         self.result = MarkdownImageResult(image: makeTestImage(size: size), size: size)
     }
@@ -149,6 +137,7 @@ private actor ControlledImagePrefetchProvider: MarkdownImagePrefetchingProvider 
     }
 
     func resumePrefetches() {
+        isReleased = true
         let pending = continuations
         continuations.removeAll(keepingCapacity: true)
         for continuation in pending {
@@ -166,8 +155,11 @@ private actor ControlledImagePrefetchProvider: MarkdownImagePrefetchingProvider 
             return cached
         }
 
-        await withCheckedContinuation { continuation in
-            continuations.append(continuation)
+        if !isReleased {
+            await withCheckedContinuation { continuation in
+                continuations.append(continuation)
+                prefetchSuspended.fulfill()
+            }
         }
 
         cache[url] = result
