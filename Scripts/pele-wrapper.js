@@ -94,6 +94,7 @@
     options = options || {};
     try {
       var renderOptions = { responsive: false };
+      if (typeof options.idPrefix === 'string' && /^[\w-]+$/.test(options.idPrefix)) { renderOptions.idPrefix = options.idPrefix; }
       if (typeof options.fontSize === 'number' && options.fontSize > 0) { renderOptions.fontSize = options.fontSize; }
       if (typeof options.fontFamily === 'string' && options.fontFamily !== '') { renderOptions.fontFamily = options.fontFamily; }
       if (typeof options.fontFamilyMono === 'string' && options.fontFamilyMono !== '') { renderOptions.fontFamilyMono = options.fontFamilyMono; }

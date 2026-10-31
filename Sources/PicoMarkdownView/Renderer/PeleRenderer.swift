@@ -26,15 +26,20 @@ struct PeleRenderOptions: Sendable, Hashable {
     /// draw themselves narrower do, and wide flowcharts may turn vertical.
     var maxWidth: CGFloat? = nil
     var theme: [String: String] = [:]
+    /// Stable namespace for SVG definitions such as Sankey gradients.
+    /// Omit it to retain Pele's legacy output.
+    var idPrefix: String? = nil
 
     init(fontSize: CGFloat = 14,
          fontFamily: String? = nil,
          maxWidth: CGFloat? = nil,
-         theme: [String: String] = [:]) {
+         theme: [String: String] = [:],
+         idPrefix: String? = nil) {
         self.fontSize = fontSize
         self.fontFamily = fontFamily
         self.maxWidth = maxWidth
         self.theme = theme
+        self.idPrefix = idPrefix
     }
 }
 
@@ -161,6 +166,9 @@ actor PeleRenderer {
     /// rejects the source (unknown diagram type, syntax error, size limit).
     func render(_ source: String, options: PeleRenderOptions = PeleRenderOptions()) throws(PeleRenderError) -> PeleRenderResult {
         var jsOptions: [String: Any] = ["theme": options.theme, "fontSize": options.fontSize]
+        if let idPrefix = options.idPrefix {
+            jsOptions["idPrefix"] = idPrefix
+        }
         if let fontFamily = options.fontFamily {
             jsOptions["fontFamily"] = fontFamily
         }

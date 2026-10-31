@@ -156,6 +156,19 @@ actor PeleDiagramProvider: MermaidDiagramProvider {
 
 #if os(macOS)
 extension PeleDiagramProvider: MermaidVectorDiagramProvider {
+    static func vectorRenderOptions(for theme: MarkdownRenderTheme,
+                                    appearance: PeleAppearance,
+                                    maxWidth: CGFloat?) -> PeleRenderOptions {
+        PeleRenderOptions(fontSize: theme.bodyFont.pointSize,
+                          fontFamily: "sans-serif",
+                          maxWidth: maxWidth,
+                          theme: peleTheme(for: theme, appearance: appearance),
+                          // Pele requires a prefix to emit Sankey gradients.
+                          // Its existing rough-shape seed defaults to "pele",
+                          // so this preserves other diagrams' geometry.
+                          idPrefix: "pele")
+    }
+
     func renderVector(_ request: MermaidRenderRequest) async -> MermaidVectorRenderResult? {
         guard !Task.isCancelled else { return nil }
         vectorPreviewGeneration &+= 1
@@ -186,10 +199,7 @@ extension PeleDiagramProvider: MermaidVectorDiagramProvider {
             return cached.result
         }
 
-        let options = PeleRenderOptions(fontSize: theme.bodyFont.pointSize,
-                                        fontFamily: "sans-serif",
-                                        maxWidth: width,
-                                        theme: Self.peleTheme(for: theme, appearance: appearance))
+        let options = Self.vectorRenderOptions(for: theme, appearance: appearance, maxWidth: width)
         let rendered: PeleRenderResult
         do {
             rendered = try await renderer.render(source, options: options)
