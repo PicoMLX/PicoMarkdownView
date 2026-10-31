@@ -39,6 +39,9 @@ final class MarkdownStreamingViewModel {
 #if os(macOS)
     /// Published with the blocks, separately from presentation-only refreshes.
     var documentIdentity: UInt64 = 0
+    /// Presentation activity is separate from the canonical parser state: a
+    /// canceled stream can leave an SVG fence open without completing it.
+    private(set) var isSVGStreamActive = false
     private var pendingDocumentIdentity: UInt64 = 0
 #endif
 
@@ -106,11 +109,15 @@ final class MarkdownStreamingViewModel {
             // be mistaken for a redundant re-delivery.
             activeInputID = input.id
             let (freshPipeline, generation) = makeFreshPipeline()
+#if os(macOS)
+            await consumeMacStream(factory: factory, pipeline: freshPipeline, generation: generation)
+#else
             _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
             _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
             enqueueUpdate(blocks: [], diff: nil)
             let stream = await factory()
             await consume(stream: stream, pipeline: freshPipeline, generation: generation)
+#endif
         }
     }
 
@@ -124,6 +131,9 @@ final class MarkdownStreamingViewModel {
         cancelMermaidPreview()
 #endif
         pipelineGeneration &+= 1
+#if os(macOS)
+        isSVGStreamActive = true
+#endif
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
                                                     mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
                                                     mermaidPreviewTiming: mermaidPreviewTiming,
@@ -132,6 +142,35 @@ final class MarkdownStreamingViewModel {
         return (newPipeline, pipelineGeneration)
     }
 
+#if os(macOS)
+    /// Cancellation must update loading chrome even while a caller's factory
+    /// is suspended. Never finish the tokenizer or let an older task change
+    /// the activity of a newer document.
+    private func consumeMacStream(factory: @escaping @Sendable () async -> AsyncStream<String>,
+                                  pipeline: MarkdownStreamingPipeline,
+                                  generation: UInt64) async {
+        await withTaskCancellationHandler {
+            defer { endSVGStream(generation: generation) }
+            _ = await pipeline.updateMermaidContentWidth(mermaidContentWidth)
+            _ = await pipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
+            guard !Task.isCancelled, generation == pipelineGeneration else { return }
+            enqueueUpdate(blocks: [], diff: nil)
+            let stream = await factory()
+            guard !Task.isCancelled, generation == pipelineGeneration else { return }
+            await consume(stream: stream, pipeline: pipeline, generation: generation)
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                self?.endSVGStream(generation: generation)
+            }
+        }
+    }
+
+    private func endSVGStream(generation: UInt64) {
+        guard generation == pipelineGeneration else { return }
+        isSVGStreamActive = false
+    }
+#endif
+
     private func consume(chunks: [String]) async {
         // A `.chunks` input describes a complete document, and `finish()` has
         // already sealed any previously consumed input. Feeding into the
@@ -139,6 +178,9 @@ final class MarkdownStreamingViewModel {
         // but still publish after every chunk so long replays render (and
         // start image prefetch) progressively rather than all at once.
         let (freshPipeline, generation) = makeFreshPipeline()
+#if os(macOS)
+        defer { endSVGStream(generation: generation) }
+#endif
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)
         _ = await freshPipeline.updateTextScale(textScale, codeBlockScale: codeBlockTextScale)
 
@@ -222,6 +264,9 @@ final class MarkdownStreamingViewModel {
         Self.logger.debug("Replacing Markdown: characters=\(value.count)")
         #endif
         let (freshPipeline, generation) = makeFreshPipeline()
+#if os(macOS)
+        defer { endSVGStream(generation: generation) }
+#endif
         var latestBlocks: [RenderedBlock] = []
 
         _ = await freshPipeline.updateMermaidContentWidth(mermaidContentWidth)

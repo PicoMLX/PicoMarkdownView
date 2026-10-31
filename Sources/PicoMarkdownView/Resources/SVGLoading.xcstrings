@@ -1,0 +1,30 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Graphic incomplete" : {
+      "comment" : "Status shown when an SVG stream stops before its graphic is complete.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Graphic incomplete" }
+        }
+      }
+    },
+    "Graphic paused" : {
+      "comment" : "Status shown when displaying new SVG source is paused.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Graphic paused" }
+        }
+      }
+    },
+    "Preparing graphic…" : {
+      "comment" : "Status shown while an SVG graphic's source is still arriving.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Preparing graphic…" }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
