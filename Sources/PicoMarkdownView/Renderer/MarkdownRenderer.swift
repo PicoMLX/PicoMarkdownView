@@ -127,6 +127,7 @@ actor MarkdownRenderer {
     private let imageProvider: MarkdownImageProvider?
     private let injectedMermaidProvider: (any MermaidDiagramProvider)?
     private let snapshotProvider: SnapshotProvider
+    private let mermaidPreviewTiming: MermaidPreviewTiming
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
 #if canImport(AppKit)
@@ -147,14 +148,17 @@ actor MarkdownRenderer {
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
          snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.injectedMermaidProvider = mermaidProvider
+        self.mermaidPreviewTiming = mermaidPreviewTiming
         let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
         self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
                                                          imageProvider: imageProvider,
-                                                         mermaidProvider: resolvedMermaidProvider)
+                                                         mermaidProvider: resolvedMermaidProvider,
+                                                         mermaidPreviewTiming: mermaidPreviewTiming)
         self.snapshotProvider = snapshotProvider
     }
 
@@ -176,7 +180,8 @@ actor MarkdownRenderer {
             theme: scaledTheme,
             imageProvider: imageProvider,
             mermaidProvider: injectedMermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme),
-            runtimeMermaidMaxWidth: runtimeMermaidContentWidth)
+            runtimeMermaidMaxWidth: runtimeMermaidContentWidth,
+            mermaidPreviewTiming: mermaidPreviewTiming)
         builderGeneration &+= 1
 
         // The stream may append to a block while its scaled render awaits

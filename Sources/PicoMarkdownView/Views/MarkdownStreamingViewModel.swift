@@ -30,6 +30,7 @@ final class MarkdownStreamingViewModel {
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private let tagPrefixes: Set<TagPrefix>
+    private let mermaidPreviewTiming: MermaidPreviewTiming
 
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
@@ -60,12 +61,16 @@ final class MarkdownStreamingViewModel {
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
         self.tagPrefixes = tagPrefixes
-        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes)
+        self.mermaidPreviewTiming = mermaidPreviewTiming
+        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
+                                                   mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
+                                                   mermaidPreviewTiming: mermaidPreviewTiming)
     }
 
     func consume(_ input: MarkdownStreamingInput) async {
@@ -115,7 +120,9 @@ final class MarkdownStreamingViewModel {
         cancelMermaidPreview()
 #endif
         pipelineGeneration &+= 1
-        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes)
+        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
+                                                    mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
+                                                    mermaidPreviewTiming: mermaidPreviewTiming)
         pipeline = newPipeline
         return (newPipeline, pipelineGeneration)
     }
@@ -348,8 +355,9 @@ final class MarkdownStreamingViewModel {
         mermaidPreviewTask?.cancel()
         let generation = pipelineGeneration
         let currentPipeline = pipeline
+        let timing = mermaidPreviewTiming
         mermaidPreviewTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(milliseconds)) }
+            do { try await timing.sleep(.milliseconds(milliseconds)) }
             catch { return }
             guard let self, !Task.isCancelled, self.pipelineGeneration == generation else { return }
             let ids = self.pendingMermaidPreviewIDs

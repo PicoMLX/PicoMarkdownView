@@ -32,6 +32,7 @@ actor MarkdownAttributeBuilder {
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private var runtimeMermaidMaxWidth: CGFloat?
+    private let mermaidPreviewTiming: MermaidPreviewTiming
 
 #if canImport(AppKit)
     /// Cached geometry and its successful width must travel together when
@@ -92,10 +93,12 @@ actor MarkdownAttributeBuilder {
     init(theme: MarkdownRenderTheme,
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
-         runtimeMermaidMaxWidth: CGFloat? = nil) {
+         runtimeMermaidMaxWidth: CGFloat? = nil,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
+        self.mermaidPreviewTiming = mermaidPreviewTiming
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
         // Resolve Sendable specs to platform types inside the actor
@@ -892,7 +895,7 @@ actor MarkdownAttributeBuilder {
                 return preview.diagram
             }
             if width == preview.attemptedWidth, let lastAttempt = preview.lastAttempt,
-               lastAttempt.duration(to: .now) < .milliseconds(max(0, milliseconds)) {
+               lastAttempt.duration(to: mermaidPreviewTiming.now()) < .milliseconds(max(0, milliseconds)) {
                 return preview.diagram
             }
             guard let lastNewline = source.lastIndex(of: "\n") else { return preview.diagram }
@@ -915,7 +918,7 @@ actor MarkdownAttributeBuilder {
         preview.generation = nextMermaidPreviewGeneration
         preview.attemptedBytes = candidate.utf8.count
         preview.attemptedWidth = width
-        preview.lastAttempt = .now
+        preview.lastAttempt = mermaidPreviewTiming.now()
         mermaidPreviews[snapshot.id] = preview
         let generation = preview.generation
         let rendered = await provider.renderVector(MermaidRenderRequest(source: candidate, targetWidth: width,

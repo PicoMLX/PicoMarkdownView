@@ -1,5 +1,6 @@
 #if os(macOS) && canImport(JavaScriptCore)
 import AppKit
+import Synchronization
 import Testing
 @testable import PicoMarkdownView
 
@@ -102,21 +103,32 @@ struct MermaidPreviewViewModelTests {
         await consumer.value
     }
 
-    @Test("An in-flight preview unwinds before the closing render starts", .timeLimit(.minutes(1)))
-    func inFlightPreviewFinishesBeforeClose() async throws {
+    @Test("An in-flight preview unwinds before the closing render starts", .timeLimit(.minutes(1)), arguments: [false, true])
+    func inFlightPreviewFinishesBeforeClose(delaySecondFeed: Bool) async throws {
         _ = NSApplication.shared
         let provider = DelayedPreviewVectorProvider(delayPreviewsAfterFirst: true)
+        let clock = PreviewTestClock()
         let model = MarkdownStreamingViewModel(
             theme: .default().withMermaidRendering(.bestEffortDebounced(milliseconds: 100)),
-            mermaidProvider: provider)
+            mermaidProvider: provider, mermaidPreviewTiming: clock.timing)
         let (stream, continuation) = AsyncStream.makeStream(of: String.self)
         let consumer = Task { await model.consume(.stream { stream }) }
         defer { consumer.cancel(); continuation.finish() }
 
         continuation.yield("```mermaid\n" + initialSource)
         try await waitUntil { model.blocks.first?.mermaidDiagram?.svg != nil }
+        let initialDeadline = try await clock.nextDeadline()
+        // CI can delay the main actor beyond the real 100ms interval. Keep
+        // both the renderer and timer on controlled time even across that lag.
+        if delaySecondFeed { try await Task.sleep(for: .milliseconds(250)) }
         continuation.yield(nextLine)
+        try await waitUntil { model.blocks.first?.mermaidDiagram?.source.contains("Finish") == true }
+        let trailingDeadline = try await clock.nextDeadline(after: initialDeadline)
+        #expect(await provider.previewRequestCount() == 1,
+                "The next source must publish before its trailing provider call starts")
+        clock.advance(by: .milliseconds(100))
         let preview = try await waitForRequest(provider, isPreview: true, after: 0)
+        #expect(clock.hasFired(trailingDeadline))
         continuation.yield("```\n")
         let final = try await waitForRequest(provider, isPreview: false)
         let events = await provider.recordedEvents()
@@ -135,32 +147,41 @@ struct MermaidPreviewViewModelTests {
         await consumer.value
     }
 
-    @Test("A buffered partial fence retries a cancelled trailing preview", .timeLimit(.minutes(1)))
-    func bufferedFenceRetainsCancelledPreview() async throws {
+    @Test("A buffered partial fence retries a cancelled trailing preview", .timeLimit(.minutes(1)), arguments: [false, true])
+    func bufferedFenceRetainsCancelledPreview(delaySecondFeed: Bool) async throws {
         _ = NSApplication.shared
         let provider = DelayedPreviewVectorProvider(delayPreviewsAfterFirst: true)
+        let clock = PreviewTestClock()
         let model = MarkdownStreamingViewModel(
             theme: .default().withMermaidRendering(.bestEffortDebounced(milliseconds: 100)),
-            mermaidProvider: provider)
+            mermaidProvider: provider, mermaidPreviewTiming: clock.timing)
         let (stream, continuation) = AsyncStream.makeStream(of: String.self)
         let consumer = Task { await model.consume(.stream { stream }) }
         defer { consumer.cancel(); continuation.finish() }
 
         continuation.yield("```mermaid\n" + initialSource)
         try await waitUntil { model.blocks.first?.mermaidDiagram?.svg != nil }
+        let initialDeadline = try await clock.nextDeadline()
+        if delaySecondFeed { try await Task.sleep(for: .milliseconds(250)) }
         continuation.yield(nextLine)
+        try await waitUntil { model.blocks.first?.mermaidDiagram?.source.contains("Finish") == true }
+        let trailingDeadline = try await clock.nextDeadline(after: initialDeadline)
+        #expect(await provider.previewRequestCount() == 1,
+                "The next source must publish before its trailing provider call starts")
+        clock.advance(by: .milliseconds(100))
         _ = try await waitForRequest(provider, isPreview: true, after: 0)
+        #expect(clock.hasFired(trailingDeadline))
 
         // Only fence markers, with no newline: the tokenizer buffers this
         // chunk and emits no diff. It still cancels the in-flight refresh.
         continuation.yield("``")
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
-        while await provider.previewRequestCount() < 3, clock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(await provider.previewRequestCount() == 3,
-                     "The paused stream must retry its cancelled complete-line preview without another chunk")
+        let retryDeadline = try await clock.nextDeadline(after: trailingDeadline)
+        #expect(await provider.previewRequestCount() == 2)
+        clock.advance(by: .milliseconds(100))
+        _ = try await waitForRequest(provider, isPreview: true, after: 1)
+        #expect(clock.hasFired(retryDeadline))
+        #expect(await provider.previewRequestCount() == 3,
+                "The paused stream must retry its cancelled complete-line preview without another chunk")
         await provider.releaseAll()
         try await waitUntil {
             model.blocks.first?.mermaidDiagram?.svg?.contains("preview:\((initialSource + nextLine).utf8.count)") == true
@@ -201,6 +222,66 @@ struct MermaidPreviewViewModelTests {
             try await Task.sleep(for: .milliseconds(5))
         }
         try #require(predicate(), "The expected stream presentation did not arrive before the deadline")
+    }
+}
+
+/// A cancellation-aware clock shared by the view-model timer and renderer's
+/// debounce check. Scheduling and advancing are explicit, independent of load.
+private final class PreviewTestClock: Sendable {
+    private struct Sleep {
+        let deadline: ContinuousClock.Instant
+        let continuation: AsyncStream<Void>.Continuation
+    }
+    private struct State {
+        var now = ContinuousClock.now
+        var nextID = 0
+        var sleeps: [Int: Sleep] = [:]
+        var fired: Set<Int> = []
+    }
+    private let state = Mutex(State())
+
+    var timing: MermaidPreviewTiming {
+        MermaidPreviewTiming(now: { self.state.withLock { $0.now } },
+                             sleep: { try await self.sleep(for: $0) })
+    }
+
+    private func sleep(for duration: Duration) async throws {
+        try Task.checkCancellation()
+        let gate = AsyncStream.makeStream(of: Void.self)
+        let id = state.withLock { state in
+            let id = state.nextID
+            state.nextID += 1
+            state.sleeps[id] = Sleep(deadline: state.now.advanced(by: duration), continuation: gate.continuation)
+            return id
+        }
+        defer { state.withLock { $0.sleeps[id] = nil } }
+        // AsyncStream wakes on cancellation just like the production sleep.
+        for await _ in gate.stream { break }
+        try Task.checkCancellation()
+    }
+
+    func advance(by duration: Duration) {
+        let ready = state.withLock { state in
+            state.now = state.now.advanced(by: duration)
+            let ids = state.sleeps.filter { $0.value.deadline <= state.now }.map(\.key)
+            state.fired.formUnion(ids)
+            return ids.compactMap { state.sleeps.removeValue(forKey: $0)?.continuation }
+        }
+        for continuation in ready { continuation.yield(()); continuation.finish() }
+    }
+
+    func hasFired(_ id: Int) -> Bool { state.withLock { $0.fired.contains(id) } }
+
+    func nextDeadline(after previous: Int = -1) async throws -> Int {
+        let wallClock = ContinuousClock()
+        let timeout = wallClock.now.advanced(by: .seconds(5))
+        var scheduled: Int?
+        repeat {
+            scheduled = state.withLock { $0.sleeps.keys.filter { $0 > previous }.min() }
+            if scheduled == nil { try await Task.sleep(for: .milliseconds(5)) }
+        } while scheduled == nil && wallClock.now < timeout
+        let latest = scheduled ?? state.withLock { $0.sleeps.keys.filter { $0 > previous }.min() }
+        return try #require(latest, "The expected trailing preview deadline was not scheduled")
     }
 }
 

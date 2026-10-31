@@ -14,10 +14,12 @@ actor MarkdownStreamingPipeline {
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         let tokenizer = MarkdownTokenizer(tagPrefixes: tagPrefixes)
         let assembler = MarkdownAssembler()
-        let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider, mermaidProvider: mermaidProvider) { id in
+        let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider, mermaidProvider: mermaidProvider,
+                                        mermaidPreviewTiming: mermaidPreviewTiming) { id in
             await assembler.block(id)
         }
         self.tokenizer = tokenizer
