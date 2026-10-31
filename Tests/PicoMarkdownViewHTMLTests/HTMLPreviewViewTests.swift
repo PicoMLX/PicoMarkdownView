@@ -74,6 +74,79 @@ struct HTMLPreviewViewTests {
         #expect(top >= 0 && bottom <= viewportHeight, "The actual report must be inside the rendered browser viewport")
     }
 
+    @Test("Horizontal report overflow falls back at narrow widths and paints fully when it fits", arguments: [false, true], ["ltr", "rtl"])
+    func horizontalExtentMustFitViewport(wide: Bool, direction: String) async throws {
+        let source = "<html dir='\(direction)'><body><div style='display:flex;min-width:600px;justify-content:space-between'><span>Start</span><span>Report</span></div></body></html>"
+        let width: CGFloat = wide ? 660 : 300
+        let (view, window) = makePreview(source: source, width: width)
+        defer { tearDown(view, window) }
+        let outcome = AsyncStream.makeStream(of: Bool.self)
+        view.onReady = { outcome.continuation.yield(true); outcome.continuation.finish() }
+        view.onFailure = { outcome.continuation.yield(false); outcome.continuation.finish() }
+        defer { view.onReady = nil; view.onFailure = nil; outcome.continuation.finish() }
+        var iterator = outcome.stream.makeAsyncIterator()
+        let becameReady = try #require(await iterator.next())
+        #expect(becameReady == wide)
+        if !wide {
+            #expect(view.hasFailed && !view.isReady)
+            #expect(view.page == nil)
+            #expect(view.measuredHeight == 1)
+            return
+        }
+        #expect(view.isReady && !view.hasFailed)
+        let page = try #require(view.page)
+        let result = try await page.callJavaScript("""
+            const labels = document.querySelectorAll('body > div > span');
+            const report = labels[1];
+            const range = document.createRange();
+            range.selectNodeContents(report);
+            const rect = range.getBoundingClientRect();
+            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            return { first: labels[0].textContent, report: report.textContent,
+                     left: rect.left, right: rect.right, width: innerWidth,
+                     painted: hit === report || report.contains(hit) };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect(values["first"] as? String == "Start")
+        #expect(values["report"] as? String == "Report")
+        #expect(values["painted"] as? Bool == true)
+        let left = try #require(values["left"] as? Double)
+        let right = try #require(values["right"] as? Double)
+        let viewportWidth = try #require(values["width"] as? Double)
+        #expect(left >= 0 && right <= viewportWidth)
+    }
+
+    @Test("Shrinking past an unchanged fixed-width body switches its ready preview to source fallback")
+    func viewportResizeRechecksFixedBodyWidth() async throws {
+        let source = "<html><body style='width:300px;height:40px'><div style='display:flex;justify-content:space-between'><span>Start</span><span>Report</span></div></body></html>"
+        let counter = PreparationCounter()
+        let (view, window) = makePreview(source: source, width: 400, prepare: counter.prepare)
+        defer { tearDown(view, window) }
+        let ready = AsyncStream.makeStream(of: Void.self)
+        view.onReady = { ready.continuation.yield(()) }
+        defer { view.onReady = nil; ready.continuation.finish() }
+        if !view.isReady {
+            var iterator = ready.stream.makeAsyncIterator()
+            try #require(await iterator.next() != nil)
+        }
+        let page = try #require(view.page)
+        let bodyWidth = try await page.callJavaScript("return document.body.getBoundingClientRect().width", contentWorld: .defaultClient) as? Double
+        #expect(bodyWidth == 300)
+        #expect(view.loadCount == 1)
+        #expect(await counter.count == 1)
+
+        let failed = AsyncStream.makeStream(of: Void.self)
+        view.onFailure = { failed.continuation.yield(()); failed.continuation.finish() }
+        defer { view.onFailure = nil; failed.continuation.finish() }
+        window.setContentSize(NSSize(width: 200, height: view.measuredHeight))
+        var failedIterator = failed.stream.makeAsyncIterator()
+        try #require(await failedIterator.next() != nil)
+        #expect(view.hasFailed && !view.isReady)
+        #expect(view.page == nil)
+        #expect(view.loadCount == 1, "Viewport shrink must recheck the same page rather than load another document")
+        #expect(await counter.count == 1, "Viewport validation must reuse the original preparation")
+    }
+
     @Test("An authored short body keeps its visible overflowing report inside the bounded preview")
     func shortBodyDoesNotClipVisibleOverflow() async throws {
         let source = "<html><body style='height:20px'><div style='padding-top:100px'>Report</div></body></html>"

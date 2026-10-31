@@ -359,9 +359,15 @@ final class HTMLPreviewContainer: NSView {
             // Border-box and descendant extents include offsets and spacing,
             // without feeding a viewport-minimum scrollHeight back into size.
             let height = Math.max(0, bodyRect.bottom + window.scrollY);
+            // This static preview has no horizontal scrolling. Allow one CSS
+            // pixel for fractional layout rounding, then fall back to source
+            // when a body or visible descendant extends outside the viewport.
+            const outsideHorizontalViewport = rect => rect.left + window.scrollX < -1
+              || rect.right + window.scrollX > window.innerWidth + 1;
             // Enlarging the viewport cannot reveal content above document
             // origin, including a bottom-anchored absolute body.
-            let unsupported = bodyStyle.position === 'fixed' || bodyRect.top + window.scrollY < 0;
+            let unsupported = bodyStyle.position === 'fixed' || bodyRect.top + window.scrollY < 0
+              || outsideHorizontalViewport(bodyRect);
             for (const element of body.querySelectorAll('*')) {
               const rect = element.getBoundingClientRect();
               const style = getComputedStyle(element);
@@ -369,7 +375,8 @@ final class HTMLPreviewContainer: NSView {
               if (!visible) continue;
               // Viewport-fixed or heightless content has no usable intrinsic
               // document extent. Show its source instead of clipping it.
-              if (height === 0 || style.position === 'fixed' || rect.top + window.scrollY < 0) unsupported = true;
+              if (height === 0 || style.position === 'fixed' || rect.top + window.scrollY < 0
+                || outsideHorizontalViewport(rect)) unsupported = true;
               height = Math.max(height, rect.bottom + window.scrollY + trailingBodySpacing);
             }
             if (unsupported) height = \(HTMLPreviewPolicy.maximumHeight + 1);
@@ -379,6 +386,8 @@ final class HTMLPreviewContainer: NSView {
           };
           const observer = new ResizeObserver(measure);
           observer.observe(body, { box: 'border-box' });
+          // Fixed-size body boxes may not resize with their viewport.
+          window.addEventListener('resize', measure);
           measure();
           document.fonts.ready.then(measure);
         })();
