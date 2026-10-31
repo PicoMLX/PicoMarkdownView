@@ -262,6 +262,23 @@ actor MarkdownAttributeBuilder {
             return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                           level: max(1, blockquoteLevel))
         case .fencedCode:
+#if os(macOS)
+            if let graphic = SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+                                                       maxWidth: theme.imageMaxWidth), !graphic.isClosed {
+                // Reserve one stable attachment while source streams. Raw SVG
+                // stays in metadata for copying, without repeatedly highlighting
+                // it or decoding incomplete SVG documents.
+                let content = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+                    .font: bodyFont,
+                    .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                        previousKind: previousBlockKind))
+                ])
+                return RenderedContentResult(attributed: .picoConverted(from: content),
+                    table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                    codeBlock: RenderedCodeBlock(code: graphic.source, language: graphic.language),
+                    svgGraphic: graphic)
+            }
+#endif
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
             }
