@@ -25,7 +25,7 @@ nonisolated struct HTMLPreparedContent: Sendable, Equatable {
     fileprivate let authorStylesHTML: String
     fileprivate let bodyAttributesHTML: String
     fileprivate let bodyStyleHTML: String
-    fileprivate let documentDirection: String?
+    fileprivate let documentAttributesHTML: String
     let plainText: String
 
     func document(style: HTMLPreviewStyle = .default) -> HTMLPreviewDocument {
@@ -83,7 +83,7 @@ nonisolated enum HTMLPreviewPolicy {
             authorStylesHTML: styles,
             bodyAttributesHTML: attributesHTML(bodyAttributes),
             bodyStyleHTML: escapeAttribute(bodyStyle),
-            documentDirection: builder.documentDirection,
+            documentAttributesHTML: attributesHTML(builder.documentAttributes),
             plainText: String(builder.plainText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16_384))
         )
     }
@@ -110,9 +110,8 @@ nonisolated enum HTMLPreviewPolicy {
         pre { white-space: pre-wrap; } table { max-width: 100%; } th, td { overflow-wrap: anywhere; }
         """
         let staticCSS = "*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }"
-        let direction = content.documentDirection.map { " dir=\"" + escapeAttribute($0) + "\"" } ?? ""
         let html = """
-        <!doctype html><html\(direction) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)">\(content.bodyHTML)</body></html>
+        <!doctype html><html\(content.documentAttributesHTML) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)">\(content.bodyHTML)</body></html>
         """
         return HTMLPreviewDocument(html: html, plainText: content.plainText)
     }
@@ -190,10 +189,16 @@ nonisolated enum HTMLPreviewPolicy {
             .replacingOccurrences(of: "'", with: "&#39;")
     }
 
-    private static func escapeCSSRawText(_ value: String) -> String {
-        // <style> is raw text in HTML: entity escaping would change CSS,
-        // whereas a CSS escape prevents an author from closing our element.
-        value.replacingOccurrences(of: "<", with: "\\3C ")
+    static func escapeCSSRawText(_ value: String) -> String {
+        // Only an appropriate HTML end tag can terminate style raw text.
+        // Escaping every '<' would instead turn CSS range operators into
+        // identifiers. A CSS escape keeps string/comment content inert while
+        // preserving ordinary comparisons and the matched tag's original case.
+        value.replacingOccurrences(
+            of: #"<(?=/style(?:[\t\n\f\r />]|$))"#,
+            with: NSRegularExpression.escapedTemplate(for: #"\3C "#),
+            options: [.regularExpression, .caseInsensitive]
+        )
     }
 
     private static func attributesHTML(_ attributes: [(String, String)]) -> String {
@@ -222,7 +227,7 @@ nonisolated enum HTMLPreviewPolicy {
         var styles: [Stylesheet] = []
         var plainText = ""
         var bodyAttributes: [(String, String)] = []
-        var documentDirection: String?
+        var documentAttributes: [(String, String)] = []
 
         mutating func render(_ node: XMLNode) throws -> String {
             if node.kind == .text {
@@ -248,7 +253,11 @@ nonisolated enum HTMLPreviewPolicy {
             }
             if name == "html" || name == "body" {
                 if name == "html" {
-                    documentDirection = safeAttributes(of: element, name: name).first { $0.0 == "dir" }?.1
+                    // Keep selector/language semantics in the app-owned shell;
+                    // author root styles, events and resource attributes stay out.
+                    documentAttributes = safeAttributes(of: element, name: name).filter {
+                        ["class", "id", "lang", "dir"].contains($0.0)
+                    }
                 } else {
                     bodyAttributes = safeAttributes(of: element, name: name)
                 }

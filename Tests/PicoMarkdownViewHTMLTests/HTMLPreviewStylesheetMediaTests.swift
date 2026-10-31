@@ -14,11 +14,21 @@ struct HTMLPreviewStylesheetMediaPolicyTests {
         let content = try HTMLPreviewPolicy.prepare(source: source)
         let document = content.document()
         #expect(document.html.contains(#"<style media="screen and (width &gt; 200px)">"#))
-        #expect(document.html.contains(#"content: "\3C safe>&";"#), "CSS raw text uses CSS escaping rather than HTML entities")
+        #expect(document.html.contains(#"content: "<safe>&";"#), "Ordinary CSS string text must not be HTML-entity escaped")
         #expect(!document.html.contains("author-style"))
         #expect(!document.html.contains("onload="))
         #expect(!document.html.contains("author-nonce"))
         #expect(content.plainText == "Report")
+    }
+
+    @Test("Only raw-style terminators are escaped, with their case preserved", arguments: [">", " ", "\t", "\n", "\r", "\u{000C}", "/", ""])
+    func neutralizesRawStyleTerminators(delimiter: String) {
+        let suffix = delimiter.isEmpty ? "" : delimiter + "\"; }"
+        let css = "p::before { content: \"</StYlE" + suffix
+        let expected = "p::before { content: \"\\3C /StYlE" + suffix
+        #expect(HTMLPreviewPolicy.escapeCSSRawText(css) == expected)
+        let ordinary = #"@media (240px < width <= 500px) { p { color: red; } } p::before { content: "<safe>& </stylesheet>"; }"#
+        #expect(HTMLPreviewPolicy.escapeCSSRawText(ordinary) == ordinary)
     }
 }
 
@@ -94,11 +104,87 @@ struct HTMLPreviewStylesheetMediaTests {
         #expect(height > 0)
     }
 
+    @Test("Lower, upper and chained CSS media ranges remain active after sanitization")
+    func cssRangeQueriesKeepTheirOperators() async throws {
+        let source = mediaDocument(styles: """
+        <style>
+          p { margin:0; height:24px; color:rgb(1, 2, 3); background-color:transparent; }
+          @media (width < 480px) { p { height:48px; color:rgb(12, 34, 56); } }
+          @media (width >= 480px) { p { height:96px; color:rgb(65, 43, 21); } }
+          @media (240px < width <= 480px) { p { background-color:rgb(9, 8, 7); } }
+        </style>
+        """, inHead: true)
+        let fixture = MediaPreviewFixture(source: source, width: 320)
+        defer { fixture.close() }
+        let page = try await fixture.readyPage()
+        let narrow = try await reportState(page)
+        #expect(narrow["height"] as? Double == 48)
+        #expect(narrow["color"] as? String == "rgb(12, 34, 56)")
+        #expect(narrow["background"] as? String == "rgb(9, 8, 7)")
+
+        fixture.resize(width: 640)
+        try await fixture.waitForHeight(96)
+        let wide = try await reportState(page)
+        #expect(wide["height"] as? Double == 96)
+        #expect(wide["color"] as? String == "rgb(65, 43, 21)")
+        #expect(wide["background"] as? String == "rgba(0, 0, 0, 0)")
+        #expect(fixture.view.page === page && fixture.view.loadCount == 1)
+    }
+
+    @Test("Escaped raw-style termination remains CSS content and cannot create active elements")
+    func rawStyleTerminationCannotEscapeIntoMarkup() async throws {
+        let literal = "</StYlE><script>alert(1)"
+        let css = "p::before { content: \"" + literal + "\"; }"
+        let escaped = HTMLPreviewPolicy.escapeCSSRawText(css)
+        let fixture = MediaPreviewFixture(source: mediaDocument(styles: "<style>" + escaped + "</style>", inHead: true))
+        defer { fixture.close() }
+        let page = try await fixture.readyPage()
+        let result = try await page.callJavaScript("""
+            return { content: getComputedStyle(document.querySelector('p'), '::before').content,
+                     active: document.querySelectorAll('script, iframe, img, [onload], [onerror]').length };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect(values["content"] as? String == "\"" + literal + "\"")
+        #expect(values["active"] as? Int == 0)
+    }
+
+    @Test("Safe document attributes preserve root-dependent visibility selectors", arguments: ["html.report", "html#author-root", "html[lang='ar']"])
+    func documentSelectorAttributesKeepDraftsHidden(selector: String) async throws {
+        let source = """
+        <html class="report" id="author-root" lang="ar" dir="rtl" onload="alert(1)" src="https://example.invalid/root" style="position:fixed">
+        <head><style>\(selector) .draft { display:none; }</style></head>
+        <body><p>Report</p><p class="draft">Draft must stay hidden.</p></body></html>
+        """
+        let fixture = MediaPreviewFixture(source: source)
+        defer { fixture.close() }
+        let page = try await fixture.readyPage()
+        let result = try await page.callJavaScript("""
+            const root = document.documentElement;
+            return { attributes: root.getAttributeNames(), rootClass: root.className, rootID: root.id,
+                     language: root.lang, direction: root.dir, rootPosition: root.style.position,
+                     draftDisplay: getComputedStyle(document.querySelector('.draft')).display,
+                     reportHeight: document.querySelector('p').getBoundingClientRect().height,
+                     resources: performance.getEntriesByType('resource').length };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        let attributes = try #require(values["attributes"] as? [String])
+        #expect(Set(attributes) == ["class", "id", "lang", "dir", "style"])
+        #expect(values["rootClass"] as? String == "report")
+        #expect(values["rootID"] as? String == "author-root")
+        #expect(values["language"] as? String == "ar")
+        #expect(values["direction"] as? String == "rtl")
+        #expect(values["rootPosition"] as? String == "")
+        #expect(values["draftDisplay"] as? String == "none")
+        let height = try #require(values["reportHeight"] as? Double)
+        #expect(height > 0)
+        #expect(values["resources"] as? Int == 0)
+    }
+
     private func reportState(_ page: WebPage) async throws -> [String: Any] {
         let result = try await page.callJavaScript("""
             const report = document.querySelector('p');
             const style = getComputedStyle(report);
-            return { text: report.textContent, display: style.display, color: style.color,
+            return { text: report.textContent, display: style.display, color: style.color, background: style.backgroundColor,
                      height: report.getBoundingClientRect().height,
                      printMatches: matchMedia('print').matches,
                      wideMatches: matchMedia('screen and (min-width: 480px)').matches };

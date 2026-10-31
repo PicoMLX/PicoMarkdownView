@@ -182,7 +182,7 @@ struct HTMLPreviewPolicyTests {
 
     @Test("Sanitized document direction survives shell composition without overriding the body", arguments: ["ltr", "rtl", "auto"])
     func preservesDocumentDirection(direction: String) throws {
-        let source = "<html dir='\(direction)' onload='alert(1)' id='author-root' style='position:fixed'><body dir='ltr'><p>Report</p></body></html>"
+        let source = "<html dir='\(direction)' class='report &quot;quoted&quot;' id='author-root' lang='ar' onload='alert(1)' src='https://example.invalid/root' style='position:fixed'><body dir='ltr'><p>Report</p></body></html>"
         let prepared = try HTMLPreviewPolicy.prepare(source: source)
         var dark = HTMLPreviewStyle.default
         dark.isDark = true
@@ -192,8 +192,13 @@ struct HTMLPreviewPolicyTests {
             let body = try #require(root.elements(forName: "body").first)
             #expect(root.attribute(forName: "dir")?.stringValue == direction)
             #expect(body.attribute(forName: "dir")?.stringValue == "ltr")
-            #expect(Set((root.attributes ?? []).compactMap(\.name)) == ["dir", "style"],
-                    "Only document direction joins the app-owned root styles")
+            #expect(root.attribute(forName: "class")?.stringValue == #"report "quoted""#)
+            #expect(root.attribute(forName: "id")?.stringValue == "author-root")
+            #expect(root.attribute(forName: "lang")?.stringValue == "ar")
+            #expect(root.attribute(forName: "style")?.stringValue == "margin:0!important;overflow:hidden!important")
+            #expect(Set((root.attributes ?? []).compactMap(\.name)) == ["class", "dir", "id", "lang", "style"],
+                    "Only safe selector/language attributes join the app-owned root styles")
+            #expect(!document.html.contains("example.invalid"))
             try expectInert(document)
         }
     }
