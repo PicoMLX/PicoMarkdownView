@@ -51,7 +51,6 @@ nonisolated enum HTMLPreviewPolicy {
     static let maximumDepth = 64
     static let minimumHeight: CGFloat = 1
     static let maximumHeight: CGFloat = 4_096
-    static let contentElementID = "pico-html-content"
     static let contentSecurityPolicy = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
 
     static func prepare(source: String) throws -> HTMLPreparedContent {
@@ -73,9 +72,13 @@ nonisolated enum HTMLPreviewPolicy {
         let bodyAttributes = builder.bodyAttributes.filter { $0.0 != "style" }
         let authorBodyStyle = builder.bodyAttributes.first { $0.0 == "style" }?.1 ?? ""
         let bodyStyle = authorBodyStyle + ";margin:0!important;overflow:hidden!important"
+        let styles = builder.styles.map { stylesheet in
+            let media = stylesheet.media.map { attributesHTML([("media", $0)]) } ?? ""
+            return "<style" + media + ">" + escapeCSSRawText(stylesheet.css) + "</style>"
+        }.joined()
         return HTMLPreparedContent(
             bodyHTML: body,
-            authorStylesHTML: builder.styles.map { "<style>" + escapeCSSRawText($0) + "</style>" }.joined(),
+            authorStylesHTML: styles,
             bodyAttributesHTML: attributesHTML(bodyAttributes),
             bodyStyleHTML: escapeAttribute(bodyStyle),
             documentDirection: builder.documentDirection,
@@ -100,14 +103,13 @@ nonisolated enum HTMLPreviewPolicy {
         let background = safeColor(style.backgroundCSS, fallback: "transparent")
         let baseCSS = """
         html { color-scheme: \(style.isDark ? "dark" : "light"); }
-        body { margin: 0; font: \(fontSize)px \(family); color: \(foreground); background-color: \(background); }
+        body { margin: 0; font: \(fontSize)px \(family); color: \(foreground); background-color: \(background); overflow-wrap: anywhere; }
         pre { white-space: pre-wrap; } table { max-width: 100%; } th, td { overflow-wrap: anywhere; }
         """
         let staticCSS = "*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }"
-        let rootStyle = "display:flow-root!important;width:100%!important;box-sizing:border-box!important;min-width:0!important;position:relative!important;overflow-wrap:anywhere!important"
         let direction = content.documentDirection.map { " dir=\"" + escapeAttribute($0) + "\"" } ?? ""
         let html = """
-        <!doctype html><html\(direction) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)"><div id="\(contentElementID)" style="\(rootStyle)">\(content.bodyHTML)</div></body></html>
+        <!doctype html><html\(direction) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)">\(content.bodyHTML)</body></html>
         """
         return HTMLPreviewDocument(html: html, plainText: content.plainText)
     }
@@ -210,7 +212,11 @@ nonisolated enum HTMLPreviewPolicy {
         ]
         private static let voidTags: Set<String> = ["br", "col", "hr", "wbr"]
         private static let globalAttributes: Set<String> = ["class", "id", "title", "lang", "dir", "style", "role", "aria-label"]
-        var styles: [String] = []
+        struct Stylesheet {
+            let css: String
+            let media: String?
+        }
+        var styles: [Stylesheet] = []
         var plainText = ""
         var bodyAttributes: [(String, String)] = []
         var documentDirection: String?
@@ -223,11 +229,18 @@ nonisolated enum HTMLPreviewPolicy {
             }
             guard let element = node as? XMLElement, let name = element.name?.lowercased() else { return "" }
             if name == "style" {
-                styles.append(element.stringValue ?? "")
+                collectStyle(element)
                 return ""
             }
             if name == "head" {
                 collectHeadStyles(element)
+                return ""
+            }
+            // Hidden visual subtrees must stay absent from both the preview
+            // and its cached readable placeholder. Styles still participate
+            // in the cascade even when their containing content is hidden.
+            if element.attribute(forName: "hidden") != nil {
+                collectHiddenStyles(element)
                 return ""
             }
             if name == "html" || name == "body" {
@@ -256,10 +269,33 @@ nonisolated enum HTMLPreviewPolicy {
             return opening + children + (Self.voidTags.contains(name) ? "" : "</\(name)>")
         }
 
+        private mutating func collectStyle(_ element: XMLElement) {
+            let media = element.attribute(forName: "media")?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+            styles.append(Stylesheet(css: element.stringValue ?? "", media: media.flatMap { $0.isEmpty ? nil : $0 }))
+        }
+
         private mutating func collectHeadStyles(_ element: XMLElement) {
             for child in element.children ?? [] {
                 guard let child = child as? XMLElement else { continue }
-                if child.name?.lowercased() == "style" { styles.append(child.stringValue ?? "") }
+                if child.name?.lowercased() == "style" { collectStyle(child) }
+            }
+        }
+
+        private mutating func collectHiddenStyles(_ element: XMLElement) {
+            guard let name = element.name?.lowercased() else { return }
+            if name == "style" {
+                collectStyle(element)
+                return
+            }
+            if name == "head" {
+                collectHeadStyles(element)
+                return
+            }
+            // Match normal rendering's subtree boundary: active, foreign,
+            // template and unknown containers never contribute styles.
+            guard name == "html" || name == "body" || Self.allowedTags.contains(name) else { return }
+            for child in element.children ?? [] {
+                if let child = child as? XMLElement { collectHiddenStyles(child) }
             }
         }
 
@@ -267,7 +303,6 @@ nonisolated enum HTMLPreviewPolicy {
             (element.attributes ?? []).compactMap { attribute -> (String, String)? in
                 guard let key = attribute.name?.lowercased(), let value = attribute.stringValue else { return nil }
                 if Self.globalAttributes.contains(key) {
-                    if key == "id", value == contentElementID { return nil }
                     if key == "dir", !["ltr", "rtl", "auto"].contains(value.lowercased()) { return nil }
                     return (key, value)
                 }

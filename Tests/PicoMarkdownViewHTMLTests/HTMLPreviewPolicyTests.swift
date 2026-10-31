@@ -68,11 +68,11 @@ struct HTMLPreviewPolicyTests {
         }
     }
 
-    @Test("The app owns the first CSP and the unique measurement root")
+    @Test("The app owns the first CSP while preserving author body attributes and direct children")
     func ownsDocumentShell() throws {
         let document = try prepareDocument(source: """
         <html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head>
-        <body id="pico-html-content" style="margin:50px;overflow:auto"><div id="pico-html-content">Report</div></body></html>
+        <body id="author-body" class="report" style="margin:50px;overflow:auto"><div id="pico-html-content">Report</div></body></html>
         """)
         #expect(document.html.contains("<head><meta http-equiv=\"Content-Security-Policy\""))
         #expect(document.html.components(separatedBy: "http-equiv=\"Content-Security-Policy\"").count == 2)
@@ -82,7 +82,14 @@ struct HTMLPreviewPolicyTests {
             #expect(HTMLPreviewPolicy.contentSecurityPolicy.contains(directive))
         }
         #expect(HTMLPreviewPolicy.contentSecurityPolicy.contains("style-src 'unsafe-inline'"))
-        #expect(document.html.contains("display:flow-root!important;width:100%!important"))
+        let parsed = try XMLDocument(xmlString: document.html, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever])
+        let body = try #require(parsed.nodes(forXPath: "/html/body").first as? XMLElement)
+        #expect(body.attribute(forName: "id")?.stringValue == "author-body")
+        #expect(body.attribute(forName: "class")?.stringValue == "report")
+        let children = body.children?.compactMap { $0 as? XMLElement } ?? []
+        #expect(children.count == 1)
+        #expect(children.first?.attribute(forName: "id")?.stringValue == "pico-html-content",
+                "Author IDs and physical direct children do not need a reserved measurement wrapper")
         #expect(document.html.contains("margin:50px;overflow:auto;margin:0!important;overflow:hidden!important"))
     }
 

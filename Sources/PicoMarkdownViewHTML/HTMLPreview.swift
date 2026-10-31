@@ -345,38 +345,38 @@ final class HTMLPreviewContainer: NSView {
     private static func measurementScript(token: UUID) -> String {
         """
         (() => {
-          const root = document.getElementById('pico-html-content');
-          if (!root) return;
+          const body = document.body;
+          if (!body) return;
           const measure = () => {
             // Author HTML is static, including inline !important animations
             // which can outrank our document's default stylesheet.
             document.getAnimations().forEach(animation => animation.cancel());
-            const rootRect = root.getBoundingClientRect();
-            const bodyRect = document.body.getBoundingClientRect();
-            const bodyStyle = getComputedStyle(document.body);
+            const bodyRect = body.getBoundingClientRect();
+            const bodyStyle = getComputedStyle(body);
             const trailingBodySpacing = (parseFloat(bodyStyle.paddingBottom) || 0)
               + (parseFloat(bodyStyle.borderBottomWidth) || 0);
-            // The wrapper's height excludes body padding/borders and its
-            // document offset. Measure their bottom extent without using a
-            // viewport-minimum scrollHeight that could prevent shrinking.
-            let height = Math.max(bodyRect.bottom + window.scrollY,
-              rootRect.top + window.scrollY + Math.max(rootRect.height, root.scrollHeight) + trailingBodySpacing);
-            // A fixed body can extend above the viewport while both bottom
-            // extents look bounded, so it shares the descendant fallback.
-            if (bodyStyle.position === 'fixed' || Array.from(root.querySelectorAll('*')).some(element => {
+            // Keep the author's physical body children and flex/grid layout.
+            // Border-box and descendant extents include offsets and spacing,
+            // without feeding a viewport-minimum scrollHeight back into size.
+            let height = Math.max(0, bodyRect.bottom + window.scrollY);
+            let unsupported = bodyStyle.position === 'fixed';
+            for (const element of body.querySelectorAll('*')) {
               const rect = element.getBoundingClientRect();
-              const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden';
-              // Viewport-fixed content has no intrinsic document height, even
-              // when ordinary flowing text precedes it. Show source safely.
-              return visible && (height === 0 || getComputedStyle(element).position === 'fixed');
-            })) height = \(HTMLPreviewPolicy.maximumHeight + 1);
+              const style = getComputedStyle(element);
+              const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
+              if (!visible) continue;
+              // Viewport-fixed or heightless content has no usable intrinsic
+              // document extent. Show its source instead of clipping it.
+              if (height === 0 || style.position === 'fixed') unsupported = true;
+              height = Math.max(height, rect.bottom + window.scrollY + trailingBodySpacing);
+            }
+            if (unsupported) height = \(HTMLPreviewPolicy.maximumHeight + 1);
             window.webkit.messageHandlers.picoHTMLHeight.postMessage({
               token: '\(token.uuidString)', height, width: window.innerWidth
             });
           };
           const observer = new ResizeObserver(measure);
-          observer.observe(root);
-          observer.observe(document.body, { box: 'border-box' });
+          observer.observe(body, { box: 'border-box' });
           measure();
           document.fonts.ready.then(measure);
         })();

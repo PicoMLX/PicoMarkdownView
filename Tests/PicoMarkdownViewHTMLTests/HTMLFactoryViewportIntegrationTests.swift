@@ -72,7 +72,7 @@ struct HTMLFactoryViewportIntegrationTests {
         let page = try #require(container.page)
         let result = try await page.callJavaScript("""
             return { text: document.body.textContent,
-                     height: document.getElementById('pico-html-content').getBoundingClientRect().height,
+                     height: document.body.getBoundingClientRect().height,
                      width: innerWidth };
             """, contentWorld: .defaultClient) as? [String: Any]
         let values = try #require(result)

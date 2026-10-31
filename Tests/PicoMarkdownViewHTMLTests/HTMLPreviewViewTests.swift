@@ -51,7 +51,7 @@ struct HTMLPreviewViewTests {
         }
         let page = try #require(view.page)
         let result = try await page.callJavaScript("""
-            const report = document.querySelector('#pico-html-content > div');
+            const report = document.querySelector('body > div');
             const rect = report.getBoundingClientRect();
             const body = document.body.getBoundingClientRect();
             const style = getComputedStyle(document.body);
@@ -72,6 +72,57 @@ struct HTMLPreviewViewTests {
         #expect(view.measuredHeight >= ceil(bodyBottom))
         #expect(view.bounds.height >= ceil(bodyBottom))
         #expect(top >= 0 && bottom <= viewportHeight, "The actual report must be inside the rendered browser viewport")
+    }
+
+    @Test("Body flex/grid layout and direct-child selectors retain their original structure", arguments: ["flex", "grid"])
+    func bodyLayoutPreservesDirectChildren(display: String) async throws {
+        let layout = display == "grid" ? "display:grid;grid-template-columns:120px 120px" : "display:flex;flex-direction:row"
+        let source = """
+            <html><head><style>
+              body > .card { width:120px; height:50px; background:rgb(12,34,56); }
+            </style></head><body id="report-body" class="report" style="\(layout);gap:20px;padding:10px">
+              <div class="card">First report</div><div class="card">Second report</div>
+            </body></html>
+            """
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        let ready = AsyncStream.makeStream(of: Void.self)
+        view.onReady = { ready.continuation.yield(()) }
+        defer { view.onReady = nil; ready.continuation.finish() }
+        if !view.isReady {
+            var iterator = ready.stream.makeAsyncIterator()
+            try #require(await iterator.next() != nil)
+        }
+        let page = try #require(view.page)
+        let result = try await page.callJavaScript("""
+            const cards = document.querySelectorAll('.card');
+            const first = cards[0].getBoundingClientRect();
+            const second = cards[1].getBoundingClientRect();
+            return { directChildren: document.querySelectorAll('body > .card').length,
+                     bodyID: document.body.id, bodyClass: document.body.className,
+                     display: getComputedStyle(document.body).display,
+                     firstX: first.x, firstY: first.y, secondX: second.x, secondY: second.y,
+                     width: first.width, height: first.height, bottom: second.bottom,
+                     color: getComputedStyle(cards[0]).backgroundColor, viewportHeight: innerHeight };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect(values["directChildren"] as? Int == 2)
+        #expect(values["bodyID"] as? String == "report-body")
+        #expect(values["bodyClass"] as? String == "report")
+        #expect(values["display"] as? String == display)
+        #expect(values["color"] as? String == "rgb(12, 34, 56)")
+        let firstX = try #require(values["firstX"] as? Double)
+        let secondX = try #require(values["secondX"] as? Double)
+        let firstY = try #require(values["firstY"] as? Double)
+        let secondY = try #require(values["secondY"] as? Double)
+        #expect(abs(secondX - firstX - 140) <= 1)
+        #expect(abs(secondY - firstY) <= 1)
+        #expect(values["width"] as? Double == 120)
+        #expect(values["height"] as? Double == 50)
+        #expect(view.measuredHeight >= 70)
+        let bottom = try #require(values["bottom"] as? Double)
+        let viewportHeight = try #require(values["viewportHeight"] as? Double)
+        #expect(bottom <= viewportHeight)
     }
 
     @Test func browserReceivesOnlyStaticOfflineContent() async throws {
@@ -153,6 +204,25 @@ struct HTMLPreviewViewTests {
         let scheme = try await darkPage.callJavaScript("return getComputedStyle(document.documentElement).colorScheme", contentWorld: .defaultClient) as? String
         #expect(scheme == "dark")
         #expect(await counter.count == 1)
+    }
+
+    @Test("Absolute-only content in a zero-height body falls back instead of reporting clipped content as ready")
+    func absoluteOnlyBodyUsesSourceFallback() async throws {
+        let source = "<html><body style='position:relative'><div style='position:absolute;top:8px;height:40px;width:100px'>Report</div></body></html>"
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        let outcome = AsyncStream.makeStream(of: Bool.self)
+        view.onReady = { outcome.continuation.yield(true); outcome.continuation.finish() }
+        view.onFailure = { outcome.continuation.yield(false); outcome.continuation.finish() }
+        defer { view.onReady = nil; view.onFailure = nil; outcome.continuation.finish() }
+        var iterator = outcome.stream.makeAsyncIterator()
+        let becameReady = try #require(await iterator.next())
+        // A 48-point viewport alone cannot unclip this content: the zero-height
+        // body's bounded overflow still clips its absolutely positioned child.
+        #expect(!becameReady)
+        #expect(view.hasFailed && !view.isReady)
+        #expect(view.page == nil)
+        #expect(view.measuredHeight == 1)
     }
 
     @Test("A viewport-fixed document body uses source fallback instead of clipping content above the preview")
