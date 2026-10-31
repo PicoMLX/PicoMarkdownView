@@ -1,5 +1,9 @@
 #if os(macOS) && canImport(JavaScriptCore)
 import AppKit
+import SwiftUI
+import Vision
+import ImageIO
+import CryptoKit
 import Testing
 @testable import PicoMarkdownView
 
@@ -199,56 +203,221 @@ struct MacHostedChartLoadingIntegrationTests {
         #expect(fixture.view.string.contains(source))
     }
 
-    @Test("An offscreen loader reserves 48 points before a real window lazily mounts it")
+    @Test("The complete official grouped repeat source stays uncompiled until close, then shows its chart and following text")
+    func groupedRepeatCompletesAfterItsFullSourceArrives() async throws {
+        let source = try officialGroupedRepeatSource()
+        #expect(source.utf8.count == 1_281_975)
+        #expect(source.split(whereSeparator: \.isWhitespace).count == 72_270,
+                "At the example's 30 words/second, this exact source needs about 40 minutes to arrive")
+        let controller = TextKitStreamingController()
+        let view = controller.makeTextKit2View(configuration: .default())
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 900)
+        controller.setHostedStreamActive(true)
+        defer { controller.setHostedStreamActive(false) }
+        let pipeline = MarkdownStreamingPipeline()
+        _ = await pipeline.updateMermaidContentWidth(336)
+        func applyUpdate(_ update: StreamingUpdate?) {
+            guard let update else { return }
+            controller.update(textView: view, blocks: update.blocks, diffs: [update.diff],
+                              replaceToken: 1, configuration: .default(), documentIdentity: 1)
+        }
+        applyUpdate(await pipeline.feed("Before grouped repeat.\n\n```vega-lite\n"))
+        let block = try #require(await pipeline.blocksSnapshot().first { $0.vegaLiteChart != nil })
+        let model = try #require(controller.hostedVectorModel(for: block.id))
+        let attachment = try #require(controller.hostedAttachment(for: block.id))
+        let storage = try #require(view.textStorage)
+        let initialStorage = storage.string
+        var cursor = source.startIndex
+        var delivered = ""
+        for length in [137, 509, 4_096] {
+            let end = source.index(cursor, offsetBy: length)
+            let chunk = String(source[cursor..<end])
+            delivered += chunk
+            cursor = end
+            applyUpdate(await pipeline.feed(chunk))
+            #expect(model.source == delivered)
+            #expect(model.source.utf8.count == delivered.utf8.count)
+            #expect(model.parseCount == 0 && model.isLoading && !model.isClosed)
+            let partial = try #require(await pipeline.blocksSnapshot().first { $0.id == block.id })
+            #expect(partial.vegaLiteChart?.svg == "", "The compiler must not run on an incomplete official specification")
+            #expect(storage.string == initialStorage)
+            #expect(!storage.string.contains("Stacked Bar Chart"))
+        }
+        applyUpdate(await pipeline.feed(String(source[cursor...])))
+        #expect(model.source == source && model.parseCount == 0 && model.isLoading)
+        #expect(controller.hostedAttachment(for: block.id) === attachment)
+        applyUpdate(await pipeline.feed("```\n\n#### Stacked Bar Chart\n\nFollowing text has arrived.\n\n"))
+        applyUpdate(await pipeline.finish())
+        await settle(view)
+        let ready = try #require(await pipeline.blocksSnapshot().first { $0.id == block.id })
+        let chart = try #require(ready.vegaLiteChart)
+        #expect(ready.snapshot.isClosed && !chart.svg.isEmpty)
+        #expect(chart.source == source)
+        #expect(model.isClosed && model.isRenderable && !model.isLoading)
+        #expect(model.parseCount == 1)
+        #expect(controller.hostedAttachment(for: block.id) === attachment)
+        #expect(storage.string.contains("Stacked Bar Chart"))
+        #expect(storage.string.contains("Following text has arrived."))
+        #expect(!storage.string.contains("Miles_per_Gallon"), "Inline dataset source stays out of visible native text")
+        view.setSelectedRange(NSRange(location: 0, length: storage.length))
+        let copied = copySelection(view)
+        let copiedExactSource = copied.contains(source)
+        let copiedFollowingHeading = copied.contains("Stacked Bar Chart")
+        #expect(copiedExactSource)
+        #expect(copiedFollowingHeading)
+    }
+
+    @Test("A lazy controller-hosted loader keeps real status text during source-only streaming")
     func realWindowPreservesEstimatedLoadingHeight() async throws {
-        let fixture = makeFixture()
-        fixture.view.setFrameSize(NSSize(width: 400, height: 120))
-        fixture.backend.setHostedStreamActive(true)
+        _ = NSApplication.shared
+        let controller = TextKitStreamingController()
+        let view = controller.makeTextKit2View(configuration: .default())
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 120)
+        controller.setHostedStreamActive(true)
+        defer { controller.setHostedStreamActive(false) }
+        let pipeline = MarkdownStreamingPipeline()
+        func applyUpdate(_ update: StreamingUpdate?) {
+            guard let update else { return }
+            controller.update(textView: view, blocks: update.blocks, diffs: [update.diff],
+                              replaceToken: 1, configuration: .default(), documentIdentity: 1)
+        }
         let prefix = String(repeating: "Native paragraph before the loading chart.\n\n", count: 20)
-        apply(await fixture.pipeline.feed(prefix + "```vega-lite\n"), to: fixture)
-        let block = try #require(await fixture.pipeline.blocksSnapshot().first { $0.vegaLiteChart != nil })
-        let attachment = try #require(fixture.backend.hostedAttachment(for: block.id))
-        let model = try #require(fixture.backend.hostedVectorModel(for: block.id))
+        applyUpdate(await pipeline.feed(prefix + "```vega-lite\n"))
+        let block = try #require(await pipeline.blocksSnapshot().first { $0.vegaLiteChart != nil })
+        let attachment = try #require(controller.hostedAttachment(for: block.id))
+        let model = try #require(controller.hostedVectorModel(for: block.id))
         #expect(attachment.hostingView == nil)
         #expect(attachment.bounds.height == 48)
-        let scroll = NSScrollView(frame: fixture.view.frame)
+        let scroll = NSScrollView(frame: view.frame)
         scroll.hasVerticalScroller = true
-        scroll.documentView = fixture.view
+        scroll.documentView = view
         let window = NSWindow(contentRect: scroll.frame, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = scroll
+        window.appearance = NSAppearance(named: .aqua)
         let screenOrigin = NSScreen.main?.visibleFrame.origin ?? .zero
         window.setFrameOrigin(NSPoint(x: screenOrigin.x + 20, y: screenOrigin.y + 20))
         window.orderFront(nil)
         defer { window.close() }
-        fixture.view.setFrameSize(NSSize(width: 400, height: 2_000))
-        await settle(fixture.view)
-        let storage = try #require(fixture.view.textStorage)
+        view.setFrameSize(NSSize(width: 400, height: 2_000))
+        await settle(view)
+        let storage = try #require(view.textStorage)
         let marker = (storage.string as NSString).range(of: "\u{FFFC}")
-        let manager = try #require(fixture.view.textLayoutManager)
+        let manager = try #require(view.textLayoutManager)
         let content = try #require(manager.textContentManager)
         let location = try #require(content.location(content.documentRange.location, offsetBy: marker.location))
         let beforeScroll = try #require(manager.textLayoutFragment(for: location))
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, beforeScroll.layoutFragmentFrame.minY - 8)))
         scroll.reflectScrolledClipView(scroll.contentView)
         await model.waitForLoadingDelay()
-        await settle(fixture.view)
-        #expect(fixture.view.window === window && window.isVisible)
+        await settle(view)
+        #expect(view.window === window && window.isVisible)
         let fragment = try #require(manager.textLayoutFragment(for: location))
-        try #require(fragment.layoutFragmentFrame.intersects(fixture.view.visibleRect), "The loading marker must actually be in the native viewport")
-        let diagnostics = "providers=\(fragment.textAttachmentViewProviders.count), visible=\(fixture.view.visibleRect), marker=\(fragment.layoutFragmentFrame), usesView=\(attachment.usesTextAttachmentView), hasImage=\(attachment.image != nil), activity=\(model.loadingActivity), revealed=\(model.showsLoadingPlaceholder)"
-        let host = try #require(attachment.hostingView, "Visible viewport layout must lazily create the real loading host: \(diagnostics)")
-        #expect(host.accessibilityLabel() == "Preparing chart…", "Mounted loading status missing: \(diagnostics)")
+        try #require(fragment.layoutFragmentFrame.intersects(view.visibleRect), "The loading marker must actually be in the native viewport")
+        let host = try #require(attachment.hostingView, "TextKit must create the visible host without manual view loading")
+        #expect(host.accessibilityLabel() == "Receiving chart…")
         #expect(host.accessibilityRole() == .staticText)
         #expect(host.isAccessibilityElement())
-        #expect(host.accessibilityChildren()?.isEmpty != false, "Loading must not expose chart source or unfinished controls")
-        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: bitmap)
-        #expect(centralTextColors(in: bitmap).count > 1,
-                "The real native host must draw text ink beyond its spinner and uniform loading-card background")
+        let initial = try await Self.recognizedText(in: snapshot(host))
+        #expect(initial.lowercased().contains("receiving chart"), "Initial native loading OCR: \(initial)")
+
+        let (progress, continuation) = AsyncStream<Int>.makeStream()
+        let producer = Task { @MainActor in
+            defer { continuation.finish() }
+            for index in 1...30 {
+                try Task.checkCancellation()
+                applyUpdate(await pipeline.feed(" \"token\(index)\":\(index),"))
+                continuation.yield(index)
+                try await Task.sleep(for: .milliseconds(33))
+            }
+        }
+        defer { producer.cancel() }
+        for await index in progress where [1, 15, 30].contains(index) {
+            await settle(view)
+            #expect(controller.hostedAttachment(for: block.id) === attachment)
+            #expect(controller.hostedVectorModel(for: block.id) === model)
+            #expect(attachment.hostingView === host && host.window === window)
+            #expect(!host.isHiddenOrHasHiddenAncestor)
+            let status = try await Self.recognizedText(in: snapshot(host))
+            #expect(status.lowercased().contains("receiving chart"), "Native loading OCR during source update \(index): \(status)")
+        }
+        try await producer.value
+        #expect(model.source.contains("token30"))
+        #expect(!storage.string.contains("token30"))
         #expect(attachment.measuredSize.height == 48)
         #expect(model.parseCount == 0)
-        fixture.backend.setHostedStreamActive(false)
+    }
+
+    @Test("A streamed loader draws inside an outer SwiftUI scroll view while source keeps arriving")
+    func swiftUIScrollViewKeepsNativeLoadingStatusVisible() async throws {
+        _ = NSApplication.shared
+        let (stream, continuation) = AsyncStream<String>.makeStream()
+        defer { continuation.finish() }
+        let outer = NSHostingView(rootView: ScrollView {
+            PicoMarkdownView(stream: { stream }, remoteImagesEnabled: false)
+                .textSelection(.enabled)
+                .padding(16)
+        })
+        outer.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let window = NSWindow(contentRect: outer.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = outer
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = .white
+        window.orderFront(nil)
+        defer { window.close() }
+        continuation.yield("Before the streaming chart.\n\n```vega-lite\n{\"usermeta\":{")
+        try await waitForNativeUpdate(in: outer, window: window) {
+            guard let view = self.firstDescendant(StreamingTextKit2View.self, in: outer) else { return false }
+            return self.firstHostedAttachment(in: view) != nil
+        }
+        let view = try #require(firstDescendant(StreamingTextKit2View.self, in: outer))
+        let attachment = try #require(firstHostedAttachment(in: view))
+        try await waitForNativeUpdate(in: outer, window: window) {
+            attachment.hostingView?.accessibilityLabel() != nil
+        }
+        let host = try #require(attachment.hostingView, "The SwiftUI scroll viewport must mount TextKit's attachment automatically")
+        let storage = try #require(view.textStorage)
+        let marker = (storage.string as NSString).range(of: "\u{FFFC}")
+        let manager = try #require(view.textLayoutManager)
+        let content = try #require(manager.textContentManager)
+        let location = try #require(content.location(content.documentRange.location, offsetBy: marker.location))
+        let fragment = try #require(manager.textLayoutFragment(for: location))
+        #expect(fragment.layoutFragmentFrame.intersects(view.visibleRect))
+        #expect(host.window === window && !host.isHiddenOrHasHiddenAncestor)
+        #expect(host.visibleRect.width > 0 && host.visibleRect.height > 0)
+        #expect(host.accessibilityRole() == .staticText)
+        #expect(host.isAccessibilityElement())
+        let initial = try await Self.recognizedText(in: snapshot(host))
+        #expect(initial.lowercased().contains("receiving chart"), "Nested SwiftUI loading OCR before updates: \(initial)")
+        let originalStorage = storage.string
+        let (progress, updates) = AsyncStream<Int>.makeStream()
+        let producer = Task { @MainActor in
+            defer { updates.finish() }
+            for index in 1...30 {
+                try Task.checkCancellation()
+                continuation.yield("\"token\(index)\":\(index),")
+                updates.yield(index)
+                try await Task.sleep(for: .milliseconds(33))
+            }
+        }
+        defer { producer.cancel() }
+        for await index in progress where [1, 15, 30].contains(index) {
+            try await waitForNativeUpdate(in: outer, window: window) {
+                attachment.markdownRepresentation().contains("\"token\(index)\":")
+            }
+            #expect(firstHostedAttachment(in: view) === attachment)
+            #expect(attachment.hostingView === host && host.window === window)
+            #expect(!host.isHiddenOrHasHiddenAncestor)
+            #expect(host.accessibilityLabel() == "Receiving chart…")
+            #expect(attachment.measuredSize.height == 48)
+            #expect(storage.string == originalStorage)
+            let status = try await Self.recognizedText(in: snapshot(host))
+            #expect(status.lowercased().contains("receiving chart"),
+                    "Nested SwiftUI loading OCR during update \(index): \(status)")
+        }
+        try await producer.value
+        #expect(attachment.markdownRepresentation().contains("\"token30\":30,"))
     }
 
     private struct Fixture {
@@ -280,6 +449,72 @@ struct MacHostedChartLoadingIntegrationTests {
         fixture.backend.updateHostedAttachments(width: fixture.view.bounds.width, selection: [selection])
     }
 
+    private func officialGroupedRepeatSource() throws -> String {
+        struct Manifest: Decodable {
+            struct Entry: Decodable {
+                let id: String
+                let fenceIndex: Int?
+                let sourceSHA256: String
+            }
+            let entries: [Entry]
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf:
+            root.appendingPathComponent("Tests/Fixtures/VegaLiteGallery/preview-manifest.json")))
+        let entry = try #require(manifest.entries.first { $0.id == "bar_grouped_repeated" })
+        let fenceIndex = try #require(entry.fenceIndex)
+        let compressed = try Data(contentsOf: root.appendingPathComponent(
+            "MarkdownExample/MarkdownExample/markdown files/Charts-Gallery-Preview.md.deflate"))
+        let decoded = try (compressed as NSData).decompressed(using: .zlib) as Data
+        let markdown = String(decoding: decoded, as: UTF8.self)
+        var cursor = markdown.startIndex
+        for index in 0...fenceIndex {
+            let opening = try #require(markdown.range(of: "```vega-lite\n", range: cursor..<markdown.endIndex))
+            let closing = try #require(markdown.range(of: "\n```\n", range: opening.upperBound..<markdown.endIndex))
+            if index == fenceIndex {
+                let source = String(markdown[opening.upperBound...closing.lowerBound])
+                let digest = SHA256.hash(data: Data(source.utf8)).map { String(format: "%02x", $0) }.joined()
+                try #require(digest == entry.sourceSHA256, "Use the exact official source, with every inline data row")
+                return source
+            }
+            cursor = closing.upperBound
+        }
+        throw CocoaError(.fileReadCorruptFile)
+    }
+
+    private func firstDescendant<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+        if let match = view as? T { return match }
+        return view.subviews.lazy.compactMap { firstDescendant(type, in: $0) }.first
+    }
+
+    private func firstHostedAttachment(in view: NSTextView) -> PicoHostedAttachment? {
+        guard let storage = view.textStorage else { return nil }
+        var attachment: PicoHostedAttachment?
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, stop in
+            guard let hosted = value as? PicoHostedAttachment else { return }
+            attachment = hosted
+            stop.pointee = true
+        }
+        return attachment
+    }
+
+    private func waitForNativeUpdate(in outer: NSView, window: NSWindow,
+                                     sourceLocation: SourceLocation = #_sourceLocation, condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !condition(), ContinuousClock.now < deadline {
+            await layout(outer, window: window)
+            if let view = firstDescendant(StreamingTextKit2View.self, in: outer) { await settle(view) }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        if !condition(), let view = firstDescendant(StreamingTextKit2View.self, in: outer) {
+            let attachment = firstHostedAttachment(in: view)
+            print("Nested streamed view: frame=\(view.frame), visible=\(view.visibleRect), host=\(String(describing: attachment?.hostingView)), estimate=\(String(describing: attachment?.measuredSize))")
+        }
+        try #require(condition(), "The streamed native view did not reach its expected state before the deadline", sourceLocation: sourceLocation)
+        await layout(outer, window: window)
+    }
+
     private func markerCount(_ storage: NSTextStorage) -> Int { storage.string.filter { $0 == "\u{FFFC}" }.count }
 
     private func copySelection(_ view: NSTextView) -> String {
@@ -289,20 +524,41 @@ struct MacHostedChartLoadingIntegrationTests {
         return pasteboard.string(forType: .string) ?? ""
     }
 
-    private func centralTextColors(in bitmap: NSBitmapImageRep) -> Set<UInt32> {
-        // Exclude the spinner and rounded corners; a blank card is uniform here.
-        let scaleX = CGFloat(bitmap.pixelsWide) / 400
-        let scaleY = CGFloat(bitmap.pixelsHigh) / 48
-        var colors: Set<UInt32> = []
-        for y in Int(8 * scaleY)..<min(bitmap.pixelsHigh, Int(40 * scaleY)) {
-            for x in Int(48 * scaleX)..<max(Int(48 * scaleX), bitmap.pixelsWide - Int(12 * scaleX)) {
-                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                let components = [color.redComponent, color.greenComponent, color.blueComponent, color.alphaComponent]
-                let packed = components.reduce(UInt32(0)) { ($0 << 8) | UInt32(clamping: Int(($1 * 255).rounded())) }
-                colors.insert(packed)
-            }
+    private func snapshot(_ view: NSView) throws -> Data {
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return try #require(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    @concurrent
+    private static func recognizedText(in png: Data) async throws -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["en-US"]
+        request.usesLanguageCorrection = false
+        let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        let context = try #require(CGContext(data: nil, width: image.width, height: image.height,
+                                            bitsPerComponent: 8, bytesPerRow: 0,
+                                            space: CGColorSpaceCreateDeviceRGB(),
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        // Hosted bitmaps are transparent; composite them before OCR so dark
+        // status glyphs cannot disappear against an implicit black background.
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        let opaque = try #require(context.makeImage())
+        try VNImageRequestHandler(cgImage: opaque, options: [:]).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+    }
+
+    private func layout(_ host: NSView, window: NSWindow) async {
+        for _ in 0..<6 {
+            host.needsLayout = true
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            await Task.yield()
         }
-        return colors
     }
 
     private func settle(_ view: NSTextView) async {

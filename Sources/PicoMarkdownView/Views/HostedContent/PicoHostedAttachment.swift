@@ -91,6 +91,9 @@ public final class PicoHostedAttachment: NSTextAttachment {
 
     func loadHostedView() -> NSView {
         if let hostedView { return hostedView }
+        // TextKit may mount during its own layout before the parent supplies
+        // context. Start SwiftUI at the width already reserved for this view.
+        context.update(availableWidth: measuredSize.width, isSelected: context.isSelected)
         let root = PicoMeasuredHostedContent(context: context, content: content,
                                             onHeight: { [weak self] _ in self?.invalidateSize() })
         let view = PicoHostedContentHostingView(rootView: root, interaction: interaction,

@@ -252,7 +252,7 @@ zoom/pan controls, and source copying as Mermaid. No WebView is used. Ordinary
 ````
 
 While a chart fence is open, one compact hosted row replaces its raw JSON.
-After 350 ms it shows a native spinner and “Preparing chart…”; fast charts appear
+After 350 ms it shows a native spinner and “Receiving chart…”; fast charts appear
 directly without waiting. Its height stays fixed while source arrives, and its
 reveal deadline starts once per block. Paused or cancelled streams show a static
 status instead of a continuing spinner. Charts compile only at fence closure

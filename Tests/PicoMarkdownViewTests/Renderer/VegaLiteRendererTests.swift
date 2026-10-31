@@ -74,6 +74,32 @@ struct VegaLiteRendererTests {
         }
     }
 
+#if os(macOS)
+    @Test("A rejected chart preserves its source and does not block following Markdown or valid charts", arguments: [
+        "{broken JSON}",
+        #"{"data":{"values":[{"x":1}]},"mark":"not-a-vega-lite-mark"}"#,
+        #"{"data":{"values":[{"x":1}]},"mark":"bar","transform":[{"calculate":"repeat('x', 1000000000)","as":"x"}]}"#
+    ])
+    func chartFailuresKeepFollowingContent(_ raw: String) async throws {
+        let source = raw + "\n"
+        let pipeline = MarkdownStreamingPipeline()
+        _ = await pipeline.feed(VegaLiteRenderingFixture.markdown(source: source) +
+                                "Following paragraph stays readable.\n\n" + VegaLiteRenderingFixture.markdown())
+        _ = await pipeline.finish()
+        let blocks = await pipeline.blocksSnapshot()
+        let fallback = try #require(blocks.first { $0.snapshot.codeText == source })
+        #expect(fallback.snapshot.isClosed)
+        #expect(fallback.vegaLiteChart == nil)
+        #expect(fallback.codeBlock?.code == source)
+        #expect(String(fallback.content.characters).contains(source))
+        #expect(blocks.contains { String($0.content.characters).contains("Following paragraph stays readable.") })
+        let ready = blocks.compactMap(\.vegaLiteChart)
+        #expect(ready.count == 1)
+        #expect(ready.first?.source == VegaLiteRenderingFixture.source)
+        #expect(ready.first?.svg.contains("<svg") == true)
+    }
+#endif
+
 #if os(iOS)
     @Test("Vega-Lite stays native code on iOS even when enabled")
     func iOSKeepsExistingCodeRendering() async throws {

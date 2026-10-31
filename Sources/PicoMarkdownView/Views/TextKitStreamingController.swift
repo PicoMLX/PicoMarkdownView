@@ -106,6 +106,14 @@ final class TextKitStreamingController: ObservableObject {
         backend.setHostedStreamActive(active)
     }
 
+    func hostedVectorModel(for id: BlockID) -> PicoHostedVectorModel? {
+        backend.hostedVectorModel(for: id)
+    }
+
+    func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
+        backend.hostedAttachment(for: id)
+    }
+
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)

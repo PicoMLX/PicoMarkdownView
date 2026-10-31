@@ -268,6 +268,21 @@ def rendering_preview(report_path: Path, chunks: list[str], fence_positions: lis
             "sourceSHA256": entry["sourceSHA256"], "sourceBytes": entry["sourceBytes"],
             "fullEntryIndex": index, "disposition": "chart" if kept else "notice", "outcome": outcome,
         }
+        historical_size_note = "Complete inline source exceeds the current renderer's 131072-byte limit."
+        if historical_size_note in entry["dataIssues"]:
+            # The archived corpus keeps its original notes. The separately
+            # measured preview describes current outcomes without changing
+            # any specification or dataset bytes.
+            data_note_position = position - 1
+            if not preview_chunks[data_note_position].startswith("Data note: "):
+                raise SystemExit(f"Missing historical data note for {entry['id']}")
+            current_note = (
+                f"Large inline dataset retained in full ({entry['sourceBytes']:,} UTF-8 source bytes). "
+                "The chart appears after its entire specification has streamed."
+                if kept else f"Complete inline source contains {entry['sourceBytes']:,} UTF-8 bytes."
+            )
+            preview_chunks[data_note_position] = preview_chunks[data_note_position].replace(
+                historical_size_note, current_note)
         if kept:
             # Leave all three fence chunks byte-for-byte identical, including
             # the body newline whose digest is in the full gallery manifest.
@@ -292,11 +307,11 @@ def rendering_preview(report_path: Path, chunks: list[str], fence_positions: lis
         "Every retained chart uses its exact full inline dataset and original specification. "
         "Charts reported as unsupported are replaced by notices so their large fallback code blocks do not overwhelm the native view. "
         "No retained chart is sampled, simplified, or rewritten. Interactive charts are static snapshots. "
-        "Size-limit data notes below preserve the original archive profile; preview inclusion follows the current measured renderer.\n\n")
+        "Large inline datasets can take minutes to stream word by word before their charts appear.\n\n")
     preview_chunks[3] = (
         f"The complete unmodified source for all {len(entries)} placements remains available separately as `{full_filename}` "
         "and can be exported to standalone Markdown with `Scripts/export-vega-lite-gallery.py --output /private/tmp/Charts-Gallery.md`. "
-        "All gallery titles, links, descriptions, and data notes are preserved below. "
+        "Gallery titles, links, descriptions, and dataset notices are retained below; historical size-limit warnings are updated for this preview. "
         "Dataset attribution and original license metadata accompany the full corpus and preview.\n\n")
     preview = "".join(preview_chunks).encode("utf-8")
     compressed = raw_deflate(preview)
@@ -514,11 +529,21 @@ content, its digest, and each fenced source are deterministic.
 ## Native UI preview
 
 The app opens `Charts-Gallery-Preview.md.deflate`, a separate practical preview.
-It retains every original gallery heading, description, link, and data note.
+It retains every original gallery heading, description, link, and dataset note.
+Historical 128 KiB warnings are replaced with current source byte counts; kept
+charts explicitly note that their complete specification must arrive before
+rendering. The archived full corpus and its notes remain unchanged.
 Only chart fences measured as successful are included, byte-for-byte identical
 to the full corpus. Other fences become short, classified notices. This avoids
 laying out tens of megabytes of fallback source code in the native view while
 leaving the complete unmodified corpus available for export and benchmarks.
+
+The example streams at approximately 30 whitespace-delimited words per second.
+`bar_grouped_repeated` alone retains 72,270 words of inline source (1,281,975
+UTF-8 bytes), taking about 40 minutes 9 seconds from its opening fence to its
+closing fence at that demonstration speed. Its following heading cannot arrive
+before the closing fence. This is producer pacing: the renderer keeps one fixed
+loading attachment while open and compiles the exact chart only after closure.
 
 Regenerate the preview from its saved classification report:
 

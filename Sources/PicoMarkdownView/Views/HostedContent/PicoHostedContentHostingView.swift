@@ -53,19 +53,18 @@ final class PicoHostedContentHostingView: NSHostingView<PicoMeasuredHostedConten
     // NSHostingView can omit the SwiftUI status subtree inside a TextKit
     // attachment. Project its visible status onto the native host itself.
     override func isAccessibilityElement() -> Bool {
-        statusLabel() != nil || super.isAccessibilityElement()
+        let inherited = super.isAccessibilityElement()
+        return statusLabel() != nil || inherited
     }
 
     override func accessibilityRole() -> NSAccessibility.Role? {
-        statusLabel() != nil ? .staticText : super.accessibilityRole()
+        let inherited = super.accessibilityRole()
+        return statusLabel() != nil ? .staticText : inherited
     }
 
     override func accessibilityLabel() -> String? {
-        statusLabel() ?? super.accessibilityLabel()
-    }
-
-    override func accessibilityChildren() -> [Any]? {
-        statusLabel() != nil ? [] : super.accessibilityChildren()
+        let inherited = super.accessibilityLabel()
+        return statusLabel() ?? inherited
     }
 
     /// Search only live, visible attachment views under the gesture point.

@@ -9,9 +9,9 @@
       "comment" : "Status when displaying new chart source is paused.",
       "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Chart paused" } } }
     },
-    "Preparing chart…" : {
-      "comment" : "Status while a chart's source is still arriving.",
-      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Preparing chart…" } } }
+    "Receiving chart…" : {
+      "comment" : "Status while a chart's source is still arriving, before compilation begins.",
+      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Receiving chart…" } } }
     }
   },
   "version" : "1.0"

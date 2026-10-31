@@ -55,11 +55,21 @@ content, its digest, and each fenced source are deterministic.
 ## Native UI preview
 
 The app opens `Charts-Gallery-Preview.md.deflate`, a separate practical preview.
-It retains every original gallery heading, description, link, and data note.
+It retains every original gallery heading, description, link, and dataset note.
+Historical 128 KiB warnings are replaced with current source byte counts; kept
+charts explicitly note that their complete specification must arrive before
+rendering. The archived full corpus and its notes remain unchanged.
 Only chart fences measured as successful are included, byte-for-byte identical
 to the full corpus. Other fences become short, classified notices. This avoids
 laying out tens of megabytes of fallback source code in the native view while
 leaving the complete unmodified corpus available for export and benchmarks.
+
+The example streams at approximately 30 whitespace-delimited words per second.
+`bar_grouped_repeated` alone retains 72,270 words of inline source (1,281,975
+UTF-8 bytes), taking about 40 minutes 9 seconds from its opening fence to its
+closing fence at that demonstration speed. Its following heading cannot arrive
+before the closing fence. This is producer pacing: the renderer keeps one fixed
+loading attachment while open and compiles the exact chart only after closure.
 
 Regenerate the preview from its saved classification report:
 

@@ -91,8 +91,8 @@ final class PicoHostedVectorModel {
         guard isLoading, showsLoadingPlaceholder else { return nil }
         switch loadingActivity {
         case .receiving:
-            return String(localized: "Preparing chart…", table: "HostedLoading", bundle: .module,
-                          comment: "Status while a chart's source is still arriving.")
+            return String(localized: "Receiving chart…", table: "HostedLoading", bundle: .module,
+                          comment: "Status while a chart's source is still arriving, before compilation begins.")
         case .paused:
             return String(localized: "Chart paused", table: "HostedLoading", bundle: .module,
                           comment: "Status when displaying new chart source is paused.")
