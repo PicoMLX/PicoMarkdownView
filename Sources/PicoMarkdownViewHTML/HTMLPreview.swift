@@ -9,7 +9,7 @@ extension PicoEmbeddedBlockRenderer {
     /// Ordinary `html` code fences remain native code. Import PicoMarkdownViewHTML
     /// and opt in using `embeddedBlockRenderers: [.htmlPreview]`.
     public static var htmlPreview: PicoEmbeddedBlockRenderer {
-        PicoEmbeddedBlockRenderer(selectors: [.htmlBlock, .fencedCode(language: "html-preview")]) { context in
+        var renderer = PicoEmbeddedBlockRenderer(selectors: [.htmlBlock, .fencedCode(language: "html-preview")]) { context in
             // Only a cheap size preflight runs in the attachment factory.
             // Parsing/sanitization starts off the main actor when presented.
             guard !context.source.isEmpty,
@@ -17,30 +17,44 @@ extension PicoEmbeddedBlockRenderer {
             let preparation = HTMLPreviewPreparation(source: context.source)
             return AnyView(HTMLPreview(context: context, preparation: preparation))
         }
+        renderer.showsLoadingPlaceholder = true
+        return renderer
     }
 }
 
 @MainActor
-private struct HTMLPreview: View {
+struct HTMLPreview: View {
     let context: PicoEmbeddedBlockContext
     let preparation: HTMLPreviewPreparation
+    let loadingState: PicoEmbeddedLoadingState
     @Environment(\.colorScheme) private var colorScheme
     @State private var failed = false
     @State private var isReady = false
 
+    init(context: PicoEmbeddedBlockContext, preparation: HTMLPreviewPreparation) {
+        self.context = context
+        self.preparation = preparation
+        self.loadingState = context.loadingState ?? PicoEmbeddedLoadingState()
+    }
+
     var body: some View {
         let cachedHeight = preparation.measuredHeight
-        let placeholderText = preparation.preparedContent?.plainText
         Group {
-            if !isReady {
-                Text(cachedHeight != nil && !failed ? placeholderText ?? context.source : context.source)
-                    .font(.system(size: context.bodyFontSize, design: cachedHeight != nil && !failed ? .default : .monospaced))
+            if failed {
+                Text(context.source)
+                    .font(.system(size: context.bodyFontSize, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: !failed ? cachedHeight : nil, alignment: .topLeading)
-                    .clipped()
             } else {
-                Color.clear.frame(height: cachedHeight ?? 1).accessibilityHidden(true)
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                        .frame(height: cachedHeight ?? PicoEmbeddedLoadingState.height)
+                        .accessibilityHidden(true)
+                    if !isReady {
+                        PicoEmbeddedLoadingView(state: loadingState, isSelected: false)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
         }
         .background(alignment: .topLeading) {
@@ -48,9 +62,10 @@ private struct HTMLPreview: View {
                 HTMLPreviewRepresentable(
                     preparation: preparation,
                     style: style,
-                    onReadinessChanged: { isReady = $0 },
-                    onFailure: { isReady = false; failed = true }
+                    onReadinessChanged: updateReadiness,
+                    onFailure: showSourceFallback
                 )
+                .opacity(isReady ? 1 : 0)
                 .accessibilityHidden(!isReady)
             }
         }
@@ -65,6 +80,18 @@ private struct HTMLPreview: View {
             }
         }
         .accessibilityAddTraits(context.isSelected ? .isSelected : [])
+    }
+
+    private func updateReadiness(_ ready: Bool) {
+        isReady = ready
+        if ready { loadingState.finishLoading() }
+        else if !failed { loadingState.startLoading() }
+    }
+
+    private func showSourceFallback() {
+        isReady = false
+        failed = true
+        loadingState.finishLoading()
     }
 
     private var style: HTMLPreviewStyle {

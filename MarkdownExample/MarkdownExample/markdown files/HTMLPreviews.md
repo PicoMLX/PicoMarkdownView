@@ -1,6 +1,6 @@
 # HTML previews
 
-This paragraph is native Markdown. You can select from this text, through a preview, and into the paragraph after it. Copying that selection keeps the original HTML source.
+This paragraph is native Markdown. You can select from this text, through a preview, and into the paragraph after it. Copying that selection keeps the original HTML source. Try streaming this page: HTML stays hidden while it arrives, with a small delayed loading placeholder until the closed preview is ready.
 
 ## A raw HTML card
 
@@ -72,7 +72,7 @@ A normal `html` fence still displays syntax-highlighted source:
 
 ## Watch a preview arrive
 
-The example app streams this document word by word. While the following fence is open, its source remains visible. Its preview appears after the closing fence arrives.
+The example app streams this document word by word. While the following fence is open, its source stays hidden. A compact loading card appears after a short delay, then becomes the preview once the fence closes and the layout is ready.
 
 ```html-preview
 <aside style="padding: 18px; border-left: 4px solid #4b83c4;">

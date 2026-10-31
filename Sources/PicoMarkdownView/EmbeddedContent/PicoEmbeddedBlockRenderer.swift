@@ -29,6 +29,19 @@ public final class PicoEmbeddedBlockContext {
     public private(set) var isSelected = false
     public private(set) var bodyFontSize: CGFloat
 
+#if os(macOS)
+    package let loadingState: PicoEmbeddedLoadingState?
+
+    init(source: String, kind: PicoEmbeddedBlockSelector, bodyFontSize: CGFloat,
+         loadingState: PicoEmbeddedLoadingState? = nil) {
+        self.loadingState = loadingState
+        self.source = source
+        self.kind = kind
+        if case let .fencedCode(language) = kind { self.language = language }
+        else { self.language = nil }
+        self.bodyFontSize = bodyFontSize
+    }
+#else
     init(source: String, kind: PicoEmbeddedBlockSelector, bodyFontSize: CGFloat) {
         self.source = source
         self.kind = kind
@@ -36,6 +49,7 @@ public final class PicoEmbeddedBlockContext {
         else { self.language = nil }
         self.bodyFontSize = bodyFontSize
     }
+#endif
 
     func update(availableWidth: CGFloat, isSelected: Bool) {
         let width = availableWidth.isFinite ? max(1, availableWidth) : 1
@@ -55,6 +69,8 @@ public final class PicoEmbeddedBlockContext {
 public struct PicoEmbeddedBlockRenderer: Sendable {
     let identity = UUID()
     public let selectors: [PicoEmbeddedBlockSelector]
+    /// Package adapters may reserve a source-backed row before the closed factory runs.
+    package var showsLoadingPlaceholder = false
     let makeView: @MainActor @Sendable (PicoEmbeddedBlockContext) -> AnyView?
 
     public init(selectors: [PicoEmbeddedBlockSelector],
@@ -71,10 +87,11 @@ struct RenderedEmbeddedBlock: Sendable, Equatable {
     let source: String
     let kind: PicoEmbeddedBlockSelector
     let bodyFontSize: CGFloat
+    var isClosed = true
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.renderer.identity == rhs.renderer.identity && lhs.source == rhs.source
-            && lhs.kind == rhs.kind && lhs.bodyFontSize == rhs.bodyFontSize
+            && lhs.kind == rhs.kind && lhs.bodyFontSize == rhs.bodyFontSize && lhs.isClosed == rhs.isClosed
     }
 
     /// Source export cannot be overridden by a presentation provider.

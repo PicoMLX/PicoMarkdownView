@@ -67,6 +67,109 @@ struct HTMLFactoryViewportIntegrationTests {
         #expect(native.textLayoutManager != nil)
     }
 
+    @Test("Streaming HTML hides raw source, retains one attachment, and loads only after closure")
+    func streamedHTMLUsesStableLoadingAttachment() async throws {
+        let delivery = AsyncStream.makeStream(of: String.self)
+        defer { delivery.continuation.finish() }
+        let fixture = FactoryWindow(content: AnyView(PicoMarkdownView(
+            stream: { delivery.stream }, embeddedBlockRenderers: [.htmlPreview])))
+        defer { fixture.tearDown() }
+        delivery.continuation.yield("Before the preview.\n\n```html-preview\n<div style='height:120px'>First")
+        let initial = try await fixture.waitForAttachment(containing: "First")
+        #expect(initial.measuredSize.height == 48)
+        #expect(fixture.htmlContainer == nil, "An open block must not create a browser or start sanitizing")
+        let text = try #require(fixture.textView)
+        #expect(!text.string.contains("<div"))
+        let hostingView = initial.hostingView
+
+        delivery.continuation.yield(" and second")
+        let appended = try await fixture.waitForAttachment(containing: "First and second")
+        #expect(appended === initial)
+        #expect(appended.hostingView === hostingView)
+        #expect(appended.measuredSize.height == 48)
+        #expect(fixture.htmlContainer == nil)
+        text.setSelectedRange(NSRange(location: 0, length: text.textStorage?.length ?? 0))
+        #expect(text.markdownForSelection().contains("```html-preview\n<div style='height:120px'>First and second\n```"))
+
+        delivery.continuation.yield("</div>\n```\n\nAfter the preview.\n\n")
+        delivery.continuation.finish()
+        let container = try await fixture.waitForContainer()
+        try await fixture.waitUntilReady(container)
+        fixture.layout()
+        #expect(Self.attachment(in: text) === initial)
+        #expect(initial.hostingView === hostingView)
+        #expect(container.loadCount == 1)
+        #expect(container.measuredHeight == 120)
+        #expect(!text.string.contains("<div"))
+        #expect(text.string.contains("Before the preview.") && text.string.contains("After the preview."))
+        text.setSelectedRange(NSRange(location: 0, length: text.textStorage?.length ?? 0))
+        #expect(text.markdownForSelection().contains("```html-preview\n<div style='height:120px'>First and second</div>\n```"))
+    }
+
+    @Test("Closed HTML reserves its loading card height while off-main preparation is pending", arguments: [false, true], [CGFloat(100), 336])
+    func preparationShowsLoadingInsteadOfSource(fails: Bool, width: CGFloat) async throws {
+        let source = "<div>" + String(repeating: "Source stays hidden while preparing. ", count: 30) + "</div>"
+        let started = AsyncStream.makeStream(of: Void.self)
+        let release = AsyncStream.makeStream(of: Void.self)
+        defer { started.continuation.finish(); release.continuation.finish() }
+        let preparation = HTMLPreviewPreparation(source: source) { source in
+            started.continuation.yield(())
+            var iterator = release.stream.makeAsyncIterator()
+            guard await iterator.next() != nil else { throw CancellationError() }
+            if fails { throw HTMLPreviewPolicyError.invalidHTML }
+            return try await HTMLPreviewPolicy.prepareOffMainActor(source: source)
+        }
+        // This is the same handoff used when the core closes a streamed
+        // loading attachment: preparation must inherit its existing deadline.
+        let sharedLoading = PicoEmbeddedLoadingState()
+        sharedLoading.startLoading()
+        let context = PicoEmbeddedBlockContext(source: source, kind: .htmlBlock, bodyFontSize: 15,
+                                              loadingState: sharedLoading)
+        context.update(availableWidth: width, isSelected: false)
+        let content = HTMLPreview(context: context, preparation: preparation)
+        #expect(content.loadingState === sharedLoading)
+        let fixture = FactoryWindow(content: AnyView(content), width: width)
+        defer { fixture.tearDown() }
+        let container = try await fixture.waitForContainer()
+        var starts = started.stream.makeAsyncIterator()
+        try #require(await starts.next() != nil)
+        fixture.layout()
+        let chrome = NSHostingView(rootView: PicoEmbeddedLoadingView(state: sharedLoading, isSelected: false).frame(width: width))
+        chrome.frame = NSRect(x: 0, y: 0, width: width, height: 48)
+        chrome.layoutSubtreeIfNeeded()
+        let loadingHeight = chrome.fittingSize.height
+        #expect(abs(fixture.host.fittingSize.height - loadingHeight) <= 1,
+                "The loading card must fit the attachment; raw source must not set its height")
+        if width == 100 { #expect(loadingHeight > 48, "Wrapped status text needs its full intrinsic height") }
+        else { #expect(loadingHeight == 48) }
+        #expect(preparation.preparedContent == nil)
+        #expect(container.page == nil)
+        await content.loadingState.waitForLoadingDelay()
+        #expect(content.loadingState.showsPlaceholder)
+        #expect(content.loadingState.isLoading)
+        fixture.layout()
+        #expect(abs(fixture.host.fittingSize.height - loadingHeight) <= 1)
+
+        release.continuation.yield(())
+        release.continuation.finish()
+        if fails {
+            while !container.hasFailed { try await Task.sleep(for: .milliseconds(20)); fixture.layout() }
+            await container.pendingFailureNotification?.value
+            fixture.layout()
+            #expect(container.page == nil)
+            #expect(fixture.host.fittingSize.height > 48, "Rejected content restores the existing readable source fallback")
+        } else {
+            try await fixture.waitUntilReady(container)
+            fixture.layout()
+            #expect(container.loadCount == 1)
+            #expect(preparation.preparedContent != nil)
+            #expect(abs(fixture.host.fittingSize.height - container.measuredHeight) <= 1)
+            #expect(container.measuredHeight > 48)
+        }
+        #expect(!content.loadingState.isLoading)
+        #expect(!content.loadingState.showsPlaceholder)
+    }
+
     private func assertCards(in container: HTMLPreviewContainer) async throws {
         #expect(container.isReady && !container.hasFailed)
         let page = try #require(container.page)
@@ -119,12 +222,12 @@ private final class FactoryWindow {
     let host: NSHostingView<AnyView>
     let window: NSWindow
 
-    init(content: AnyView) {
+    init(content: AnyView, width: CGFloat = 336) {
         _ = NSApplication.shared
         host = NSHostingView(rootView: content)
         host.sizingOptions = [.intrinsicContentSize]
-        host.frame = NSRect(x: 0, y: 0, width: 336, height: 2000)
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 336, height: 800))
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 2000)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: 800))
         scroll.documentView = host
         window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -134,6 +237,23 @@ private final class FactoryWindow {
     }
 
     var textView: StreamingTextKit2View? { find(StreamingTextKit2View.self, in: host) }
+
+    var htmlContainer: HTMLPreviewContainer? { find(HTMLPreviewContainer.self, in: host) }
+
+    func waitForAttachment(containing source: String) async throws -> PicoHostedAttachment {
+        while true {
+            layout()
+            if let storage = textView?.textStorage {
+                var match: PicoHostedAttachment?
+                storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                    if let attachment = value as? PicoHostedAttachment,
+                       attachment.markdownRepresentation().contains(source) { match = attachment }
+                }
+                if let match, match.hostingView != nil { return match }
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
 
     func waitForContainer() async throws -> HTMLPreviewContainer {
         while find(HTMLPreviewContainer.self, in: host) == nil {

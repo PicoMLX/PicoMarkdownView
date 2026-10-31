@@ -301,8 +301,7 @@ final class TextKitStreamingBackend {
     private var hostedSVGs: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
     private var svgStreamActive = true
     private struct EmbeddedEntry {
-        let rendererID: UUID
-        let context: PicoEmbeddedBlockContext
+        let model: PicoHostedEmbeddedBlockModel
         let attachment: PicoHostedAttachment?
     }
     private var hostedEmbeddedBlocks: [BlockID: EmbeddedEntry] = [:]
@@ -345,6 +344,8 @@ final class TextKitStreamingBackend {
         for entry in hostedSVGs.values {
             entry.model.setLoadingActivity(svgLoadingActivity)
         }
+        let activity: PicoEmbeddedLoadingState.Activity = isPaused ? .paused : (svgStreamActive ? .receiving : .stopped)
+        for entry in hostedEmbeddedBlocks.values { entry.model.setOpenActivity(activity) }
     }
 #endif
 
@@ -470,7 +471,7 @@ final class TextKitStreamingBackend {
             let data = blockData[index]
             if recordMatches(record, block: data.block) { continue }
 #if canImport(AppKit)
-            if updateHostedSVGOnly(at: index, block: data.block) || updateHostedMermaidOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
+            if updateHostedEmbeddedOnly(at: index, block: data.block) || updateHostedSVGOnly(at: index, block: data.block) || updateHostedMermaidOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
 #endif
 
             let oldLength = record.length
@@ -628,7 +629,7 @@ final class TextKitStreamingBackend {
         let record = records[index]
         guard !recordMatches(record, block: block) else { return selection }
 #if canImport(AppKit)
-        if updateHostedSVGOnly(at: index, block: block) || updateHostedMermaidOnly(at: index, block: block) || updateHostedTableOnly(at: index, block: block) { return selection }
+        if updateHostedEmbeddedOnly(at: index, block: block) || updateHostedSVGOnly(at: index, block: block) || updateHostedMermaidOnly(at: index, block: block) || updateHostedTableOnly(at: index, block: block) { return selection }
 #endif
 
         let newAttributed = attributedString(for: block)
@@ -942,6 +943,14 @@ final class TextKitStreamingBackend {
                 let native = NSAttributedString.picoConverted(from: block.content)
                 var attributes = native.length > 0 ? native.attributes(at: 0, effectiveRange: nil) : [:]
                 attributes.removeValue(forKey: .backgroundColor)
+                if embedded.renderer.showsLoadingPlaceholder {
+                    let paragraph = (attributes[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy()
+                        as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                    paragraph.lineHeightMultiple = 1
+                    paragraph.minimumLineHeight = 0
+                    paragraph.maximumLineHeight = 0
+                    attributes[.paragraphStyle] = paragraph
+                }
                 let prefix = block.listPlacement.marker.map { $0 + " " } ?? ""
                 let result = NSMutableAttributedString(string: prefix + "\u{FFFC}\n", attributes: attributes)
                 result.addAttribute(.attachment, value: attachment, range: NSRange(location: prefix.utf16.count, length: 1))
@@ -1039,21 +1048,47 @@ final class TextKitStreamingBackend {
 
 #if canImport(AppKit)
     private func embeddedAttachment(for id: BlockID, presentation: RenderedEmbeddedBlock) -> PicoHostedAttachment? {
-        if let entry = hostedEmbeddedBlocks[id], entry.rendererID == presentation.renderer.identity,
-           entry.context.source == presentation.source, entry.context.kind == presentation.kind {
-            entry.context.update(bodyFontSize: presentation.bodyFontSize)
-            return entry.attachment
+        let entry: EmbeddedEntry
+        if let existing = hostedEmbeddedBlocks[id], existing.model.matches(presentation) {
+            existing.model.update(presentation)
+            entry = existing
+        } else {
+            let model = PicoHostedEmbeddedBlockModel(presentation: presentation)
+            let attachment: PicoHostedAttachment?
+            if model.acceptsPresentation {
+                let hosted = PicoHostedAttachment(interaction: .selectableBlock,
+                    markdown: { model.markdownRepresentation() }) { context in
+                        PicoHostedEmbeddedBlockView(model: model, context: context)
+                    }
+                if model.loadingState != nil {
+                    hosted.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
+                    hosted.attachmentCell = nil
+                    hosted.seedSizeBeforeViewCreation(CGSize(width: 1, height: PicoEmbeddedLoadingState.height))
+                }
+                attachment = hosted
+            } else {
+                attachment = nil
+            }
+            entry = EmbeddedEntry(model: model, attachment: attachment)
+            hostedEmbeddedBlocks[id] = entry
         }
-        let context = PicoEmbeddedBlockContext(source: presentation.source, kind: presentation.kind,
-                                              bodyFontSize: presentation.bodyFontSize)
-        let content = presentation.renderer.makeView(context)
-        let attachment = content.map { content in
-            PicoHostedAttachment(interaction: .selectableBlock,
-                                 markdown: { presentation.markdown }) { _ in content }
+        let activity: PicoEmbeddedLoadingState.Activity = isPaused ? .paused : (svgStreamActive ? .receiving : .stopped)
+        entry.model.setOpenActivity(activity)
+        return entry.model.acceptsPresentation ? entry.attachment : nil
+    }
+
+    private func updateHostedEmbeddedOnly(at index: Int, block: RenderedBlock) -> Bool {
+        guard records[index].content == block.content, let presentation = block.embeddedBlock,
+              let entry = hostedEmbeddedBlocks[block.id], let installed = entry.attachment,
+              records[index].hostedAttachments.contains(where: { $0.attachment === installed }),
+              let attachment = embeddedAttachment(for: block.id, presentation: presentation), attachment === installed else { return false }
+        let previous = records[index].embeddedBlock
+        if previous?.isClosed != presentation.isClosed || previous?.bodyFontSize != presentation.bodyFontSize {
+            attachment.invalidateSize()
         }
-        hostedEmbeddedBlocks[id] = EmbeddedEntry(rendererID: presentation.renderer.identity,
-                                                 context: context, attachment: attachment)
-        return attachment
+        // Source-only appends keep the fixed pending row and native record.
+        updateTableRecord(at: index, block: block)
+        return true
     }
 
     /// Wait for closure: more text in the same streamed paragraph would make
@@ -1327,7 +1362,7 @@ final class TextKitStreamingBackend {
                 let markerRange = NSRange(location: range.location + hosted.offset, length: 1)
                 let selected = selection.contains { NSIntersectionRange($0, markerRange).length > 0 }
                 let availableWidth = max(1, width - hosted.indent)
-                hostedEmbeddedBlocks[records[index].id]?.context.update(availableWidth: availableWidth, isSelected: selected)
+                hostedEmbeddedBlocks[records[index].id]?.model.updateLayout(availableWidth: availableWidth, isSelected: selected)
                 if let svg = hostedSVGs[records[index].id] {
                     hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
                         height: svg.model.viewportHeight(availableWidth: availableWidth)))
@@ -1348,6 +1383,10 @@ final class TextKitStreamingBackend {
     }
 
     func resetDocumentOnNextApply() { shouldResetDocument = true }
+
+    func embeddedLoadingState(for id: BlockID) -> PicoEmbeddedLoadingState? {
+        hostedEmbeddedBlocks[id]?.model.loadingState
+    }
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
         hostedEmbeddedBlocks[id]?.attachment ?? hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment ?? hostedImages[id]?.attachment

@@ -140,10 +140,28 @@ actor MarkdownAttributeBuilder {
                 blockquoteLevel: Int = 0, listIndent: CGFloat = 0, listMarker: String? = nil,
                 markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0,
                 spacingContext: BlockSpacingContext? = nil) async -> RenderedContentResult {
-        var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
-                                         blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+        var result: RenderedContentResult
 #if canImport(AppKit)
-        if snapshot.isClosed, let renderer = embeddedBlockRenderers.first(where: { $0.matches(snapshot.kind) }) {
+        let embeddedRenderer = embeddedBlockRenderers.first(where: { $0.matches(snapshot.kind) })
+        if !snapshot.isClosed, embeddedRenderer?.showsLoadingPlaceholder == true {
+            // Pending adapters need source metadata, not a full attributed
+            // source rebuild/highlight on every streamed append.
+            let marker = NSAttributedString(string: "\u{FFFC}\n", attributes: [
+                .font: bodyFont,
+                .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind))
+            ])
+            result = RenderedContentResult(attributed: .picoConverted(from: marker), table: nil, listItem: nil,
+                                           blockquote: nil, math: nil, images: [], codeBlock: nil)
+        } else {
+            result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                         blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+        }
+        if !snapshot.isClosed, embeddedRenderer != nil {
+            // A default closed-only registration keeps its native open source,
+            // including when the built-in SVG option is also enabled.
+            result.svgGraphic = nil
+        }
+        if let renderer = embeddedRenderer, snapshot.isClosed || renderer.showsLoadingPlaceholder {
             let kind: PicoEmbeddedBlockSelector
             switch snapshot.kind {
             case .htmlBlock: kind = .htmlBlock
@@ -151,13 +169,16 @@ actor MarkdownAttributeBuilder {
             default: kind = .htmlBlock // Selectors never match Markdown or math blocks.
             }
             result.embeddedBlock = RenderedEmbeddedBlock(renderer: renderer, source: snapshot.codeText ?? "",
-                                                        kind: kind, bodyFontSize: bodyFont.pointSize)
+                                                        kind: kind, bodyFontSize: bodyFont.pointSize, isClosed: snapshot.isClosed)
         }
         if let spacingContext {
             let spaced = applySpacing(spacingContext, to: result.attributed, previousKind: previousBlockKind)
             result.attributed = spaced.content
             result.paragraphSpacingAfter = spaced.after
         }
+#else
+        result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                     blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
 #endif
         if listIndent > 0 || listMarker != nil {
             result.attributed = placeInListItem(result.attributed, indent: listIndent, marker: listMarker)
@@ -277,7 +298,8 @@ actor MarkdownAttributeBuilder {
                                           level: max(1, blockquoteLevel))
         case .fencedCode:
 #if os(macOS)
-            if let graphic = SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+            if !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }),
+               let graphic = SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
                                                        maxWidth: theme.imageMaxWidth), !graphic.isClosed {
                 // Reserve one stable attachment while source streams. Raw SVG
                 // stays in metadata for copying, without repeatedly highlighting
