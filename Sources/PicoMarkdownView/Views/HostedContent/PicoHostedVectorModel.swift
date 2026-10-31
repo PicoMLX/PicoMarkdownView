@@ -7,6 +7,9 @@ import Observation
 @Observable
 final class PicoHostedVectorModel {
     enum Fit: Equatable { case diagram, width }
+    enum LoadingActivity: Equatable { case receiving, paused, stopped }
+    static let svgLoadingDelay: Duration = .milliseconds(350)
+    static let svgLoadingHeight: CGFloat = 48
     enum Kind {
         case mermaid, svg
 
@@ -37,29 +40,45 @@ final class PicoHostedVectorModel {
     private(set) var isNavigationActive = false
     private(set) var presentationRevision: UInt64 = 0
     private(set) var parseCount = 0
+    private(set) var showsLoadingPlaceholder = false
+    private(set) var loadingActivity: LoadingActivity = .receiving
 
     @ObservationIgnored private(set) var document: PicoHostedVectorDocument?
     @ObservationIgnored private var svg: String
+    @ObservationIgnored private var loadingTask: Task<Void, Never>?
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
-    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
+    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil,
+         kind: Kind = .mermaid, loadingTiming: SVGLoadingTiming = .continuous) {
         self.kind = kind
         self.svg = svg
         self.source = source
         self.language = language
         self.isClosed = isClosed
         self.maxWidth = Self.normalizedMaxWidth(maxWidth)
-        parse(svg)
+        if isLoadingSVG {
+            scheduleLoadingReveal(using: loadingTiming)
+        } else {
+            parse(svg)
+        }
     }
+
+    deinit { loadingTask?.cancel() }
 
     func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
         let maxWidth = Self.normalizedMaxWidth(maxWidth)
         guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed
                 || self.maxWidth != maxWidth else { return }
-        if self.svg != svg {
-            self.svg = svg
-            parse(svg)
+        let shouldParse = kind == .svg
+            ? isClosed && (self.svg != svg || !self.isClosed)
+            : self.svg != svg
+        self.svg = svg
+        if shouldParse { parse(svg) }
+        if kind == .svg, isClosed {
+            loadingTask?.cancel()
+            loadingTask = nil
+            showsLoadingPlaceholder = false
         }
         self.source = source
         self.language = language
@@ -70,6 +89,35 @@ final class PicoHostedVectorModel {
     }
 
     var isRenderable: Bool { document != nil }
+    var isLoadingSVG: Bool { kind == .svg && !isClosed }
+
+    func setLoadingActivity(_ activity: LoadingActivity) {
+        guard isLoadingSVG, loadingActivity != activity else { return }
+        loadingActivity = activity
+        if activity == .stopped {
+            loadingTask?.cancel()
+            loadingTask = nil
+            showsLoadingPlaceholder = true
+        }
+        changed()
+    }
+
+    /// Wait for the scheduled reveal, without depending on wall-clock polling.
+    func waitForSVGLoadingDelay() async {
+        await loadingTask?.value
+    }
+
+    private func scheduleLoadingReveal(using timing: SVGLoadingTiming) {
+        let sleep = timing.sleep
+        loadingTask = Task { [weak self] in
+            do { try await sleep(Self.svgLoadingDelay) }
+            catch { return }
+            guard !Task.isCancelled, let self, self.isLoadingSVG else { return }
+            self.showsLoadingPlaceholder = true
+            self.loadingTask = nil
+            self.changed()
+        }
+    }
 
     func viewportWidth(availableWidth: CGFloat) -> CGFloat {
         let available = availableWidth.isFinite ? max(1, availableWidth) : 1
@@ -77,6 +125,7 @@ final class PicoHostedVectorModel {
     }
 
     func viewportHeight(availableWidth: CGFloat) -> CGFloat {
+        if isLoadingSVG { return Self.svgLoadingHeight }
         if isExpanded { return 600 }
         let width = viewportWidth(availableWidth: availableWidth)
         let height = intrinsicSize.height * width / max(1, intrinsicSize.width)

@@ -91,9 +91,11 @@ struct MacHostedSVGNaturalLayoutTests {
         return view.subviews.lazy.compactMap { findTextView(in: $0) }.first
     }
 
-    @Test("TextKit creates and measures hosted vector views without explicit loading", .timeLimit(.minutes(1)), arguments: ["svg", "mermaid"])
+    @Test("TextKit naturally creates ready vectors and loading SVG that completes in place", .timeLimit(.minutes(1)),
+          arguments: [("svg", true), ("svg", false), ("mermaid", true)])
     @available(macOS 27.0, *)
-    func naturalProviderCreation(language: String) async throws {
+    func naturalProviderCreation(_ presentation: (language: String, isClosed: Bool)) async throws {
+        let (language, isClosed) = presentation
         _ = NSApplication.shared
         let controller = TextKitStreamingController()
         let view = controller.makeTextKit2View(configuration: .default())
@@ -112,27 +114,53 @@ struct MacHostedSVGNaturalLayoutTests {
             controller.update(textView: view, blocks: update.blocks, diffs: [update.diff],
                               replaceToken: 1, configuration: .default())
         }
-        apply(await pipeline.feed("Before paragraph.\n\n```" + language + "\n" + source + "\n```\n\nAfter paragraph.\n\n"))
-        apply(await pipeline.finish())
+        let initial = "Before paragraph.\n\n```" + language + "\n" + source + "\n"
+        apply(await pipeline.feed(initial + (isClosed ? "```\n\nAfter paragraph.\n\n" : "")))
+        if isClosed { apply(await pipeline.finish()) }
         let storage = try #require(view.textStorage)
         var attachments: [PicoHostedAttachment] = []
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
             if let attachment = value as? PicoHostedAttachment { attachments.append(attachment) }
         }
         let attachment = try #require(attachments.first)
-        while attachment.hostingView == nil || attachment.measuredSize.height < 140 {
+        let minimumHeight: CGFloat = isClosed ? 140 : 48
+        while attachment.hostingView == nil || attachment.measuredSize.height < minimumHeight {
             if let manager = view.textLayoutManager, let content = manager.textContentManager {
                 manager.ensureLayout(for: content.documentRange)
                 manager.textViewportLayoutController.layoutViewport()
             }
             view.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
-            if attachment.hostingView != nil, attachment.measuredSize.height >= 140 { break }
+            if attachment.hostingView != nil, attachment.measuredSize.height >= minimumHeight { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(attachment.hostingView != nil)
-        #expect(attachment.measuredSize.height >= 140)
+        #expect(attachment.measuredSize.height >= minimumHeight)
         #expect(attachment.hostingView?.superview != nil)
+        if !isClosed {
+            #expect(attachment.measuredSize.height == 48)
+            #expect(!storage.string.contains("<svg"))
+            #expect(attachment.attachmentCell == nil)
+            #expect(attachment.markdownRepresentation().contains(source))
+            let loadingHost = try #require(attachment.hostingView)
+            apply(await pipeline.feed("```\n\nAfter paragraph.\n\n"))
+            apply(await pipeline.finish())
+            while findCanvas(in: attachment.hostingView) == nil || attachment.measuredSize.height < 140 {
+                if let manager = view.textLayoutManager, let content = manager.textContentManager {
+                    manager.ensureLayout(for: content.documentRange)
+                    manager.textViewportLayoutController.layoutViewport()
+                }
+                view.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            let marker = (storage.string as NSString).range(of: "\u{FFFC}")
+            try #require(marker.location != NSNotFound)
+            #expect(storage.attribute(.attachment, at: marker.location, effectiveRange: nil) as? PicoHostedAttachment === attachment)
+            #expect(attachment.hostingView === loadingHost)
+            #expect(findCanvas(in: attachment.hostingView)?.model.isRenderable == true)
+            #expect(attachment.measuredSize.height >= 140)
+        }
     }
 }
 #endif

@@ -1,11 +1,12 @@
 import Foundation
 
-/// A closed SVG fence whose original source remains available as the native
-/// code presentation until the macOS host validates its vector document.
+/// An opted-in SVG fence. Open fences reserve a hosted loading row; closed
+/// fences keep native code available until the host validates the drawing.
 struct RenderedSVGGraphic: Sendable, Equatable {
     var source: String
     var language: String
     var maxWidth: CGFloat? = nil
+    var isClosed = true
 }
 
 enum SVGDiagramSupport {
@@ -15,12 +16,11 @@ enum SVGDiagramSupport {
 
     static func graphic(for snapshot: BlockSnapshot, enabled: Bool, maxWidth: CGFloat?) -> RenderedSVGGraphic? {
 #if os(macOS)
-        guard enabled, snapshot.isClosed,
-              case .fencedCode(let language) = snapshot.kind,
-              let language, isSVGLanguage(language), let source = snapshot.codeText,
-              !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return RenderedSVGGraphic(source: source, language: language,
-                                  maxWidth: maxWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil })
+        guard enabled, case .fencedCode(let language) = snapshot.kind,
+              let language, isSVGLanguage(language) else { return nil }
+        return RenderedSVGGraphic(source: snapshot.codeText ?? "", language: language,
+                                  maxWidth: maxWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil },
+                                  isClosed: snapshot.isClosed)
 #else
         return nil
 #endif
@@ -28,8 +28,9 @@ enum SVGDiagramSupport {
 }
 
 extension MarkdownRenderTheme {
-    /// Opts in to rendering completed `svg` fences as vector graphics on macOS.
-    /// While streaming, open fences remain code. Invalid SVG falls back to code.
+    /// Opts in to rendering `svg` fences as vector graphics on macOS.
+    /// While streaming, open fences show a delayed loading row instead of XML.
+    /// The SVG is decoded on closure. Invalid final SVG falls back to code.
     /// UIKit rendering and raw HTML blocks are unchanged. Like the other theme
     /// settings, this is captured when a PicoMarkdownView is constructed.
     public func withSVGRendering(_ enabled: Bool = true) -> MarkdownRenderTheme {
