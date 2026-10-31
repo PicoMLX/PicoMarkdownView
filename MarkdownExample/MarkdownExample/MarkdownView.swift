@@ -95,7 +95,8 @@ struct MarkdownView: View {
                             let offsetY = geometry.contentOffset.y
                             let visibleBottom = offsetY + geometry.containerSize.height
                             let isNearBottom = geometry.contentSize.height - visibleBottom < AutoScrollConfig.nearBottomThreshold
-                            return ScrollMetrics(offsetY: offsetY, isNearBottom: isNearBottom)
+                            return ScrollMetrics(offsetY: offsetY, isNearBottom: isNearBottom,
+                                                 contentHeight: chunkCharacters == nil ? 0 : geometry.contentSize.height)
                         } action: { oldMetrics, newMetrics in
                             handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
                         }
@@ -163,12 +164,12 @@ struct MarkdownView: View {
     }
 
     /// Content-growth → scroll-to-bottom, driven by PicoMarkdownView's
-    /// `onContentSize` callback. This is the *only* place we react to the
-    /// document getting taller; scrolling never changes content size, so there
-    /// is no feedback loop here. (Also feeds the status-panel readout.)
+    /// `onContentSize` callback for ordinary examples. The gallery follows the
+    /// scroll view's applied geometry below because its large code-to-chart
+    /// replacements can shrink the document. Also feeds the status readout.
     private func handleContentSizeChange(_ size: CGSize) {
         contentSize = size
-        guard isAutoScrolling else { return }
+        guard chunkCharacters == nil, isAutoScrolling else { return }
         // Suppress the brief window after our own programmatic scroll so its
         // animation frames aren't later misread by the scroll observer as a
         // user scroll-up.
@@ -176,9 +177,22 @@ struct MarkdownView: View {
         scrollToBottom(animated: !reduceMotion)
     }
 
-    /// Scroll *position* → pause/resume only. Growth detection now lives in
-    /// `handleContentSizeChange`, so this no longer tracks content height.
+    /// Scroll position pauses/resumes following. The gallery additionally follows
+    /// height changes after SwiftUI has applied them to the scroll view.
     private func handleScrollMetricsChange(from old: ScrollMetrics, to new: ScrollMetrics) {
+        if chunkCharacters != nil {
+            // A closed fence can replace thousands of source lines with one chart.
+            // Follow only once SwiftUI knows the new height, not from the earlier
+            // NSTextView size callback. Reflow is not a user scroll gesture.
+            let positionedByUser = scrollPosition.isPositionedByUser
+            if positionedByUser {
+                isAutoScrolling = new.isNearBottom
+            }
+            if isAutoScrolling, positionedByUser || new.contentHeight != old.contentHeight {
+                scrollToBottom(animated: false)
+            }
+            return
+        }
         let scrollDeltaY = new.offsetY - old.offsetY
 
         let now = autoScrollClock.now
@@ -224,6 +238,7 @@ struct MarkdownView: View {
 private struct ScrollMetrics: Equatable {
     let offsetY: CGFloat
     let isNearBottom: Bool
+    let contentHeight: CGFloat
 }
 
 private enum AutoScrollConfig {
@@ -295,7 +310,8 @@ private struct StreamingMarkdownContent: View, Equatable {
 }
 
 /// Pull-based delivery prevents a large gallery from filling an unbounded
-/// AsyncStream queue while the renderer is still consuming earlier chunks.
+/// AsyncStream queue. Pacing each subsequent pull makes incremental rendering
+/// visible without spending minutes delivering the embedded datasets word by word.
 private actor MarkdownChunkCursor {
     private let markdown: String
     private let chunkCharacters: Int
@@ -307,8 +323,13 @@ private actor MarkdownChunkCursor {
         self.index = markdown.startIndex
     }
 
-    func next() -> String? {
+    func next() async -> String? {
         guard !Task.isCancelled, index < markdown.endIndex else { return nil }
+        if index != markdown.startIndex {
+            do { try await Task.sleep(for: .milliseconds(33)) }
+            catch { return nil }
+        }
+        guard !Task.isCancelled else { return nil }
         let end = markdown.index(index, offsetBy: chunkCharacters, limitedBy: markdown.endIndex) ?? markdown.endIndex
         let chunk = String(markdown[index..<end])
         index = end

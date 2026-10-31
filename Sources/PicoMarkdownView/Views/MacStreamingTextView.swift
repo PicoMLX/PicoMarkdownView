@@ -178,7 +178,17 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         // SwiftUI embeds a complete message in a List/LazyVStack, so it needs
         // the message's full height. Streaming edits remain block-local.
         manager.ensureLayout(for: content.documentRange)
-        let height = ceil(manager.usageBoundsForTextContainer.maxY + textContainerInset.height * 2)
+        // Usage bounds can retain the extent of removed code after a large
+        // streamed fence becomes an attachment. Use the current final fragment.
+        var contentHeight: CGFloat = 0
+        if !content.documentRange.isEmpty {
+            manager.enumerateTextLayoutFragments(from: nil,
+                options: [.reverse, .ensuresLayout, .ensuresExtraLineFragment]) { fragment in
+                contentHeight = fragment.layoutFragmentFrame.maxY
+                return false
+            }
+        }
+        let height = ceil(contentHeight + textContainerInset.height * 2)
         return CGSize(width: bounds.width, height: max(0, height))
     }
 

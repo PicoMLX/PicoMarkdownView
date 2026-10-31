@@ -18,7 +18,7 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
-    /// Large offline fixtures use pull-based chunks instead of simulated word delays.
+    /// Large offline fixtures use paced, pull-based chunks instead of word delays.
     let chunkCharacters: Int?
 
     init(localFilename: String,
@@ -93,7 +93,7 @@ struct MarkdownExample: Identifiable, Hashable {
         examples.insert(MarkdownExample(localFilename: "Charts-Gallery-Preview",
                                         webURL: "https://vega.github.io/vega-lite/examples/",
                                         displayName: "Charts-Gallery",
-                                        chunkCharacters: 32_768), at: charts + 1)
+                                        chunkCharacters: 2_048), at: charts + 1)
         #endif
         return examples
     }()
