@@ -7,6 +7,9 @@
 
 import SwiftUI
 import PicoMarkdownView
+#if os(macOS)
+import PicoMarkdownViewHTML
+#endif
 import WebKit
 
 struct MarkdownView: View {
@@ -17,6 +20,7 @@ struct MarkdownView: View {
     private let webURL: URL
     private let markdown: String
     private let tagPrefixes: Set<TagPrefix>
+    private let htmlPreviewsEnabled: Bool
     private let svgRenderingEnabled: Bool
 #if os(macOS)
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
@@ -40,6 +44,7 @@ struct MarkdownView: View {
         self.webURL = example.webURL
         self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
         self.tagPrefixes = example.tagPrefixes
+        self.htmlPreviewsEnabled = example.htmlPreviewsEnabled
         self.svgRenderingEnabled = example.svgRenderingEnabled
     }
 
@@ -64,6 +69,7 @@ struct MarkdownView: View {
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
                                                      tagPrefixes: tagPrefixes,
+                                                     htmlPreviewsEnabled: htmlPreviewsEnabled,
                                                      svgRenderingEnabled: svgRenderingEnabled,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
@@ -217,13 +223,14 @@ private enum AutoScrollConfig {
 }
 
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
-/// SwiftUI compares the document and its SVG presentation option via `==`,
+/// SwiftUI compares the document and its presentation options via `==`,
 /// skipping body re-evaluation when the parent re-renders due to scroll-position
 /// changes so the stream does not restart. The closures and `tagPrefixes` are
 /// excluded from `==` — they're stable for a given document.
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let tagPrefixes: Set<TagPrefix>
+    let htmlPreviewsEnabled: Bool
     let svgRenderingEnabled: Bool
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
@@ -241,15 +248,30 @@ private struct StreamingMarkdownContent: View, Equatable {
 #endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.markdown == rhs.markdown && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
+        lhs.markdown == rhs.markdown
+            && lhs.htmlPreviewsEnabled == rhs.htmlPreviewsEnabled
+            && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
     }
 
-    var body: some View {
+    private var streamingMarkdownView: PicoMarkdownView {
+#if os(macOS)
+        PicoMarkdownView(stream: { [markdown] in
+            wordStream(from: markdown)
+        }, theme: exampleTheme, tagPrefixes: tagPrefixes,
+           embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
+            .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
+#else
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes)
+#endif
+    }
+
+    var body: some View {
+        streamingMarkdownView
 #if os(macOS)
-            .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
+            .id(htmlPreviewsEnabled)
+            .id(svgRenderingEnabled)
 #endif
             .id(markdown)
             .textSelection(.enabled)

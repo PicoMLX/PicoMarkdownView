@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C0DE48544D4C000000000001 /* PicoMarkdownViewHTML in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = C0DE48544D4C000000000002 /* PicoMarkdownViewHTML */; };
 		F857D203301C25AD00B360AC /* WizardKit in Frameworks */ = {isa = PBXBuildFile; platformFilters = (macos, ); productRef = F857D202301C25AD00B360AC /* WizardKit */; };
 		F8B1837E2E9FFC24007F778C /* PicoMarkdownView in Frameworks */ = {isa = PBXBuildFile; productRef = F8B1837D2E9FFC24007F778C /* PicoMarkdownView */; };
 /* End PBXBuildFile section */
@@ -28,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0DE48544D4C000000000001 /* PicoMarkdownViewHTML in Frameworks */,
 				F857D203301C25AD00B360AC /* WizardKit in Frameworks */,
 				F8B1837E2E9FFC24007F778C /* PicoMarkdownView in Frameworks */,
 			);
@@ -72,6 +74,7 @@
 			);
 			name = MarkdownExample;
 			packageProductDependencies = (
+				C0DE48544D4C000000000002 /* PicoMarkdownViewHTML */,
 				F8B1837D2E9FFC24007F778C /* PicoMarkdownView */,
 				F857D202301C25AD00B360AC /* WizardKit */,
 			);
@@ -408,6 +411,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C0DE48544D4C000000000002 /* PicoMarkdownViewHTML */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PicoMarkdownViewHTML;
+		};
 		F857D202301C25AD00B360AC /* WizardKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F857D201301C25AD00B360AC /* XCRemoteSwiftPackageReference "WizardKit" */;

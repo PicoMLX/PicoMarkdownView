@@ -1,0 +1,12 @@
+􀟈  Test run started.
+􀄵  Testing Library Version: 2403
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite HTMLTranscriptBenchmark started.
+􀟈  Test longTranscript() started.
+HTML_BENCH pass=0 mode=html cards=80 ui_p95_ms=1.604708 heartbeat_max_ms=121.112458
+HTML_BENCH pass=1 mode=html cards=80 ui_p95_ms=1.605917 heartbeat_max_ms=39.024167
+HTML_BENCH pass=2 mode=html cards=80 ui_p95_ms=1.545875 heartbeat_max_ms=60.39525
+HTML_BENCH wrote /private/tmp/pico-html-bench-results/after-html-80.json
+􁁛  Test longTranscript() passed after 79.874 seconds.
+􁁛  Suite HTMLTranscriptBenchmark passed after 79.874 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 79.874 seconds.

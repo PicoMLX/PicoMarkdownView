@@ -15,11 +15,13 @@ actor MarkdownStreamingPipeline {
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
-         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
+         embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = []) {
         let tokenizer = MarkdownTokenizer(tagPrefixes: tagPrefixes)
         let assembler = MarkdownAssembler()
         let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider, mermaidProvider: mermaidProvider,
-                                        mermaidPreviewTiming: mermaidPreviewTiming) { id in
+                                        mermaidPreviewTiming: mermaidPreviewTiming,
+                                        embeddedBlockRenderers: embeddedBlockRenderers) { id in
             await assembler.block(id)
         }
         self.tokenizer = tokenizer

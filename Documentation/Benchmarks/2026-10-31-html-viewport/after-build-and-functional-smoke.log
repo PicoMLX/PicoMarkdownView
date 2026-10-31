@@ -1,0 +1,17 @@
+Building for production...
+[Computing dependencies]
+[2 / 7] PicoMarkdownViewHTML
+[4 / 8] PicoMarkdownViewHTML
+[10 / 10] PicoMarkdownViewHTMLBenchmarks-product
+[12 / 14] PicoMarkdownViewHTMLTests-product
+[14 / 16] PicoMarkdownViewHTMLBenchmarks-product
+Build complete! (2.80 sec)
+􀟈  Test run started.
+􀄵  Testing Library Version: 2403
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite HTMLChatTranscriptBenchmark started.
+􀟈  Test lazyTranscript() started.
+HTML_CHAT_BENCH pass=0 html=true visits=80 live_peak=1
+􁁛  Test lazyTranscript() passed after 30.480 seconds.
+􁁛  Suite HTMLChatTranscriptBenchmark passed after 30.480 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 30.480 seconds.

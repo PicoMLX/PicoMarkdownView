@@ -268,6 +268,7 @@ final class TextKitStreamingBackend {
         var mermaidDiagram: RenderedMermaidDiagram? = nil
         var codeBlockForCopy: RenderedCodeBlock? = nil
         var mermaidIsClosed = true
+        var embeddedBlock: RenderedEmbeddedBlock? = nil
         var imageRuns: [InlineRun]? = nil
         var imageIsClosed = false
         var svgGraphic: RenderedSVGGraphic? = nil
@@ -294,6 +295,12 @@ final class TextKitStreamingBackend {
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedMermaids: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedSVGs: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
+    private struct EmbeddedEntry {
+        let rendererID: UUID
+        let context: PicoEmbeddedBlockContext
+        let attachment: PicoHostedAttachment?
+    }
+    private var hostedEmbeddedBlocks: [BlockID: EmbeddedEntry] = [:]
     private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
                                          activation: MarkdownImageActivation)] = [:]
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
@@ -352,6 +359,7 @@ final class TextKitStreamingBackend {
             indexByID.removeAll()
             hostedTables.removeAll()
             hostedMermaids.removeAll()
+            hostedEmbeddedBlocks.removeAll()
             hostedImages.removeAll()
             hostedSVGs.removeAll()
         }
@@ -386,6 +394,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
                 hostedTables.removeAll()
                 hostedMermaids.removeAll()
+                hostedEmbeddedBlocks.removeAll()
                 hostedImages.removeAll()
                 hostedSVGs.removeAll()
 #endif
@@ -400,6 +409,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
             hostedTables.removeAll()
             hostedMermaids.removeAll()
+            hostedEmbeddedBlocks.removeAll()
             hostedImages.removeAll()
             hostedSVGs.removeAll()
 #endif
@@ -644,6 +654,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
             hostedTables.removeValue(forKey: record.id)
             hostedMermaids.removeValue(forKey: record.id)
+            hostedEmbeddedBlocks.removeValue(forKey: record.id)
             hostedImages.removeValue(forKey: record.id)
             hostedSVGs.removeValue(forKey: record.id)
 #endif
@@ -675,6 +686,7 @@ final class TextKitStreamingBackend {
         let liveIDs = Set(blockData.map { $0.block.id })
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
         hostedMermaids = hostedMermaids.filter { liveIDs.contains($0.key) }
+        hostedEmbeddedBlocks = hostedEmbeddedBlocks.filter { liveIDs.contains($0.key) }
         hostedImages = hostedImages.filter { liveIDs.contains($0.key) }
         hostedSVGs = hostedSVGs.filter { liveIDs.contains($0.key) }
 #endif
@@ -832,7 +844,17 @@ final class TextKitStreamingBackend {
     func connect(to textContentStorage: NSTextContentStorage, layoutManager: NSTextLayoutManager) {
         contentStorage = textContentStorage
         if let existingStorage = textContentStorage.textStorage {
+            guard existingStorage !== storage else { return }
+            // SwiftUI can recreate the native view while retaining this backend
+            // and its consumed diff versions. Move the already rendered document
+            // through the new TextKit 2 storage without rebuilding its attachments.
+            let renderedDocument = NSAttributedString(attributedString: storage)
             storage = existingStorage
+            if renderedDocument.length > 0 || existingStorage.length > 0 {
+                textContentStorage.performEditingTransaction {
+                    existingStorage.setAttributedString(renderedDocument)
+                }
+            }
         } else {
             textContentStorage.textStorage = storage
         }
@@ -844,6 +866,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
             && record.mermaidDiagram == block.mermaidDiagram
+            && record.embeddedBlock == block.embeddedBlock
             && record.svgGraphic == block.svgGraphic
             && (block.mermaidDiagram == nil || record.mermaidIsClosed == block.snapshot.isClosed)
             && (block.images.isEmpty || (record.imageIsClosed == block.snapshot.isClosed
@@ -860,6 +883,7 @@ final class TextKitStreamingBackend {
         records[index].mermaidDiagram = block.mermaidDiagram
         records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil ? block.codeBlock : nil
         records[index].mermaidIsClosed = block.snapshot.isClosed
+        records[index].embeddedBlock = block.embeddedBlock
         records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
         records[index].imageIsClosed = block.snapshot.isClosed
         records[index].svgGraphic = block.svgGraphic
@@ -882,13 +906,30 @@ final class TextKitStreamingBackend {
 
     private func attributedString(for block: RenderedBlock) -> NSAttributedString {
 #if canImport(AppKit)
-        if let graphic = block.svgGraphic, let attributed = hostedSVGAttributedString(for: block, graphic: graphic) {
-            hostedImages.removeValue(forKey: block.id)
-            hostedTables.removeValue(forKey: block.id)
-            hostedMermaids.removeValue(forKey: block.id)
-            return attributed
+        if let embedded = block.embeddedBlock {
+            hostedSVGs.removeValue(forKey: block.id)
+            if let attachment = embeddedAttachment(for: block.id, presentation: embedded) {
+                hostedImages.removeValue(forKey: block.id)
+                hostedTables.removeValue(forKey: block.id)
+                hostedMermaids.removeValue(forKey: block.id)
+                let native = NSAttributedString.picoConverted(from: block.content)
+                var attributes = native.length > 0 ? native.attributes(at: 0, effectiveRange: nil) : [:]
+                attributes.removeValue(forKey: .backgroundColor)
+                let prefix = block.listPlacement.marker.map { $0 + " " } ?? ""
+                let result = NSMutableAttributedString(string: prefix + "\u{FFFC}\n", attributes: attributes)
+                result.addAttribute(.attachment, value: attachment, range: NSRange(location: prefix.utf16.count, length: 1))
+                return result
+            }
+        } else {
+            hostedEmbeddedBlocks.removeValue(forKey: block.id)
+            if let graphic = block.svgGraphic, let attributed = hostedSVGAttributedString(for: block, graphic: graphic) {
+                hostedImages.removeValue(forKey: block.id)
+                hostedTables.removeValue(forKey: block.id)
+                hostedMermaids.removeValue(forKey: block.id)
+                return attributed
+            }
+            hostedSVGs.removeValue(forKey: block.id)
         }
-        hostedSVGs.removeValue(forKey: block.id)
         if let diagram = block.mermaidDiagram, let svg = diagram.svg {
             hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
@@ -970,6 +1011,24 @@ final class TextKitStreamingBackend {
     }
 
 #if canImport(AppKit)
+    private func embeddedAttachment(for id: BlockID, presentation: RenderedEmbeddedBlock) -> PicoHostedAttachment? {
+        if let entry = hostedEmbeddedBlocks[id], entry.rendererID == presentation.renderer.identity,
+           entry.context.source == presentation.source, entry.context.kind == presentation.kind {
+            entry.context.update(bodyFontSize: presentation.bodyFontSize)
+            return entry.attachment
+        }
+        let context = PicoEmbeddedBlockContext(source: presentation.source, kind: presentation.kind,
+                                              bodyFontSize: presentation.bodyFontSize)
+        let content = presentation.renderer.makeView(context)
+        let attachment = content.map { content in
+            PicoHostedAttachment(interaction: .selectableBlock,
+                                 markdown: { presentation.markdown }) { _ in content }
+        }
+        hostedEmbeddedBlocks[id] = EmbeddedEntry(rendererID: presentation.renderer.identity,
+                                                 context: context, attachment: attachment)
+        return attachment
+    }
+
     /// Wait for closure: more text in the same streamed paragraph would make
     /// this an inline image. Reuse the renderer's loaded image and preserve
     /// native list markers, quote bars, paragraph spacing and indentation.
@@ -1081,7 +1140,7 @@ final class TextKitStreamingBackend {
     }
 
     private func updateHostedSVGOnly(at index: Int, block: RenderedBlock) -> Bool {
-        guard records[index].content == block.content,
+        guard block.embeddedBlock == nil, records[index].content == block.content,
               let graphic = block.svgGraphic,
               let entry = hostedSVGs[block.id],
               records[index].hostedAttachments.contains(where: { $0.attachment === entry.attachment }) else { return false }
@@ -1196,7 +1255,7 @@ final class TextKitStreamingBackend {
     }
 
     private func updateHostedMermaidOnly(at index: Int, block: RenderedBlock) -> Bool {
-        guard records[index].content == block.content,
+        guard block.embeddedBlock == nil, records[index].content == block.content,
               let diagram = block.mermaidDiagram, let svg = diagram.svg,
               let entry = hostedMermaids[block.id] else { return false }
         entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
@@ -1232,6 +1291,7 @@ final class TextKitStreamingBackend {
                 let markerRange = NSRange(location: range.location + hosted.offset, length: 1)
                 let selected = selection.contains { NSIntersectionRange($0, markerRange).length > 0 }
                 let availableWidth = max(1, width - hosted.indent)
+                hostedEmbeddedBlocks[records[index].id]?.context.update(availableWidth: availableWidth, isSelected: selected)
                 if let svg = hostedSVGs[records[index].id] {
                     hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
                         height: svg.model.viewportHeight(availableWidth: availableWidth)))
@@ -1254,7 +1314,7 @@ final class TextKitStreamingBackend {
     func resetDocumentOnNextApply() { shouldResetDocument = true }
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
-        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment ?? hostedImages[id]?.attachment
+        hostedEmbeddedBlocks[id]?.attachment ?? hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment ?? hostedImages[id]?.attachment
     }
 #endif
 

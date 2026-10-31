@@ -15,6 +15,7 @@ struct RenderedContentResult {
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
+    var embeddedBlock: RenderedEmbeddedBlock? = nil
     var svgGraphic: RenderedSVGGraphic? = nil
     var paragraphSpacingAfter: CGFloat? = nil
 }
@@ -34,6 +35,7 @@ actor MarkdownAttributeBuilder {
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private var runtimeMermaidMaxWidth: CGFloat?
     private let mermaidPreviewTiming: MermaidPreviewTiming
+    private let embeddedBlockRenderers: [PicoEmbeddedBlockRenderer]
 
 #if canImport(AppKit)
     /// Cached geometry and its successful width must travel together when
@@ -95,11 +97,13 @@ actor MarkdownAttributeBuilder {
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          runtimeMermaidMaxWidth: CGFloat? = nil,
-         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
+         embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = []) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
         self.mermaidPreviewTiming = mermaidPreviewTiming
+        self.embeddedBlockRenderers = embeddedBlockRenderers
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
         // Resolve Sendable specs to platform types inside the actor
@@ -139,6 +143,16 @@ actor MarkdownAttributeBuilder {
         var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                          blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
 #if canImport(AppKit)
+        if snapshot.isClosed, let renderer = embeddedBlockRenderers.first(where: { $0.matches(snapshot.kind) }) {
+            let kind: PicoEmbeddedBlockSelector
+            switch snapshot.kind {
+            case .htmlBlock: kind = .htmlBlock
+            case let .fencedCode(language): kind = .fencedCode(language: language ?? "")
+            default: kind = .htmlBlock // Selectors never match Markdown or math blocks.
+            }
+            result.embeddedBlock = RenderedEmbeddedBlock(renderer: renderer, source: snapshot.codeText ?? "",
+                                                        kind: kind, bodyFontSize: bodyFont.pointSize)
+        }
         if let spacingContext {
             let spaced = applySpacing(spacingContext, to: result.attributed, previousKind: previousBlockKind)
             result.attributed = spaced.content
@@ -810,6 +824,11 @@ actor MarkdownAttributeBuilder {
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
+#if canImport(AppKit)
+        // An explicit source-backed registration owns this fence, including
+        // its native-code fallback while open or when its factory declines.
+        guard !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }) else { return nil }
+#endif
         guard let provider = mermaidProvider else { return nil }
         guard case let .fencedCode(language) = snapshot.kind, isMermaidLanguage(language) else { return nil }
 
