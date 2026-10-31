@@ -34,8 +34,15 @@ actor MarkdownAttributeBuilder {
     private var runtimeMermaidMaxWidth: CGFloat?
 
 #if canImport(AppKit)
+    /// Cached geometry and its successful width must travel together when
+    /// an older request returns a drawing produced by a newer resize.
+    private struct MermaidVectorPresentation {
+        let diagram: MermaidVectorRenderResult
+        let maxWidth: CGFloat?
+    }
+
     private struct MermaidPreview {
-        var diagram: MermaidVectorRenderResult?
+        var diagram: MermaidVectorPresentation?
         var attemptedBytes = 0
         var attemptedWidth: CGFloat?
         var lastAttempt: ContinuousClock.Instant?
@@ -806,8 +813,9 @@ actor MarkdownAttributeBuilder {
         let mermaidMaxWidth = effectiveMermaidMaxWidth()
 #if canImport(AppKit)
         if let vectorProvider = provider as? any MermaidVectorDiagramProvider {
-            guard let diagram = await vectorDiagram(snapshot: snapshot, source: source,
-                                                    provider: vectorProvider, width: mermaidMaxWidth) else { return nil }
+            guard let presentation = await vectorDiagram(snapshot: snapshot, source: source,
+                                                         provider: vectorProvider, width: mermaidMaxWidth) else { return nil }
+            let diagram = presentation.diagram
             // A stable marker retains native paragraph/list/quote placement.
             // The main-actor backend supplies the actual view attachment.
             let result = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
@@ -822,7 +830,7 @@ actor MarkdownAttributeBuilder {
                                                                               size: diagram.intrinsicSize,
                                                                               diagnostics: diagram.diagnostics,
                                                                               svg: diagram.svg,
-                                                                              maxWidth: mermaidMaxWidth))
+                                                                              maxWidth: presentation.maxWidth))
         }
 #endif
         guard snapshot.isClosed else { return nil }
@@ -868,7 +876,7 @@ actor MarkdownAttributeBuilder {
     /// incremental; an invalid tail keeps the last successful drawing.
     private func vectorDiagram(snapshot: BlockSnapshot, source: String,
                                provider: any MermaidVectorDiagramProvider,
-                               width: CGFloat?) async -> MermaidVectorRenderResult? {
+                               width: CGFloat?) async -> MermaidVectorPresentation? {
         let previous = mermaidPreviews[snapshot.id]
         var preview = previous ?? MermaidPreview()
         let candidate: String
@@ -919,12 +927,13 @@ actor MarkdownAttributeBuilder {
             mermaidPreviews[snapshot.id] = previous
             return snapshot.isClosed ? nil : previous?.diagram
         }
+        let presentation = rendered.map { MermaidVectorPresentation(diagram: $0, maxWidth: width) }
         if snapshot.isClosed {
             mermaidPreviews[snapshot.id]?.completedSource = source
-            mermaidPreviews[snapshot.id]?.diagram = rendered
-            return rendered
+            mermaidPreviews[snapshot.id]?.diagram = presentation
+            return presentation
         }
-        if let rendered { mermaidPreviews[snapshot.id]?.diagram = rendered }
+        if let presentation { mermaidPreviews[snapshot.id]?.diagram = presentation }
         return mermaidPreviews[snapshot.id]?.diagram
     }
 #endif
