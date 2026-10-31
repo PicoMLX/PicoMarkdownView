@@ -47,6 +47,31 @@ struct VegaLiteRendererTests {
         #expect(disabled.withVegaLiteRendering(true).vegaLiteRenderingEnabled)
     }
 
+    @Test("Feature theme copies preserve SVG and OpenUI opt-ins while Vega is disabled")
+    func featureCopiesPreserveIndependentFlags() {
+        let configured = MarkdownRenderTheme.default()
+            .withVegaLiteRendering(false)
+            .withSVGRendering()
+            .withOpenUIRendering()
+        let copies = [
+            configured,
+            configured.scaled(by: 1.5, codeBlock: 0.75),
+            configured.withMermaidRendering(.disabled),
+            configured.withCodeHighlighting(codeBlockTheme: nil, codeHighlighter: nil),
+            configured.withSVGRendering(false).withSVGRendering(),
+            configured.withOpenUIRendering(false).withOpenUIRendering(),
+            configured.withVegaLiteRendering(true).withVegaLiteRendering(false)
+        ]
+        for theme in copies {
+            #expect(theme.svgRenderingEnabled)
+            #expect(theme.openUIRenderingEnabled)
+            #expect(theme.vegaLiteRenderingEnabled == false)
+        }
+        let restored = configured.withVegaLiteRendering(true)
+        #expect(restored.svgRenderingEnabled && restored.openUIRenderingEnabled)
+        #expect(restored.vegaLiteRenderingEnabled)
+    }
+
     @Test("Single-shot and split chunks produce the same chart, source and surrounding text")
     func chunkSplitsProduceEquivalentRendering() async throws {
         let markdown = "Before 🧭.\n\n" + VegaLiteRenderingFixture.markdown() + "After **native** text.\n\n"

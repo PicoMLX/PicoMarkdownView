@@ -93,6 +93,9 @@ struct MarkdownExample: Identifiable, Hashable {
             webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
             svgRenderingEnabled: true),
         MarkdownExample(
+            localFilename: "OpenUI",
+            webURL: "https://www.openui.com/docs/openui-lang"),
+        MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
         ]

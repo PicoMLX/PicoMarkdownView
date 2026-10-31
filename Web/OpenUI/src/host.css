@@ -1,0 +1,4 @@
+html, body { margin: 0; padding: 0; width: 100%; overflow: hidden; }
+body { background: var(--openui-background); color: var(--openui-text-neutral-primary); }
+#root { box-sizing: border-box; width: 100%; padding: 16px; }
+#root > div { width: 100%; min-width: 0; }

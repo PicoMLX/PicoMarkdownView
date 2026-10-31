@@ -1,2 +1,4 @@
 # Pinned, unmodified upstream bundles; native host code remains reviewable.
 Sources/PicoMarkdownView/Resources/VegaLite/vega*.js linguist-vendored=true
+# Generated web assets preserve upstream notices and JavaScript string whitespace.
+Sources/PicoOpenUIRuntime/Resources/OpenUI/** linguist-generated=true -whitespace

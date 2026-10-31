@@ -6,7 +6,7 @@ import Testing
 @Suite("macOS hosted image activation")
 @MainActor
 struct MacHostedImageActivationTests {
-    @Test("A parent-text click targets one image and preserves its loaded source and Markdown")
+    @Test("A parent-text click targets one image and preserves its loaded source and Markdown", .timeLimit(.minutes(1)))
     func clickTargetsLoadedImage() async throws {
         let fixture = try await makeFixture()
         defer { fixture.window.close() }
@@ -41,7 +41,7 @@ struct MacHostedImageActivationTests {
         #expect(!copied.contains("\u{FFFC}"))
     }
 
-    @Test("Image callbacks can be installed, replaced and removed without rebuilding attachments")
+    @Test("Image callbacks can be installed, replaced and removed without rebuilding attachments", .timeLimit(.minutes(1)))
     func callbackLifecycle() async throws {
         let fixture = try await makeFixture()
         defer { fixture.window.close() }
@@ -61,7 +61,7 @@ struct MacHostedImageActivationTests {
         #expect(attachments(in: storage).elementsEqual(fixture.attachments, by: { $0 === $1 }))
     }
 
-    @Test("Callback installation patches only image link attributes and keeps selection and ordinary links")
+    @Test("Callback installation patches only image link attributes and keeps selection and ordinary links", .timeLimit(.minutes(1)))
     func nativeLinkRoutingAndSelection() async throws {
         let fixture = try await makeFixture()
         defer { fixture.window.close() }
@@ -108,7 +108,7 @@ struct MacHostedImageActivationTests {
         #expect(attachments(in: storage).elementsEqual(fixture.attachments, by: { $0 === $1 }))
     }
 
-    @Test("Document replacement retires image links and retained accessibility callbacks")
+    @Test("Document replacement retires image links and retained accessibility callbacks", .timeLimit(.minutes(1)))
     func documentReplacementRetiresActivation() async throws {
         let fixture = try await makeFixture()
         defer { fixture.window.close() }
@@ -134,7 +134,7 @@ struct MacHostedImageActivationTests {
         #expect(storage.string.contains("Replacement document."))
     }
 
-    @Test("The parent context menu offers image Markdown copying even without an activation callback")
+    @Test("The parent context menu offers image Markdown copying even without an activation callback", .timeLimit(.minutes(1)))
     func parentImageContextMenu() async throws {
         let fixture = try await makeFixture()
         defer { fixture.window.close() }
@@ -163,6 +163,9 @@ struct MacHostedImageActivationTests {
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
+        var fixtureReady = false
+        defer { if !fixtureReady { window.close() } }
+        window.orderFront(nil)
         let image = NSImage(size: CGSize(width: 120, height: 60))
         let pipeline = MarkdownStreamingPipeline(imageProvider: ActivationImageProvider(result: MarkdownImageResult(image: image)))
         let markdown = "Before paragraph.\n\n![First image](https://example.com/one.png)\n\nBetween images and [ordinary link](https://example.com/page).\n\n![Second image](https://example.com/two.png?literal=&amp;amp; \"Literal &amp;copy;\")\n\nAfter paragraph.\n\n"
@@ -172,19 +175,36 @@ struct MacHostedImageActivationTests {
                                   replaceToken: 1, configuration: .default())
             }
         }
-        for _ in 0..<8 {
+        let storage = try #require(view.textStorage)
+        let images = attachments(in: storage)
+        try #require(images.count == 2)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while true {
             if let manager = view.textLayoutManager, let content = manager.textContentManager {
                 manager.ensureLayout(for: content.documentRange)
                 manager.textViewportLayoutController.layoutViewport()
             }
             view.layoutSubtreeIfNeeded()
-            await Task.yield()
+            for attachment in images { attachment.hostingView?.layoutSubtreeIfNeeded() }
+            window.displayIfNeeded()
+            if images.allSatisfy({ attachment in
+                guard let host = attachment.hostingView, host.isDescendant(of: view),
+                      let canvas = self.canvas(in: host) else { return false }
+                return canvas.window === window && canvas.bounds.width > 0 && canvas.bounds.height > 0
+            }) { break }
+            guard ContinuousClock.now < deadline else {
+                Issue.record("Timed out waiting for TextKit to mount the hosted image canvases")
+                throw FixtureTimeout()
+            }
+            // SwiftUI materializes its AppKit children asynchronously. Wait for
+            // that actual hierarchy instead of assuming a fixed number of yields.
+            try await Task.sleep(for: .milliseconds(10))
         }
-        let storage = try #require(view.textStorage)
-        let images = attachments(in: storage)
-        try #require(images.count == 2)
+        fixtureReady = true
         return (controller, view, window, images, image)
     }
+
+    private struct FixtureTimeout: Error {}
 
     private func click(_ canvas: NSView, in fixture: Fixture) throws {
         let range = try imageRange(canvas, in: fixture)

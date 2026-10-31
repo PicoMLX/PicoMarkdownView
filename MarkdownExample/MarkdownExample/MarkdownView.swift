@@ -39,6 +39,7 @@ struct MarkdownView: View {
     @State private var tagHoverReadout: String?
     @State private var linkHoverReadout: String?
     @State private var contentSize: CGSize?
+    @State private var lastOpenUIAction: String?
 
     private let autoScrollClock = ContinuousClock()
 
@@ -104,7 +105,8 @@ struct MarkdownView: View {
                                                      onTagTap: { lastTappedTag = $0 },
                                                      onTagHover: { tagHoverReadout = $0 },
                                                      onLinkHover: { linkHoverReadout = $0 },
-                                                     onContentSize: { handleContentSizeChange($0) })
+                                                     onContentSize: { handleContentSizeChange($0) },
+                                                     onOpenUIAction: { lastOpenUIAction = $0.humanFriendlyMessage })
 #if os(macOS)
                                 .onImageTap(imageTapHandler)
 #endif
@@ -167,6 +169,17 @@ struct MarkdownView: View {
                 streamSpeedButton
             }
 
+#if os(macOS)
+            if let lastOpenUIAction {
+                Label {
+                    Text(verbatim: lastOpenUIAction)
+                } icon: {
+                    Image(systemName: "rectangle.and.hand.point.up.left")
+                }
+                    .font(.callout)
+                    .accessibilityLabel("OpenUI action: \(lastOpenUIAction)")
+            }
+#endif
             HStack(spacing: 16) {
                 #if os(macOS)
                 let hover = tagHoverReadout ?? linkHoverReadout
@@ -298,6 +311,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onTagHover: (String?) -> Void
     let onLinkHover: (String?) -> Void
     let onContentSize: (CGSize) -> Void
+    let onOpenUIAction: (PicoOpenUIActionEvent) -> Void
 #if os(macOS)
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
 
@@ -338,6 +352,9 @@ private struct StreamingMarkdownContent: View, Equatable {
             .onLinkHover { [onLinkHover] url, _ in
                 onLinkHover(url.map { String(localized: "Link: \($0.absoluteString)") })
             }
+#if os(macOS)
+            .onOpenUIAction(onOpenUIAction)
+#endif
             .onContentSize { [onContentSize] size in
                 onContentSize(size)
             }
@@ -348,6 +365,7 @@ private struct StreamingMarkdownContent: View, Equatable {
         .default()
             .withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
             .withSVGRendering(svgRenderingEnabled)
+            .withOpenUIRendering()
 #else
         .default()
 #endif

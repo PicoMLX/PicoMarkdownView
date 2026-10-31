@@ -23,6 +23,8 @@ public struct MarkdownRenderTheme: Sendable {
     public let mermaidRenderingMode: MermaidRenderingMode
     /// Render completed `svg` fences as hosted vectors on macOS. UIKit keeps code rendering.
     public let svgRenderingEnabled: Bool
+    /// Render completed `openui` fences as interactive hosted content on macOS.
+    public let openUIRenderingEnabled: Bool
     /// Renders closed `vega-lite` fences as native vector charts on macOS.
     public let vegaLiteRenderingEnabled: Bool
 
@@ -36,6 +38,7 @@ public struct MarkdownRenderTheme: Sendable {
                 codeHighlighter: AnyCodeSyntaxHighlighter? = nil,
                 mermaidRenderingMode: MermaidRenderingMode = .onFenceClose,
                 svgRenderingEnabled: Bool = false,
+                openUIRenderingEnabled: Bool = false,
                 vegaLiteRenderingEnabled: Bool = true) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
@@ -47,6 +50,7 @@ public struct MarkdownRenderTheme: Sendable {
         self.codeHighlighter = codeHighlighter
         self.mermaidRenderingMode = mermaidRenderingMode
         self.svgRenderingEnabled = svgRenderingEnabled
+        self.openUIRenderingEnabled = openUIRenderingEnabled
         self.vegaLiteRenderingEnabled = vegaLiteRenderingEnabled
     }
 
@@ -97,6 +101,7 @@ public struct MarkdownRenderTheme: Sendable {
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
                             svgRenderingEnabled: svgRenderingEnabled,
+                            openUIRenderingEnabled: openUIRenderingEnabled,
                             vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 
@@ -114,6 +119,7 @@ public struct MarkdownRenderTheme: Sendable {
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
                             svgRenderingEnabled: svgRenderingEnabled,
+                            openUIRenderingEnabled: openUIRenderingEnabled,
                             vegaLiteRenderingEnabled: enabled)
     }
 
@@ -142,6 +148,7 @@ public struct MarkdownRenderTheme: Sendable {
                                    codeHighlighter: codeHighlighter,
                                    mermaidRenderingMode: mermaidRenderingMode,
                                    svgRenderingEnabled: svgRenderingEnabled,
+                                   openUIRenderingEnabled: openUIRenderingEnabled,
                                    vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 }
@@ -484,6 +491,7 @@ actor MarkdownRenderer {
             let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
                 || blocks[acceptedIndex].mermaidDiagram != rendered.mermaidDiagram
                 || blocks[acceptedIndex].svgGraphic != rendered.svgGraphic
+                || blocks[acceptedIndex].openUI != rendered.openUI
                 || blocks[acceptedIndex].vegaLiteChart != rendered.vegaLiteChart
 #else
             let didMutate = oldContent != newContent
@@ -696,6 +704,7 @@ actor MarkdownRenderer {
                              mermaidDiagram: rendered.mermaidDiagram,
                              svgGraphic: rendered.svgGraphic,
                              vegaLiteChart: rendered.vegaLiteChart,
+                             openUI: rendered.openUI,
                              blockquoteLevel: quoteLevel,
                              listPlacement: placement)
         return (block, rendered.paragraphSpacingAfter)
@@ -717,7 +726,7 @@ actor MarkdownRenderer {
     /// list: a child block starts at the item's text column (so do the
     /// blocks of a quote inside the item), and the first
     /// child of an item without text of its own carries the item's marker
-    /// when it is a paragraph, heading or macOS Mermaid fence. The item then
+    /// when it is a paragraph, heading or supported macOS hosted fence. The item then
     /// renders nothing.
     /// A quote's bars start at the column the quote starts at, and stay
     /// there for every block inside it.
@@ -726,6 +735,8 @@ actor MarkdownRenderer {
             if case .heading = kind { return true }
 #if os(macOS)
             if case .fencedCode(let language) = kind {
+                if theme.openUIRenderingEnabled,
+                   language?.split(whereSeparator: \.isWhitespace).first?.lowercased() == "openui" { return true }
                 if theme.svgRenderingEnabled, SVGDiagramSupport.isSVGLanguage(language) { return true }
                 if theme.vegaLiteRenderingEnabled, isVegaLiteLanguage(language) { return true }
                 if theme.mermaidRenderingMode.isEnabled { return isMermaidLanguage(language) }
@@ -777,6 +788,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var mermaidDiagram: RenderedMermaidDiagram?
     var svgGraphic: RenderedSVGGraphic? = nil
     var vegaLiteChart: RenderedVegaLiteChart? = nil
+    var openUI: RenderedOpenUIContent? = nil
     /// Enclosing quote depth (0 outside any quote); drives the bars and
     /// indent children of a quote are drawn with.
     var blockquoteLevel: Int = 0
@@ -808,6 +820,7 @@ extension RenderedBlock {
         mermaidDiagram = rendered.mermaidDiagram
         svgGraphic = rendered.svgGraphic
         vegaLiteChart = rendered.vegaLiteChart
+        openUI = rendered.openUI
     }
 
     static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
@@ -823,7 +836,8 @@ extension RenderedBlock {
         lhs.codeBlock == rhs.codeBlock &&
         lhs.mermaidDiagram == rhs.mermaidDiagram &&
         lhs.svgGraphic == rhs.svgGraphic &&
-        lhs.vegaLiteChart == rhs.vegaLiteChart
+        lhs.vegaLiteChart == rhs.vegaLiteChart &&
+        lhs.openUI == rhs.openUI
     }
 }
 
