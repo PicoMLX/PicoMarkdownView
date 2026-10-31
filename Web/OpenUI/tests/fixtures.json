@@ -13,5 +13,15 @@
     "id": "revenue-chart",
     "title": "Chart and follow-up action",
     "source": "root = Stack([chartCard])\nchartCard = Card([heading, description, revenue, Buttons([explain], \"row\")])\nheading = CardHeader(\"Q4 revenue\", \"Official OpenUI BarChart with two series\")\ndescription = TextContent(\"A vector chart, ordinary web controls and the same semantic action callback.\")\nrevenue = BarChart(labels, [productA, productB], \"grouped\", \"Month\", \"Revenue\", 260)\nlabels = [\"October\", \"November\", \"December\"]\nproductA = Series(\"Product A\", [120, 150, 180])\nproductB = Series(\"Product B\", [90, 110, 140])\nexplain = Button(\"Explain chart\", @ToAssistant(\"Explain this revenue chart\", {viewId: \"revenue-chart\", period: \"Q4\"}), \"primary\")\n"
+  },
+  {
+    "id": "date-picker",
+    "title": "Date picker portal",
+    "source": "root = Stack([TextContent(\"Choose a date\"), DatePicker(\"appointment\", \"single\")])\n"
+  },
+  {
+    "id": "math-content",
+    "title": "OpenUI math content",
+    "source": "root = TextContent(\"Inline $$x^2$$ and display:\\n\\n$$\\n\\\\frac{1}{2}\\n$$\")\n"
   }
 ]

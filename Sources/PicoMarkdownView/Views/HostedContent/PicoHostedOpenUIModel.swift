@@ -19,7 +19,10 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
     private(set) var textScale: CGFloat = 1
     private(set) var isReady = false
     private(set) var isDisposed = false
-    private(set) var error: String?
+    private var runtimeError: String?
+    private var rendererError: String?
+    private var heightError: String?
+    var error: String? { runtimeError ?? rendererError ?? heightError }
     private(set) var lastAction: PicoOpenUIActionEvent?
     private(set) var webViewCreationCount = 0
     private(set) var renderCount = 0
@@ -132,7 +135,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
         case "ready":
             guard !isReady else { return }
             isReady = true
-            error = nil
+            runtimeError = nil
             readyTimeout?.cancel()
             readyTimeout = nil
             render()
@@ -151,8 +154,12 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
             if let diagnostics = payload as? [Any], !diagnostics.contains(where: { value in
                 guard let item = value as? [String: Any], let severity = item["severity"] as? String else { return true }
                 return !["warning", "info"].contains(severity.lowercased())
-            }) { error = nil }
-            else { setError("OpenUI could not display this content.") }
+            }) { rendererError = nil }
+            else {
+                let message = "OpenUI could not display this content."
+                rendererError = message
+                onError?(message)
+            }
         default: break
         }
     }
@@ -162,9 +169,12 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
         lastContentHeight = height
         let points = height * textScale
         guard points.isFinite, points <= Self.maximumHeight else {
-            setError("This OpenUI content is too tall to display inline.")
+            let message = "This OpenUI content is too tall to display inline."
+            heightError = message
+            onError?(message)
             return
         }
+        heightError = nil
         pendingHeight = max(80, ceil(points))
         scheduleHeight()
     }
@@ -206,7 +216,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
 
     private func setError(_ message: String) {
         guard !isDisposed else { return }
-        error = message
+        runtimeError = message
         onError?(message)
     }
 

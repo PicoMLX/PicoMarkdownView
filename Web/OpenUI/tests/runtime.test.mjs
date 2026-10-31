@@ -21,6 +21,8 @@ for (const fixture of fixtures) {
 assert.ok(parser.parse('root = NoSuchComponent("test")').meta.errors.length > 0);
 
 const messages = [];
+const layout = { rootHeight: 480, portalTop: 520, portalHeight: 320 };
+const resizeObservers = new Set();
 const failures = [];
 const consoleBridge = new VirtualConsole();
 consoleBridge.on('jsdomError', error => failures.push(String(error)));
@@ -32,12 +34,16 @@ const dom = await JSDOM.fromFile(path.join(assets, 'index.html'), {
     } } } };
     window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
     window.ResizeObserver = class {
-      constructor(callback) { this.callback = callback; }
-      observe(element) { setTimeout(() => this.callback([{ target: element, contentRect: { width: 640, height: 480 } }]), 0); }
-      unobserve() {} disconnect() {}
+      constructor(callback) { this.callback = callback; this.elements = new Set(); resizeObservers.add(this); }
+      observe(element) { this.elements.add(element); setTimeout(() => this.callback([{ target: element, contentRect: { width: 640, height: layout.rootHeight } }]), 0); }
+      unobserve(element) { this.elements.delete(element); }
+      disconnect() { this.elements.clear(); }
     };
     window.HTMLElement.prototype.getBoundingClientRect = function () {
-      return { x: 0, y: 0, left: 0, top: 0, width: 640, height: 480, right: 640, bottom: 480 };
+      const portal = this.classList?.contains('openui-date-picker-renderer-floating-content');
+      const top = portal ? layout.portalTop : 0;
+      const height = portal ? layout.portalHeight : layout.rootHeight;
+      return { x: 0, y: top, left: 0, top, width: 640, height, right: 640, bottom: top + height };
     };
     Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { get() { return 640; } });
     Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', { get() { return 640; } });
@@ -69,7 +75,7 @@ const bridge = dom.window.picoOpenUI;
 assert.deepEqual(Object.keys(bridge), ['render'], 'production has no inspection/test helpers');
 async function render(fixture, sourceID = fixture.id, colorScheme = 'light') {
   assert.equal(bridge.render({ source: fixture.source, sourceID, colorScheme, isStreaming: false }), true);
-  const heading = fixture.id === 'trip-form' ? 'Plan a weekend' : fixture.id === 'project-status' ? 'Project overview' : 'Q4 revenue';
+  const heading = { 'trip-form': 'Plan a weekend', 'project-status': 'Project overview', 'revenue-chart': 'Q4 revenue', 'date-picker': 'Choose a date', 'math-content': 'Inline' }[fixture.id];
   await waitFor(() => text().includes(heading), `render ${fixture.id}`);
   await sleep(120);
   assert.deepEqual(lastErrors(sourceID), [], `${fixture.id} renders without errors`);
@@ -112,6 +118,59 @@ console.log('PASS DOM: official chart');
 assert.ok(messages.some(message => message.kind === 'size' && message.payload.height === 480));
 assert.ok(messages.every(message => ['ready', 'size', 'action', 'error'].includes(message.kind)));
 console.log('PASS bridge: timer-based measurement works with suspended animation frames');
+await render(fixtures.find(fixture => fixture.id === 'date-picker'));
+const pickerInput = document.querySelector('.openui-date-picker-renderer-floating-input-container');
+pickerInput.click();
+await waitFor(() => document.querySelector('.openui-date-picker-renderer-floating-content'), 'calendar portal opens');
+const calendar = document.querySelector('.openui-date-picker-renderer-floating-content');
+assert.equal(calendar.parentElement, document.body, 'test exercises the stock body portal');
+function lastHeight() { return messages.findLast(message => message.kind === 'size' && message.sourceID === 'date-picker')?.payload.height; }
+await waitFor(() => lastHeight() === 840, 'calendar grows native frame beyond root');
+assert.ok([...resizeObservers].some(observer => observer.elements.has(calendar)), 'portal reflow is observed');
+layout.portalHeight = 400;
+for (const observer of resizeObservers) {
+  if (observer.elements.has(calendar)) observer.callback([{ target: calendar }]);
+}
+await waitFor(() => lastHeight() === 920, 'calendar intrinsic resize grows native frame');
+layout.portalTop = 560;
+calendar.style.transform = 'translateY(560px)';
+await waitFor(() => lastHeight() === 960, 'calendar placement changes update native frame');
+layout.portalTop = -200;
+calendar.style.transform = 'translateY(-200px)';
+await waitFor(() => lastHeight() === 896, 'above-viewport calendar reserves room for repositioning');
+calendar.style.display = 'none';
+await waitFor(() => lastHeight() === 480, 'hidden portals do not retain extra height');
+calendar.style.display = '';
+layout.portalTop = 520;
+calendar.style.transform = 'translateY(520px)';
+await waitFor(() => lastHeight() === 920, 'visible calendar grows again');
+const sizeReports = messages.filter(message => message.kind === 'size').length;
+dom.window.dispatchEvent(new dom.window.Event('resize'));
+await sleep(100);
+assert.equal(messages.filter(message => message.kind === 'size').length, sizeReports, 'unchanged portal extent does not loop size messages');
+document.body.dispatchEvent(new dom.window.MouseEvent('mousedown', { bubbles: true }));
+await waitFor(() => !document.body.contains(calendar) && lastHeight() === 480, 'closing calendar shrinks native frame');
+assert.ok([...resizeObservers].every(observer => !observer.elements.has(calendar)), 'closed portals are unobserved');
+console.log('PASS bridge: stock body portals grow, reflow and shrink without size feedback');
+await render(fixtures.find(fixture => fixture.id === 'math-content'));
+assert.equal(document.querySelectorAll('.katex').length, 2, 'stock TextContent produces inline and display math');
+assert.equal(document.querySelectorAll('.katex-display').length, 1);
+const mathML = document.querySelector('.katex-mathml');
+assert.ok(mathML.querySelector('math'), 'accessible MathML is retained');
+assert.equal(dom.window.getComputedStyle(mathML).position, 'absolute', 'KaTeX CSS visually hides the duplicate MathML tree');
+assert.equal(dom.window.getComputedStyle(mathML).width, '1px');
+assert.equal(document.querySelector('.katex-html').getAttribute('aria-hidden'), 'true');
+const css = await fs.readFile(path.join(assets, 'app.css'), 'utf8');
+const fontURLs = [...css.matchAll(/url\(([^)]+)\)/g)].map(match => match[1].replace(/^["']|["']$/g, '')).filter(url => /\.(woff2?|ttf)$/.test(url));
+assert.ok(fontURLs.length > 0, 'KaTeX fonts are bundled');
+for (const url of fontURLs) {
+  assert.ok(!url.includes(':') && !path.isAbsolute(url) && !url.startsWith('..'), 'font URLs stay local');
+  assert.ok((await fs.stat(path.join(assets, url))).size > 0, `font asset exists: ${url}`);
+}
+const buildInfo = JSON.parse(await fs.readFile(path.join(assets, 'BuildInfo.json'), 'utf8'));
+assert.equal(buildInfo.versions.katex, '0.16.47');
+assert.ok(buildInfo.files.some(file => file.name.endsWith('.woff2')), 'metadata accounts for local fonts');
+console.log('PASS assets: OpenUI math has KaTeX CSS, accessible MathML and local fonts');
 bridge.render({ source: 'root = NoSuchComponent("test")', sourceID: 'invalid', colorScheme: 'light', isStreaming: false });
 await waitFor(() => lastErrors('invalid').length > 0, 'invalid source diagnostics');
 await render(fixtures[0], 'recovered');

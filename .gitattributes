@@ -1,2 +1,2 @@
 # Generated web assets preserve upstream notices and JavaScript string whitespace.
-Sources/PicoOpenUIRuntime/Resources/OpenUI/* linguist-generated=true -whitespace
+Sources/PicoOpenUIRuntime/Resources/OpenUI/** linguist-generated=true -whitespace

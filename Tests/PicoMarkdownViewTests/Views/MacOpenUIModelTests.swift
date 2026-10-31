@@ -46,6 +46,15 @@ struct MacOpenUIModelTests {
         #expect(model.sourceID == sourceID)
         #expect(model.webViewCreationCount == 1)
         #expect(model.renderCount == initialRenderCount)
+        model.receive(["kind": "size", "payload": ["height": 15_000.0], "sourceID": sourceID])
+        #expect(model.error != nil, "The zoomed native height exceeds the inline limit")
+        model.updateTextScale(1)
+        #expect(model.error == nil, "Returning to a valid scale must restore the retained child")
+        #expect(webView.pageZoom == 1)
+        #expect(model.webView === webView)
+        #expect(model.sourceID == sourceID)
+        #expect(model.webViewCreationCount == 1)
+        #expect(model.renderCount == initialRenderCount)
     }
 
     @Test("Changing zoom scales the last CSS height without another size message", .timeLimit(.minutes(1)))
@@ -68,6 +77,87 @@ struct MacOpenUIModelTests {
         #expect(model.measuredHeight == 210)
         #expect(model.sizeMessageCount == 2)
         #expect(model.webViewCreationCount == 0)
+        #expect(model.renderCount == 0)
+    }
+
+    @Test("Returning below the height limit restores content without another CSS measurement", .timeLimit(.minutes(1)))
+    func textScaleRecoversFromHeightLimit() async {
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        let sourceID = model.sourceID
+        let markdown = model.markdown
+        await waitForHeightChange(of: model) {
+            model.receive(["kind": "size", "payload": ["height": 15_000.0], "sourceID": sourceID])
+        }
+        #expect(model.measuredHeight == 15_000)
+        model.updateTextScale(1.5)
+        #expect(model.error != nil)
+        model.updateTextScale(1)
+        #expect(model.error == nil)
+        #expect(model.measuredHeight == 15_000)
+        #expect(model.sizeMessageCount == 1)
+        #expect(model.sourceID == sourceID)
+        #expect(model.markdown == markdown)
+        #expect(model.webViewCreationCount == 0)
+        #expect(model.renderCount == 0)
+    }
+
+    @Test("Renderer diagnostic success cannot dismiss an oversized native child", arguments: ["clear", "warning", "info"])
+    func rendererDiagnosticsDoNotDismissHeightFailure(_ severity: String) {
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        model.receive(["kind": "size", "payload": ["height": 15_000.0], "sourceID": model.sourceID])
+        model.updateTextScale(1.5)
+        let heightFailure = model.error
+        #expect(heightFailure != nil)
+        let diagnostics: [Any] = severity == "clear" ? [] : [["severity": severity, "message": "Nonfatal result"]]
+        model.receive(["kind": "error", "payload": diagnostics, "sourceID": model.sourceID])
+        #expect(model.error == heightFailure)
+        model.updateTextScale(1)
+        #expect(model.error == nil)
+    }
+
+    @Test("A valid measurement recovers height failure while preserving parser failure", .timeLimit(.minutes(1)))
+    func validHeightDoesNotClearParserFailure() async throws {
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        model.receive(["kind": "error", "payload": [["severity": "error", "message": "Invalid program"]],
+                       "sourceID": model.sourceID])
+        let parserFailure = try #require(model.error)
+        model.receive(["kind": "size", "payload": ["height": Double(PicoHostedOpenUIModel.maximumHeight) + 1],
+                       "sourceID": model.sourceID])
+        await waitForHeightChange(of: model) {
+            model.receive(["kind": "size", "payload": ["height": 480.0], "sourceID": model.sourceID])
+        }
+        #expect(model.measuredHeight == 480)
+        #expect(model.error == parserFailure)
+        model.receive(["kind": "error", "payload": [Any](), "sourceID": model.sourceID])
+        #expect(model.error == nil, "Renderer diagnostics may clear the parser failure after height recovery")
+    }
+
+    @Test("Height recovery and renderer success preserve a stopped runtime failure", .timeLimit(.minutes(1)))
+    func validHeightDoesNotClearRuntimeFailure() async throws {
+        _ = NSApplication.shared
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        let stoppedBrowser = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        model.webViewWebContentProcessDidTerminate(stoppedBrowser)
+        let runtimeFailure = try #require(model.error)
+        model.receive(["kind": "size", "payload": ["height": 15_000.0], "sourceID": model.sourceID])
+        model.updateTextScale(1.5)
+        model.updateTextScale(1)
+        #expect(model.error == runtimeFailure)
+        let diagnosticBatches: [[Any]] = [[], [["severity": "warning", "message": "Nonfatal result"]]]
+        for diagnostics in diagnosticBatches {
+            model.receive(["kind": "error", "payload": diagnostics, "sourceID": model.sourceID])
+            #expect(model.error == runtimeFailure)
+        }
+        await waitForHeightChange(of: model) {
+            model.receive(["kind": "size", "payload": ["height": 480.0], "sourceID": model.sourceID])
+        }
+        #expect(model.measuredHeight == 480)
+        #expect(model.error == runtimeFailure)
+        #expect(model.webView == nil)
         #expect(model.renderCount == 0)
     }
 
@@ -158,7 +248,9 @@ struct MacOpenUIModelTests {
         #expect(model.error != nil)
         #expect(model.measuredHeight == initialHeight)
         model.receive(["kind": "error", "payload": [Any](), "sourceID": model.sourceID])
-        #expect(model.error == nil, "A successful renderer result must clear its earlier error")
+        #expect(model.error != nil, "Renderer success cannot clear an invalid native height")
+        model.receive(["kind": "size", "payload": ["height": 480.0], "sourceID": model.sourceID])
+        #expect(model.error == nil, "A valid measurement clears only the earlier height failure")
     }
 
     @Test("Nonfatal parser diagnostics do not hide valid interactive content", arguments: ["warning", "info"])

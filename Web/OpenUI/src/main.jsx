@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { Renderer } from '@openuidev/react-lang';
 import { openuiLibrary, ThemeProvider } from '@openuidev/react-ui';
 import '@openuidev/react-ui/index.css';
+import 'katex/dist/katex.min.css';
+import { contentHeight, bodyPortals } from './contentSize.js';
 import './host.css';
 
 const rootElement = document.getElementById('root');
@@ -50,7 +52,7 @@ function scheduleSize() {
     const rect = rootElement.getBoundingClientRect();
     // Wait until the host supplies space beyond the root's horizontal padding.
     if (rect.width <= 32) return;
-    const height = Math.ceil(rect.height);
+    const height = contentHeight(rootElement, bodyPortals(rootElement));
     if (!Number.isFinite(height) || height < 1 || height > 20000) {
       reportErrors([{ code: 'invalid-content-height', message: 'OpenUI content exceeds the supported height.' }], sourceID);
       return;
@@ -142,7 +144,31 @@ window.picoOpenUI = {
   },
 };
 
-new ResizeObserver(scheduleSize).observe(rootElement);
+const contentObserver = new ResizeObserver(scheduleSize);
+contentObserver.observe(rootElement);
+let observedPortals = new Set();
+function observePortals() {
+  const next = new Set(bodyPortals(rootElement));
+  for (const portal of observedPortals) {
+    if (!next.has(portal)) contentObserver.unobserve(portal);
+  }
+  for (const portal of next) {
+    if (!observedPortals.has(portal)) contentObserver.observe(portal);
+  }
+  observedPortals = next;
+}
+// Official controls can portal into document.body, outside the measured React
+// root. Observe only those siblings, so their open/close, placement and reflow
+// update the native frame without observing mutations in the ordinary UI tree.
+new MutationObserver(records => {
+  const outsideRoot = records.some(record => record.target !== rootElement && !rootElement.contains(record.target));
+  if (!outsideRoot) return;
+  observePortals();
+  scheduleSize();
+}).observe(document.body, {
+  childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'],
+});
+observePortals();
 window.addEventListener('resize', scheduleSize);
 window.addEventListener('error', event => reportErrors([event.message]));
 window.addEventListener('unhandledrejection', event => reportErrors([event.reason]));

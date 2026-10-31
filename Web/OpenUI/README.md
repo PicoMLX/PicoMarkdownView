@@ -12,7 +12,7 @@ npm run build
 npm test
 ```
 
-Run these commands from Web/OpenUI. Exact direct dependency versions and the transitive resolution are stored in package.json and package-lock.json. Installation scripts are disabled, including upstream installation telemetry. esbuild bundles a classic IIFE script and CSS; no CDN or remote font is required.
+Run these commands from Web/OpenUI. Exact direct dependency versions and the transitive resolution are stored in package.json and package-lock.json. Installation scripts are disabled, including upstream installation telemetry. esbuild bundles a classic IIFE script, the official KaTeX CSS used by OpenUI TextContent, and its fonts under fonts/. No CDN or remote font is required. Rebuilding replaces generated font files and records them in BuildInfo.json; the KaTeX package notice is included with the other third party notices.
 
 Output is Sources/PicoOpenUIRuntime/Resources/OpenUI. The package copies that directory without flattening it. Preserve index.html, app.js, app.css, the linked legal-comments file and generated notices when rebuilding or redistributing resources. Versions.json and BuildInfo.json record dependency versions and asset sizes without timestamps or local paths.
 
@@ -42,7 +42,7 @@ Messages use window.webkit.messageHandlers.picoOpenUI.postMessage:
 { kind: "error", payload: [{ source, code, message }], sourceID: "..." }
 ```
 
-Native code validates the source identity before accepting asynchronous messages. ready means the bridge is installed; a later valid size report establishes measured content. Size reports are timer-coalesced and suppress unchanged heights. They do not depend on requestAnimationFrame, which WebKit may suspend for inactive content. Initial zero-width layout waits for a usable host width.
+Native code validates the source identity before accepting asynchronous messages. ready means the bridge is installed; a later valid size report establishes measured content. Size reports are timer-coalesced and suppress unchanged heights. They do not depend on requestAnimationFrame, which WebKit may suspend for inactive content. Initial zero-width layout waits for a usable host width. Measurements include visible body portals used by stock controls such as DatePicker; opening, closing, repositioning and intrinsic reflow update the native frame. Negative-top placement in a short inline viewport temporarily reserves room for FloatingUI to reposition. Portal mutations and ResizeObserver reports are timer-coalesced, and unchanged heights are suppressed; document.scrollHeight is deliberately not used.
 
 Input is limited to 100000 JavaScript string code units; reported heights must be finite and between 1 and 20000 points. The native host can apply its own viewport policy. Diagnostics are limited to 20 entries with bounded messages, deduplicated, and cleared with an empty array after valid rendering.
 
@@ -63,5 +63,6 @@ The presentation is stock OpenUI CSS with its light/dark ThemeProvider. It does 
 - React and React DOM: 18.3.1
 - Zustand: 4.5.7
 - Zod: 4.6.7
+- KaTeX: 0.16.47 (the same locked version used by the official TextContent renderer)
 
 [OpenUI source and MIT license](https://github.com/thesysdev/openui). THIRD_PARTY_NOTICES.txt includes bundled package metadata and available license files, with the upstream OpenUI MIT notice when its package omits a separate license file. app.js.LEGAL.txt preserves bundled source license comments.

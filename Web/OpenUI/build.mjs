@@ -7,13 +7,16 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.resolve(root, '../../Sources/PicoOpenUIRuntime/Resources/OpenUI');
 const pins = JSON.parse(await fs.readFile(path.join(root, 'package.json'), 'utf8'));
 await fs.mkdir(dist, { recursive: true });
-const versions = Object.fromEntries(Object.entries(pins.dependencies).filter(([name]) => name.startsWith('@openuidev/') || name === 'react' || name === 'react-dom'));
+await fs.rm(path.join(dist, 'fonts'), { recursive: true, force: true });
+const versions = Object.fromEntries(Object.entries(pins.dependencies).filter(([name]) => name.startsWith('@openuidev/') || name === 'react' || name === 'react-dom' || name === 'katex'));
 const result = await build({
   absWorkingDir: root,
   entryPoints: [path.join(root, 'src/main.jsx')],
   outfile: path.join(dist, 'app.js'),
   bundle: true, platform: 'browser', format: 'iife', target: 'safari26',
   minify: true, legalComments: 'linked', metafile: true,
+  loader: { '.woff2': 'file', '.woff': 'file', '.ttf': 'file' },
+  assetNames: 'fonts/[name]-[hash]',
   define: {
     'process.env.NODE_ENV': '"production"',
     'process.env.OPENUI_TELEMETRY_DISABLED': '"1"',
@@ -43,6 +46,7 @@ for (const name of packageNames) {
   }
 }
 await fs.writeFile(path.join(dist, 'THIRD_PARTY_NOTICES.txt'), notices);
-const files = await Promise.all(['app.js','app.css','index.html'].map(async name => ({name, bytes:(await fs.stat(path.join(dist,name))).size})));
+const assetNames = [...new Set(['index.html', ...Object.keys(result.metafile.outputs).map(name => path.relative(dist, path.resolve(root, name)))])].sort();
+const files = await Promise.all(assetNames.map(async name => ({name, bytes:(await fs.stat(path.join(dist,name))).size})));
 await fs.writeFile(path.join(dist, 'BuildInfo.json'), JSON.stringify({ versions, files, bundledPackageCount:packageNames.length }, null, 2) + '\n');
 console.log(JSON.stringify({ versions, files, bundledPackageCount: packageNames.length }, null, 2));
