@@ -89,9 +89,17 @@ A native Markdown paragraph after the preview.
 
 ## Streaming, selection, and resizing
 
-Open blocks retain their normal source presentation. The HTML view is created after the block or fence closes; an incomplete HTML document is not repeatedly loaded during streaming. HTML parsing and sanitization run once off the main actor when the closed block is first presented. The prepared result is reused for appearance/font changes and after window detachment; only the lightweight document shell is restyled. Source remains visible until the first preview layout is ready. Subsequent Markdown continues through the incremental pipeline. Resizing updates the embedded document's available width and height without replacing the surrounding text.
+Open blocks retain their normal source presentation. The HTML view becomes eligible after the block or fence closes; an incomplete HTML document is not repeatedly loaded during streaming. HTML parsing and sanitization run once off the main actor when the closed block is first presented. The prepared result is reused for appearance/font changes and after window detachment; only the lightweight document shell is restyled. Source remains visible until the first preview layout is ready. Subsequent Markdown continues through the incremental pipeline. Resizing updates the embedded document's available width and height without replacing the surrounding text.
 
 Each preview is one selection unit in the native text document. A selection spanning the preview copies its underlying source, including the fence for a fenced block. Sanitization affects presentation only; it does not rewrite copied source. The first version provides no preview toolbar. Empty or oversized source keeps its native source presentation. A preparation failure, load failure, excessive rendered height, or viewport-fixed layout shows source in the attachment instead of clipping the preview.
+
+## Viewport lifetime
+
+On macOS, a preview creates a browser page when its native attachment intersects the scroll viewport. Scrolling it offscreen releases the page and its WebKit view while retaining sanitized HTML and the last measured height. Returning to the attachment reuses those values and loads the page at its current width; it does not reparse Markdown or HTML. Nested scroll clipping and hidden or minimized windows are respected. A page containing keyboard or own-app accessibility focus remains mounted to preserve that focus.
+
+An evicted preview uses readable cached text while its browser page reloads. Its cached height keeps the surrounding layout stable. Width or font changes made offscreen are applied and remeasured when it becomes visible again. This implementation does not retain a bitmap snapshot of every preview.
+
+Selection and copying remain owned by the surrounding TextKit document. An offscreen attachment still exports the original HTML or fenced Markdown, including content removed from the visual preview by sanitization.
 
 ## Static content policy
 

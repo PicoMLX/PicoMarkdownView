@@ -25,33 +25,33 @@ private struct HTMLPreview: View {
     let context: PicoEmbeddedBlockContext
     let preparation: HTMLPreviewPreparation
     @Environment(\.colorScheme) private var colorScheme
-    @State private var height: CGFloat = 1
     @State private var failed = false
     @State private var isReady = false
-    @State private var hasMeasuredHeight = false
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        let cachedHeight = preparation.measuredHeight
+        let placeholderText = preparation.preparedContent?.plainText
+        Group {
+            if !isReady {
+                Text(cachedHeight != nil && !failed ? placeholderText ?? context.source : context.source)
+                    .font(.system(size: context.bodyFontSize, design: cachedHeight != nil && !failed ? .default : .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: !failed ? cachedHeight : nil, alignment: .topLeading)
+                    .clipped()
+            } else {
+                Color.clear.frame(height: cachedHeight ?? 1).accessibilityHidden(true)
+            }
+        }
+        .background(alignment: .topLeading) {
             if !failed {
                 HTMLPreviewRepresentable(
                     preparation: preparation,
                     style: style,
-                    onHeight: { height = $0; hasMeasuredHeight = true },
                     onReadinessChanged: { isReady = $0 },
                     onFailure: { isReady = false; failed = true }
                 )
-                .frame(height: height)
                 .accessibilityHidden(!isReady)
-            }
-            if !isReady {
-                // Keep source visible while the asynchronous preparation and
-                // first browser layout finish, and on a rejected document.
-                Text(context.source)
-                    .font(.system(size: context.bodyFontSize, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(height: hasMeasuredHeight && !failed ? height : nil, alignment: .topLeading)
-                    .clipped()
             }
         }
         .frame(width: context.availableWidth, alignment: .leading)
@@ -89,7 +89,6 @@ private struct HTMLPreview: View {
 private struct HTMLPreviewRepresentable: NSViewRepresentable {
     let preparation: HTMLPreviewPreparation
     let style: HTMLPreviewStyle
-    let onHeight: (CGFloat) -> Void
     let onReadinessChanged: (Bool) -> Void
     let onFailure: () -> Void
 
@@ -98,7 +97,6 @@ private struct HTMLPreviewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ view: HTMLPreviewContainer, context: Context) {
-        view.onHeight = onHeight
         view.onFailure = onFailure
         view.onReadinessChanged = onReadinessChanged
         view.configure(source: preparation.source, style: style)
@@ -109,8 +107,8 @@ private struct HTMLPreviewRepresentable: NSViewRepresentable {
     }
 }
 
-/// The stable attachment view retains its measured size, but owns a WebView only
-/// while it belongs to a window. Width changes reflow the same DOM without loads.
+/// The attachment keeps prepared content and size while offscreen. Only a
+/// visible or focused presentation owns a WebPage; width changes reflow its DOM.
 @MainActor
 final class HTMLPreviewContainer: NSView {
     var onHeight: ((CGFloat) -> Void)?
@@ -134,6 +132,11 @@ final class HTMLPreviewContainer: NSView {
     private var loadTask: Task<Void, Never>?
     var pendingPresentation: Task<Void, Never>? { loadTask }
     private(set) var pendingFailureNotification: Task<Void, Never>?
+    private lazy var viewport = HTMLPreviewViewport(view: self) { [weak self] in
+        self?.updatePresentationForViewport()
+    }
+    var pendingVisibilityUpdate: Task<Void, Never>? { viewport.pendingUpdate }
+    var isInViewport: Bool { viewport.isEligible(pinning: pageHost) }
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
@@ -160,18 +163,49 @@ final class HTMLPreviewContainer: NSView {
         }
         self.source = source
         self.style = style
+        if let cachedHeight = preparation?.measuredHeight { measuredHeight = cachedHeight }
         suspend()
-        if window != nil { resume() }
+        viewport.refreshHierarchy()
+        viewport.scheduleUpdate()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { suspend() } else { resume() }
+        if window == nil {
+            viewport.stop()
+            suspend()
+        } else {
+            viewport.refreshHierarchy()
+            viewport.scheduleUpdate()
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        viewport.refreshHierarchy()
+        viewport.scheduleUpdate()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        viewport.scheduleUpdate()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        viewport.scheduleUpdate()
     }
 
     override func layout() {
         super.layout()
         pageHost?.frame = bounds
+        viewport.refreshHierarchy()
+        viewport.scheduleUpdate()
+    }
+
+    private func updatePresentationForViewport() {
+        if isInViewport { resume() }
+        else if page != nil || loadTask != nil || navigationTask != nil || isReady { suspend() }
     }
 
     func suspend() {
@@ -198,18 +232,18 @@ final class HTMLPreviewContainer: NSView {
     }
 
     private func resume() {
-        guard page == nil, loadTask == nil, let preparation, !hasFailed else { return }
+        guard page == nil, loadTask == nil, let preparation, !hasFailed, isInViewport else { return }
         let token = generation
         let style = style
         let preparationTask = preparation.resultTask()
         loadTask = Task { [weak self] in
+            defer { if self?.generation == token { self?.loadTask = nil } }
             do {
                 let content = try await preparationTask.value
-                guard !Task.isCancelled, self?.generation == token, self?.window != nil else { return }
+                guard !Task.isCancelled, self?.generation == token, self?.isInViewport == true else { return }
                 let rules = try await HTMLPreviewContentRules.compiled.value
-                guard !Task.isCancelled, let self, self.generation == token, self.window != nil else { return }
+                guard !Task.isCancelled, let self, self.generation == token, self.isInViewport else { return }
                 self.install(document: content.document(style: style), rules: rules, token: token)
-                self.loadTask = nil
             } catch {
                 guard !Task.isCancelled, let self, self.generation == token else { return }
                 self.loadTask = nil
@@ -254,6 +288,7 @@ final class HTMLPreviewContainer: NSView {
         self.pageHost = host
         self.userContentController = controller
         addSubview(host)
+        host.layoutSubtreeIfNeeded()
         loadCount += 1
         navigationTask = Task { [weak self] in
             do {
@@ -270,12 +305,19 @@ final class HTMLPreviewContainer: NSView {
               let body = message.body as? [String: Any],
               body["token"] as? String == generation.uuidString,
               let value = body["height"] as? NSNumber else { return }
+        guard isInViewport else { updatePresentationForViewport(); return }
+        // WebKit can deliver its first layout before SwiftUI applies the host
+        // width. Wait for the resize observation at the actual text width.
+        guard let width = body["width"] as? NSNumber,
+              width.doubleValue.isFinite,
+              abs(CGFloat(width.doubleValue) - bounds.width) <= 2 else { return }
         let height = CGFloat(value.doubleValue)
         guard height.isFinite, height >= 0, height <= HTMLPreviewPolicy.maximumHeight else {
             fail()
             return
         }
         let next = max(HTMLPreviewPolicy.minimumHeight, ceil(height))
+        preparation?.retainMeasurement(next)
         if next != measuredHeight {
             measuredHeight = next
             onHeight?(next)
@@ -318,7 +360,7 @@ final class HTMLPreviewContainer: NSView {
               return visible && (height === 0 || getComputedStyle(element).position === 'fixed');
             })) height = \(HTMLPreviewPolicy.maximumHeight + 1);
             window.webkit.messageHandlers.picoHTMLHeight.postMessage({
-              token: '\(token.uuidString)', height
+              token: '\(token.uuidString)', height, width: window.innerWidth
             });
           };
           new ResizeObserver(measure).observe(root);
