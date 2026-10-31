@@ -274,6 +274,30 @@ See **Charts** in the example app for bar, temporal line, scatter, list, and quo
 examples. `Scripts/bundle-vega-lite.sh` pins and verifies the bundled upstream
 packages; the bundled licenses and provenance are in `Resources/VegaLite`.
 
+The macOS example app also includes **Charts-Gallery**, imported from the official
+Vega-Lite 6.5.0 gallery: 203 placements of 189 distinct specifications. Its native
+preview keeps all example headings and links, renders the 53 currently supported
+placements with their exact exported source, and gives short notices for the
+150 examples outside the current profile. The five-example **Charts** page is
+still available for quick checks.
+
+The complete, unmodified gallery export includes every dataset in full and is
+about 64 MiB of Markdown (9.2 MiB in compressed storage). It remains a separate
+export and opt-in stress corpus. Displaying all of its oversized code fallbacks
+at once proved unsuitable for the normal viewer: a real-window stress run spent
+most main-thread time in full-document TextKit sizing/line breaking and reached
+roughly 9 GB peak physical footprint. The preview avoids that fallback wall of text;
+no renderer limits are relaxed to make examples appear supported.
+
+`Scripts/export-vega-lite-gallery.py` regenerates the pinned, offline-capable
+corpus, manifest, licenses and data attribution. See
+[the fixture instructions](Tests/Fixtures/VegaLiteGallery/README.md) for a standalone
+Markdown export and preview regeneration. Coverage tests validate all 203 exact
+fenced sources; the heavier render/pipeline benchmark is opt-in. The
+[gallery performance report](Tests/PicoMarkdownViewBenchmarks/vega-gallery-results.md)
+separates successful charts, cache hits, native drawing and source fallbacks,
+and explains the limits of the recorded debug measurements.
+
 ### Resetting Content
 
 To replace content, pass a new string/chunks/stream so the view creates a fresh input:

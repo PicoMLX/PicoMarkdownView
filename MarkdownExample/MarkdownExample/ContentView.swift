@@ -18,14 +18,29 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
+    /// Large offline fixtures use pull-based chunks instead of simulated word delays.
+    let chunkCharacters: Int?
 
     init(localFilename: String,
          webURL: String,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
-        self.name = localFilename
-        self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
+         displayName: String? = nil,
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         chunkCharacters: Int? = nil) {
+        self.name = displayName ?? localFilename
+        self.localPath = (Bundle.main.path(forResource: localFilename, ofType: "md")
+            ?? Bundle.main.path(forResource: localFilename, ofType: "md.deflate"))!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
+        self.chunkCharacters = chunkCharacters
+    }
+
+    func loadMarkdown() throws -> String {
+        let data = try Data(contentsOf: URL(fileURLWithPath: localPath))
+        if localPath.hasSuffix(".deflate") {
+            let decoded = try (data as NSData).decompressed(using: .zlib) as Data
+            return String(decoding: decoded, as: UTF8.self)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     func hash(into hasher: inout Hasher) {
@@ -33,7 +48,8 @@ struct MarkdownExample: Identifiable, Hashable {
         hasher.combine(webURL)
     }
 
-    static let examples = [
+    static let examples: [MarkdownExample] = {
+        var examples = [
         MarkdownExample(
             localFilename: "Tags",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Tags.md",
@@ -71,7 +87,16 @@ struct MarkdownExample: Identifiable, Hashable {
         MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
-    ]
+        ]
+        #if os(macOS)
+        let charts = examples.firstIndex { $0.name == "Charts" }!
+        examples.insert(MarkdownExample(localFilename: "Charts-Gallery-Preview",
+                                        webURL: "https://vega.github.io/vega-lite/examples/",
+                                        displayName: "Charts-Gallery",
+                                        chunkCharacters: 32_768), at: charts + 1)
+        #endif
+        return examples
+    }()
 }
 
 struct ContentView: View {    
@@ -89,6 +114,7 @@ struct ContentView: View {
         } detail: {
             if let selectedExample {
                 MarkdownView(selectedExample)
+                    .id(selectedExample.id)
             } else {
                 Text("Select an Example")
             }

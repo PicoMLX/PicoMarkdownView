@@ -1,0 +1,3260 @@
+{
+  "version": 1,
+  "kind": "rendering-preview",
+  "entryCount": 203,
+  "chartCount": 53,
+  "noticeCount": 150,
+  "distinctChartCount": 51,
+  "sourceManifest": "manifest.json",
+  "sourceMarkdownSHA256": "44153d851aa7c09754c545a24444e5eca368701709bde93c71033822b2cc702f",
+  "renderingReport": {
+    "file": "preview-rendering-report.json",
+    "sha256": "1e2c6a5a143e200f796e4fdd3a3d865ecbffee5f3fdf259fe297a56135bf57ca",
+    "benchmarkReportSHA256": "b5eece3b3b7694e73de7c0766b430e114bab82c1be43f8089278c34e1037777c"
+  },
+  "markdown": {
+    "file": "Charts-Gallery-Preview.md.deflate",
+    "compression": "deflate-raw",
+    "decodedBytes": 1337554,
+    "decodedSHA256": "8b52d6624b3db22f25737529ce96f6ec5449e9933d8a848df8b35a3b2f075049",
+    "compressedBytes": 145991
+  },
+  "entries": [
+    {
+      "id": "bar",
+      "title": "Simple Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar.vl.json",
+      "sourceSHA256": "8e0d1c3a630b4fe3f811e10586d3ea631f66b1342d0c22cc413c4af3f9b2e99e",
+      "sourceBytes": 415,
+      "fullEntryIndex": 0,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 0
+    },
+    {
+      "id": "bar_size_responsive",
+      "title": "Responsive Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_size_responsive.vl.json",
+      "sourceSHA256": "325fca935ec9608e274575836581499e8a3884a782ab9d46ef4086162c6bd033",
+      "sourceBytes": 71878,
+      "fullEntryIndex": 1,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 1
+    },
+    {
+      "id": "bar_aggregate",
+      "title": "Aggregate Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_aggregate.vl.json",
+      "sourceSHA256": "966ece8a68116aa8c186d699404d771cec0e6cc79bd8ec92d87adb5afa4924fc",
+      "sourceBytes": 27442,
+      "fullEntryIndex": 2,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_aggregate_sort_by_encoding",
+      "title": "Aggregate Bar Chart (Sorted)",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_aggregate_sort_by_encoding.vl.json",
+      "sourceSHA256": "8524a07f5f1208f5933a797ce68307656b248574f69a527faf209e3ddd6340ee",
+      "sourceBytes": 27450,
+      "fullEntryIndex": 3,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_grouped",
+      "title": "Grouped Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_grouped.vl.json",
+      "sourceSHA256": "3afcc515517e17e65c074426e9358ff2526a15d32ee0be918fe1d375ed116e5d",
+      "sourceBytes": 600,
+      "fullEntryIndex": 4,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 2
+    },
+    {
+      "id": "bar_grouped_repeated",
+      "title": "Grouped Bar Chart (Multiple Measure with Repeat)",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_grouped_repeated.vl.json",
+      "sourceSHA256": "f0e7f90d6b0d61d090602e9acb54613578e46c1fa2d838505e5b520b6c342bda",
+      "sourceBytes": 1281975,
+      "fullEntryIndex": 5,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "stacked_bar_weather",
+      "title": "Stacked Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_bar_weather.vl.json",
+      "sourceSHA256": "40826d6e51eab34251e3a748f90ea00b8d36b95858e39de77cdd2951ee2f067f",
+      "sourceBytes": 159631,
+      "fullEntryIndex": 6,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "stacked_bar_count_corner_radius_mark",
+      "title": "Stacked Bar Chart with Rounded Corners",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_bar_count_corner_radius_mark.vl.json",
+      "sourceSHA256": "4372f3b01e40aec260c8a6a67560ea4c6e9003f57e5cb72cd329ce8bbf43b5eb",
+      "sourceBytes": 159482,
+      "fullEntryIndex": 7,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "stacked_bar_h",
+      "title": "Horizontal Stacked Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_bar_h.vl.json",
+      "sourceSHA256": "a2b8d020b881b434788f5490830838319ff9b063b0e9c37425d3026571f92c7b",
+      "sourceBytes": 8564,
+      "fullEntryIndex": 8,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 3
+    },
+    {
+      "id": "stacked_bar_normalize",
+      "title": "Normalized (Percentage) Stacked Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_bar_normalize.vl.json",
+      "sourceSHA256": "f853c7d9eb44485e037730c8f20b8dd431ed8a129f3c278f1e88a666df579a3a",
+      "sourceBytes": 27503,
+      "fullEntryIndex": 9,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "stacked_bar_h_normalized_labeled",
+      "title": "Normalized (Percentage) Stacked Bar Chart With Labels",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_bar_h_normalized_labeled.vl.json",
+      "sourceSHA256": "139e2590ce70ea068a8e607b165d9334d712ad87c087dfbc5bccaf5f432b2fda",
+      "sourceBytes": 27791,
+      "fullEntryIndex": 10,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_gantt",
+      "title": "Gantt Chart (Ranged Bar Marks)",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_gantt.vl.json",
+      "sourceSHA256": "259b43ed01c84cbfd3ab0d8d13bdbf1fac6512b9d8278073fc3130b8a526c4ee",
+      "sourceBytes": 376,
+      "fullEntryIndex": 11,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 4
+    },
+    {
+      "id": "bar_color_disabled_scale",
+      "title": "A Bar Chart Encoding Color Names in the Data",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_color_disabled_scale.vl.json",
+      "sourceSHA256": "dc402c33afa5e85b3f39e4a563a788a962c017629de7d2ba4f3c45857af3783c",
+      "sourceBytes": 390,
+      "fullEntryIndex": 12,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 5
+    },
+    {
+      "id": "bar_layered_transparent",
+      "title": "Layered Bar Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_layered_transparent.vl.json",
+      "sourceSHA256": "6b8dd63ffbde4bc8e26691d5d3bd3c9af22698c115ea822d22d004f293f4a240",
+      "sourceBytes": 27638,
+      "fullEntryIndex": 13,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_diverging_stack_population_pyramid",
+      "title": "Diverging Stacked Bar Chart (Population Pyramid)",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_diverging_stack_population_pyramid.vl.json",
+      "sourceSHA256": "78c85bfdb7c561169d422dbced9c987955b41ba442670fed443df5bc7749be30",
+      "sourceBytes": 27926,
+      "fullEntryIndex": 14,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_diverging_stack_transform",
+      "title": "Diverging Stacked Bar Chart (with Neutral Parts)",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_diverging_stack_transform.vl.json",
+      "sourceSHA256": "67d9a738021d04be9b9a6f401f993b43a22995f465054ecd0f0a73119929c07c",
+      "sourceBytes": 4517,
+      "fullEntryIndex": 15,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_bar_labels",
+      "title": "Bar Chart with Labels",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_bar_labels.vl.json",
+      "sourceSHA256": "4f4425b8a730a309291af32c8b2854d4897e22395f37a871ea61b956b396a731",
+      "sourceBytes": 486,
+      "fullEntryIndex": 16,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 6
+    },
+    {
+      "id": "layer_bar_labels_grey",
+      "title": "Bar Chart with Label Overlays",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_bar_labels_grey.vl.json",
+      "sourceSHA256": "3d9e2982fb3286fc82767989f602a0f5f12340bc13181d115c394610a5a54c8f",
+      "sourceBytes": 1282010,
+      "fullEntryIndex": 17,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "bar_month_temporal_initial",
+      "title": "Bar Chart showing Initials of Month Names",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_month_temporal_initial.vl.json",
+      "sourceSHA256": "c9ef10cd64e0ae63581f5008497b115804d637e2072ce5e9a7175e681a0d50b4",
+      "sourceBytes": 159539,
+      "fullEntryIndex": 18,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "bar_month_temporal_band_center",
+      "title": "Bar Chart with bars center-aligned with time unit ticks",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_month_temporal_band_center.vl.json",
+      "sourceSHA256": "17c5f6dead003378702d0f88df803cceb5aa662747c25cd995d93a02de95ecc5",
+      "sourceBytes": 159437,
+      "fullEntryIndex": 19,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "bar_negative",
+      "title": "Bar Chart with Negative Values and a Zero-Baseline",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_negative.vl.json",
+      "sourceSHA256": "f2a15109f87d8e9c5f7d32050cd47ba107874c6d675295eecac144c7e00a2ea4",
+      "sourceBytes": 654,
+      "fullEntryIndex": 20,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_negative_horizontal_label",
+      "title": "Horizontal Bar Chart with Negative Values and Labels",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_negative_horizontal_label.vl.json",
+      "sourceSHA256": "ee553a63f632264f0b2460522865fd654775ab9a6940d0fc14b659f82053a778",
+      "sourceBytes": 857,
+      "fullEntryIndex": 21,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_axis_space_saving",
+      "title": "Bar Chart with a Spacing-Saving Y-Axis",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_axis_space_saving.vl.json",
+      "sourceSHA256": "0279a2c249d7c5af9716810d318263521eda3fca9889c820e4be42a2356de3f5",
+      "sourceBytes": 72234,
+      "fullEntryIndex": 22,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 7
+    },
+    {
+      "id": "bar_heatlane",
+      "title": "Heat Lane Chart",
+      "category": [
+        "Single-View Plots",
+        "Bar Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_heatlane.vl.json",
+      "sourceSHA256": "54fd802372429038b8a5e1d7f800f9b8b491e3b2d53df9f4f2f360d8003ed0bb",
+      "sourceBytes": 72936,
+      "fullEntryIndex": 23,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "histogram",
+      "title": "Histogram",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/histogram.vl.json",
+      "sourceSHA256": "8e5b07a52c1dc2dc06ba6da7cb6a803ffa20bc96b3013bfe51f5e50867a64160",
+      "sourceBytes": 1281714,
+      "fullEntryIndex": 24,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "bar_binned_data",
+      "title": "Histogram (from Binned Data)",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_binned_data.vl.json",
+      "sourceSHA256": "e6b0d2beb0f45d5de6f01a43d71a07312126eb3b298352a341a08ece7afaaf5b",
+      "sourceBytes": 560,
+      "fullEntryIndex": 25,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "histogram_log",
+      "title": "Log-scaled Histogram",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/histogram_log.vl.json",
+      "sourceSHA256": "9e5d57f526e28750d12e2aa71774d8032c8955d2f9ce2f88e00364f396842754",
+      "sourceBytes": 672,
+      "fullEntryIndex": 26,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "histogram_nonlinear",
+      "title": "Non-linear Histogram",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/histogram_nonlinear.vl.json",
+      "sourceSHA256": "bbc45b4ee8b242ab707af0841519f099503005f95329d3445ce6ae4b081acfae",
+      "sourceBytes": 1189,
+      "fullEntryIndex": 27,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "histogram_rel_freq",
+      "title": "Relative Frequency Histogram",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/histogram_rel_freq.vl.json",
+      "sourceSHA256": "dc6ffb1519b1b741bf2e9fed7c7a11fb1f841d2efcfed120f6023d2c2125e11e",
+      "sourceBytes": 72575,
+      "fullEntryIndex": 28,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "area_density",
+      "title": "Density Plot",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_density.vl.json",
+      "sourceSHA256": "ecd684ffbfbdafe895835fc8c7b058377bfbe0ab54790f6e460dfcb9b33e5d88",
+      "sourceBytes": 1281843,
+      "fullEntryIndex": 29,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "area_density_stacked",
+      "title": "Stacked Density Estimates",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_density_stacked.vl.json",
+      "sourceSHA256": "d39470b37f753a888286d0c90764dfae63e4f3eb5bbe650492e7302131086aec",
+      "sourceBytes": 51045,
+      "fullEntryIndex": 30,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "circle_binned",
+      "title": "2D Histogram Scatterplot",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_binned.vl.json",
+      "sourceSHA256": "02701e970b6681b5070027b1a209def7167df000576f966bf6e1e1186581dd68",
+      "sourceBytes": 1281790,
+      "fullEntryIndex": 31,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "rect_binned_heatmap",
+      "title": "2D Histogram Heatmap",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/rect_binned_heatmap.vl.json",
+      "sourceSHA256": "e3ddf36666355ad81b5e98594cafca4d30527ec86ef2b6390273830cc396f4de",
+      "sourceBytes": 1282043,
+      "fullEntryIndex": 32,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "area_cumulative_freq",
+      "title": "Cumulative Frequency Distribution",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_cumulative_freq.vl.json",
+      "sourceSHA256": "6ed311c73ba8655acd891c7ec61813ed344bfbce236ebcf6d48c4f9696834026",
+      "sourceBytes": 1281967,
+      "fullEntryIndex": 33,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_cumulative_histogram",
+      "title": "Layered Histogram and Cumulative Histogram",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_cumulative_histogram.vl.json",
+      "sourceSHA256": "ee7abddaa061b09c7a0e4f9092662a88487f8cf72964f28fcb9f6c58ba8f475b",
+      "sourceBytes": 1282324,
+      "fullEntryIndex": 34,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "circle_wilkinson_dotplot",
+      "title": "Wilkinson Dot Plot",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_wilkinson_dotplot.vl.json",
+      "sourceSHA256": "4006bd707f4d4bd586e25fd15c0e2df5dcd4d3bf848aedd7e6619efcd0311e23",
+      "sourceBytes": 400,
+      "fullEntryIndex": 35,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 8
+    },
+    {
+      "id": "isotype_bar_chart",
+      "title": "Isotype Dot Plot",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/isotype_bar_chart.vl.json",
+      "sourceSHA256": "d8c42fa969b664db2ee9780caac5a8bfffe39618ffee4cf92427a5cad385e866",
+      "sourceBytes": 5761,
+      "fullEntryIndex": 36,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 9
+    },
+    {
+      "id": "isotype_bar_chart_emoji",
+      "title": "Isotype Dot Plot with Emoji",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/isotype_bar_chart_emoji.vl.json",
+      "sourceSHA256": "3c65b77b2dd7945ed8193686028e1c39fdbcc76132f43a137f0c2949ddf1078a",
+      "sourceBytes": 2267,
+      "fullEntryIndex": 37,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_percent_of_total",
+      "title": "Relative Bar Chart (Calculate Percentage of Total)",
+      "category": [
+        "Single-View Plots",
+        "Histograms, Density Plots, and Dot Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_percent_of_total.vl.json",
+      "sourceSHA256": "5978ee09042ac2bf526a6342611cdd9c93cbe53d02ead5d42337960e88437a65",
+      "sourceBytes": 640,
+      "fullEntryIndex": 38,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "point_2d",
+      "title": "Scatterplot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_2d.vl.json",
+      "sourceSHA256": "5bef2c1df0eed3a09829cc327e927d3080d0bef095ad6c1f7367e39913a8eb80",
+      "sourceBytes": 71966,
+      "fullEntryIndex": 39,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 10
+    },
+    {
+      "id": "tick_dot",
+      "title": "1D Strip Plot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/tick_dot.vl.json",
+      "sourceSHA256": "42ebfd60eceaeb002ca811b26a47df88f7ef644d3eac83040c06a61c0eb95551",
+      "sourceBytes": 159366,
+      "fullEntryIndex": 40,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "tick_strip",
+      "title": "Strip Plot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/tick_strip.vl.json",
+      "sourceSHA256": "a575af226aa9527d2f823c35f30db3eeede255eeb525023844ee3606cfca56a5",
+      "sourceBytes": 71968,
+      "fullEntryIndex": 41,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 11
+    },
+    {
+      "id": "point_color_with_shape",
+      "title": "Colored Scatterplot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_color_with_shape.vl.json",
+      "sourceSHA256": "c652802f79ac9684732b73947596004173fdd62c62c56f25ee86cd790fe30830",
+      "sourceBytes": 51042,
+      "fullEntryIndex": 42,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 12
+    },
+    {
+      "id": "circle_binned",
+      "title": "2D Histogram Scatterplot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_binned.vl.json",
+      "sourceSHA256": "02701e970b6681b5070027b1a209def7167df000576f966bf6e1e1186581dd68",
+      "sourceBytes": 1281790,
+      "fullEntryIndex": 43,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "point_bubble",
+      "title": "Bubble Plot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_bubble.vl.json",
+      "sourceSHA256": "a3bc080fcfa085394b1962ebbef62c8d6d7099d5c0e50ff2947f02f5b634622d",
+      "sourceBytes": 72042,
+      "fullEntryIndex": 44,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 13
+    },
+    {
+      "id": "point_invalid_color",
+      "title": "Scatterplot with Null Values in Grey",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_invalid_color.vl.json",
+      "sourceSHA256": "4d52061e74278e43e56bf189efd3a91cbd805e3146a8e650b53ea0ecfe0cb74f",
+      "sourceBytes": 1281919,
+      "fullEntryIndex": 45,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "circle",
+      "title": "Scatterplot with Filled Circles",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle.vl.json",
+      "sourceSHA256": "bb8b57e8896db767c2f355fbd3a0ccb7707824a987bb22c9a3026fe0cbd28cf7",
+      "sourceBytes": 71878,
+      "fullEntryIndex": 46,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 14
+    },
+    {
+      "id": "circle_bubble_health_income",
+      "title": "Bubble Plot (Gapminder)",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_bubble_health_income.vl.json",
+      "sourceSHA256": "ecb0e6e9538ad4508359d9c31ea5a09cc4d1dea2cd4f322012750072f87af226",
+      "sourceBytes": 20842,
+      "fullEntryIndex": 47,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "circle_natural_disasters",
+      "title": "Bubble Plot (Natural Disasters)",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_natural_disasters.vl.json",
+      "sourceSHA256": "4c7e7a6e7cb6397fc66c55e3d5f3cafe923437e9e2d993dfa5746dc3eb4be681",
+      "sourceBytes": 45892,
+      "fullEntryIndex": 48,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "text_scatterplot_colored",
+      "title": "Scatter Plot with Text Marks",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/text_scatterplot_colored.vl.json",
+      "sourceSHA256": "19084577a0643cafad745d3a802e1c2042abcc8ff27b10de9d7aff4d57f4d202",
+      "sourceBytes": 72037,
+      "fullEntryIndex": 49,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "scatter_image",
+      "title": "Image-based Scatter Plot",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/scatter_image.vl.json",
+      "sourceSHA256": "4dd3e7577d81dc4c6b80b7dc3b4d0444a2885807928eff5e02bd9a98725d6761",
+      "sourceBytes": 381,
+      "fullEntryIndex": 50,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "circle_custom_tick_labels",
+      "title": "Strip plot with custom axis tick labels",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_custom_tick_labels.vl.json",
+      "sourceSHA256": "feeffbbf7fa3e8b07eadbdafe994150e7254d86e1a4a81b37d9dbe42d0471a66",
+      "sourceBytes": 1281936,
+      "fullEntryIndex": 51,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "point_offset_random",
+      "title": "Dot Plot with Jittering",
+      "category": [
+        "Single-View Plots",
+        "Scatter & Strip Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_offset_random.vl.json",
+      "sourceSHA256": "942a03f5009bfc28b83a4f2b210a99389c127c11fd7865f2d530ec7e7db6eac2",
+      "sourceBytes": 72126,
+      "fullEntryIndex": 52,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line",
+      "title": "Line Chart",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line.vl.json",
+      "sourceSHA256": "0cc06ea8e1dc8b7c1deb247d6ae8abc656e71d48be75ee391391fdb2b2b24ef3",
+      "sourceBytes": 30437,
+      "fullEntryIndex": 53,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line_overlay",
+      "title": "Line Chart with Point Markers",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_overlay.vl.json",
+      "sourceSHA256": "32be7c5cc636c337ec1d5e06cf0b00bba76d2ac7ae2e52151b0888ea0b851665",
+      "sourceBytes": 30485,
+      "fullEntryIndex": 54,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 15
+    },
+    {
+      "id": "line_overlay_stroked",
+      "title": "Line Chart with Stroked Point Markers",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_overlay_stroked.vl.json",
+      "sourceSHA256": "72519df26042579c722def47d45539286f275cf8569feaa63ecc9679afe5ae5b",
+      "sourceBytes": 30512,
+      "fullEntryIndex": 55,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 16
+    },
+    {
+      "id": "line_color",
+      "title": "Multi Series Line Chart",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_color.vl.json",
+      "sourceSHA256": "c6a83f709542a20f72a6ad8ab2491c6261f5f26ea68dc2c64d0fc1b2920993fa",
+      "sourceBytes": 30444,
+      "fullEntryIndex": 56,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 17
+    },
+    {
+      "id": "repeat_layer",
+      "title": "Multi Series Line Chart with Repeat Operator",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/repeat_layer.vl.json",
+      "sourceSHA256": "e9dec529562207ae47875eff1f1d3e35e200a118921af9f1fb55fa2c945b4034",
+      "sourceBytes": 1281939,
+      "fullEntryIndex": 57,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "line_color_halo",
+      "title": "Multi Series Line Chart with Halo Stroke",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_color_halo.vl.json",
+      "sourceSHA256": "59fc6947f2d2c45a04dc33c002d8809418cb0c627aab02a67c11ff179d114f7f",
+      "sourceBytes": 30970,
+      "fullEntryIndex": 58,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line_slope",
+      "title": "Slope Graph",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_slope.vl.json",
+      "sourceSHA256": "3b0c5f4abf4c6b703cba2a2ce726bbe15e7be47fed8cc0492ba2f9135e448818",
+      "sourceBytes": 8808,
+      "fullEntryIndex": 59,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 18
+    },
+    {
+      "id": "line_step",
+      "title": "Step Chart",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_step.vl.json",
+      "sourceSHA256": "7fe0d4f90864313d508448c9622146c3fad003347155f68bc25d1091a07fea55",
+      "sourceBytes": 30473,
+      "fullEntryIndex": 60,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line_monotone",
+      "title": "Line Chart with Monotone Interpolation",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_monotone.vl.json",
+      "sourceSHA256": "98e7ec9b7bdb62aa3eb8caf912d41677c777753846cda92ec0505d24ff1796f5",
+      "sourceBytes": 30423,
+      "fullEntryIndex": 61,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line_conditional_axis",
+      "title": "Line Chart with Conditional Axis Properties",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_conditional_axis.vl.json",
+      "sourceSHA256": "83bb7e5b141f2ecfef7ec5b996c8bb67dd8db9d1a6112e9e945d723cd3ef076f",
+      "sourceBytes": 31027,
+      "fullEntryIndex": 62,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "connected_scatterplot",
+      "title": "Connected Scatterplot (Lines with Custom Paths)",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/connected_scatterplot.vl.json",
+      "sourceSHA256": "964f51e3d6b0cc6b929c2215fe02657cfb16f233bd857c065805a041414b1748",
+      "sourceBytes": 3190,
+      "fullEntryIndex": 63,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 19
+    },
+    {
+      "id": "line_bump",
+      "title": "Bump Chart",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_bump.vl.json",
+      "sourceSHA256": "c6755848939ef19ea42881fe01810168ae5482de98bc8acc1b53ac300b059a2a",
+      "sourceBytes": 780,
+      "fullEntryIndex": 64,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 20
+    },
+    {
+      "id": "trail_color",
+      "title": "Line Chart with Varying Size (using the trail mark)",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trail_color.vl.json",
+      "sourceSHA256": "57af7932cd58ab0fb8eb0433f22f56faf0f27cf15cae1240c976342d8258fde7",
+      "sourceBytes": 30492,
+      "fullEntryIndex": 65,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 21
+    },
+    {
+      "id": "trail_comet",
+      "title": "A comet chart showing changes between between two states",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trail_comet.vl.json",
+      "sourceSHA256": "e48d2cbee9ca2c3da42773f1488241fc1cb4ff961b57b3b69a15ffb0488203cd",
+      "sourceBytes": 9274,
+      "fullEntryIndex": 66,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line_skip_invalid_mid_overlay",
+      "title": "Line Chart with Markers and Invalid Values",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_skip_invalid_mid_overlay.vl.json",
+      "sourceSHA256": "25435031608252071114cb1a8678251a50c2792269347fda6d5af93b5f5a1e15",
+      "sourceBytes": 320,
+      "fullEntryIndex": 67,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 22
+    },
+    {
+      "id": "layer_line_co2_concentration",
+      "title": "Carbon Dioxide in the Atmosphere",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_co2_concentration.vl.json",
+      "sourceSHA256": "2ed3fd37bba3f5a0073a74034a08ec4bc0af673ab4b7f0adc18dca2e2de08a9f",
+      "sourceBytes": 46521,
+      "fullEntryIndex": 68,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "window_rank",
+      "title": "Line Charts Showing Ranks Over Time",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/window_rank.vl.json",
+      "sourceSHA256": "2411d6894a19fd3bede433c340762292391aa1b453751174449a8b79c878c991",
+      "sourceBytes": 1225,
+      "fullEntryIndex": 69,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 23
+    },
+    {
+      "id": "sequence_line_fold",
+      "title": "Drawing Sine and Cosine Curves with the Sequence Generator",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/sequence_line_fold.vl.json",
+      "sourceSHA256": "ec99e3706360f4ad742ec1c652ff575aa0fa4eeae804c41896c2b10ccfa715d5",
+      "sourceBytes": 509,
+      "fullEntryIndex": 70,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "line_strokedash",
+      "title": "Line chart with varying stroke dash",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_strokedash.vl.json",
+      "sourceSHA256": "c60f59f52ea8a0338846582c74ffae74295a3333178c20992556ec0a370fb0de",
+      "sourceBytes": 30449,
+      "fullEntryIndex": 71,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 24
+    },
+    {
+      "id": "line_dashed_part",
+      "title": "Line chart with a dashed part",
+      "category": [
+        "Single-View Plots",
+        "Line Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/line_dashed_part.vl.json",
+      "sourceSHA256": "cf774ee01d7c9c853dc9d43a9e829cf03ac4e20f0d1e41ca39455fc46309a48b",
+      "sourceBytes": 638,
+      "fullEntryIndex": 72,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 25
+    },
+    {
+      "id": "area",
+      "title": "Area Chart",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area.vl.json",
+      "sourceSHA256": "321bd3389c15ede6a0a00d01b7e090c4bb72d75fa20f3b342c8d09eb48047d2c",
+      "sourceBytes": 185896,
+      "fullEntryIndex": 73,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "area_gradient",
+      "title": "Area Chart with Gradient",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_gradient.vl.json",
+      "sourceSHA256": "c12b3611bb99ac40cb458ec6d9ede4a3d297cd4e8a789110be30beec8e2e60d4",
+      "sourceBytes": 30605,
+      "fullEntryIndex": 74,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "area_overlay",
+      "title": "Area Chart with Overlaying Lines and Point Markers",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_overlay.vl.json",
+      "sourceSHA256": "4e7703a069f8b1cbd658bd510940fc38c8a02600521724d55f147d5707d29c8e",
+      "sourceBytes": 30471,
+      "fullEntryIndex": 75,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "stacked_area",
+      "title": "Stacked Area Chart",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_area.vl.json",
+      "sourceSHA256": "e54bedf0727cac458ee60f7205c07368cb2c5d97d8dc3583153d3edce9e5ff55",
+      "sourceBytes": 185940,
+      "fullEntryIndex": 76,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "stacked_area_normalize",
+      "title": "Normalized Stacked Area Chart",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_area_normalize.vl.json",
+      "sourceSHA256": "b99d40ee484d46d69d0fd7341b23fb49c039630ec962c118af78814c4c1a914e",
+      "sourceBytes": 185987,
+      "fullEntryIndex": 77,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "stacked_area_stream",
+      "title": "Streamgraph",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/stacked_area_stream.vl.json",
+      "sourceSHA256": "75d8473da489d82ad27b694e11f3f9a8f3f68158b7f578475fb047e4cd752219",
+      "sourceBytes": 185997,
+      "fullEntryIndex": 78,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "area_horizon",
+      "title": "Horizon Graph",
+      "category": [
+        "Single-View Plots",
+        "Area Charts & Streamgraphs"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_horizon.vl.json",
+      "sourceSHA256": "bf7159660acfd89a2470d0c0d41a7757330c026b98a504eba1225a45b6fde074",
+      "sourceBytes": 1066,
+      "fullEntryIndex": 79,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "rect_heatmap",
+      "title": "Table Heatmap",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/rect_heatmap.vl.json",
+      "sourceSHA256": "1c51df4fc649d416013a2e3a5e74bc1a1dc0edffef376b079bef3d97f52bdebd",
+      "sourceBytes": 71957,
+      "fullEntryIndex": 80,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 26
+    },
+    {
+      "id": "rect_heatmap_weather",
+      "title": "Annual Weather Heatmap",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/rect_heatmap_weather.vl.json",
+      "sourceSHA256": "88cfe59896c9255b4622529cf89e5e6b78358b6cb2021c62cc048c61b92dfcc0",
+      "sourceBytes": 159710,
+      "fullEntryIndex": 81,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "rect_binned_heatmap",
+      "title": "2D Histogram Heatmap",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/rect_binned_heatmap.vl.json",
+      "sourceSHA256": "e3ddf36666355ad81b5e98594cafca4d30527ec86ef2b6390273830cc396f4de",
+      "sourceBytes": 1282043,
+      "fullEntryIndex": 82,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "circle_github_punchcard",
+      "title": "Table Bubble Plot (Github Punch Card)",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/circle_github_punchcard.vl.json",
+      "sourceSHA256": "d6dc1ce792754f25ea7ffeacb6f1d349a77ab9bf6b198679cdf12e8eb80883ae",
+      "sourceBytes": 41709,
+      "fullEntryIndex": 83,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 27
+    },
+    {
+      "id": "layer_text_heatmap",
+      "title": "Heatmap with Labels",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_text_heatmap.vl.json",
+      "sourceSHA256": "b2b9fcca3ffbf480cd3559178ba27d52cf3ebf78a3ce7288d1b25f2a52cfa930",
+      "sourceBytes": 72328,
+      "fullEntryIndex": 84,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "rect_lasagna",
+      "title": "Lasagna Plot (Dense Time-Series Heatmap)",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/rect_lasagna.vl.json",
+      "sourceSHA256": "b384fa63baecb9d44019ba61ba3f07a4d88de7e90a9d2002fec7f29284f73516",
+      "sourceBytes": 30876,
+      "fullEntryIndex": 85,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "rect_mosaic_labelled_with_offset",
+      "title": "Mosaic Chart with Labels",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/rect_mosaic_labelled_with_offset.vl.json",
+      "sourceSHA256": "e4ca6c045324779ba647fc713d81af46df4253fedcc1bac60512f944829def99",
+      "sourceBytes": 74014,
+      "fullEntryIndex": 86,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "point_angle_windvector",
+      "title": "Wind Vector Map",
+      "category": [
+        "Single-View Plots",
+        "Table-based Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_angle_windvector.vl.json",
+      "sourceSHA256": "eac9ca33873c8edbb301ce2889a1143178797e3f9e6ba6e521d0ae2381bfe583",
+      "sourceBytes": 403607,
+      "fullEntryIndex": 87,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "arc_pie",
+      "title": "Pie Chart",
+      "category": [
+        "Single-View Plots",
+        "Circular Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/arc_pie.vl.json",
+      "sourceSHA256": "6fc20950dcd9d7e4e0272e72d315ba86c184ba0ff9c854c40b466a6d66ac8523",
+      "sourceBytes": 408,
+      "fullEntryIndex": 88,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 28
+    },
+    {
+      "id": "arc_pie_normalize_tooltip",
+      "title": "Pie Chart with percentage_tooltip",
+      "category": [
+        "Single-View Plots",
+        "Circular Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/arc_pie_normalize_tooltip.vl.json",
+      "sourceSHA256": "6f0b6472f97acbf13bd3c055667210c1ecd8a1db4415458ca01bff1fca038886",
+      "sourceBytes": 447,
+      "fullEntryIndex": 89,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 29
+    },
+    {
+      "id": "arc_donut",
+      "title": "Donut Chart",
+      "category": [
+        "Single-View Plots",
+        "Circular Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/arc_donut.vl.json",
+      "sourceSHA256": "3d0079555bd55be2d99ed50ac94499ff145f89faec4378024821d89515839780",
+      "sourceBytes": 436,
+      "fullEntryIndex": 90,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 30
+    },
+    {
+      "id": "layer_arc_label",
+      "title": "Pie Chart with Labels",
+      "category": [
+        "Single-View Plots",
+        "Circular Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_arc_label.vl.json",
+      "sourceSHA256": "553b7239d273a85a7a396213ac802ffd5f2643a734520e03facb474a61911e0e",
+      "sourceBytes": 573,
+      "fullEntryIndex": 91,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 31
+    },
+    {
+      "id": "arc_radial",
+      "title": "Radial Plot",
+      "category": [
+        "Single-View Plots",
+        "Circular Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/arc_radial.vl.json",
+      "sourceSHA256": "029f65d961584ff0e79eae9994d5345b0bfb5848c7e5b3ebe4ef046d8f735340",
+      "sourceBytes": 531,
+      "fullEntryIndex": 92,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 32
+    },
+    {
+      "id": "arc_pie_pyramid",
+      "title": "Pyramid Pie Chart",
+      "category": [
+        "Single-View Plots",
+        "Circular Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/arc_pie_pyramid.vl.json",
+      "sourceSHA256": "5e1bedbba7e750c4ad2772fc53961d846f33e1759e5a65ad802e352d5d7510af",
+      "sourceBytes": 745,
+      "fullEntryIndex": 93,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 33
+    },
+    {
+      "id": "bar_percent_of_total",
+      "title": "Relative Bar Chart (Calculate Percentage of Total)",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_percent_of_total.vl.json",
+      "sourceSHA256": "5978ee09042ac2bf526a6342611cdd9c93cbe53d02ead5d42337960e88437a65",
+      "sourceBytes": 640,
+      "fullEntryIndex": 94,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "joinaggregate_mean_difference",
+      "title": "Calculate Difference from Average",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/joinaggregate_mean_difference.vl.json",
+      "sourceSHA256": "59f39c0e3e5779e9de8892f3962745f5eb1635e4d3056888ac1e905df8173bc6",
+      "sourceBytes": 1282095,
+      "fullEntryIndex": 95,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "joinaggregate_mean_difference_by_year",
+      "title": "Calculate Difference from Annual Average",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/joinaggregate_mean_difference_by_year.vl.json",
+      "sourceSHA256": "65272b0b2db3aaed49853828a1badc5d94dc6ff9fabfc159778bb31e54326534",
+      "sourceBytes": 1282490,
+      "fullEntryIndex": 96,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "joinaggregate_residual_graph",
+      "title": "Calculate Residuals",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/joinaggregate_residual_graph.vl.json",
+      "sourceSHA256": "3e9f7a3131db068b827869b4dc119147dd24d0cf5cfc1f5615225657b335f80e",
+      "sourceBytes": 1282386,
+      "fullEntryIndex": 97,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "window_rank",
+      "title": "Line Charts Showing Ranks Over Time",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/window_rank.vl.json",
+      "sourceSHA256": "2411d6894a19fd3bede433c340762292391aa1b453751174449a8b79c878c991",
+      "sourceBytes": 1225,
+      "fullEntryIndex": 98,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 34
+    },
+    {
+      "id": "waterfall_chart",
+      "title": "Waterfall Chart of Monthly Profit and Loss",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/waterfall_chart.vl.json",
+      "sourceSHA256": "78db963fe1f8bf528a9c74c35412b28a9cea545680181268dcbde283cd60c7df",
+      "sourceBytes": 2276,
+      "fullEntryIndex": 99,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "window_top_k",
+      "title": "Filtering Top-K Items",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/window_top_k.vl.json",
+      "sourceSHA256": "44661160f191d66314539a99fd85a486994e59705cee3c74a7156be44d94d0b1",
+      "sourceBytes": 1189,
+      "fullEntryIndex": 100,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "window_top_k_others",
+      "title": "Top-K Plot with \"Others\"",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/window_top_k_others.vl.json",
+      "sourceSHA256": "e4b10b18a57a2fedc68acea1c5a2083a9c72fc1470cddc866bd0ef5cadaaeab1",
+      "sourceBytes": 1282362,
+      "fullEntryIndex": 101,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "lookup",
+      "title": "Using the lookup transform to combine data",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/lookup.vl.json",
+      "sourceSHA256": "87b0d98f6f4057479740d6e76e7a3ff363306d73c373b7a2f3ec63323e64ff36",
+      "sourceBytes": 923,
+      "fullEntryIndex": 102,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "area_cumulative_freq",
+      "title": "Cumulative Frequency Distribution",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_cumulative_freq.vl.json",
+      "sourceSHA256": "6ed311c73ba8655acd891c7ec61813ed344bfbce236ebcf6d48c4f9696834026",
+      "sourceBytes": 1281967,
+      "fullEntryIndex": 103,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_cumulative_histogram",
+      "title": "Layered Histogram and Cumulative Histogram",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_cumulative_histogram.vl.json",
+      "sourceSHA256": "ee7abddaa061b09c7a0e4f9092662a88487f8cf72964f28fcb9f6c58ba8f475b",
+      "sourceBytes": 1282324,
+      "fullEntryIndex": 104,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "parallel_coordinate",
+      "title": "Parallel Coordinate Plot",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/parallel_coordinate.vl.json",
+      "sourceSHA256": "ed8df06219f485107be1ebf94ecc9f583b67d47f41618e4ae274741d8c4df9c5",
+      "sourceBytes": 52860,
+      "fullEntryIndex": 105,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_argmax",
+      "title": "Bar Chart Showing Argmax Value",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_argmax.vl.json",
+      "sourceSHA256": "ff1df78944ae39923859b662c7146eef73a50c592738242390825951ed5fd958",
+      "sourceBytes": 1281886,
+      "fullEntryIndex": 106,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_line_mean_point_raw",
+      "title": "Layering Averages over Raw Values",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_mean_point_raw.vl.json",
+      "sourceSHA256": "b3f008c08177a095dc0bbb252d5d929e8ff518cfee78cf2d9449e5eb14e080ed",
+      "sourceBytes": 30611,
+      "fullEntryIndex": 107,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_line_rolling_mean_point_raw",
+      "title": "Layering Rolling Averages over Raw Values",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_rolling_mean_point_raw.vl.json",
+      "sourceSHA256": "128a5762cab24e6a5c660fdeffed03b626742e2c12240f6c49ce8a567bcf4233",
+      "sourceBytes": 159891,
+      "fullEntryIndex": 108,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_line_window",
+      "title": "Line Chart to Show Benchmarking Results",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_window.vl.json",
+      "sourceSHA256": "19e04da039cd0191748c7471b7756d89abea905cf252e5897875840376191fbe",
+      "sourceBytes": 8100,
+      "fullEntryIndex": 109,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "point_quantile_quantile",
+      "title": "Quantile-Quantile Plot (QQ Plot)",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_quantile_quantile.vl.json",
+      "sourceSHA256": "4ec4326c6a4250b9578e72eca9117da8877afa1ecaf173e001a16d9da55c037c",
+      "sourceBytes": 25879,
+      "fullEntryIndex": 110,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_point_line_regression",
+      "title": "Linear Regression",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_point_line_regression.vl.json",
+      "sourceSHA256": "3c91d169da12c755a0e2b3ccbe57020bee0fae9d8e2bb34a7a66e0e6a25f97aa",
+      "sourceBytes": 1282322,
+      "fullEntryIndex": 111,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_point_line_loess",
+      "title": "Loess Regression",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_point_line_loess.vl.json",
+      "sourceSHA256": "ffb642ab85f44fda57e0a861b54a98b4b2f7b2fee21ddadbd0c71a6a017c255d",
+      "sourceBytes": 1282034,
+      "fullEntryIndex": 112,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "window_impute_null",
+      "title": "Using window transform to impute missing values by averaging the previous and next values.",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/window_impute_null.vl.json",
+      "sourceSHA256": "88ccf546c1b21f9421893ca9808a8c96e68ef4c94de300439d30695319873e95",
+      "sourceBytes": 799,
+      "fullEntryIndex": 113,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "ternary",
+      "title": "Ternary chart",
+      "category": [
+        "Single-View Plots",
+        "Advanced Calculations"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/ternary.vl.json",
+      "sourceSHA256": "ec2371201871c257e8912194e440184088dcabc7b003a2afdc881817d54f8687",
+      "sourceBytes": 7511,
+      "fullEntryIndex": 114,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_point_errorbar_ci",
+      "title": "Error Bars Showing Confidence Interval",
+      "category": [
+        "Composite Marks",
+        "Error Bars & Error Bands"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_point_errorbar_ci.vl.json",
+      "sourceSHA256": "a55c98020377b6d8f5e8868b3bd2b37d7afd06e481c9588b34291d31c5cf3897",
+      "sourceBytes": 8824,
+      "fullEntryIndex": 115,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 35
+    },
+    {
+      "id": "layer_point_errorbar_stdev",
+      "title": "Error Bars Showing Standard Deviation",
+      "category": [
+        "Composite Marks",
+        "Error Bars & Error Bands"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_point_errorbar_stdev.vl.json",
+      "sourceSHA256": "104e05084bbf9321a229e11713c23440d8616cee191931ed86c9913c1c902bee",
+      "sourceBytes": 8827,
+      "fullEntryIndex": 116,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 36
+    },
+    {
+      "id": "layer_line_errorband_ci",
+      "title": "Line Chart with Confidence Interval Band",
+      "category": [
+        "Composite Marks",
+        "Error Bars & Error Bands"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_errorband_ci.vl.json",
+      "sourceSHA256": "a600b3fdb89e9f5cf44a6a99cc74bfb24f3069df7e4f0e6645f88cce2fd1ac8b",
+      "sourceBytes": 72045,
+      "fullEntryIndex": 117,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 37
+    },
+    {
+      "id": "layer_scatter_errorband_1D_stdev_global_mean",
+      "title": "Scatterplot with Mean and Standard Deviation Overlay",
+      "category": [
+        "Composite Marks",
+        "Error Bars & Error Bands"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_scatter_errorband_1D_stdev_global_mean.vl.json",
+      "sourceSHA256": "5825f3a3e9375f316f2226b916d48ac023a218cb949fd06f5a773bb0ce9e9a99",
+      "sourceBytes": 72237,
+      "fullEntryIndex": 118,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 38
+    },
+    {
+      "id": "boxplot_minmax_2D_vertical",
+      "title": "Box Plot with Min/Max Whiskers",
+      "category": [
+        "Composite Marks",
+        "Box Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/boxplot_minmax_2D_vertical.vl.json",
+      "sourceSHA256": "dd30fd1152c91ec3f709810832ea943cf42c6fda307e5f2c0bda264e2ecf5292",
+      "sourceBytes": 51008,
+      "fullEntryIndex": 119,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 39
+    },
+    {
+      "id": "boxplot_2D_vertical",
+      "title": "Tukey Box Plot (1.5 IQR)",
+      "category": [
+        "Composite Marks",
+        "Box Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/boxplot_2D_vertical.vl.json",
+      "sourceSHA256": "3efa069ca269487bcb8663efaace4f0e37bda8ce8c5bf3a68e54ca332ddbd931",
+      "sourceBytes": 51019,
+      "fullEntryIndex": 120,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 40
+    },
+    {
+      "id": "boxplot_preaggregated",
+      "title": "Box Plot with Pre-Calculated Summaries",
+      "category": [
+        "Composite Marks",
+        "Box Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/boxplot_preaggregated.vl.json",
+      "sourceSHA256": "10a64a38a1754bbb1442fc499cb85296f3d1aa586eeea057661d17b6eebd3eb8",
+      "sourceBytes": 1070,
+      "fullEntryIndex": 121,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_bar_labels",
+      "title": "Simple Bar Chart with Labels",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_bar_labels.vl.json",
+      "sourceSHA256": "4f4425b8a730a309291af32c8b2854d4897e22395f37a871ea61b956b396a731",
+      "sourceBytes": 486,
+      "fullEntryIndex": 122,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 41
+    },
+    {
+      "id": "layer_bar_fruit",
+      "title": "Simple Bar Chart with Labels and Emojis",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_bar_fruit.vl.json",
+      "sourceSHA256": "c99dca73a7265b603eced98c37097da802882ad2b38838d561ae32f337fffa5f",
+      "sourceBytes": 863,
+      "fullEntryIndex": 123,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 42
+    },
+    {
+      "id": "layer_text_heatmap",
+      "title": "Layering text over heatmap",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_text_heatmap.vl.json",
+      "sourceSHA256": "b2b9fcca3ffbf480cd3559178ba27d52cf3ebf78a3ce7288d1b25f2a52cfa930",
+      "sourceBytes": 72328,
+      "fullEntryIndex": 124,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_line_co2_concentration",
+      "title": "Carbon Dioxide in the Atmosphere",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_co2_concentration.vl.json",
+      "sourceSHA256": "2ed3fd37bba3f5a0073a74034a08ec4bc0af673ab4b7f0adc18dca2e2de08a9f",
+      "sourceBytes": 46521,
+      "fullEntryIndex": 125,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_bar_annotations",
+      "title": "Bar Chart Highlighting Values beyond a Threshold",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_bar_annotations.vl.json",
+      "sourceSHA256": "3c7eb76172777a42aa28ca83675b606861769434c9f0e2a426e93bf29a9b82e4",
+      "sourceBytes": 1243,
+      "fullEntryIndex": 126,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_precipitation_mean",
+      "title": "Mean overlay over precipitation chart",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_precipitation_mean.vl.json",
+      "sourceSHA256": "e8e8e0c49e555616e98275a3dd8e05461599a3c73a389682f8fd310506131742",
+      "sourceBytes": 159596,
+      "fullEntryIndex": 127,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_histogram_global_mean",
+      "title": "Histogram with a Global Mean Overlay",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_histogram_global_mean.vl.json",
+      "sourceSHA256": "5316ce6b70b5450c6cd7890fb07dfdb900bc6ddabe5b6237667e9ef614d6b3c3",
+      "sourceBytes": 1281845,
+      "fullEntryIndex": 128,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_falkensee",
+      "title": "Line Chart with Highlighted Rectangles",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_falkensee.vl.json",
+      "sourceSHA256": "ed56a5780cdf083b466d1902b245cd6b72d69a0951a78690e08604a939aa835c",
+      "sourceBytes": 2189,
+      "fullEntryIndex": 129,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 43
+    },
+    {
+      "id": "layer_line_mean_point_raw",
+      "title": "Layering Averages over Raw Values",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_mean_point_raw.vl.json",
+      "sourceSHA256": "b3f008c08177a095dc0bbb252d5d929e8ff518cfee78cf2d9449e5eb14e080ed",
+      "sourceBytes": 30611,
+      "fullEntryIndex": 130,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_line_rolling_mean_point_raw",
+      "title": "Layering Rolling Averages over Raw Values",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_line_rolling_mean_point_raw.vl.json",
+      "sourceSHA256": "128a5762cab24e6a5c660fdeffed03b626742e2c12240f6c49ce8a567bcf4233",
+      "sourceBytes": 159891,
+      "fullEntryIndex": 131,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "layer_likert",
+      "title": "Distributions and Medians of Likert Scale Ratings",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_likert.vl.json",
+      "sourceSHA256": "51f9adf3c5b6ae2c29c1a35c9fb32a97612b556c69bb8fb8f277696ab7457d3b",
+      "sourceBytes": 9886,
+      "fullEntryIndex": 132,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "concat_layer_voyager_result",
+      "title": "Comparative Likert Scale Ratings",
+      "category": [
+        "Layered Plots",
+        "Labeling & Annotation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/concat_layer_voyager_result.vl.json",
+      "sourceSHA256": "2a97f11e102356314e1bd5811d11a86bb5e9adca6136226f29e440fb2cb0e1ba",
+      "sourceBytes": 2170,
+      "fullEntryIndex": 133,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_candlestick",
+      "title": "Candlestick Chart",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_candlestick.vl.json",
+      "sourceSHA256": "20de10eec726cafb8fc764cdcc5b0cf7f283807ed601d01a0ec75f93f3a4567d",
+      "sourceBytes": 5628,
+      "fullEntryIndex": 134,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "layer_ranged_dot",
+      "title": "Ranged Dot Plot",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_ranged_dot.vl.json",
+      "sourceSHA256": "f49916d3aa3b7596aad5f5999f0a24d60fe1987fef51e8a8c1537d7d26d3b8ea",
+      "sourceBytes": 90965,
+      "fullEntryIndex": 135,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 44
+    },
+    {
+      "id": "facet_bullet",
+      "title": "Bullet Chart",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/facet_bullet.vl.json",
+      "sourceSHA256": "673f7db90ec45e740a559eb2ad8187e62902c11c72fdd7fda60b9bafd363a515",
+      "sourceBytes": 1442,
+      "fullEntryIndex": 136,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 45
+    },
+    {
+      "id": "layer_dual_axis",
+      "title": "Layered Plot with Dual-Axis",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_dual_axis.vl.json",
+      "sourceSHA256": "41bf6da3631a81bfa862f452f45ca5d090e6b76c507c342462703170304d0f89",
+      "sourceBytes": 382270,
+      "fullEntryIndex": 137,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "area_horizon",
+      "title": "Horizon Graph",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_horizon.vl.json",
+      "sourceSHA256": "bf7159660acfd89a2470d0c0d41a7757330c026b98a504eba1225a45b6fde074",
+      "sourceBytes": 1066,
+      "fullEntryIndex": 138,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_layered_weather",
+      "title": "Weekly Weather Plot",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_layered_weather.vl.json",
+      "sourceSHA256": "5e2e01c5fb0f288b438a8152ec6111845a976d4319765a236d43177d9974cfc6",
+      "sourceBytes": 2697,
+      "fullEntryIndex": 139,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 46
+    },
+    {
+      "id": "wheat_wages",
+      "title": "Wheat and Wages Example",
+      "category": [
+        "Layered Plots",
+        "Other Layered Plots"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/wheat_wages.vl.json",
+      "sourceSHA256": "9f2a1582fa9d030350de3f4fe9a1cdf14a5dfe19b740dee3b5424abfbd5c143d",
+      "sourceBytes": 5212,
+      "fullEntryIndex": 140,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "trellis_bar",
+      "title": "Trellis Bar Chart",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_bar.vl.json",
+      "sourceSHA256": "51148e8ec0a95e1c6583de0693de97a0b74dbdfd79d76b245d1edc1f9dcbb9af",
+      "sourceBytes": 27617,
+      "fullEntryIndex": 141,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "trellis_stacked_bar",
+      "title": "Trellis Stacked Bar Chart",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_stacked_bar.vl.json",
+      "sourceSHA256": "7d1daf04f035a958ccf926e8ced6968c5f999a3ee3bf2aed27473255f7c15759",
+      "sourceBytes": 8646,
+      "fullEntryIndex": 142,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 47
+    },
+    {
+      "id": "trellis_scatter",
+      "title": "Trellis Scatter Plot (wrapped)",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_scatter.vl.json",
+      "sourceSHA256": "b504c532d2a58a9e6b53c0fed3dad34a18153307aae8e10c4fa654c80790c9ba",
+      "sourceBytes": 1281817,
+      "fullEntryIndex": 143,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "trellis_bar_histogram",
+      "title": "Trellis Histograms",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_bar_histogram.vl.json",
+      "sourceSHA256": "a8d543732be90a30e4dd5ecd97a876b2b4c0c72dd59bbc08dde77f0f49fe0d4f",
+      "sourceBytes": 71914,
+      "fullEntryIndex": 144,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 48
+    },
+    {
+      "id": "trellis_anscombe",
+      "title": "Trellis Scatter Plot Showing Anscombe's Quartet",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_anscombe.vl.json",
+      "sourceSHA256": "ad1d7a1c06b35180758c677b74c0cb7bf8eb2a9e3041f1d37ebdb60d5b5476d1",
+      "sourceBytes": 1790,
+      "fullEntryIndex": 145,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 49
+    },
+    {
+      "id": "trellis_barley",
+      "title": "Becker's Barley Trellis Plot",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_barley.vl.json",
+      "sourceSHA256": "ecc54e1fa4252a809f3dba1ef20b970dcef0a22aade4e5f84e7afb44be605954",
+      "sourceBytes": 9131,
+      "fullEntryIndex": 146,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 50
+    },
+    {
+      "id": "trellis_area",
+      "title": "Trellis Area",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_area.vl.json",
+      "sourceSHA256": "b75db8f9829fb94f5708b1c8d89657091cb9167a09ec4d15510e7d46c42acdae",
+      "sourceBytes": 30697,
+      "fullEntryIndex": 147,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "trellis_area_seattle",
+      "title": "Trellis Area Plot Showing Annual Temperatures in Seattle",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_area_seattle.vl.json",
+      "sourceSHA256": "b4c8797602efadb2dbf2ec5931719b54f5961d48193e3ccecaed4291fd1fb438",
+      "sourceBytes": 741381,
+      "fullEntryIndex": 148,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "area_density_facet",
+      "title": "Faceted Density Plot",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/area_density_facet.vl.json",
+      "sourceSHA256": "64f03dee5a3954e9352ce275da53ed156b90e5401fb9e50a43895b9e92e2c7c3",
+      "sourceBytes": 51026,
+      "fullEntryIndex": 149,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "facet_grid_bar",
+      "title": "Compact Trellis Grid of Bar Charts",
+      "category": [
+        "Multi-View Displays",
+        "Faceting (Trellis Plot / Small Multiples)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/facet_grid_bar.vl.json",
+      "sourceSHA256": "3ba0ec581414110fc75f3577440f044500774ff4701c013190ed920e24dc45bf",
+      "sourceBytes": 1614,
+      "fullEntryIndex": 150,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 51
+    },
+    {
+      "id": "repeat_layer",
+      "title": "Repeat and Layer to Show Different Movie Measures",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/repeat_layer.vl.json",
+      "sourceSHA256": "e9dec529562207ae47875eff1f1d3e35e200a118921af9f1fb55fa2c945b4034",
+      "sourceBytes": 1281939,
+      "fullEntryIndex": 151,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "vconcat_weather",
+      "title": "Vertical Concatenation",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/vconcat_weather.vl.json",
+      "sourceSHA256": "5ed71595b5c65c0e1b5da64c0f5ea4c2ce5ebc2707d0bad159287152b4e00b49",
+      "sourceBytes": 382074,
+      "fullEntryIndex": 152,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "repeat_histogram",
+      "title": "Horizontally Repeated Charts",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/repeat_histogram.vl.json",
+      "sourceSHA256": "1bc8c6e96ecbe994c145c887001f7af65d7ac4d4b385e74c5294ec4c69fae0af",
+      "sourceBytes": 71963,
+      "fullEntryIndex": 153,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_splom",
+      "title": "Interactive Scatterplot Matrix",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_splom.vl.json",
+      "sourceSHA256": "9d2a6fd0d832d7e418927557de722e95084c76002defc1e13b482203b1b6075d",
+      "sourceBytes": 72594,
+      "fullEntryIndex": 154,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "concat_marginal_histograms",
+      "title": "Marginal Histograms",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/concat_marginal_histograms.vl.json",
+      "sourceSHA256": "145f7b68f301301b9fee8e75484faf7e01f1857a4fac2a3afcdd762cccf50c75",
+      "sourceBytes": 1282222,
+      "fullEntryIndex": 155,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "concat_bar_scales_discretize",
+      "title": "Discretizing scales",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/concat_bar_scales_discretize.vl.json",
+      "sourceSHA256": "e6451406bfe711d88a6f9b1b48f0a3fbabf8bb774a28a525afee8117e97c0c8e",
+      "sourceBytes": 1465,
+      "fullEntryIndex": 156,
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 52
+    },
+    {
+      "id": "nested_concat_align",
+      "title": "Nested View Concatenation Aligned with Axis `minExtent`",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/nested_concat_align.vl.json",
+      "sourceSHA256": "b0d551d33234e5d7b34e1f28c5e712d10489de9a8715700bbf14a086262fcbeb",
+      "sourceBytes": 1282220,
+      "fullEntryIndex": 157,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "concat_population_pyramid",
+      "title": "Population Pyramid",
+      "category": [
+        "Multi-View Displays",
+        "Repeat & Concatenation"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/concat_population_pyramid.vl.json",
+      "sourceSHA256": "a70392bea171bc34b88c75e572fd6cc431249d9acf27b5e49122bbe5432fb4ef",
+      "sourceBytes": 28263,
+      "fullEntryIndex": 158,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "geo_choropleth",
+      "title": "Choropleth of Unemployment Rate per County",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_choropleth.vl.json",
+      "sourceSHA256": "28994c48814f274331906508a639e23b5b78ba92c99463b2e3d381d4388e9580",
+      "sourceBytes": 735371,
+      "fullEntryIndex": 159,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_circle",
+      "title": "One Dot per Zipcode in the U.S.",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_circle.vl.json",
+      "sourceSHA256": "1e9c0c81e9a68c83a58abef8279f95b614a81aa927e0b98dc3cea34f7e53a214",
+      "sourceBytes": 5046287,
+      "fullEntryIndex": 160,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_layer",
+      "title": "One Dot per Airport in the U.S. Overlayed on Geoshape",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_layer.vl.json",
+      "sourceSHA256": "c86cdbcd27b8efe41ff5115c362ea2cd400b923f127a4a901ca5f026f27eeb21",
+      "sourceBytes": 1116493,
+      "fullEntryIndex": 161,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_rule",
+      "title": "Rules (line segments) Connecting SEA to every Airport Reachable via Direct Flights",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_rule.vl.json",
+      "sourceSHA256": "c4feea916c745258d3ddb7bcc8ead73be8718be014a109cff4d3618f1bbe5ecd",
+      "sourceBytes": 2339182,
+      "fullEntryIndex": 162,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_repeat",
+      "title": "Three Choropleths Representing Disjoint Data from the Same Table",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_repeat.vl.json",
+      "sourceSHA256": "aa33e7a710c12663b16e14032f9ac6f9984cb3704366ccdd4a999dbf94579cbd",
+      "sourceBytes": 648043,
+      "fullEntryIndex": 163,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_text",
+      "title": "U.S. State Capitals Overlayed on a Map of U.S.",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_text.vl.json",
+      "sourceSHA256": "52e8316eedf9febf9197d1ee085ca1d3388caf0da08b437b19d87d01444a6d84",
+      "sourceBytes": 646644,
+      "fullEntryIndex": 164,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_line",
+      "title": "Line between Airports in the U.S.",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_line.vl.json",
+      "sourceSHA256": "8594ef5e699a006c417960eb79051e9a66821ab61627330f9a593d83a9144ef6",
+      "sourceBytes": 1590747,
+      "fullEntryIndex": 165,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_trellis",
+      "title": "Income in the U.S. by State, Faceted over Income Brackets",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_trellis.vl.json",
+      "sourceSHA256": "4d58d07643f31df1af03f5b4697c26a7bc59609d4001f09d110904e8ec1388fe",
+      "sourceBytes": 693699,
+      "fullEntryIndex": 166,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "geo_layer_line_london",
+      "title": "London Tube Lines",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_layer_line_london.vl.json",
+      "sourceSHA256": "36e843847afb8090390657b42a9f24403197b39b2d0e244cac0dcaf3086755cc",
+      "sourceBytes": 98471,
+      "fullEntryIndex": 167,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "geo_params_projections",
+      "title": "Projection explorer",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/geo_params_projections.vl.json",
+      "sourceSHA256": "91b0901dae2d26b80b8b2f97ff3b684793a9fffd477b218bdf5c43e48ee7d3ff",
+      "sourceBytes": 120004,
+      "fullEntryIndex": 168,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_geo_earthquakes",
+      "title": "Earthquakes Example",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_geo_earthquakes.vl.json",
+      "sourceSHA256": "8688b0a808f4f12a7155f6be523ea8bfc6c1b9babe4c4088093b8303257ba626",
+      "sourceBytes": 1339035,
+      "fullEntryIndex": 169,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_geo_facet_species",
+      "title": "Faceted County-Level Species Habitat Maps",
+      "category": [
+        "Maps (Geographic Displays)"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_geo_facet_species.vl.json",
+      "sourceSHA256": "99fd9c1e598c9b50a02a2b4c3d9b7fc3f0b0d2b4c24f8811212518c449443a5b",
+      "sourceBytes": 3049805,
+      "fullEntryIndex": 170,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_bar_select_highlight",
+      "title": "Bar Chart with Highlighting on Hover and Selection on Click",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_bar_select_highlight.vl.json",
+      "sourceSHA256": "6996312daa9f3d4ec67cd68c15d1f8a817732c90593c3ce0caa8cef4a916f6fb",
+      "sourceBytes": 855,
+      "fullEntryIndex": 171,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_histogram_full_height_hover",
+      "title": "Histogram with Full-Height Hover Targets for Tooltip",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_histogram_full_height_hover.vl.json",
+      "sourceSHA256": "1a421e76db94d24acf1f30097ce42fe337787e7713f575cc84c1773d5b186698",
+      "sourceBytes": 1282046,
+      "fullEntryIndex": 172,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_legend",
+      "title": "Interactive Legend",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_legend.vl.json",
+      "sourceSHA256": "8b145d7c6f957346b9ba27d7f2e688db0b4331e8531300aee5ab71662466ce3c",
+      "sourceBytes": 186157,
+      "fullEntryIndex": 173,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "point_href",
+      "title": "Scatterplot with External Links and Tooltips",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/point_href.vl.json",
+      "sourceSHA256": "3ef6c6156fd0fb0b373907847fe81a00444eab854e1e59fa28065294093e32bb",
+      "sourceBytes": 72223,
+      "fullEntryIndex": 174,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_brush",
+      "title": "Rectangular Brush",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_brush.vl.json",
+      "sourceSHA256": "b76fdfd65ac7a66311c8eded10ec1a4bd8ad080c3ce47c7b40715ded188a787a",
+      "sourceBytes": 72118,
+      "fullEntryIndex": 175,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_area_brush",
+      "title": "Area Chart with Rectangular Brush",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_area_brush.vl.json",
+      "sourceSHA256": "2be121eb4f13e6b546fe2a5fced917853b96c803b9a29485f0c16efb33c8d9d0",
+      "sourceBytes": 186007,
+      "fullEntryIndex": 176,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_paintbrush",
+      "title": "Paintbrush Highlight",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_paintbrush.vl.json",
+      "sourceSHA256": "b3f5308a9e00fda6944b11e6a8cfd0b56a975e8ae5f6f50aa15d10fa1f8ee855",
+      "sourceBytes": 72096,
+      "fullEntryIndex": 177,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "selection_translate_scatterplot_drag",
+      "title": "Scatterplot Pan & Zoom",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/selection_translate_scatterplot_drag.vl.json",
+      "sourceSHA256": "5b1f4704504d090dd6da947868cd6d99c4bfe27d85cc7328039c9eb068de9321",
+      "sourceBytes": 72047,
+      "fullEntryIndex": 178,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_query_widgets",
+      "title": "Query Widgets",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_query_widgets.vl.json",
+      "sourceSHA256": "1b152ff15443b369fa1c5b95ce62031895799ce828250b76dce4778ac4494f87",
+      "sourceBytes": 72577,
+      "fullEntryIndex": 179,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "selection_layer_bar_month",
+      "title": "Interactive Average",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/selection_layer_bar_month.vl.json",
+      "sourceSHA256": "3da92783b50df2d66879a032ca45f112321dc33cda1a91858a86703b45aba9ee",
+      "sourceBytes": 159784,
+      "fullEntryIndex": 180,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_line_hover",
+      "title": "Multi Series Line Chart with an Interactive Line Highlight",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_line_hover.vl.json",
+      "sourceSHA256": "a49a7768682ce821525130a01caac4ba11f7ac2c4d290822f3813050554a3f8d",
+      "sourceBytes": 31298,
+      "fullEntryIndex": 181,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_line_point_hover",
+      "title": "Multi Series Line Chart with an Interactive Point Highlight",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_line_point_hover.vl.json",
+      "sourceSHA256": "83c4918776a54c85297db5a300ba7dd3f7ee9d481dfceedaec4b04f9c6d4aca4",
+      "sourceBytes": 30899,
+      "fullEntryIndex": 182,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_multi_line_label",
+      "title": "Multi Series Line Chart with Labels",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_multi_line_label.vl.json",
+      "sourceSHA256": "efa50c100e9563b42a4979d309a701984939ef1c999e77f548299d17b8484421",
+      "sourceBytes": 31179,
+      "fullEntryIndex": 183,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_multi_line_pivot_tooltip",
+      "title": "Multi Series Line Chart with Tooltip via Pivot",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_multi_line_pivot_tooltip.vl.json",
+      "sourceSHA256": "e9c9a4dcee5a4ef3af43d557fc36ab733aa6356e7bdbcc59ba301b845e08e682",
+      "sourceBytes": 31028,
+      "fullEntryIndex": 184,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_multi_line_tooltip",
+      "title": "Multi Series Line Chart with Tooltip",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_multi_line_tooltip.vl.json",
+      "sourceSHA256": "7db5942f2690108cb909e0a403d5357e12ea5042ea8a872dfd2a1278f429e4fa",
+      "sourceBytes": 159931,
+      "fullEntryIndex": 185,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "isotype_grid",
+      "title": "Isotype Grid",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/isotype_grid.vl.json",
+      "sourceSHA256": "51761e7aeebf8ba6429a6a51ede28d53af9d56d4fdc303ea0fe9ff4c05516102",
+      "sourceBytes": 1897,
+      "fullEntryIndex": 186,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "brush_table",
+      "title": "Brushing Scatter Plot to show data on a table",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/brush_table.vl.json",
+      "sourceSHA256": "92ac9a2bae97d4eefb51d5e497a0371f1706ed94dae3a29868503357862e887d",
+      "sourceBytes": 72844,
+      "fullEntryIndex": 187,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "selection_heatmap",
+      "title": "Selectable Heatmap",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/selection_heatmap.vl.json",
+      "sourceSHA256": "add6607f641994fc08f81bcd3c4b24a69e302180ced56cbdd8426750b36d5fa1",
+      "sourceBytes": 1056,
+      "fullEntryIndex": 188,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "bar_count_minimap",
+      "title": "Bar Chart with a Minimap",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_count_minimap.vl.json",
+      "sourceSHA256": "207b951e4cac6f953ad9739dfc915e6110b6ba43ac68f21cee352e353192d6c2",
+      "sourceBytes": 72218,
+      "fullEntryIndex": 189,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_index_chart",
+      "title": "Interactive Index Chart",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_index_chart.vl.json",
+      "sourceSHA256": "62d13a0390b18145707181b315a156a9fad5c05cc66c3fe50f28b665b970a339",
+      "sourceBytes": 31291,
+      "fullEntryIndex": 190,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_bin_extent",
+      "title": "Focus + Context - Smooth Histogram Zooming",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_bin_extent.vl.json",
+      "sourceSHA256": "7a691f8005b5757c19fe970e944b9bc5e73f636a08e26285e83d86d2f0b3f2bc",
+      "sourceBytes": 446726,
+      "fullEntryIndex": 191,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "dynamic_color_legend",
+      "title": "Dynamic Color Legend",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/dynamic_color_legend.vl.json",
+      "sourceSHA256": "3e73b432a0dd37e4d3428c5bd0caa9a5b8d7f98e908c140d8a5ec26f36eaa848",
+      "sourceBytes": 160744,
+      "fullEntryIndex": 192,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "param_search_input",
+      "title": "Search Input",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/param_search_input.vl.json",
+      "sourceSHA256": "2b9f5d33acc7fc0bbd9c0b2267378c31faeeeec34be4dffca58c1b40a679e756",
+      "sourceBytes": 72136,
+      "fullEntryIndex": 193,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "selection_type_point_zorder",
+      "title": "Change zorder on hover",
+      "category": [
+        "Interactive",
+        "Interactive Charts"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/selection_type_point_zorder.vl.json",
+      "sourceSHA256": "8030044c8665edebf3a3629b40ef900a18078c77e33d7c4584ba0393850144fa",
+      "sourceBytes": 72224,
+      "fullEntryIndex": 194,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_overview_detail",
+      "title": "Overview and Detail",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_overview_detail.vl.json",
+      "sourceSHA256": "f3b91a69d714e959747e18a62ba4b76bd2f4c84663deb6d9ab77657637258229",
+      "sourceBytes": 5399,
+      "fullEntryIndex": 195,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_crossfilter",
+      "title": "Crossfilter (Filter)",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_crossfilter.vl.json",
+      "sourceSHA256": "a985b0df000a25eca6da7bf0f2f0cdf283c07310dea94016c365da0cf4ac50bf",
+      "sourceBytes": 178977,
+      "fullEntryIndex": 196,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_layered_crossfilter",
+      "title": "Crossfilter (Highlight)",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_layered_crossfilter.vl.json",
+      "sourceSHA256": "7c64f438358262278c934c4cc310becaa2a0a781cadffad962924c6633d57928",
+      "sourceBytes": 179099,
+      "fullEntryIndex": 197,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_splom",
+      "title": "Interactive Scatterplot Matrix",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 2,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_splom.vl.json",
+      "sourceSHA256": "9d2a6fd0d832d7e418927557de722e95084c76002defc1e13b482203b1b6075d",
+      "sourceBytes": 72594,
+      "fullEntryIndex": 198,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    },
+    {
+      "id": "interactive_concat_layer",
+      "title": "Interactive Dashboard with Cross Highlight",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_concat_layer.vl.json",
+      "sourceSHA256": "ac1ac351086e60b578749e86022c17310b18db4afc7c896de48f249f85a0e4a5",
+      "sourceBytes": 1282573,
+      "fullEntryIndex": 199,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_seattle_weather",
+      "title": "Seattle Weather Exploration",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_seattle_weather.vl.json",
+      "sourceSHA256": "5874ad9a8b9a40b6ca18d02684ec3088c1d995741a19842359ddc37ca1b60796",
+      "sourceBytes": 160463,
+      "fullEntryIndex": 200,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "airport_connections",
+      "title": "Connections among Major U.S. Airports.",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/airport_connections.vl.json",
+      "sourceSHA256": "ae21005be38178ad5514abc38dde2d136960ec76092bb0542a2a7e4b064f6951",
+      "sourceBytes": 2614390,
+      "fullEntryIndex": 201,
+      "disposition": "notice",
+      "outcome": "source-size-fallback",
+      "reason": "source exceeds the renderer's size limit"
+    },
+    {
+      "id": "interactive_global_development",
+      "title": "An interactive scatter plot of global health statistics by country and year.",
+      "category": [
+        "Interactive",
+        "Interactive Multi-View Displays"
+      ],
+      "occurrence": 1,
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/interactive_global_development.vl.json",
+      "sourceSHA256": "22c419e62f6ccaa834f08ca7930343c7403f6081b35d2abb70f92923edd3aec5",
+      "sourceBytes": 69296,
+      "fullEntryIndex": 202,
+      "disposition": "notice",
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
+    }
+  ]
+}

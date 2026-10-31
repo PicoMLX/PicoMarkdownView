@@ -60,7 +60,8 @@ let package = Package(
             name: "PicoMarkdownViewBenchmarks",
             dependencies: ["PicoMarkdownView"],
             exclude: [
-                "benchmark-results.md"
+                "benchmark-results.md",
+                "vega-gallery-results.md"
             ],
             resources: [
                 .process("Benchmarks/sample1.md")

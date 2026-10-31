@@ -1,0 +1,1007 @@
+{
+  "version": 1,
+  "kind": "gallery-rendering-classification",
+  "benchmarkReportSHA256": "b5eece3b3b7694e73de7c0766b430e114bab82c1be43f8089278c34e1037777c",
+  "sourceMarkdownSHA256": "44153d851aa7c09754c545a24444e5eca368701709bde93c71033822b2cc702f",
+  "galleryEntries": 203,
+  "markdownBytes": 67025394,
+  "uniqueSpecs": 189,
+  "samples": [
+    {
+      "id": "bar",
+      "outcome": "chart",
+      "sourceBytes": 415,
+      "dataMarkCount": 9
+    },
+    {
+      "id": "bar_size_responsive",
+      "outcome": "chart",
+      "sourceBytes": 71878,
+      "dataMarkCount": 3
+    },
+    {
+      "id": "bar_aggregate",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27442
+    },
+    {
+      "id": "bar_aggregate_sort_by_encoding",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27450
+    },
+    {
+      "id": "bar_grouped",
+      "outcome": "chart",
+      "sourceBytes": 600,
+      "dataMarkCount": 9
+    },
+    {
+      "id": "bar_grouped_repeated",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281975
+    },
+    {
+      "id": "stacked_bar_weather",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159631
+    },
+    {
+      "id": "stacked_bar_count_corner_radius_mark",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159482
+    },
+    {
+      "id": "stacked_bar_h",
+      "outcome": "chart",
+      "sourceBytes": 8564,
+      "dataMarkCount": 60
+    },
+    {
+      "id": "stacked_bar_normalize",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27503
+    },
+    {
+      "id": "stacked_bar_h_normalized_labeled",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27791
+    },
+    {
+      "id": "bar_gantt",
+      "outcome": "chart",
+      "sourceBytes": 376,
+      "dataMarkCount": 3
+    },
+    {
+      "id": "bar_color_disabled_scale",
+      "outcome": "chart",
+      "sourceBytes": 390,
+      "dataMarkCount": 3
+    },
+    {
+      "id": "bar_layered_transparent",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27638
+    },
+    {
+      "id": "bar_diverging_stack_population_pyramid",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27926
+    },
+    {
+      "id": "bar_diverging_stack_transform",
+      "outcome": "policy-fallback",
+      "sourceBytes": 4517
+    },
+    {
+      "id": "layer_bar_labels",
+      "outcome": "chart",
+      "sourceBytes": 486,
+      "dataMarkCount": 6
+    },
+    {
+      "id": "layer_bar_labels_grey",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282010
+    },
+    {
+      "id": "bar_month_temporal_initial",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159539
+    },
+    {
+      "id": "bar_month_temporal_band_center",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159437
+    },
+    {
+      "id": "bar_negative",
+      "outcome": "policy-fallback",
+      "sourceBytes": 654
+    },
+    {
+      "id": "bar_negative_horizontal_label",
+      "outcome": "policy-fallback",
+      "sourceBytes": 857
+    },
+    {
+      "id": "bar_axis_space_saving",
+      "outcome": "chart",
+      "sourceBytes": 72234,
+      "dataMarkCount": 3
+    },
+    {
+      "id": "bar_heatlane",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72936
+    },
+    {
+      "id": "histogram",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281714
+    },
+    {
+      "id": "bar_binned_data",
+      "outcome": "policy-fallback",
+      "sourceBytes": 560
+    },
+    {
+      "id": "histogram_log",
+      "outcome": "policy-fallback",
+      "sourceBytes": 672
+    },
+    {
+      "id": "histogram_nonlinear",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1189
+    },
+    {
+      "id": "histogram_rel_freq",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72575
+    },
+    {
+      "id": "area_density",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281843
+    },
+    {
+      "id": "area_density_stacked",
+      "outcome": "policy-fallback",
+      "sourceBytes": 51045
+    },
+    {
+      "id": "circle_binned",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281790
+    },
+    {
+      "id": "rect_binned_heatmap",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282043
+    },
+    {
+      "id": "area_cumulative_freq",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281967
+    },
+    {
+      "id": "layer_cumulative_histogram",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282324
+    },
+    {
+      "id": "circle_wilkinson_dotplot",
+      "outcome": "chart",
+      "sourceBytes": 400,
+      "dataMarkCount": 21
+    },
+    {
+      "id": "isotype_bar_chart",
+      "outcome": "chart",
+      "sourceBytes": 5761,
+      "dataMarkCount": 37
+    },
+    {
+      "id": "isotype_bar_chart_emoji",
+      "outcome": "policy-fallback",
+      "sourceBytes": 2267
+    },
+    {
+      "id": "bar_percent_of_total",
+      "outcome": "policy-fallback",
+      "sourceBytes": 640
+    },
+    {
+      "id": "point_2d",
+      "outcome": "chart",
+      "sourceBytes": 71966,
+      "dataMarkCount": 392
+    },
+    {
+      "id": "tick_dot",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159366
+    },
+    {
+      "id": "tick_strip",
+      "outcome": "chart",
+      "sourceBytes": 71968,
+      "dataMarkCount": 400
+    },
+    {
+      "id": "point_color_with_shape",
+      "outcome": "chart",
+      "sourceBytes": 51042,
+      "dataMarkCount": 342
+    },
+    {
+      "id": "point_bubble",
+      "outcome": "chart",
+      "sourceBytes": 72042,
+      "dataMarkCount": 392
+    },
+    {
+      "id": "point_invalid_color",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281919
+    },
+    {
+      "id": "circle",
+      "outcome": "chart",
+      "sourceBytes": 71878,
+      "dataMarkCount": 392
+    },
+    {
+      "id": "circle_bubble_health_income",
+      "outcome": "policy-fallback",
+      "sourceBytes": 20842
+    },
+    {
+      "id": "circle_natural_disasters",
+      "outcome": "policy-fallback",
+      "sourceBytes": 45892
+    },
+    {
+      "id": "text_scatterplot_colored",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72037
+    },
+    {
+      "id": "scatter_image",
+      "outcome": "policy-fallback",
+      "sourceBytes": 381
+    },
+    {
+      "id": "circle_custom_tick_labels",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281936
+    },
+    {
+      "id": "point_offset_random",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72126
+    },
+    {
+      "id": "line",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30437
+    },
+    {
+      "id": "line_overlay",
+      "outcome": "chart",
+      "sourceBytes": 30485,
+      "dataMarkCount": 56
+    },
+    {
+      "id": "line_overlay_stroked",
+      "outcome": "chart",
+      "sourceBytes": 30512,
+      "dataMarkCount": 56
+    },
+    {
+      "id": "line_color",
+      "outcome": "chart",
+      "sourceBytes": 30444,
+      "dataMarkCount": 5
+    },
+    {
+      "id": "repeat_layer",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281939
+    },
+    {
+      "id": "line_color_halo",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30970
+    },
+    {
+      "id": "line_slope",
+      "outcome": "chart",
+      "sourceBytes": 8808,
+      "dataMarkCount": 6
+    },
+    {
+      "id": "line_step",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30473
+    },
+    {
+      "id": "line_monotone",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30423
+    },
+    {
+      "id": "line_conditional_axis",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31027
+    },
+    {
+      "id": "connected_scatterplot",
+      "outcome": "chart",
+      "sourceBytes": 3190,
+      "dataMarkCount": 56
+    },
+    {
+      "id": "line_bump",
+      "outcome": "chart",
+      "sourceBytes": 780,
+      "dataMarkCount": 17
+    },
+    {
+      "id": "trail_color",
+      "outcome": "chart",
+      "sourceBytes": 30492,
+      "dataMarkCount": 5
+    },
+    {
+      "id": "trail_comet",
+      "outcome": "policy-fallback",
+      "sourceBytes": 9274
+    },
+    {
+      "id": "line_skip_invalid_mid_overlay",
+      "outcome": "chart",
+      "sourceBytes": 320,
+      "dataMarkCount": 6
+    },
+    {
+      "id": "layer_line_co2_concentration",
+      "outcome": "policy-fallback",
+      "sourceBytes": 46521
+    },
+    {
+      "id": "window_rank",
+      "outcome": "chart",
+      "sourceBytes": 1225,
+      "dataMarkCount": 4
+    },
+    {
+      "id": "sequence_line_fold",
+      "outcome": "policy-fallback",
+      "sourceBytes": 509
+    },
+    {
+      "id": "line_strokedash",
+      "outcome": "chart",
+      "sourceBytes": 30449,
+      "dataMarkCount": 5
+    },
+    {
+      "id": "line_dashed_part",
+      "outcome": "chart",
+      "sourceBytes": 638,
+      "dataMarkCount": 2
+    },
+    {
+      "id": "area",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 185896
+    },
+    {
+      "id": "area_gradient",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30605
+    },
+    {
+      "id": "area_overlay",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30471
+    },
+    {
+      "id": "stacked_area",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 185940
+    },
+    {
+      "id": "stacked_area_normalize",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 185987
+    },
+    {
+      "id": "stacked_area_stream",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 185997
+    },
+    {
+      "id": "area_horizon",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1066
+    },
+    {
+      "id": "rect_heatmap",
+      "outcome": "chart",
+      "sourceBytes": 71957,
+      "dataMarkCount": 9
+    },
+    {
+      "id": "rect_heatmap_weather",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159710
+    },
+    {
+      "id": "circle_github_punchcard",
+      "outcome": "chart",
+      "sourceBytes": 41709,
+      "dataMarkCount": 168
+    },
+    {
+      "id": "layer_text_heatmap",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72328
+    },
+    {
+      "id": "rect_lasagna",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30876
+    },
+    {
+      "id": "rect_mosaic_labelled_with_offset",
+      "outcome": "policy-fallback",
+      "sourceBytes": 74014
+    },
+    {
+      "id": "point_angle_windvector",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 403607
+    },
+    {
+      "id": "arc_pie",
+      "outcome": "chart",
+      "sourceBytes": 408,
+      "dataMarkCount": 6
+    },
+    {
+      "id": "arc_pie_normalize_tooltip",
+      "outcome": "chart",
+      "sourceBytes": 447,
+      "dataMarkCount": 6
+    },
+    {
+      "id": "arc_donut",
+      "outcome": "chart",
+      "sourceBytes": 436,
+      "dataMarkCount": 6
+    },
+    {
+      "id": "layer_arc_label",
+      "outcome": "chart",
+      "sourceBytes": 573,
+      "dataMarkCount": 12
+    },
+    {
+      "id": "arc_radial",
+      "outcome": "chart",
+      "sourceBytes": 531,
+      "dataMarkCount": 12
+    },
+    {
+      "id": "arc_pie_pyramid",
+      "outcome": "chart",
+      "sourceBytes": 745,
+      "dataMarkCount": 3
+    },
+    {
+      "id": "joinaggregate_mean_difference",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282095
+    },
+    {
+      "id": "joinaggregate_mean_difference_by_year",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282490
+    },
+    {
+      "id": "joinaggregate_residual_graph",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282386
+    },
+    {
+      "id": "waterfall_chart",
+      "outcome": "policy-fallback",
+      "sourceBytes": 2276
+    },
+    {
+      "id": "window_top_k",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1189
+    },
+    {
+      "id": "window_top_k_others",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282362
+    },
+    {
+      "id": "lookup",
+      "outcome": "policy-fallback",
+      "sourceBytes": 923
+    },
+    {
+      "id": "parallel_coordinate",
+      "outcome": "policy-fallback",
+      "sourceBytes": 52860
+    },
+    {
+      "id": "bar_argmax",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281886
+    },
+    {
+      "id": "layer_line_mean_point_raw",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30611
+    },
+    {
+      "id": "layer_line_rolling_mean_point_raw",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159891
+    },
+    {
+      "id": "layer_line_window",
+      "outcome": "policy-fallback",
+      "sourceBytes": 8100
+    },
+    {
+      "id": "point_quantile_quantile",
+      "outcome": "policy-fallback",
+      "sourceBytes": 25879
+    },
+    {
+      "id": "layer_point_line_regression",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282322
+    },
+    {
+      "id": "layer_point_line_loess",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282034
+    },
+    {
+      "id": "window_impute_null",
+      "outcome": "policy-fallback",
+      "sourceBytes": 799
+    },
+    {
+      "id": "ternary",
+      "outcome": "policy-fallback",
+      "sourceBytes": 7511
+    },
+    {
+      "id": "layer_point_errorbar_ci",
+      "outcome": "chart",
+      "sourceBytes": 8824,
+      "dataMarkCount": 20
+    },
+    {
+      "id": "layer_point_errorbar_stdev",
+      "outcome": "chart",
+      "sourceBytes": 8827,
+      "dataMarkCount": 20
+    },
+    {
+      "id": "layer_line_errorband_ci",
+      "outcome": "chart",
+      "sourceBytes": 72045,
+      "dataMarkCount": 2
+    },
+    {
+      "id": "layer_scatter_errorband_1D_stdev_global_mean",
+      "outcome": "chart",
+      "sourceBytes": 72237,
+      "dataMarkCount": 394
+    },
+    {
+      "id": "boxplot_minmax_2D_vertical",
+      "outcome": "chart",
+      "sourceBytes": 51008,
+      "dataMarkCount": 3
+    },
+    {
+      "id": "boxplot_2D_vertical",
+      "outcome": "chart",
+      "sourceBytes": 51019,
+      "dataMarkCount": 5
+    },
+    {
+      "id": "boxplot_preaggregated",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1070
+    },
+    {
+      "id": "layer_bar_fruit",
+      "outcome": "chart",
+      "sourceBytes": 863,
+      "dataMarkCount": 8
+    },
+    {
+      "id": "layer_bar_annotations",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1243
+    },
+    {
+      "id": "layer_precipitation_mean",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159596
+    },
+    {
+      "id": "layer_histogram_global_mean",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281845
+    },
+    {
+      "id": "layer_falkensee",
+      "outcome": "chart",
+      "sourceBytes": 2189,
+      "dataMarkCount": 41
+    },
+    {
+      "id": "layer_likert",
+      "outcome": "policy-fallback",
+      "sourceBytes": 9886
+    },
+    {
+      "id": "concat_layer_voyager_result",
+      "outcome": "policy-fallback",
+      "sourceBytes": 2170
+    },
+    {
+      "id": "layer_candlestick",
+      "outcome": "policy-fallback",
+      "sourceBytes": 5628
+    },
+    {
+      "id": "layer_ranged_dot",
+      "outcome": "chart",
+      "sourceBytes": 90965,
+      "dataMarkCount": 15
+    },
+    {
+      "id": "facet_bullet",
+      "outcome": "chart",
+      "sourceBytes": 1442,
+      "dataMarkCount": 30
+    },
+    {
+      "id": "layer_dual_axis",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 382270
+    },
+    {
+      "id": "bar_layered_weather",
+      "outcome": "chart",
+      "sourceBytes": 2697,
+      "dataMarkCount": 50
+    },
+    {
+      "id": "wheat_wages",
+      "outcome": "policy-fallback",
+      "sourceBytes": 5212
+    },
+    {
+      "id": "trellis_bar",
+      "outcome": "policy-fallback",
+      "sourceBytes": 27617
+    },
+    {
+      "id": "trellis_stacked_bar",
+      "outcome": "chart",
+      "sourceBytes": 8646,
+      "dataMarkCount": 120
+    },
+    {
+      "id": "trellis_scatter",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1281817
+    },
+    {
+      "id": "trellis_bar_histogram",
+      "outcome": "chart",
+      "sourceBytes": 71914,
+      "dataMarkCount": 20
+    },
+    {
+      "id": "trellis_anscombe",
+      "outcome": "chart",
+      "sourceBytes": 1790,
+      "dataMarkCount": 44
+    },
+    {
+      "id": "trellis_barley",
+      "outcome": "chart",
+      "sourceBytes": 9131,
+      "dataMarkCount": 120
+    },
+    {
+      "id": "trellis_area",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30697
+    },
+    {
+      "id": "trellis_area_seattle",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 741381
+    },
+    {
+      "id": "area_density_facet",
+      "outcome": "policy-fallback",
+      "sourceBytes": 51026
+    },
+    {
+      "id": "facet_grid_bar",
+      "outcome": "chart",
+      "sourceBytes": 1614,
+      "dataMarkCount": 27
+    },
+    {
+      "id": "vconcat_weather",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 382074
+    },
+    {
+      "id": "repeat_histogram",
+      "outcome": "policy-fallback",
+      "sourceBytes": 71963
+    },
+    {
+      "id": "interactive_splom",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72594
+    },
+    {
+      "id": "concat_marginal_histograms",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282222
+    },
+    {
+      "id": "concat_bar_scales_discretize",
+      "outcome": "chart",
+      "sourceBytes": 1465,
+      "dataMarkCount": 27
+    },
+    {
+      "id": "nested_concat_align",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282220
+    },
+    {
+      "id": "concat_population_pyramid",
+      "outcome": "policy-fallback",
+      "sourceBytes": 28263
+    },
+    {
+      "id": "geo_choropleth",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 735371
+    },
+    {
+      "id": "geo_circle",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 5046287
+    },
+    {
+      "id": "geo_layer",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1116493
+    },
+    {
+      "id": "geo_rule",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 2339182
+    },
+    {
+      "id": "geo_repeat",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 648043
+    },
+    {
+      "id": "geo_text",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 646644
+    },
+    {
+      "id": "geo_line",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1590747
+    },
+    {
+      "id": "geo_trellis",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 693699
+    },
+    {
+      "id": "geo_layer_line_london",
+      "outcome": "policy-fallback",
+      "sourceBytes": 98471
+    },
+    {
+      "id": "geo_params_projections",
+      "outcome": "policy-fallback",
+      "sourceBytes": 120004
+    },
+    {
+      "id": "interactive_geo_earthquakes",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1339035
+    },
+    {
+      "id": "interactive_geo_facet_species",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 3049805
+    },
+    {
+      "id": "interactive_bar_select_highlight",
+      "outcome": "policy-fallback",
+      "sourceBytes": 855
+    },
+    {
+      "id": "interactive_histogram_full_height_hover",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282046
+    },
+    {
+      "id": "interactive_legend",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 186157
+    },
+    {
+      "id": "point_href",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72223
+    },
+    {
+      "id": "interactive_brush",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72118
+    },
+    {
+      "id": "interactive_area_brush",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 186007
+    },
+    {
+      "id": "interactive_paintbrush",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72096
+    },
+    {
+      "id": "selection_translate_scatterplot_drag",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72047
+    },
+    {
+      "id": "interactive_query_widgets",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72577
+    },
+    {
+      "id": "selection_layer_bar_month",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159784
+    },
+    {
+      "id": "interactive_line_hover",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31298
+    },
+    {
+      "id": "interactive_line_point_hover",
+      "outcome": "policy-fallback",
+      "sourceBytes": 30899
+    },
+    {
+      "id": "interactive_multi_line_label",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31179
+    },
+    {
+      "id": "interactive_multi_line_pivot_tooltip",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31028
+    },
+    {
+      "id": "interactive_multi_line_tooltip",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 159931
+    },
+    {
+      "id": "isotype_grid",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1897
+    },
+    {
+      "id": "brush_table",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72844
+    },
+    {
+      "id": "selection_heatmap",
+      "outcome": "policy-fallback",
+      "sourceBytes": 1056
+    },
+    {
+      "id": "bar_count_minimap",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72218
+    },
+    {
+      "id": "interactive_index_chart",
+      "outcome": "policy-fallback",
+      "sourceBytes": 31291
+    },
+    {
+      "id": "interactive_bin_extent",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 446726
+    },
+    {
+      "id": "dynamic_color_legend",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 160744
+    },
+    {
+      "id": "param_search_input",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72136
+    },
+    {
+      "id": "selection_type_point_zorder",
+      "outcome": "policy-fallback",
+      "sourceBytes": 72224
+    },
+    {
+      "id": "interactive_overview_detail",
+      "outcome": "policy-fallback",
+      "sourceBytes": 5399
+    },
+    {
+      "id": "interactive_crossfilter",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 178977
+    },
+    {
+      "id": "interactive_layered_crossfilter",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 179099
+    },
+    {
+      "id": "interactive_concat_layer",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 1282573
+    },
+    {
+      "id": "interactive_seattle_weather",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 160463
+    },
+    {
+      "id": "airport_connections",
+      "outcome": "source-size-fallback",
+      "sourceBytes": 2614390
+    },
+    {
+      "id": "interactive_global_development",
+      "outcome": "policy-fallback",
+      "sourceBytes": 69296
+    }
+  ]
+}

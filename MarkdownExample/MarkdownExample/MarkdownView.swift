@@ -15,8 +15,12 @@ struct MarkdownView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let webURL: URL
-    private let markdown: String
+    @State private var markdown: String?
+    @State private var loadError: String?
+    private let localPath: String
     private let tagPrefixes: Set<TagPrefix>
+    private let inputID: UUID
+    private let chunkCharacters: Int?
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -34,12 +38,39 @@ struct MarkdownView: View {
 
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
-        self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
+        self.localPath = example.localPath
+        self._markdown = State(initialValue: example.chunkCharacters == nil ? try! example.loadMarkdown() : nil)
         self.tagPrefixes = example.tagPrefixes
+        self.inputID = example.id
+        self.chunkCharacters = example.chunkCharacters
     }
 
     var body: some View {
+        Group {
+            if let markdown {
+                loadedContent(markdown)
+            } else if let loadError {
+                ContentUnavailableView("Unable to load gallery", systemImage: "exclamationmark.triangle",
+                                       description: Text(loadError))
+            } else {
+                ProgressView("Loading gallery…")
+            }
+        }
+        .task(id: inputID) {
+            guard markdown == nil, chunkCharacters != nil else { return }
+            do {
+                let text = try await loadGalleryMarkdown(from: localPath)
+                try Task.checkCancellation()
+                markdown = text
+            } catch is CancellationError {
+                return
+            } catch {
+                loadError = error.localizedDescription
+            }
+        }
+    }
 
+    private func loadedContent(_ markdown: String) -> some View {
         HStack {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
@@ -50,6 +81,8 @@ struct MarkdownView: View {
                             // properties so scrollPosition state changes don't
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
+                                                     inputID: inputID,
+                                                     chunkCharacters: chunkCharacters,
                                                      tagPrefixes: tagPrefixes,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
@@ -68,14 +101,16 @@ struct MarkdownView: View {
                         }
                     }
                 }
-                Tab("Diagnostics", systemImage: "ladybug") {
-                    ScrollView {
-                        PicoMarkdownDebugView(text: markdown)
+                if chunkCharacters == nil {
+                    Tab("Diagnostics", systemImage: "ladybug") {
+                        ScrollView {
+                            PicoMarkdownDebugView(text: markdown)
+                        }
                     }
-                }
-                Tab("Plain Text", systemImage: "text.alignleft") {
-                    ScrollView {
-                        Text(markdown)
+                    Tab("Plain Text", systemImage: "text.alignleft") {
+                        ScrollView {
+                            Text(markdown)
+                        }
                     }
                 }
             }
@@ -199,12 +234,14 @@ private enum AutoScrollConfig {
 }
 
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
-/// SwiftUI compares only the `markdown` string via `==` and skips body
-/// re-evaluation when the parent re-renders due to scroll-position changes,
+/// SwiftUI compares the stable input identity and skips body re-evaluation
+/// when the parent re-renders due to scroll-position changes,
 /// preventing the stream from restarting. The closures and `tagPrefixes` are
 /// excluded from `==` — they're stable for a given document.
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
+    let inputID: UUID
+    let chunkCharacters: Int?
     let tagPrefixes: Set<TagPrefix>
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
@@ -213,14 +250,18 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onContentSize: (CGSize) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.markdown == rhs.markdown
+        lhs.inputID == rhs.inputID && lhs.chunkCharacters == rhs.chunkCharacters
     }
 
     var body: some View {
-        PicoMarkdownView(stream: { [markdown] in
-            wordStream(from: markdown)
+        PicoMarkdownView(stream: { [markdown, chunkCharacters] in
+            if let chunkCharacters {
+                let cursor = MarkdownChunkCursor(markdown: markdown, chunkCharacters: chunkCharacters)
+                return AsyncStream(unfolding: { await cursor.next() })
+            }
+            return wordStream(from: markdown)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes)
-            .id(markdown)
+            .id(inputID)
             .textSelection(.enabled)
             .padding()
             .onOpenLink { [onOpenURL] url in
@@ -253,6 +294,28 @@ private struct StreamingMarkdownContent: View, Equatable {
     }
 }
 
+/// Pull-based delivery prevents a large gallery from filling an unbounded
+/// AsyncStream queue while the renderer is still consuming earlier chunks.
+private actor MarkdownChunkCursor {
+    private let markdown: String
+    private let chunkCharacters: Int
+    private var index: String.Index
+
+    init(markdown: String, chunkCharacters: Int) {
+        self.markdown = markdown
+        self.chunkCharacters = max(1, chunkCharacters)
+        self.index = markdown.startIndex
+    }
+
+    func next() -> String? {
+        guard !Task.isCancelled, index < markdown.endIndex else { return nil }
+        let end = markdown.index(index, offsetBy: chunkCharacters, limitedBy: markdown.endIndex) ?? markdown.endIndex
+        let chunk = String(markdown[index..<end])
+        index = end
+        return chunk
+    }
+}
+
 /// Creates a word-by-word AsyncStream from markdown text, simulating ~30 words/sec LLM inference.
 private func wordStream(from markdown: String) -> AsyncStream<String> {
     AsyncStream<String> { continuation in
@@ -282,4 +345,15 @@ private func wordStream(from markdown: String) -> AsyncStream<String> {
             task.cancel()
         }
     }
+}
+
+/// The full corpus is a deliberately large test fixture. Inflate it away from
+/// the UI actor; ordinary examples retain their existing small-file path.
+@concurrent
+private func loadGalleryMarkdown(from path: String) async throws -> String {
+    try Task.checkCancellation()
+    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let decoded = try (data as NSData).decompressed(using: .zlib) as Data
+    try Task.checkCancellation()
+    return String(decoding: decoded, as: UTF8.self)
 }
