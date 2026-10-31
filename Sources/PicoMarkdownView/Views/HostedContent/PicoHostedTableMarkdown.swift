@@ -128,13 +128,15 @@ enum PicoHostedTableMarkdown {
     }
 
     private static func escapeTitle(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: " ")
     }
 
     private static func escapeDestination(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "(", with: "\\(")
             .replacingOccurrences(of: ")", with: "\\)")
             .replacingOccurrences(of: " ", with: "%20")
