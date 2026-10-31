@@ -171,6 +171,32 @@ struct HTMLPreviewPolicyTests {
         #expect(prepared.document() == light, "Composing another appearance must not mutate sanitized content")
     }
 
+    @Test("Sanitized document direction survives shell composition without overriding the body", arguments: ["ltr", "rtl", "auto"])
+    func preservesDocumentDirection(direction: String) throws {
+        let source = "<html dir='\(direction)' onload='alert(1)' id='author-root' style='position:fixed'><body dir='ltr'><p>Report</p></body></html>"
+        let prepared = try HTMLPreviewPolicy.prepare(source: source)
+        var dark = HTMLPreviewStyle.default
+        dark.isDark = true
+        for document in [prepared.document(), prepared.document(style: dark)] {
+            let parsed = try XMLDocument(xmlString: document.html, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever])
+            let root = try #require(parsed.rootElement())
+            let body = try #require(root.elements(forName: "body").first)
+            #expect(root.attribute(forName: "dir")?.stringValue == direction)
+            #expect(body.attribute(forName: "dir")?.stringValue == "ltr")
+            #expect(Set((root.attributes ?? []).compactMap(\.name)) == ["dir", "style"],
+                    "Only document direction joins the app-owned root styles")
+            try expectInert(document)
+        }
+    }
+
+    @Test("Invalid root direction is discarded")
+    func rejectsInvalidDocumentDirection() throws {
+        let document = try prepareDocument(source: "<html dir='sideways'><body><p>Report</p></body></html>")
+        let parsed = try XMLDocument(xmlString: document.html, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever])
+        #expect(parsed.rootElement()?.attribute(forName: "dir") == nil)
+        #expect(document.plainText == "Report")
+    }
+
     @Test("Production preparation leaves MainActor responsive while its worker is occupied", .timeLimit(.minutes(1)))
     @MainActor
     func preparationRunsOffMainActor() async throws {

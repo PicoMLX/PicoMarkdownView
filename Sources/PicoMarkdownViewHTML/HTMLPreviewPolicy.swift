@@ -25,6 +25,7 @@ nonisolated struct HTMLPreparedContent: Sendable, Equatable {
     fileprivate let authorStylesHTML: String
     fileprivate let bodyAttributesHTML: String
     fileprivate let bodyStyleHTML: String
+    fileprivate let documentDirection: String?
     let plainText: String
 
     func document(style: HTMLPreviewStyle = .default) -> HTMLPreviewDocument {
@@ -77,6 +78,7 @@ nonisolated enum HTMLPreviewPolicy {
             authorStylesHTML: builder.styles.map { "<style>" + escapeCSSRawText($0) + "</style>" }.joined(),
             bodyAttributesHTML: attributesHTML(bodyAttributes),
             bodyStyleHTML: escapeAttribute(bodyStyle),
+            documentDirection: builder.documentDirection,
             plainText: String(builder.plainText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16_384))
         )
     }
@@ -103,8 +105,9 @@ nonisolated enum HTMLPreviewPolicy {
         """
         let staticCSS = "*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }"
         let rootStyle = "display:flow-root!important;width:100%!important;box-sizing:border-box!important;min-width:0!important;position:relative!important;overflow-wrap:anywhere!important"
+        let direction = content.documentDirection.map { " dir=\"" + escapeAttribute($0) + "\"" } ?? ""
         let html = """
-        <!doctype html><html style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)"><div id="\(contentElementID)" style="\(rootStyle)">\(content.bodyHTML)</div></body></html>
+        <!doctype html><html\(direction) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)"><div id="\(contentElementID)" style="\(rootStyle)">\(content.bodyHTML)</div></body></html>
         """
         return HTMLPreviewDocument(html: html, plainText: content.plainText)
     }
@@ -210,6 +213,7 @@ nonisolated enum HTMLPreviewPolicy {
         var styles: [String] = []
         var plainText = ""
         var bodyAttributes: [(String, String)] = []
+        var documentDirection: String?
 
         mutating func render(_ node: XMLNode) throws -> String {
             if node.kind == .text {
@@ -227,7 +231,11 @@ nonisolated enum HTMLPreviewPolicy {
                 return ""
             }
             if name == "html" || name == "body" {
-                if name == "body" { bodyAttributes = safeAttributes(of: element, name: name) }
+                if name == "html" {
+                    documentDirection = safeAttributes(of: element, name: name).first { $0.0 == "dir" }?.1
+                } else {
+                    bodyAttributes = safeAttributes(of: element, name: name)
+                }
                 return try (element.children ?? []).map { try render($0) }.joined()
             }
             if name == "img" {
