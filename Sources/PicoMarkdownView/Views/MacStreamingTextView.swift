@@ -63,6 +63,18 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
 
+    nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager,
+                                       renderingAttributesForLink link: Any,
+                                       at location: NSTextLocation,
+                                       defaultAttributes renderingAttributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any]? {
+        guard Self.linkURL(from: link)?.scheme?.lowercased() == "pico-image-activation" else { return nil }
+        // Keep native link tracking and its cursor without underlining the
+        // full-width attachment used to host a clickable image.
+        var attributes = renderingAttributes
+        attributes[.underlineStyle] = 0
+        return attributes
+    }
+
     /// Hit testing for context menus uses the visible image, not the wider
     /// hosted attachment frame. Activation itself uses native link tracking.
     func imageCanvasTarget(at point: NSPoint) -> PicoHostedMediaCanvasView? {
@@ -404,7 +416,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return NSTextRange(location: start, end: end)
     }
 
-    private static func linkURL(from link: Any) -> URL? {
+    nonisolated private static func linkURL(from link: Any) -> URL? {
         if let url = link as? URL { return url }
         if let string = link as? String { return URL(string: string) }
         return nil
