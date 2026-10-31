@@ -9,22 +9,30 @@ struct PicoHostedMediaView: View {
 
     var body: some View {
         let width = model.viewportWidth(availableWidth: context.availableWidth)
-        if model.isLoading {
-            Group {
-                if model.showsLoadingPlaceholder {
-                    PicoHostedLoadingView(activity: model.loadingActivity,
-                                          isSelected: context.isSelected) {
-                        Text(model.loadingAccessibilityLabel ?? "")
-                    }
-                } else {
-                    Color.clear.accessibilityHidden(true)
-                }
-            }
-            .frame(width: width, height: PicoHostedMediaModel.loadingHeight)
-        } else {
+        // Keep the native drawing view in the same hosting hierarchy when
+        // the loading row becomes a graphic. Only its presentation changes.
+        ZStack(alignment: .topLeading) {
             PicoHostedMediaCanvas(model: model, isSelected: context.isSelected)
                 .frame(width: width,
                        height: model.viewportHeight(availableWidth: width))
+            if model.isLoadingSVG {
+                PicoSVGLoadingView(isVisible: model.showsLoadingPlaceholder,
+                                   activity: model.loadingActivity,
+                                   isSelected: context.isSelected)
+                    .frame(width: width)
+            } else if model.isLoading {
+                Group {
+                    if model.showsLoadingPlaceholder {
+                        PicoHostedLoadingView(activity: model.loadingActivity,
+                                              isSelected: context.isSelected) {
+                            Text(model.loadingAccessibilityLabel ?? "")
+                        }
+                    } else {
+                        Color.clear.accessibilityHidden(true)
+                    }
+                }
+                .frame(width: width, height: PicoHostedMediaModel.loadingHeight)
+            }
         }
     }
 }

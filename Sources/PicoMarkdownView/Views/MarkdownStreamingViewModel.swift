@@ -41,6 +41,8 @@ final class MarkdownStreamingViewModel {
     /// Presentation activity is independent of canonical block closure: a
     /// cancelled source can leave a hosted fence incomplete.
     private(set) var isHostedStreamActive = false
+    /// Compatibility for SVG callers; all hosted fences share one activity lifecycle.
+    var isSVGStreamActive: Bool { isHostedStreamActive }
     private var pendingDocumentIdentity: UInt64 = 0
     private var textScaleRequestRevision: UInt64 = 0
     private var contentWidthRequestRevision: UInt64 = 0

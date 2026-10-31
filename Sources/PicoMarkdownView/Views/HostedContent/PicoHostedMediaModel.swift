@@ -41,6 +41,8 @@ final class PicoHostedMediaModel {
     enum LoadingActivity: Equatable { case receiving, paused, stopped }
     static let loadingDelay: Duration = .milliseconds(350)
     static let loadingHeight: CGFloat = 48
+    static let svgLoadingDelay = loadingDelay
+    static let svgLoadingHeight = loadingHeight
 
     private(set) var kind: Kind
     private(set) var altText = ""
@@ -124,7 +126,7 @@ final class PicoHostedMediaModel {
         let maxWidth = Self.normalizedMaxWidth(maxWidth)
         guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed
                 || self.maxWidth != maxWidth || self.kind != kind else { return }
-        let shouldParse = kind == .vegaLite
+        let shouldParse = kind == .vegaLite || kind == .svg
             ? isClosed && (self.svg != svg || self.kind != kind || !self.isClosed)
             : self.svg != svg || self.kind != kind
         self.kind = kind
@@ -145,11 +147,25 @@ final class PicoHostedMediaModel {
 
     var isImage: Bool { kind == .image }
     var isRenderable: Bool { isImage ? image != nil : document != nil }
-    var isLoading: Bool { kind == .vegaLite && !isClosed }
+    var isLoading: Bool { (kind == .vegaLite || kind == .svg) && !isClosed }
+    var isLoadingSVG: Bool { kind == .svg && !isClosed }
 
     /// The native hosting root exposes this status while SwiftUI supplies the chrome.
     var loadingAccessibilityLabel: String? {
         guard isLoading, showsLoadingPlaceholder else { return nil }
+        if kind == .svg {
+            switch loadingActivity {
+            case .receiving:
+                return String(localized: "Preparing graphic…", table: "SVGLoading", bundle: .module,
+                              comment: "Status shown while an SVG graphic's source is still arriving.")
+            case .paused:
+                return String(localized: "Graphic paused", table: "SVGLoading", bundle: .module,
+                              comment: "Status shown when displaying new SVG source is paused.")
+            case .stopped:
+                return String(localized: "Graphic incomplete", table: "SVGLoading", bundle: .module,
+                              comment: "Status shown when an SVG stream stops before its graphic is complete.")
+            }
+        }
         switch loadingActivity {
         case .receiving:
             return String(localized: "Receiving chart…", table: "HostedLoading", bundle: .module,
@@ -176,7 +192,7 @@ final class PicoHostedMediaModel {
 
     /// Retired attachments must not reveal a delayed indicator or keep animating.
     func finishLoading() {
-        guard kind == .vegaLite else { return }
+        guard kind == .vegaLite || kind == .svg else { return }
         loadingTask?.cancel()
         loadingTask = nil
         let didChange = showsLoadingPlaceholder || loadingActivity != .stopped
@@ -187,6 +203,11 @@ final class PicoHostedMediaModel {
 
     func waitForLoadingDelay() async {
         await loadingTask?.value
+    }
+
+    /// Compatibility for SVG's original deterministic loading seam.
+    func waitForSVGLoadingDelay() async {
+        await waitForLoadingDelay()
     }
 
     private func scheduleLoadingReveal(using timing: HostedLoadingTiming) {

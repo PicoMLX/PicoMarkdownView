@@ -357,7 +357,9 @@ A native Markdown paragraph after the graphic.
 
 SVG rendering is off by default. Only `svg` fences opt into this presentation; raw HTML and ordinary code fences keep their existing behavior. iOS continues to display SVG fences as code, and math keeps its current renderer.
 
-An open SVG fence remains source code while it streams. When the block closes, a valid, supported SVG becomes one TextKit 2 hosted attachment. Surrounding Markdown stays in the same text view; the tokenizer and assembler remain incremental. Resizing and zooming redraw the existing native image without reparsing the SVG source.
+While an SVG fence streams on macOS, its raw XML is hidden. If it stays open for 350 ms, a subtle loading card appears in its place; fences that finish sooner avoid a loading flash. Pausing presentation or canceling the stream leaves a static status instead of an indefinitely spinning indicator. Canceling does not finish or change the parser's open fence.
+
+When the block closes, a valid, supported SVG replaces the loading presentation. The completed source is decoded once; no incomplete SVG prefixes are rendered. Malformed or unsupported completed SVG returns to readable source code. Surrounding Markdown stays in the same TextKit 2 view; the tokenizer and assembler remain incremental. Resizing and zooming redraw the existing native image without reparsing the SVG source. Copying an open loading attachment still exports its received SVG source in a Markdown fence.
 
 SVG uses the same bounded viewport, hover/focus Liquid Glass zoom pair, pan behavior and whole-block selection as Mermaid. **Copy SVG** copies its fenced Markdown; **Copy source** copies only the SVG body. A document selection spanning prose and a graphic expands the attachment to its fenced source. The SVG’s own colors and transparency are retained, so authors should choose colors that work against the page background and supply a descriptive `<title>` or `<desc>`.
 

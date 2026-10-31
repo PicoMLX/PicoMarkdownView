@@ -141,11 +141,11 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool {
-        !model.isImage && viewport.contains(point) && model.capturesScroll
+        !isHidden && !model.isImage && viewport.contains(point) && model.capturesScroll
     }
 
     func acceptsHostedAttachmentMagnification(at point: NSPoint) -> Bool {
-        !model.isImage && viewport.contains(point)
+        !isHidden && !model.isImage && viewport.contains(point)
     }
 
     override func accessibilityPerformPress() -> Bool {
@@ -231,6 +231,11 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     }
 
     func refreshPresentation() {
+        // An open vector source has no drawing yet. Keep its native view stable, but
+        // exclude it and its controls from input and accessibility while the
+        // SwiftUI loading row supplies the presentation.
+        isHidden = model.isLoading
+        guard !isHidden else { return }
         // Source, pan and gesture updates interrupt an in-flight button zoom.
         if !isApplyingAnimatedZoom { cancelZoomAnimation() }
         if model.isImage {

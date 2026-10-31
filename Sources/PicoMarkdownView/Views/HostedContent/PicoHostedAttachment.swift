@@ -53,6 +53,8 @@ public final class PicoHostedAttachment: NSTextAttachment {
         if abs(measuredSize.width - context.availableWidth) > 0.5 {
             setMeasuredSize(CGSize(width: context.availableWidth, height: measuredSize.height))
             invalidateSize()
+        } else {
+            reconcileHostedViewSize()
         }
     }
 
@@ -77,6 +79,7 @@ public final class PicoHostedAttachment: NSTextAttachment {
             guard let self else { return }
             self.measurementScheduled = false
             guard let hostedView = self.hostedView else { return }
+            self.reconcileHostedViewSize()
             hostedView.layoutSubtreeIfNeeded()
             self.setMeasuredSize(CGSize(width: self.context.availableWidth,
                                         height: hostedView.fittingSize.height))
@@ -93,9 +96,13 @@ public final class PicoHostedAttachment: NSTextAttachment {
     static func lookup(_ id: UUID) -> PicoHostedAttachment? { attachments[id]?.value }
 
     func loadHostedView() -> NSView {
-        if let hostedView { return hostedView }
-        // TextKit may mount during its own layout before the parent supplies
-        // context. Start SwiftUI at the width already reserved for this view.
+        if let hostedView {
+            reconcileHostedViewSize()
+            invalidateSize()
+            return hostedView
+        }
+        // TextKit may mount before the parent supplies context. Start SwiftUI
+        // at the width already reserved for this view.
         context.update(availableWidth: measuredSize.width, isSelected: context.isSelected)
         let root = PicoMeasuredHostedContent(context: context, content: content,
                                             onHeight: { [weak self] _ in self?.invalidateSize() })
@@ -111,12 +118,30 @@ public final class PicoHostedAttachment: NSTextAttachment {
     private func setMeasuredSize(_ proposed: CGSize) {
         guard proposed.width.isFinite, proposed.height.isFinite, proposed.height > 0 else { return }
         let size = CGSize(width: max(1, proposed.width), height: max(1, ceil(proposed.height)))
-        guard abs(size.width - measuredSize.width) > 0.5 || abs(size.height - measuredSize.height) > 0.5 else { return }
-        measuredSize = size
-        bounds.size = size
-        hostedView?.setFrameSize(size)
+        let changed = abs(size.width - measuredSize.width) > 0.5 || abs(size.height - measuredSize.height) > 0.5
+        if changed {
+            measuredSize = size
+            bounds.size = size
+        }
+        reconcileHostedViewSize()
+        guard changed else { return }
         onLayoutInvalidated?(size)
         onSizeChanged?(size)
+    }
+
+    private func reconcileHostedViewSize() {
+        guard let hostedView else { return }
+        // TextKit can reset a provider's view to zero while the attachment's
+        // cached measurement stays valid. Repair the actual view independently
+        // of measurement changes, without issuing another layout notification.
+        if abs(hostedView.frame.width - measuredSize.width) > 0.5
+            || abs(hostedView.frame.height - measuredSize.height) > 0.5 {
+            hostedView.setFrameSize(measuredSize)
+        }
+        if abs(hostedView.bounds.width - measuredSize.width) > 0.5
+            || abs(hostedView.bounds.height - measuredSize.height) > 0.5 {
+            hostedView.setBoundsSize(measuredSize)
+        }
     }
 }
 #endif

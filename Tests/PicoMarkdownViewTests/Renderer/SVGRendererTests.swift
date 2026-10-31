@@ -50,28 +50,54 @@ struct SVGRendererTests {
 #if os(macOS)
         #expect(svgCode.svgGraphic?.source == source + "\n")
         #expect(svgCode.svgGraphic?.language == "svg")
+        #expect(svgCode.svgGraphic?.isClosed == true)
 #else
         #expect(svgCode.svgGraphic == nil, "UIKit SVG remains its existing code presentation")
 #endif
     }
 
-    @Test("Open SVG fences stream as native code until they close")
-    func noPresentationForOpenFence() async throws {
+    @Test("Open SVG reserves hosted loading metadata on macOS while UIKit keeps native code")
+    func openFenceReservesLoadingPresentation() async throws {
         let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
         _ = await pipeline.feed("Before.\n\n```svg\n" + source + "\n")
         let open = try #require(await pipeline.blocksSnapshot().first { $0.codeBlock?.language == "svg" })
         #expect(!open.snapshot.isClosed)
+#if os(macOS)
+        #expect(open.svgGraphic?.source == source + "\n")
+        #expect(open.svgGraphic?.isClosed == false)
+        #expect(String(open.content.characters) == "\u{FFFC}\n")
+        #expect(open.codeBlock?.code == source + "\n", "Raw SVG remains available for copying")
+#else
         #expect(open.svgGraphic == nil)
         #expect(String(open.content.characters).contains("<rect"))
+#endif
         _ = await pipeline.feed("```\n\nAfter.\n\n")
         _ = await pipeline.finish()
         let closed = try #require(await pipeline.blocksSnapshot().first { $0.codeBlock?.language == "svg" })
         #expect(closed.snapshot.isClosed)
 #if os(macOS)
         #expect(closed.svgGraphic?.source == source + "\n")
+        #expect(closed.svgGraphic?.isClosed == true)
 #else
         #expect(closed.svgGraphic == nil)
 #endif
+    }
+
+    @Test("An empty open SVG fence already reserves its loading row on macOS")
+    func emptyOpenFence() async throws {
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
+        _ = await pipeline.feed("```svg\n")
+        let open = try #require(await pipeline.blocksSnapshot().first { $0.codeBlock?.language == "svg" })
+        #expect(!open.snapshot.isClosed)
+#if os(macOS)
+        #expect(open.svgGraphic?.source == "")
+        #expect(open.svgGraphic?.isClosed == false)
+        #expect(String(open.content.characters) == "\u{FFFC}\n")
+#else
+        #expect(open.svgGraphic == nil)
+        #expect(!String(open.content.characters).contains("\u{FFFC}"))
+#endif
+        _ = await pipeline.finish()
     }
 
     @Test("Single-character chunks and a single feed produce identical SVG presentation")
