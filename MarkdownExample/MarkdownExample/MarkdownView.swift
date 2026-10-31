@@ -7,6 +7,9 @@
 
 import SwiftUI
 import PicoMarkdownView
+#if os(macOS)
+import PicoMarkdownViewHTML
+#endif
 import WebKit
 
 struct MarkdownView: View {
@@ -17,6 +20,7 @@ struct MarkdownView: View {
     private let webURL: URL
     private let markdown: String
     private let tagPrefixes: Set<TagPrefix>
+    private let htmlPreviewsEnabled: Bool
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -36,6 +40,7 @@ struct MarkdownView: View {
         self.webURL = example.webURL
         self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
         self.tagPrefixes = example.tagPrefixes
+        self.htmlPreviewsEnabled = example.htmlPreviewsEnabled
     }
 
     var body: some View {
@@ -51,6 +56,7 @@ struct MarkdownView: View {
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
                                                      tagPrefixes: tagPrefixes,
+                                                     htmlPreviewsEnabled: htmlPreviewsEnabled,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
                                                      onTagHover: { tagHoverReadout = $0 },
@@ -206,6 +212,7 @@ private enum AutoScrollConfig {
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let tagPrefixes: Set<TagPrefix>
+    let htmlPreviewsEnabled: Bool
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
     let onTagHover: (String?) -> Void
@@ -213,13 +220,27 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onContentSize: (CGSize) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.markdown == rhs.markdown
+        lhs.markdown == rhs.markdown && lhs.htmlPreviewsEnabled == rhs.htmlPreviewsEnabled
     }
 
-    var body: some View {
+    private var streamingMarkdownView: PicoMarkdownView {
+#if os(macOS)
+        PicoMarkdownView(stream: { [markdown] in
+            wordStream(from: markdown)
+        }, theme: exampleTheme, tagPrefixes: tagPrefixes,
+           embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
+#else
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes)
+#endif
+    }
+
+    var body: some View {
+        streamingMarkdownView
+#if os(macOS)
+            .id(htmlPreviewsEnabled)
+#endif
             .id(markdown)
             .textSelection(.enabled)
             .padding()

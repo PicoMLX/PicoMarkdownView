@@ -229,6 +229,21 @@ The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele vers
 
 Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
 
+### HTML previews (macOS, opt-in)
+
+The optional `PicoMarkdownViewHTML` product displays closed raw HTML blocks and explicit `html-preview` fences as static HTML/CSS views inside the macOS TextKit 2 document. Ordinary `html` fences remain code; surrounding Markdown and math keep their existing renderers.
+
+Add the additional product to your macOS target, then opt in:
+
+```swift
+import PicoMarkdownView
+import PicoMarkdownViewHTML
+
+PicoMarkdownView(stream: makeStream, embeddedBlockRenderers: [.htmlPreview])
+```
+
+Previews appear after the block closes, preserve source copying as a single selection unit, and reflow with the available width. Scripts, navigation, forms and network resources are disabled; images become alternative text. The core product remains WebKit-free, and iOS rendering is unchanged. See [HTML preview setup and behavior](Documentation/HTMLPreviews.md) for conditional dependencies, raw HTML boundaries, and examples. The macOS example app's **HTMLPreviews** document opts in separately from the other samples.
+
 ### Resetting Content
 
 To replace content, pass a new string/chunks/stream so the view creates a fresh input:
@@ -407,5 +422,6 @@ HTML blocks follow CommonMark: a line that starts with raw HTML (`<div>`,
 `<details>`, a comment, a lone tag, …) begins a `BlockKind.htmlBlock` whose
 lines are kept verbatim, Markdown included, until its end condition (for most
 tags, a blank line). Its text arrives like code, in `BlockSnapshot.codeText`,
-and PicoMarkdownView shows it as plain text in the body font; nothing is
-rendered as HTML.
+and PicoMarkdownView shows it as plain text in the body font by default.
+The optional macOS [HTML preview adapter](Documentation/HTMLPreviews.md) can
+render closed blocks when explicitly enabled.
