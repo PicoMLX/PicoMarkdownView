@@ -93,13 +93,66 @@ import Testing
     }
 
     @Test func dataColumnsAreNotInterpretedAsSpecificationKeys() {
-        let source = #"{"data":{"values":[{"url":"https://example.com","expr":"column data","calculate":"ordinary column","filter":"ordinary column","test":"ordinary column","x":2}]},"mark":"bar","encoding":{"x":{"field":"x","type":"quantitative"}}}"#
+        let source = #"{"data":{"values":[{"url":"https://example.com","expr":"column data","calculate":"ordinary column","filter":"ordinary column","test":"ordinary column","op":"values","aggregate":"values","x":2}]},"mark":"bar","encoding":{"x":{"field":"x","type":"quantitative"}}}"#
         #expect(VegaLiteSpecPolicy.accepts(source))
     }
 
     @Test func boundedDeclarativeTransformsRemainAvailable() {
         let source = #"{"data":{"values":[{"category":"A","value":2},{"category":"A","value":3}]},"transform":[{"filter":{"field":"value","gte":2}},{"aggregate":[{"op":"sum","field":"value","as":"total"}],"groupby":["category"]}],"mark":"bar","encoding":{"x":{"field":"category","type":"nominal"},"y":{"field":"total","type":"quantitative"}}}"#
         #expect(VegaLiteSpecPolicy.accepts(source))
+    }
+
+    @Test func groupCollectionsAreRejectedBeforeRendering() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": (0..<4_096).map { ["x": $0] }],
+            "transform": [["joinaggregate": [["op": "values", "field": "x", "as": "all"]]]],
+            "mark": "text", "encoding": ["text": ["field": "all"]]
+        ])
+        let source = String(decoding: data, as: UTF8.self)
+        try #require(data.count < VegaLiteSpecPolicy.maxSourceBytes)
+        // This is deliberately preflight-only: repeated group arrays would
+        // otherwise allocate quadratic SVG text before an output-size check.
+        let acceptedBeforeJavaScript = VegaLiteSpecPolicy.accepts(source)
+        try #require(!acceptedBeforeJavaScript)
+    }
+
+    @Test(arguments: ["aggregate", "joinaggregate", "window"])
+    func nestedCollectionAggregatesFailPreflight(_ transform: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": [["x": 1], ["x": 2]]],
+            "layer": [["transform": [[transform: [["op": "values", "field": "x", "as": "all"]]]],
+                       "mark": "text", "encoding": ["text": ["field": "all"]]]]
+        ])
+        #expect(!VegaLiteSpecPolicy.accepts(String(decoding: data, as: UTF8.self)))
+    }
+
+    @Test func encodingCollectionsFailPreflight() {
+        let source = #"{"data":{"values":[{"x":1},{"x":2}]},"mark":"text","encoding":{"text":{"aggregate":"values","field":"x"}}}"#
+        #expect(!VegaLiteSpecPolicy.accepts(source))
+    }
+
+    @Test func scalarJoinAggregatesStillRender() async throws {
+        let source = #"{"data":{"values":[{"x":1},{"x":2},{"x":3}]},"transform":[{"joinaggregate":[{"op":"sum","field":"x","as":"total"}]}],"mark":"text","encoding":{"text":{"field":"total"}}}"#
+        #expect(VegaLiteSpecPolicy.accepts(source))
+        let provider = VegaLiteChartProvider(theme: .default())
+        let result = try #require(await provider.render(source: source, targetWidth: 336))
+        let document = try #require(PeleSVGDocument(svg: result.svg, dialect: .vega))
+        let labels = Self.descendants(document.root).filter {
+            $0.name == "text" && $0.attributes["aria-roledescription"] == "text mark"
+        }
+        #expect(labels.count == 3)
+        #expect(labels.allSatisfy { element in
+            element.children.compactMap { if case let .text(text) = $0 { text } else { nil } }.joined() == "6"
+        })
+    }
+
+    @Test(arguments: ["argmin", "argmax"])
+    func selectedRecordAggregatesRemainAvailable(_ operation: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": [["x": 1, "category": "A"], ["x": 2, "category": "B"]]],
+            "mark": "text", "encoding": ["text": ["aggregate": [operation: "x"], "field": "category"]]
+        ])
+        #expect(VegaLiteSpecPolicy.accepts(String(decoding: data, as: UTF8.self)))
     }
 
     @Test func repeatedFieldsReferToTheEnclosingComposition() async throws {

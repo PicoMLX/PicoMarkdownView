@@ -134,6 +134,10 @@ enum VegaLiteSpecPolicy {
             // keys (a column called "url" is perfectly valid data).
             if !dataValue {
                 guard forbidden.isDisjoint(with: object.keys) else { return false }
+                // `values` can repeat a whole group in every joined/windowed
+                // row, allocating quadratic SVG text before output-size checks.
+                guard object["op"] as? String != "values",
+                      object["aggregate"] as? String != "values" else { return false }
                 if object["facet"] != nil { faceted = true }
                 if let mark = object["mark"] as? String, ["image", "geoshape"].contains(mark) { return false }
                 if let mark = object["mark"] as? [String: Any], ["image", "geoshape"].contains(mark["type"] as? String ?? "") { return false }
