@@ -202,7 +202,7 @@ Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Lay
 
 A diagram renders once its closing fence arrives; while the block is still streaming it shows as a highlighted code block, so streaming cost is unchanged. Colors follow the `MarkdownRenderTheme` (code block foreground/background for text and node surfaces, `linkColor` for accents) in light and dark mode, labels are measured and drawn in the system font, and a flowchart that is too wide for the view is laid out vertically instead of being scaled down. Sources Pele cannot parse stay as code blocks.
 
-On macOS, native Liquid Glass buttons float in the top-right corner for zoom, Fit Diagram, Fit Width, Expand/Restore and Copy Mermaid. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom and pan stay inside a bounded viewport; Fit Width can enlarge a small diagram to the available message width, respecting quote/list indentation. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
+On macOS, a connected pair of native Liquid Glass zoom buttons and a separate Copy Mermaid button float in the top-right corner. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom and pan stay inside a bounded viewport, respecting quote/list indentation; Escape resets zoom and returns focus to the text. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
 
 To show a growing diagram while source streams on macOS:
 
@@ -228,6 +228,37 @@ The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele vers
 #### Teaching your model to draw
 
 Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
+
+### SVG graphics (macOS, opt-in)
+
+To display a fenced `svg` block as a graphic on macOS 27, enable SVG rendering on the theme:
+
+```swift
+let theme = MarkdownRenderTheme.default().withSVGRendering()
+PicoMarkdownView(markdown, theme: theme)
+```
+
+````markdown
+A native Markdown paragraph before the graphic.
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120">
+  <title>Two overlapping circles</title>
+  <circle cx="95" cy="60" r="44" fill="#4f46e5"/>
+  <circle cx="145" cy="60" r="44" fill="#06b6d4" opacity="0.75"/>
+</svg>
+```
+
+A native Markdown paragraph after the graphic.
+````
+
+SVG rendering is off by default. Only `svg` fences opt into this presentation; raw HTML and ordinary code fences keep their existing behavior. iOS continues to display SVG fences as code, and math keeps its current renderer.
+
+An open SVG fence remains source code while it streams. When the block closes, a valid, supported SVG becomes one TextKit 2 hosted attachment. Surrounding Markdown stays in the same text view; the tokenizer and assembler remain incremental. Resizing and zooming redraw the existing native image without reparsing the SVG source.
+
+SVG uses the same bounded viewport, hover/focus Liquid Glass zoom pair, pan behavior and whole-block selection as Mermaid. **Copy SVG** copies its fenced Markdown; **Copy source** copies only the SVG body. A document selection spanning prose and a graphic expands the attachment to its fenced source. The SVG’s own colors and transparency are retained, so authors should choose colors that work against the page background and supply a descriptive `<title>` or `<desc>`.
+
+The renderer uses AppKit’s native SVG image decoder, without a WebView or another package dependency. It supports static shapes and text, CSS styles, gradients, clipping, masks and internal references. It does not claim full browser SVG support: malformed content and unsupported features such as filters, `foreignObject`, scripts, animation and external resources stay visible as source code. The example app’s **SVG** page enables this option only for that page and includes supported graphics plus a source-fallback example.
 
 ### Resetting Content
 

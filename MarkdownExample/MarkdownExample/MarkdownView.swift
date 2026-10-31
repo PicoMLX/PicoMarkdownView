@@ -17,6 +17,7 @@ struct MarkdownView: View {
     private let webURL: URL
     private let markdown: String
     private let tagPrefixes: Set<TagPrefix>
+    private let svgRenderingEnabled: Bool
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -36,6 +37,7 @@ struct MarkdownView: View {
         self.webURL = example.webURL
         self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
         self.tagPrefixes = example.tagPrefixes
+        self.svgRenderingEnabled = example.svgRenderingEnabled
     }
 
     var body: some View {
@@ -51,6 +53,7 @@ struct MarkdownView: View {
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
                                                      tagPrefixes: tagPrefixes,
+                                                     svgRenderingEnabled: svgRenderingEnabled,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
                                                      onTagHover: { tagHoverReadout = $0 },
@@ -199,13 +202,14 @@ private enum AutoScrollConfig {
 }
 
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
-/// SwiftUI compares only the `markdown` string via `==` and skips body
-/// re-evaluation when the parent re-renders due to scroll-position changes,
-/// preventing the stream from restarting. The closures and `tagPrefixes` are
+/// SwiftUI compares the document and its SVG presentation option via `==`,
+/// skipping body re-evaluation when the parent re-renders due to scroll-position
+/// changes so the stream does not restart. The closures and `tagPrefixes` are
 /// excluded from `==` — they're stable for a given document.
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let tagPrefixes: Set<TagPrefix>
+    let svgRenderingEnabled: Bool
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
     let onTagHover: (String?) -> Void
@@ -213,7 +217,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onContentSize: (CGSize) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.markdown == rhs.markdown
+        lhs.markdown == rhs.markdown && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
     }
 
     var body: some View {
@@ -246,7 +250,9 @@ private struct StreamingMarkdownContent: View, Equatable {
 
     private var exampleTheme: MarkdownRenderTheme {
 #if os(macOS)
-        .default().withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+        .default()
+            .withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+            .withSVGRendering(svgRenderingEnabled)
 #else
         .default()
 #endif
