@@ -159,14 +159,20 @@ extension PeleDiagramProvider: MermaidVectorDiagramProvider {
     static func vectorRenderOptions(for theme: MarkdownRenderTheme,
                                     appearance: PeleAppearance,
                                     maxWidth: CGFloat?) -> PeleRenderOptions {
-        PeleRenderOptions(fontSize: theme.bodyFont.pointSize,
-                          fontFamily: "sans-serif",
-                          maxWidth: maxWidth,
-                          theme: peleTheme(for: theme, appearance: appearance),
-                          // Pele requires a prefix to emit Sankey gradients.
-                          // Its existing rough-shape seed defaults to "pele",
-                          // so this preserves other diagrams' geometry.
-                          idPrefix: "pele")
+        let palette = peleTheme(for: theme, appearance: appearance)
+        // Kanban uses bg for cards and surface for columns. A transparent
+        // host needs these interior layers to remain visibly distinct from
+        // the page. Reuse existing panel colors without changing other types.
+        let kanbanLayers = ["bg": palette["surface"], "surface": palette["surface-alt"]]
+            .compactMapValues { $0 }
+        // Pele requires a prefix to emit Sankey gradients. Its existing
+        // rough-shape seed defaults to "pele", preserving other geometry.
+        return PeleRenderOptions(fontSize: theme.bodyFont.pointSize,
+                                 fontFamily: "sans-serif",
+                                 maxWidth: maxWidth,
+                                 theme: palette,
+                                 diagramThemeOverrides: ["kanban": kanbanLayers],
+                                 idPrefix: "pele")
     }
 
     func renderVector(_ request: MermaidRenderRequest) async -> MermaidVectorRenderResult? {

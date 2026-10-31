@@ -257,9 +257,11 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
         };
       }
       var result = pele.render(String(source), renderOptions);
+      var theme = Object.assign({}, options.theme || {},
+        (options.diagramThemeOverrides || {})[result.type] || {});
       return {
         ok: true,
-        svg: resolveVariables(result.svg, options.theme || {}),
+        svg: resolveVariables(result.svg, theme),
         width: result.width,
         height: result.height,
         type: result.type

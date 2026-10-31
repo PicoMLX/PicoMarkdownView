@@ -109,9 +109,11 @@
         };
       }
       var result = pele.render(String(source), renderOptions);
+      var theme = Object.assign({}, options.theme || {},
+        (options.diagramThemeOverrides || {})[result.type] || {});
       return {
         ok: true,
-        svg: resolveVariables(result.svg, options.theme || {}),
+        svg: resolveVariables(result.svg, theme),
         width: result.width,
         height: result.height,
         type: result.type

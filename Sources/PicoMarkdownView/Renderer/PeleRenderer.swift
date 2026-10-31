@@ -26,6 +26,9 @@ struct PeleRenderOptions: Sendable, Hashable {
     /// draw themselves narrower do, and wide flowcharts may turn vertical.
     var maxWidth: CGFloat? = nil
     var theme: [String: String] = [:]
+    /// Overrides applied after Pele identifies a diagram's type, so styling
+    /// one family does not affect other diagrams or require source parsing.
+    var diagramThemeOverrides: [String: [String: String]] = [:]
     /// Stable namespace for SVG definitions such as Sankey gradients.
     /// Omit it to retain Pele's legacy output.
     var idPrefix: String? = nil
@@ -34,11 +37,13 @@ struct PeleRenderOptions: Sendable, Hashable {
          fontFamily: String? = nil,
          maxWidth: CGFloat? = nil,
          theme: [String: String] = [:],
+         diagramThemeOverrides: [String: [String: String]] = [:],
          idPrefix: String? = nil) {
         self.fontSize = fontSize
         self.fontFamily = fontFamily
         self.maxWidth = maxWidth
         self.theme = theme
+        self.diagramThemeOverrides = diagramThemeOverrides
         self.idPrefix = idPrefix
     }
 }
@@ -166,6 +171,9 @@ actor PeleRenderer {
     /// rejects the source (unknown diagram type, syntax error, size limit).
     func render(_ source: String, options: PeleRenderOptions = PeleRenderOptions()) throws(PeleRenderError) -> PeleRenderResult {
         var jsOptions: [String: Any] = ["theme": options.theme, "fontSize": options.fontSize]
+        if !options.diagramThemeOverrides.isEmpty {
+            jsOptions["diagramThemeOverrides"] = options.diagramThemeOverrides
+        }
         if let idPrefix = options.idPrefix {
             jsOptions["idPrefix"] = idPrefix
         }
