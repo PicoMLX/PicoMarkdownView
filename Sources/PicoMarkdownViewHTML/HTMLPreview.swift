@@ -139,7 +139,9 @@ private struct HTMLPreviewRepresentable: NSViewRepresentable {
 @MainActor
 final class HTMLPreviewContainer: NSView {
     var onHeight: ((CGFloat) -> Void)?
-    var onFailure: (() -> Void)?
+    var onFailure: (() -> Void)? {
+        didSet { scheduleFailureNotification() }
+    }
     var onReady: (() -> Void)?
     var onReadinessChanged: ((Bool) -> Void)?
     private(set) var page: WebPage?
@@ -150,6 +152,7 @@ final class HTMLPreviewContainer: NSView {
     private(set) var loadCount = 0
     private(set) var isReady = false
     private(set) var hasFailed = false
+    private var failureDelivered = false
 
     private var source = ""
     private var style: HTMLPreviewStyle = .default
@@ -185,8 +188,11 @@ final class HTMLPreviewContainer: NSView {
     func configure(source: String, style: HTMLPreviewStyle) {
         guard self.source != source || self.style != style || preparation == nil else { return }
         if preparation?.source != source {
+            pendingFailureNotification?.cancel()
+            pendingFailureNotification = nil
             preparation = HTMLPreviewPreparation(source: source, prepare: prepare)
             hasFailed = false
+            failureDelivered = false
         }
         self.source = source
         self.style = style
@@ -358,14 +364,28 @@ final class HTMLPreviewContainer: NSView {
     }
 
     func fail() {
+        guard !hasFailed else { scheduleFailureNotification(); return }
         suspend()
         hasFailed = true
-        // Defer SwiftUI state writes out of updateNSView/layout, without
-        // allowing a discarded source's failure to affect a replacement.
-        let token = generation
-        pendingFailureNotification = Task { @MainActor [weak self] in
-            guard let self, self.generation == token, self.hasFailed else { return }
-            self.onFailure?()
+        scheduleFailureNotification()
+    }
+
+    private func scheduleFailureNotification() {
+        guard hasFailed, !failureDelivered, onFailure != nil,
+              pendingFailureNotification == nil, let failedPreparation = preparation else { return }
+        // Failure belongs to the source occurrence, not a particular WebPage.
+        // A style change or detach must not discard its deferred fallback.
+        pendingFailureNotification = Task { @MainActor [weak self, weak failedPreparation] in
+            guard let self, let failedPreparation, self.preparation === failedPreparation else { return }
+            defer {
+                // The callback can synchronously replace the source and queue
+                // another failure. Do not clear that replacement's task.
+                if self.preparation === failedPreparation { self.pendingFailureNotification = nil }
+            }
+            guard !Task.isCancelled, self.hasFailed, !self.failureDelivered,
+                  let onFailure = self.onFailure else { return }
+            self.failureDelivered = true
+            onFailure()
         }
     }
 
@@ -475,6 +495,24 @@ final class HTMLPreviewContainer: NSView {
           observer.observe(body, { box: 'border-box' });
           // Fixed-size body boxes may not resize with their viewport.
           window.addEventListener('resize', measure);
+          // Hover/focus/active selectors can instantly move descendants without
+          // resizing the body. Measure after the event's default style changes,
+          // coalescing a burst without requiring an active rendering frame.
+          let interactionTimer = null;
+          const measureInteraction = () => {
+            if (interactionTimer !== null) return;
+            interactionTimer = setTimeout(() => {
+              interactionTimer = null;
+              measure();
+            }, 0);
+          };
+          for (const event of ['pointerover', 'pointerout', 'pointerdown', 'pointerup',
+                               'pointercancel', 'focusin', 'focusout', 'keydown', 'keyup']) {
+            document.addEventListener(event, measureInteraction, { capture: true, passive: true });
+          }
+          // Deactivation can clear active/focus styling without pointerup.
+          window.addEventListener('focus', measureInteraction);
+          window.addEventListener('blur', measureInteraction);
           measure();
           document.fonts.ready.then(measure);
         })();
