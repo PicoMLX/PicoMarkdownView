@@ -318,8 +318,7 @@ struct MacHostedChartLoadingIntegrationTests {
         #expect(host.accessibilityLabel() == "Receiving chart…")
         #expect(host.accessibilityRole() == .staticText)
         #expect(host.isAccessibilityElement())
-        let initial = try await Self.recognizedText(in: snapshot(host))
-        #expect(initial.lowercased().contains("receiving chart"), "Initial native loading OCR: \(initial)")
+        try await expectLoadingTextPainted(in: host)
 
         let (progress, continuation) = AsyncStream<Int>.makeStream()
         let producer = Task { @MainActor in
@@ -338,8 +337,7 @@ struct MacHostedChartLoadingIntegrationTests {
             #expect(controller.hostedVectorModel(for: block.id) === model)
             #expect(attachment.hostingView === host && host.window === window)
             #expect(!host.isHiddenOrHasHiddenAncestor)
-            let status = try await Self.recognizedText(in: snapshot(host))
-            #expect(status.lowercased().contains("receiving chart"), "Native loading OCR during source update \(index): \(status)")
+            try await expectLoadingTextPainted(in: host)
         }
         try await producer.value
         #expect(model.source.contains("token30"))
@@ -388,8 +386,7 @@ struct MacHostedChartLoadingIntegrationTests {
         #expect(host.visibleRect.width > 0 && host.visibleRect.height > 0)
         #expect(host.accessibilityRole() == .staticText)
         #expect(host.isAccessibilityElement())
-        let initial = try await Self.recognizedText(in: snapshot(host))
-        #expect(initial.lowercased().contains("receiving chart"), "Nested SwiftUI loading OCR before updates: \(initial)")
+        try await expectLoadingTextPainted(in: host)
         let originalStorage = storage.string
         let (progress, updates) = AsyncStream<Int>.makeStream()
         let producer = Task { @MainActor in
@@ -412,12 +409,39 @@ struct MacHostedChartLoadingIntegrationTests {
             #expect(host.accessibilityLabel() == "Receiving chart…")
             #expect(attachment.measuredSize.height == 48)
             #expect(storage.string == originalStorage)
-            let status = try await Self.recognizedText(in: snapshot(host))
-            #expect(status.lowercased().contains("receiving chart"),
-                    "Nested SwiftUI loading OCR during update \(index): \(status)")
+            try await expectLoadingTextPainted(in: host)
         }
         try await producer.value
         #expect(attachment.markdownRepresentation().contains("\"token30\":30,"))
+    }
+
+    @Test("Loading paint verification rejects blank and indicator-only rows")
+    func loadingPaintCheckRequiresStatusGlyphs() async throws {
+        let blank = try await loadingPaintFixture(Color.clear)
+        let indicatorOnly = try await loadingPaintFixture(
+            PicoHostedLoadingView(activity: .receiving, isSelected: false) { EmptyView() })
+        let withText = try await loadingPaintFixture(
+            PicoHostedLoadingView(activity: .receiving, isSelected: false) { Text("Receiving chart…") })
+        let size = CGSize(width: 400, height: 48)
+        #expect(try loadingLabelInk(in: blank, logicalSize: size).pixels == 0)
+        #expect(try loadingLabelInk(in: indicatorOnly, logicalSize: size).pixels == 0,
+                "The loading card and its indicator must not satisfy the text-paint check")
+        let textInk = try loadingLabelInk(in: withText, logicalSize: size)
+        #expect(textInk.pixels >= 16 && textInk.width >= 40)
+    }
+
+    private func loadingPaintFixture<Content: View>(_ content: Content) async throws -> Data {
+        let host = NSHostingView(rootView: content.frame(width: 400, height: 48)
+            .environment(\.colorScheme, .light))
+        host.frame = NSRect(x: 0, y: 0, width: 400, height: 48)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.appearance = NSAppearance(named: .aqua)
+        window.orderFront(nil)
+        defer { window.close() }
+        await layout(host, window: window)
+        return try snapshot(host)
     }
 
     private struct Fixture {
@@ -528,6 +552,50 @@ struct MacHostedChartLoadingIntegrationTests {
         let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: bitmap)
         return try #require(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    private func expectLoadingTextPainted(in host: NSView,
+                                          sourceLocation: SourceLocation = #_sourceLocation) async throws {
+        #expect(host.accessibilityLabel() == "Receiving chart…", sourceLocation: sourceLocation)
+        let png = try snapshot(host)
+        let ink = try loadingLabelInk(in: png, logicalSize: host.bounds.size)
+        #expect(ink.pixels >= 16 && ink.width >= 40,
+                "The mounted loading label painted \(ink.pixels) dark pixels over \(ink.width) points", sourceLocation: sourceLocation)
+        // Vision may lack a working inference backend on headless CI. Keep
+        // exact OCR available for local window verification without hiding errors.
+        if ProcessInfo.processInfo.environment["PICO_VERIFY_CHART_LOADING_OCR"] == "1" {
+            let text = try await Self.recognizedText(in: png)
+            #expect(text.lowercased().contains("receiving chart"), "Native loading OCR: \(text)", sourceLocation: sourceLocation)
+        }
+    }
+
+    private func loadingLabelInk(in png: Data, logicalSize: CGSize) throws -> (pixels: Int, width: CGFloat) {
+        let bitmap = try #require(NSBitmapImageRep(data: png))
+        try #require(logicalSize.width > 52 && logicalSize.height > 16)
+        let scaleX = CGFloat(bitmap.pixelsWide) / logicalSize.width
+        let scaleY = CGFloat(bitmap.pixelsHigh) / logicalSize.height
+        // Exclude the indicator at the left and the faint card background.
+        // Sample the text band in logical points, independent of Retina scale.
+        let left = Int(40 * scaleX)
+        let right = Int(min(240, logicalSize.width - 12) * scaleX)
+        let bottom = Int(8 * scaleY)
+        let top = Int((logicalSize.height - 8) * scaleY)
+        var ink = 0
+        var firstColumn = right
+        var lastColumn = left
+        for y in bottom..<top {
+            for x in left..<right {
+                let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                let alpha = color.alphaComponent
+                let darkest = max(color.redComponent, color.greenComponent, color.blueComponent) * alpha + (1 - alpha)
+                if darkest < 0.7 {
+                    ink += 1
+                    firstColumn = min(firstColumn, x)
+                    lastColumn = max(lastColumn, x)
+                }
+            }
+        }
+        return (ink, ink == 0 ? 0 : CGFloat(lastColumn - firstColumn + 1) / scaleX)
     }
 
     @concurrent
