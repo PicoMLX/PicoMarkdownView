@@ -16,6 +16,7 @@ struct RenderedContentResult {
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
     var embeddedBlock: RenderedEmbeddedBlock? = nil
+    var svgGraphic: RenderedSVGGraphic? = nil
     var paragraphSpacingAfter: CGFloat? = nil
 }
 
@@ -364,7 +365,9 @@ actor MarkdownAttributeBuilder {
                                         blockquote: nil,
                                         math: nil,
                                         images: [],
-                                        codeBlock: RenderedCodeBlock(code: text, language: language))
+                                        codeBlock: RenderedCodeBlock(code: text, language: language),
+                                        svgGraphic: SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+                                                                              maxWidth: theme.imageMaxWidth))
         case .horizontalRule:
             let content = renderHorizontalRule()
             return RenderedContentResult(attributed: AttributedString(content),
@@ -821,6 +824,11 @@ actor MarkdownAttributeBuilder {
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
+#if canImport(AppKit)
+        // An explicit source-backed registration owns this fence, including
+        // its native-code fallback while open or when its factory declines.
+        guard !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }) else { return nil }
+#endif
         guard let provider = mermaidProvider else { return nil }
         guard case let .fencedCode(language) = snapshot.kind, isMermaidLanguage(language) else { return nil }
 

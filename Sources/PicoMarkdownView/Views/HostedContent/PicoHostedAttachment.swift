@@ -55,6 +55,13 @@ public final class PicoHostedAttachment: NSTextAttachment {
         }
     }
 
+    /// Seed known geometry before TextKit inserts a lazy hosted attachment.
+    /// An offscreen view need not be created just to reserve its block height.
+    func seedSizeBeforeViewCreation(_ size: CGSize) {
+        guard hostedView == nil else { return }
+        setMeasuredSize(size)
+    }
+
     public func markdownRepresentation() -> String { markdown() }
 
     /// Coalesces an intrinsic-size refresh after model or layout changes.

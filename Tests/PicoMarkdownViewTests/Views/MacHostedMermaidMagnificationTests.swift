@@ -150,8 +150,8 @@ struct MacHostedMermaidMagnificationTests {
         return result
     }
 
-    private func findCanvas(in view: NSView) -> PicoHostedMermaidCanvasView? {
-        if let canvas = view as? PicoHostedMermaidCanvasView { return canvas }
+    private func findCanvas(in view: NSView) -> PicoHostedVectorCanvasView? {
+        if let canvas = view as? PicoHostedVectorCanvasView { return canvas }
         return view.subviews.lazy.compactMap { findCanvas(in: $0) }.first
     }
 

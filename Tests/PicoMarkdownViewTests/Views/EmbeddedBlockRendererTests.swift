@@ -112,6 +112,76 @@ struct EmbeddedBlockRendererTests {
         }
     }
 
+    @Test("An explicit SVG renderer owns accepted content and declined native fallback", arguments: [false, true])
+    func explicitSVGRegistrationWins(accepts: Bool) async throws {
+        let recorder = Recorder()
+        let renderer = PicoEmbeddedBlockRenderer(selectors: [.fencedCode(language: "svg")]) { context in
+            recorder.contexts.append(context)
+            return accepts ? AnyView(Text("Custom SVG presentation").frame(height: 80)) : nil
+        }
+        let source = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 40\"><rect width=\"120\" height=\"40\" fill=\"#3973d5\"/></svg>"
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering(), embeddedBlockRenderers: [renderer])
+        let update = try #require(await pipeline.feed("Before.\n\n```svg\n" + source + "\n```\n\nAfter.\n\n"))
+        let block = try #require(update.blocks.first { $0.codeBlock?.language == "svg" })
+        #expect(block.embeddedBlock != nil)
+        #expect(block.svgGraphic != nil, "The merge carries both metadata values; backend dispatch must honor the explicit registration")
+        let (controller, view) = makeView()
+        controller.update(textView: view, blocks: update.blocks, diffs: [update.diff], replaceToken: 1, configuration: .default())
+        #expect(recorder.contexts.count == 1)
+        #expect(view.string.contains("Before.") && view.string.contains("After."))
+        if accepts {
+            let attachment = try #require(attachments(in: view).first)
+            #expect(attachments(in: view).count == 1)
+            #expect(attachment.markdownRepresentation().contains("```svg\n" + source + "\n```"))
+            #expect(!view.string.contains(source))
+        } else {
+            #expect(attachments(in: view).isEmpty, "A declined explicit registration must not fall through to built-in SVG hosting")
+            #expect(view.string.contains(source))
+        }
+    }
+
+    @Test("An HTML-only registration leaves enabled SVG fences on the built-in vector path")
+    func unrelatedRegistrationPreservesSVG() async throws {
+        let recorder = Recorder()
+        let source = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 40\"><rect width=\"120\" height=\"40\" fill=\"#3973d5\"/></svg>"
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering(), embeddedBlockRenderers: [recorder.renderer()])
+        let update = try #require(await pipeline.feed("```svg\n" + source + "\n```\n\n"))
+        let block = try #require(update.blocks.first { $0.codeBlock?.language == "svg" })
+        #expect(block.embeddedBlock == nil)
+        #expect(block.svgGraphic != nil)
+        let (controller, view) = makeView()
+        controller.update(textView: view, blocks: update.blocks, diffs: [update.diff], replaceToken: 1, configuration: .default())
+        #expect(recorder.contexts.isEmpty)
+        let attachment = try #require(attachments(in: view).first)
+        #expect(attachments(in: view).count == 1)
+        #expect(attachment.markdownRepresentation().contains("```svg\n" + source + "\n```"))
+        #expect(!view.string.contains(source))
+    }
+
+    @Test("A registered Mermaid fence stays native while open and when its factory declines")
+    func declinedMermaidSkipsBuiltInInterpretation() async throws {
+        let recorder = Recorder()
+        let provider = DeclinedEmbeddedMermaidProvider()
+        let renderer = PicoEmbeddedBlockRenderer(selectors: [.fencedCode(language: "mermaid")]) { context in
+            recorder.contexts.append(context)
+            return nil
+        }
+        let pipeline = MarkdownStreamingPipeline(mermaidProvider: provider, embeddedBlockRenderers: [renderer])
+        let open = try #require(await pipeline.feed("```mermaid\nflowchart LR\n  A --> B\n"))
+        #expect(open.blocks.allSatisfy { $0.embeddedBlock == nil && $0.mermaidDiagram == nil })
+        let closed = try #require(await pipeline.feed("```\n\n"))
+        let block = try #require(closed.blocks.first { $0.codeBlock?.language == "mermaid" })
+        #expect(block.embeddedBlock != nil)
+        #expect(block.mermaidDiagram == nil)
+        #expect(await provider.calls == 0, "The built-in provider must not consume a fence owned by a source-backed registration")
+        let (controller, view) = makeView()
+        controller.update(textView: view, blocks: closed.blocks, diffs: [closed.diff], replaceToken: 1, configuration: .default())
+        #expect(recorder.contexts.count == 1)
+        #expect(attachments(in: view).isEmpty)
+        #expect(view.string.contains("flowchart LR\n  A --> B"))
+        #expect(!view.string.contains("\u{FFFC}"))
+    }
+
     @Test("An embedded first list child and quoted block retain native container attributes")
     func containerPlacement() async throws {
         for markdown in ["- ```html\n  <div>item</div>\n  ```\n\n", "> ```html\n> <div>quote</div>\n> ```\n\n"] {
@@ -167,3 +237,13 @@ struct EmbeddedBlockRendererTests {
         }
     }
 }
+
+#if os(macOS)
+private actor DeclinedEmbeddedMermaidProvider: MermaidDiagramProvider {
+    private(set) var calls = 0
+    func render(_ request: MermaidRenderRequest) async -> MermaidRenderResult? {
+        calls += 1
+        return nil
+    }
+}
+#endif

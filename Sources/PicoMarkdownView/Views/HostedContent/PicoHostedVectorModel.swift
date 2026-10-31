@@ -5,8 +5,25 @@ import Observation
 /// Source and interaction state survive attachment measurement and redraws.
 @MainActor
 @Observable
-final class PicoHostedMermaidModel {
+final class PicoHostedVectorModel {
     enum Fit: Equatable { case diagram, width }
+    enum Kind {
+        case mermaid, svg
+
+        var defaultLanguage: String { self == .mermaid ? "mermaid" : "svg" }
+        var accessibilityLabel: String { self == .mermaid ? "Mermaid diagram" : "SVG graphic" }
+        var copyTitle: String { self == .mermaid ? "Copy Mermaid" : "Copy SVG" }
+        var copyHelp: String {
+            self == .mermaid
+                ? "Copies the diagram's Mermaid source as Markdown, including its code fences."
+                : "Copies the graphic's SVG source as Markdown, including its code fences."
+        }
+        var copyToolTip: String {
+            self == .mermaid ? "Copy Mermaid Markdown, including code fences." : "Copy SVG Markdown, including code fences."
+        }
+    }
+
+    let kind: Kind
 
     private(set) var source: String
     private(set) var language: String?
@@ -21,12 +38,13 @@ final class PicoHostedMermaidModel {
     private(set) var presentationRevision: UInt64 = 0
     private(set) var parseCount = 0
 
-    @ObservationIgnored private(set) var document: PeleSVGDocument?
+    @ObservationIgnored private(set) var document: PicoHostedVectorDocument?
     @ObservationIgnored private var svg: String
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
-    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
+    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
+        self.kind = kind
         self.svg = svg
         self.source = source
         self.language = language
@@ -135,7 +153,7 @@ final class PicoHostedMermaidModel {
     }
 
     func markdownRepresentation() -> String {
-        let info = language ?? "mermaid"
+        let info = language ?? kind.defaultLanguage
         let marker: Character = info.contains("`") ? "~" : "`"
         var longest = 0
         var run = 0
@@ -166,9 +184,16 @@ final class PicoHostedMermaidModel {
 
     private func parse(_ svg: String) {
         parseCount += 1
-        guard let parsed = PeleSVGDocument(svg: svg) else { return }
-        document = parsed
-        intrinsicSize = CGSize(width: parsed.width, height: parsed.height)
+        switch kind {
+        case .mermaid:
+            // A streaming Mermaid preview keeps its last successful drawing.
+            guard let parsed = PeleSVGDocument(svg: svg) else { return }
+            document = .pele(parsed)
+        case .svg:
+            // User-supplied SVG must fall back to source if a later update is invalid.
+            document = NativeSVGDocument(svg: svg).map(PicoHostedVectorDocument.svg)
+        }
+        intrinsicSize = document.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
     }
 
     private func baseScale(in size: CGSize) -> CGFloat {
@@ -193,6 +218,29 @@ final class PicoHostedMermaidModel {
     private func changed() {
         presentationRevision &+= 1
         onPresentationChanged?()
+    }
+}
+/// Both sources use the same viewport and controls; their decoders stay separate.
+@MainActor
+enum PicoHostedVectorDocument {
+    case pele(PeleSVGDocument)
+    case svg(NativeSVGDocument)
+
+    var width: CGFloat {
+        switch self { case .pele(let document): document.width; case .svg(let document): document.width }
+    }
+    var height: CGFloat {
+        switch self { case .pele(let document): document.height; case .svg(let document): document.height }
+    }
+    var accessibilityDescription: String? {
+        if case .svg(let document) = self { return document.accessibilityDescription }
+        return nil
+    }
+    func draw(in context: CGContext) {
+        switch self {
+        case .pele(let document): document.draw(in: context, strokesAsFills: true)
+        case .svg(let document): document.draw(in: context)
+        }
     }
 }
 #endif
