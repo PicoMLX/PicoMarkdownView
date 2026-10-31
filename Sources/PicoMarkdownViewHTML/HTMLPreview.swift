@@ -359,7 +359,9 @@ final class HTMLPreviewContainer: NSView {
             // Border-box and descendant extents include offsets and spacing,
             // without feeding a viewport-minimum scrollHeight back into size.
             let height = Math.max(0, bodyRect.bottom + window.scrollY);
-            let unsupported = bodyStyle.position === 'fixed';
+            // Enlarging the viewport cannot reveal content above document
+            // origin, including a bottom-anchored absolute body.
+            let unsupported = bodyStyle.position === 'fixed' || bodyRect.top + window.scrollY < 0;
             for (const element of body.querySelectorAll('*')) {
               const rect = element.getBoundingClientRect();
               const style = getComputedStyle(element);
@@ -367,7 +369,7 @@ final class HTMLPreviewContainer: NSView {
               if (!visible) continue;
               // Viewport-fixed or heightless content has no usable intrinsic
               // document extent. Show its source instead of clipping it.
-              if (height === 0 || style.position === 'fixed') unsupported = true;
+              if (height === 0 || style.position === 'fixed' || rect.top + window.scrollY < 0) unsupported = true;
               height = Math.max(height, rect.bottom + window.scrollY + trailingBodySpacing);
             }
             if (unsupported) height = \(HTMLPreviewPolicy.maximumHeight + 1);

@@ -225,6 +225,26 @@ struct HTMLPreviewViewTests {
         #expect(view.measuredHeight == 1)
     }
 
+    @Test("Negative document extents use source fallback instead of clipping the report above the viewport", arguments: [
+        "<html><body style='position:absolute;bottom:0;height:300px;width:100%'><div style='height:300px'>Report</div></body></html>",
+        "<html><body><div style='position:relative;top:-8px;height:40px;width:100px'>Report</div></body></html>"
+    ])
+    func negativeDocumentExtentUsesSourceFallback(source: String) async throws {
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        window.setContentSize(NSSize(width: 400, height: 120))
+        let outcome = AsyncStream.makeStream(of: Bool.self)
+        view.onReady = { outcome.continuation.yield(true); outcome.continuation.finish() }
+        view.onFailure = { outcome.continuation.yield(false); outcome.continuation.finish() }
+        defer { view.onReady = nil; view.onFailure = nil; outcome.continuation.finish() }
+        var iterator = outcome.stream.makeAsyncIterator()
+        let becameReady = try #require(await iterator.next())
+        #expect(!becameReady, "A bounded bottom edge must not hide content extending above the document origin")
+        #expect(view.hasFailed && !view.isReady)
+        #expect(view.page == nil)
+        #expect(view.measuredHeight == 1)
+    }
+
     @Test("A viewport-fixed document body uses source fallback instead of clipping content above the preview")
     func fixedBodyUsesSourceFallback() async throws {
         let source = "<html><body style='position:fixed;bottom:0;height:300px;width:100%'><div style='height:300px'>Report</div></body></html>"
