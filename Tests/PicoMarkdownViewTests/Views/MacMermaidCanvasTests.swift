@@ -397,17 +397,19 @@ struct MacMermaidCanvasTests {
     }
 
     private func activateZoomSegment(_ segment: Int, in control: NSSegmentedControl) throws {
-        let label = try #require(control.image(forSegment: segment)?.accessibilityDescription)
-        let action = try #require(accessibilityDescendants(of: control).first {
-            $0.accessibilityRole() == .button && $0.accessibilityLabel() == label
-        })
-        // Momentary controls expose their selection only during native tracking.
-        _ = action.accessibilityPerformPress()
-    }
-
-    private func accessibilityDescendants(of element: NSAccessibilityProtocol) -> [NSAccessibilityProtocol] {
-        [element] + (element.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityProtocol }
-            .flatMap { accessibilityDescendants(of: $0) }
+        let action = try #require(control.action)
+        let target = try #require(control.target)
+        try #require(control.isEnabled(forSegment: segment))
+        // Native AX press stops AppKit's tracking run loop and can exit Swift's async-main test host.
+        // Exercise the real target/action without it: https://github.com/swiftlang/swift/issues/91716
+        let trackingMode = control.trackingMode
+        control.trackingMode = .selectOne
+        defer {
+            control.selectedSegment = -1
+            control.trackingMode = trackingMode
+        }
+        control.selectedSegment = segment
+        #expect(control.sendAction(action, to: target))
     }
 
     private func isControlVisible(_ control: NSView, in canvas: NSView) -> Bool {
