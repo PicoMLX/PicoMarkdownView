@@ -374,10 +374,42 @@ final class HTMLPreviewContainer: NSView {
         (() => {
           const body = document.body;
           if (!body) return;
+          // Neutralize declarations once, before exposing this page. A reset
+          // selector cannot defeat stronger author !important/hover rules.
+          // Author scripts and external sheets are disabled, so later hover,
+          // focus or media changes can only activate these same static rules.
+          const motionDisabled = (() => {
+            const stripDeclaration = style => {
+              for (const name of Array.from(style)) {
+                if (/^(?:-webkit-)?(?:animation|transition)(?:-|$)/.test(name.toLowerCase())) {
+                  style.removeProperty(name);
+                }
+              }
+            };
+            const stripRules = rules => {
+              for (const rule of Array.from(rules)) {
+                if (rule.style) stripDeclaration(rule.style);
+                if (rule.cssRules) stripRules(rule.cssRules);
+              }
+            };
+            try {
+              for (const sheet of Array.from(document.styleSheets)) {
+                if (sheet.ownerNode?.hasAttribute('data-pico-static-motion')) continue;
+                stripRules(sheet.cssRules);
+              }
+              for (const element of document.querySelectorAll('*')) {
+                if (element.style) stripDeclaration(element.style);
+              }
+              document.getAnimations().forEach(animation => animation.cancel());
+              return true;
+            } catch {
+              // A page whose styles cannot be made static must use source
+              // fallback, rather than hanging the loader or exposing motion.
+              document.getAnimations().forEach(animation => animation.cancel());
+              return false;
+            }
+          })();
           const measure = () => {
-            // Author HTML is static, including inline !important animations
-            // which can outrank our document's default stylesheet.
-            document.getAnimations().forEach(animation => animation.cancel());
             const bodyRect = body.getBoundingClientRect();
             const bodyStyle = getComputedStyle(body);
             const trailingBodySpacing = (parseFloat(bodyStyle.paddingBottom) || 0)
@@ -410,7 +442,7 @@ final class HTMLPreviewContainer: NSView {
             // origin, including a bottom-anchored absolute body.
             // scrollWidth also includes static generated boxes that have no
             // element rectangle. This validates width only; it never sets height.
-            let unsupported = bodyStyle.position === 'fixed' || bodyRect.top + window.scrollY < 0
+            let unsupported = !motionDisabled || bodyStyle.position === 'fixed' || bodyRect.top + window.scrollY < 0
               || outsideHorizontalViewport(bodyRect) || body.scrollWidth > window.innerWidth + 1
               // A body's own transforms do not scale its local scroll metrics.
               || (body.scrollHeight > body.clientHeight + 1 && hasTransform(bodyStyle));

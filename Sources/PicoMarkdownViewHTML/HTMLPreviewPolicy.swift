@@ -111,7 +111,7 @@ nonisolated enum HTMLPreviewPolicy {
         """
         let staticCSS = "*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }"
         let html = """
-        <!doctype html><html\(content.documentAttributesHTML) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)">\(content.bodyHTML)</body></html>
+        <!doctype html><html\(content.documentAttributesHTML) style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style data-pico-static-motion="">\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)">\(content.bodyHTML)</body></html>
         """
         return HTMLPreviewDocument(html: html, plainText: content.plainText)
     }
@@ -282,6 +282,14 @@ nonisolated enum HTMLPreviewPolicy {
         }
 
         private mutating func collectStyle(_ element: XMLElement) {
+            // HTML's style-block algorithm uses an exact ASCII-insensitive
+            // match, not MIME parsing or whitespace trimming. Inert data must
+            // not become active CSS when composed into our document shell.
+            if let type = element.attribute(forName: "type")?.stringValue,
+               !type.isEmpty,
+               !(type.utf8.allSatisfy { $0 < 0x80 } && type.lowercased() == "text/css") {
+                return
+            }
             let media = element.attribute(forName: "media")?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             styles.append(Stylesheet(css: element.stringValue ?? "", media: media.flatMap { $0.isEmpty ? nil : $0 }))
         }
@@ -318,6 +326,9 @@ nonisolated enum HTMLPreviewPolicy {
                     if key == "dir", !["ltr", "rtl", "auto"].contains(value.lowercased()) { return nil }
                     return (key, value)
                 }
+                // Boolean attributes depend on presence, including values
+                // such as reversed="false". Keep this scoped to ordered lists.
+                if name == "ol", key == "reversed" { return (key, "") }
                 if ["td", "th"].contains(name), ["colspan", "rowspan"].contains(key), let number = Int(value), (1...100).contains(number) {
                     return (key, String(number))
                 }

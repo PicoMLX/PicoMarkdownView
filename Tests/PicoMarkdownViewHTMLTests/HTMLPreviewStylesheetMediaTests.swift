@@ -21,6 +21,16 @@ struct HTMLPreviewStylesheetMediaPolicyTests {
         #expect(content.plainText == "Report")
     }
 
+    @Test("Non-CSS style declarations stay inert in every stylesheet collection path", arguments: ["text/plain", "application/json", "text/css; charset=utf-8", " text/css", "text/css ", "\ttext/css\n", " ", "text/c\u{017F}\u{017F}"])
+    func inactiveStyleTypesAreNotCollected(type: String) throws {
+        let css = ".inactive-sheet { color: rgb(12, 34, 56); }"
+        let sheet = "<style type='\(type)'>\(css)</style>"
+        let source = "<html><head>" + sheet + "</head><body><p>Report</p>" + sheet + "<section hidden>" + sheet + "</section></body></html>"
+        let content = try HTMLPreviewPolicy.prepare(source: source)
+        #expect(!content.document().html.contains(".inactive-sheet"))
+        #expect(content.plainText == "Report")
+    }
+
     @Test("Only raw-style terminators are escaped, with their case preserved", arguments: [">", " ", "\t", "\n", "\r", "\u{000C}", "/", ""])
     func neutralizesRawStyleTerminators(delimiter: String) {
         let suffix = delimiter.isEmpty ? "" : delimiter + "\"; }"
@@ -46,6 +56,27 @@ struct HTMLPreviewStylesheetMediaTests {
         let height = try #require(values["height"] as? Double)
         #expect(height > 0)
         #expect(values["printMatches"] as? Bool == false)
+    }
+
+    @Test("Unsupported and whitespace-padded style types do not hide the screen report", arguments: ["text/plain", "text/css; charset=utf-8", " text/css", "text/css ", " "])
+    func inactiveStyleTypesDoNotBecomeCSS(type: String) async throws {
+        let sheet = "<style type='\(type)'>p { display:none; }</style>"
+        let fixture = MediaPreviewFixture(source: mediaDocument(styles: sheet, inHead: true))
+        defer { fixture.close() }
+        let values = try await reportState(try await fixture.readyPage())
+        #expect(values["display"] as? String != "none")
+        let height = try #require(values["height"] as? Double)
+        #expect(height > 0)
+    }
+
+    @Test("Missing, empty and ASCII-case-insensitive CSS style types still apply", arguments: [nil, "", "text/css", "TeXt/CsS"] as [String?])
+    func cssStyleTypesStillApply(type: String?) async throws {
+        let attribute = type.map { " type='\($0)'" } ?? ""
+        let sheet = "<style\(attribute)>p { color:rgb(12, 34, 56); }</style>"
+        let fixture = MediaPreviewFixture(source: mediaDocument(styles: sheet, inHead: true))
+        defer { fixture.close() }
+        let values = try await reportState(try await fixture.readyPage())
+        #expect(values["color"] as? String == "rgb(12, 34, 56)")
     }
 
     @Test("A responsive stylesheet changes at its media breakpoint without a page reload")

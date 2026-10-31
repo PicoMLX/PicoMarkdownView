@@ -95,6 +95,33 @@ struct HTMLPreviewPolicyTests {
                 "Clipping belongs to the outer viewport, not to the author's body box")
     }
 
+    @Test("Only the app-owned motion reset can carry its trusted stylesheet marker")
+    func authorCannotForgeStaticMotionStylesheetMarker() throws {
+        let source = "<style data-pico-static-motion>p { color: rgb(12, 34, 56); }</style><p>Report</p>"
+        let document = try prepareDocument(source: source)
+        let parsed = try XMLDocument(xmlString: document.html, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever])
+        let marked = try parsed.nodes(forXPath: "/html/head/style[@data-pico-static-motion]")
+        #expect(marked.count == 1)
+        let trusted = try #require(marked.first as? XMLElement)
+        #expect(trusted.stringValue?.contains("animation: none !important") == true)
+        #expect(trusted.stringValue?.contains("rgb(12, 34, 56)") == false)
+        #expect(document.html.contains("p { color: rgb(12, 34, 56); }"))
+    }
+
+    @Test("Ordered list reversal is a scoped boolean while start and item values remain bounded", arguments: ["reversed", "reversed=''", "reversed='false'", "reversed='reversed'"])
+    func preservesReversedOrderedLists(attribute: String) throws {
+        let source = "<ol \(attribute) start='5'><li>First</li><li value='2'>Second</li><li>Third</li></ol><ul reversed><li>Other</li></ul><div reversed>Report</div>"
+        let document = try prepareDocument(source: source)
+        let parsed = try XMLDocument(xmlString: document.html, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever])
+        let list = try #require(parsed.nodes(forXPath: "//ol").first as? XMLElement)
+        #expect(list.attribute(forName: "reversed")?.stringValue == "")
+        #expect(list.attribute(forName: "start")?.stringValue == "5")
+        let item = try #require(parsed.nodes(forXPath: "//ol/li[2]").first as? XMLElement)
+        #expect(item.attribute(forName: "value")?.stringValue == "2")
+        #expect(try parsed.nodes(forXPath: "//*[@reversed][not(self::ol)]").isEmpty)
+        try expectInert(document)
+    }
+
     @Test("Images have a visible escaped alt fallback and never retain resources")
     func omitsImages() throws {
         let document = try prepareDocument(source: """
