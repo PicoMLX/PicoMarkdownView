@@ -147,6 +147,17 @@ private final class OpenUIPresentationFixture {
             try await waitUntil("Visible hosted OpenUI is ready") {
                 self.model.webView?.window === self.window && self.model.isReady && self.model.sizeMessageCount > 0
             }
+            _ = try await evaluate("await document.fonts.ready; return true;")
+            // Accepting a size message precedes the model's coalesced height
+            // publication and the attachment's own deferred measurement. Both
+            // must agree with the closed DOM before a test records its baseline.
+            _ = try await waitForGeometry("Initial closed content reaches its native height", script: Self.rootGeometryScript) { geometry in
+                guard geometry["popupCount"] as? Int == 0,
+                      let cssHeight = geometry["rootCSSHeight"] as? Double, cssHeight > 0 else { return false }
+                let points = max(80, ceil(CGFloat(cssHeight) * self.model.textScale))
+                return abs(self.model.measuredHeight - points) <= 2
+                    && abs(self.attachment.measuredSize.height - points) <= 2
+            }
         } catch { close(); throw error }
     }
 
@@ -169,7 +180,8 @@ private final class OpenUIPresentationFixture {
         while !condition() {
             layout()
             guard ContinuousClock.now < deadline else {
-                Issue.record("Timed out: \(description)")
+                let diagnostics = await heightDiagnostics()
+                Issue.record("Timed out: \(description); \(diagnostics)")
                 throw PresentationTimeout()
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -187,11 +199,24 @@ private final class OpenUIPresentationFixture {
                 if condition(result) { return result }
             }
             guard ContinuousClock.now < deadline else {
-                Issue.record("\(description): \(last), native height=\(model.measuredHeight)")
+                let diagnostics = await heightDiagnostics()
+                Issue.record("\(description): \(last); \(diagnostics)")
                 throw PresentationTimeout()
             }
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+
+    private static let rootGeometryScript = """
+        const root = document.getElementById('root');
+        return {popupCount:document.querySelectorAll('.openui-date-picker-renderer-floating-content').length,
+                rootCSSHeight:root ? Math.ceil(root.getBoundingClientRect().bottom + window.scrollY) : 0,
+                viewportHeight:window.innerHeight};
+        """
+
+    private func heightDiagnostics() async -> String {
+        let geometry = (try? await evaluate(Self.rootGeometryScript)) as? [String: Any] ?? [:]
+        return "DOM=\(geometry), textScale=\(model.textScale), modelHeight=\(model.measuredHeight), attachmentHeight=\(attachment.measuredSize.height), sizeMessages=\(model.sizeMessageCount)"
     }
 
     func saveSnapshot(_ name: String) async throws {
