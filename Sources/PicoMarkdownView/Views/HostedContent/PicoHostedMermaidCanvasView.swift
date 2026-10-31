@@ -21,12 +21,20 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     private var tracking: NSTrackingArea?
     private var dragPoint: CGPoint?
     private var accessibilitySource: String?
+    private let reducesMotion: @MainActor () -> Bool
+    private var zoomAnimationTask: Task<Void, Never>?
+    private var zoomAnimationGeneration: UInt64 = 0
+    private var zoomAnimationViewportSize: CGSize?
+    private var isApplyingAnimatedZoom = false
+    private(set) var presentedDrawingRect: CGRect?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    init(model: PicoHostedMermaidModel) {
+    init(model: PicoHostedMermaidModel,
+         reducesMotion: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.model = model
+        self.reducesMotion = reducesMotion
         super.init(frame: .zero)
         clipsToBounds = true
         setAccessibilityElement(true)
@@ -46,10 +54,13 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     required init?(coder: NSCoder) { fatalError("Create a Mermaid canvas with its model") }
 
+    deinit { zoomAnimationTask?.cancel() }
+
     private var viewport: CGRect { bounds }
 
     override func layout() {
         super.layout()
+        if let size = zoomAnimationViewportSize, size != viewport.size { cancelZoomAnimation() }
         model.updateViewport(viewport.size)
         // Keep the zoom pair connected, including when Copy wraps below it.
         let zoomWidth = Self.buttonSize * 2
@@ -82,7 +93,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { hasControlFocus = false }
+        if window == nil { hasControlFocus = false; cancelZoomAnimation() }
         refreshPointerPresence()
     }
 
@@ -117,7 +128,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         context.saveGState()
         context.clip(to: viewport)
         if let document = model.document {
-            let destination = model.drawingRect(in: viewport.size).offsetBy(dx: viewport.minX, dy: viewport.minY)
+            let destination = (presentedDrawingRect ?? model.drawingRect(in: viewport.size))
+                .offsetBy(dx: viewport.minX, dy: viewport.minY)
             context.translateBy(x: destination.minX, y: destination.minY)
             context.scaleBy(x: destination.width / document.width, y: destination.height / document.height)
             document.draw(in: context, strokesAsFills: true)
@@ -140,6 +152,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     override func mouseDown(with event: NSEvent) {
+        cancelZoomAnimation()
         isTakingPointerFocus = true
         window?.makeFirstResponder(self)
         isTakingPointerFocus = false
@@ -165,7 +178,10 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         if !consumed { super.scrollWheel(with: event) }
     }
 
-    override func magnify(with event: NSEvent) { model.zoom(by: exp(event.magnification)) }
+    override func magnify(with event: NSEvent) {
+        cancelZoomAnimation()
+        model.zoom(by: exp(event.magnification))
+    }
 
     override func keyDown(with event: NSEvent) {
         hasControlFocus = true
@@ -180,6 +196,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     override func cancelOperation(_ sender: Any?) {
+        cancelZoomAnimation()
         model.fitDiagram()
         var ancestor = superview
         while let view = ancestor {
@@ -201,6 +218,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     func refreshPresentation() {
+        // Source, pan and gesture updates interrupt an in-flight button zoom.
+        if !isApplyingAnimatedZoom { cancelZoomAnimation() }
         zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)
         zoomControl.setEnabled(model.zoom < 8, forSegment: 1)
         zoomControl.setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent")
@@ -278,11 +297,73 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         if sender.selectedSegment == 1 { zoomIn(sender) }
     }
 
-    @objc private func zoomIn(_ sender: Any?) { model.zoom(by: 1.25) }
-    @objc private func zoomOut(_ sender: Any?) { model.zoom(by: 1 / 1.25) }
-    @objc private func fitDiagram(_ sender: Any?) { model.fitDiagram() }
+    private func animateZoom(by factor: CGFloat) {
+        let startRect = presentedDrawingRect ?? model.drawingRect(in: viewport.size)
+        let previousZoom = model.zoom
+        isApplyingAnimatedZoom = true
+        model.zoom(by: factor)
+        isApplyingAnimatedZoom = false
+        guard model.zoom != previousZoom else { return }
+        cancelZoomAnimation()
+        let endRect = model.drawingRect(in: viewport.size)
+        guard window != nil, viewport.width > 0, viewport.height > 0,
+              !reducesMotion(), startRect != endRect else { return }
+
+        let transition = PicoMermaidZoomAnimation(from: startRect, to: endRect)
+        presentedDrawingRect = startRect
+        zoomAnimationViewportSize = viewport.size
+        let generation = zoomAnimationGeneration
+        let clock = ContinuousClock()
+        let start = clock.now
+        zoomAnimationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.zoomAnimationGeneration == generation else { return }
+                guard !self.reducesMotion() else { self.cancelZoomAnimation(); return }
+                let elapsed = start.duration(to: clock.now).components
+                let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+                let progress = seconds / PicoMermaidZoomAnimation.duration
+                self.presentedDrawingRect = transition.rect(at: progress)
+                self.needsDisplay = true
+                if progress >= 1 {
+                    self.presentedDrawingRect = nil
+                    self.zoomAnimationViewportSize = nil
+                    self.zoomAnimationTask = nil
+                    return
+                }
+                do { try await Task.sleep(for: .nanoseconds(16_666_667)) }
+                catch { return }
+            }
+        }
+    }
+
+    private func cancelZoomAnimation() {
+        zoomAnimationGeneration &+= 1
+        zoomAnimationTask?.cancel()
+        zoomAnimationTask = nil
+        zoomAnimationViewportSize = nil
+        if presentedDrawingRect != nil { presentedDrawingRect = nil; needsDisplay = true }
+    }
+
+    @objc private func zoomIn(_ sender: Any?) { animateZoom(by: 1.25) }
+    @objc private func zoomOut(_ sender: Any?) { animateZoom(by: 1 / 1.25) }
+    @objc private func fitDiagram(_ sender: Any?) { cancelZoomAnimation(); model.fitDiagram() }
     @objc private func copyMarkdown(_ sender: Any?) { model.copyMarkdown() }
     @objc private func copySource(_ sender: Any?) { model.copySource() }
+}
+
+/// Interpolates vector drawing coordinates; no cached image is scaled.
+struct PicoMermaidZoomAnimation {
+    static let duration: TimeInterval = 0.18
+    let from: CGRect
+    let to: CGRect
+
+    func rect(at progress: Double) -> CGRect {
+        let t = min(1, max(0, progress))
+        let eased = CGFloat(1 - pow(1 - t, 3))
+        func value(_ start: CGFloat, _ end: CGFloat) -> CGFloat { start + (end - start) * eased }
+        return CGRect(x: value(from.minX, to.minX), y: value(from.minY, to.minY),
+                      width: value(from.width, to.width), height: value(from.height, to.height))
+    }
 }
 
 @MainActor
