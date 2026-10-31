@@ -1,6 +1,6 @@
 # Remote Images
 
-This sample exercises remote Markdown image loading in `PicoMarkdownView`.
+This sample exercises remote Markdown image loading in `PicoMarkdownView`. On macOS, click a standalone image to open the example app's lightbox. Zoom and pan there, copy or save the image, and press Escape to close it. Dragging across images still selects the underlying Markdown. The image mixed with text below keeps its inline rendering.
 
 ## HTTPS image
 

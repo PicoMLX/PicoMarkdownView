@@ -82,6 +82,9 @@ struct MarkdownExample: Identifiable, Hashable {
 struct ContentView: View {    
     
     @State var selectedExample: MarkdownExample?
+#if os(macOS)
+    @State private var selectedImage: ExampleImagePresentation?
+#endif
     
     var body: some View {
         NavigationSplitView {
@@ -94,6 +97,9 @@ struct ContentView: View {
         } detail: {
             if let selectedExample {
                 MarkdownView(selectedExample)
+#if os(macOS)
+                    .onImageTap { selectedImage = ExampleImagePresentation(image: $0) }
+#endif
             } else {
                 Text("Select an Example")
             }
@@ -101,9 +107,31 @@ struct ContentView: View {
         .onAppear {
             selectedExample = MarkdownExample.examples.first
         }
+#if os(macOS)
+        // The app owns presentation above the entire split view, including
+        // the browser comparison pane. The Markdown renderer only reports
+        // activation and keeps its streaming view alive beneath the sheet.
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .sheet(item: $selectedImage) { presentation in
+                        ImageLightbox(image: presentation.image)
+                            .frame(width: max(320, geometry.size.width * 0.94),
+                                   height: max(280, geometry.size.height * 0.92))
+                    }
+            }
+        }
+#endif
     }
 }
 
 #Preview {
     ContentView()
 }
+
+#if os(macOS)
+private struct ExampleImagePresentation: Identifiable {
+    let id = UUID()
+    let image: MarkdownImageActivation
+}
+#endif

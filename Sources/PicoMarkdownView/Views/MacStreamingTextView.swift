@@ -63,12 +63,40 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
 
+    /// Hit testing for context menus uses the visible image, not the wider
+    /// hosted attachment frame. Activation itself uses native link tracking.
+    func imageCanvasTarget(at point: NSPoint) -> PicoHostedMediaCanvasView? {
+        Self.imageCanvasTarget(atWindowPoint: convert(point, to: nil), in: self)
+    }
+
+    private static func imageCanvasTarget(atWindowPoint point: NSPoint, in view: NSView) -> PicoHostedMediaCanvasView? {
+        let local = view.convert(point, from: nil)
+        guard view.window != nil, !view.isHidden, view.alphaValue > 0,
+              view.bounds.intersection(view.visibleRect).contains(local) else { return nil }
+        if let canvas = view as? PicoHostedMediaCanvasView, canvas.model.isImage { return canvas }
+        for child in view.subviews.reversed() {
+            if let target = imageCanvasTarget(atWindowPoint: point, in: child) { return target }
+        }
+        return nil
+    }
+
     override func magnify(with event: NSEvent) {
         if PicoHostedContentHostingView.forwardMagnification(with: event, in: self) { return }
         super.magnify(with: event)
     }
 
     override func clicked(onLink link: Any, at charIndex: Int) {
+        if let url = Self.linkURL(from: link), backend.isImageActivationLink(url) {
+            // TextKit's own link tracking distinguishes a click from dragging
+            // a selection. The actual image is narrower than some host frames.
+            if let event = NSApp.currentEvent, event.windowNumber == window?.windowNumber,
+               event.type == .leftMouseDown || event.type == .leftMouseUp {
+                guard let canvas = imageCanvasTarget(at: convert(event.locationInWindow, from: nil)),
+                      backend.imageAttachmentRange(for: canvas)?.location == charIndex else { return }
+            }
+            _ = backend.activateImageLink(url, at: charIndex)
+            return
+        }
         guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
             super.clicked(onLink: link, at: charIndex)
             return
@@ -100,8 +128,21 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        if let canvas = imageCanvasTarget(at: point), let id = backend.imageID(for: canvas) {
+            // Do not expose AppKit's Open Link/Copy Link actions for our
+            // private image-activation route. Source export stays Markdown.
+            let menu = NSMenu()
+            let item = NSMenuItem(title: "Copy Image Markdown", action: #selector(copyImageMarkdown(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = ImageCopyRequest(id: id, generation: backend.documentGeneration)
+            menu.addItem(item)
+            return menu
+        }
+        if let link = linkHit(at: point, includeImageActivation: true)?.url,
+           backend.isImageActivationLink(link) { return NSMenu() }
         let menu = super.menu(for: event) ?? NSMenu()
-        guard let id = codeBlockID(at: convert(event.locationInWindow, from: nil)),
+        guard let id = codeBlockID(at: point),
               backend.codeBlockForCopy(id: id) != nil else { return menu }
         let item = NSMenuItem(title: "Copy code", action: #selector(copyCodeBlock(_:)), keyEquivalent: "")
         item.target = self
@@ -109,6 +150,19 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         menu.insertItem(item, at: 0)
         menu.insertItem(.separator(), at: 1)
         return menu
+    }
+
+    @objc private func copyImageMarkdown(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? ImageCopyRequest,
+              request.generation == backend.documentGeneration,
+              let markdown = backend.imageMarkdownForCopy(id: request.id) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(markdown, forType: .string)
+    }
+
+    private struct ImageCopyRequest {
+        let id: BlockID
+        let generation: UInt64
     }
 
     @objc private func copyCodeBlock(_ sender: NSMenuItem) {
@@ -308,6 +362,11 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
 
     /// TextKit 2 geometry keeps ordinary link and tag hover out of compatibility mode.
     func hoverLink(at point: NSPoint) -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
+        linkHit(at: point, includeImageActivation: false)
+    }
+
+    private func linkHit(at point: NSPoint, includeImageActivation: Bool)
+        -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
         guard let manager = textLayoutManager, let content = manager.textContentManager,
               let storage = textStorage, storage.length > 0 else { return nil }
         let nearest = min(characterIndexForInsertion(at: point), storage.length - 1)
@@ -315,6 +374,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
             var range = NSRange(location: 0, length: 0)
             guard let link = storage.attribute(.link, at: index, longestEffectiveRange: &range,
                 in: NSRange(location: 0, length: storage.length)), let textRange = textRange(range, in: content) else { continue }
+            if !includeImageActivation, let url = Self.linkURL(from: link), backend.isImageActivationLink(url) { continue }
             var hitRect: CGRect?
             manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, rect, _, _ in
                 let viewRect = rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
