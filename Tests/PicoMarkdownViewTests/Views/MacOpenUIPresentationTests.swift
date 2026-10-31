@@ -19,16 +19,26 @@ struct MacOpenUIPresentationTests {
         let geometry = try await fixture.waitForGeometry("Calendar becomes fully visible", script: """
             const popup = document.querySelector('.openui-date-picker-renderer-floating-content');
             if (!popup) return null;
+            // The command-line host is inactive, so WebKit may suspend its
+            // animation timeline. Finish finite stock entrance animations only
+            // in this test, then verify the final visible geometry and input.
+            // Animation timing itself is not part of this regression.
+            for (const animation of popup.getAnimations({subtree:true})) {
+              if (Number.isFinite(animation.effect?.getComputedTiming().endTime)) animation.finish();
+            }
             const rect = popup.getBoundingClientRect();
+            const menu = popup.querySelector('.openui-date-picker-renderer-floating-menu');
+            const visible = menu && Number(getComputedStyle(menu).opacity) >= 0.99;
             const days = [...popup.querySelectorAll('.openui-calendar-single-day-button:not(:disabled)')];
             const last = days.at(-1);
             if (!last) return null;
             const day = last.getBoundingClientRect();
             const target = document.elementFromPoint(day.x + day.width / 2, day.y + day.height / 2);
-            return {top:rect.top, bottom:rect.bottom, viewport:window.innerHeight,
+            return {top:rect.top, bottom:rect.bottom, viewport:window.innerHeight, visible,
                     fits:rect.top >= -1 && rect.bottom <= window.innerHeight + 1,
                     lowerDateClickable:target === last || last.contains(target)};
-            """) { ($0["fits"] as? Bool) == true && ($0["lowerDateClickable"] as? Bool) == true }
+            """) { ($0["fits"] as? Bool) == true && ($0["visible"] as? Bool) == true
+            && ($0["lowerDateClickable"] as? Bool) == true }
         #expect(geometry["fits"] as? Bool == true)
         try await fixture.waitUntil("Native attachment reserves the expanded calendar height") {
             abs(fixture.attachment.measuredSize.height - fixture.model.measuredHeight) <= 2
