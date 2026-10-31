@@ -22,6 +22,9 @@ struct MarkdownView: View {
     private let tagPrefixes: Set<TagPrefix>
     private let htmlPreviewsEnabled: Bool
     private let svgRenderingEnabled: Bool
+#if os(macOS)
+    private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+#endif
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -45,6 +48,14 @@ struct MarkdownView: View {
         self.svgRenderingEnabled = example.svgRenderingEnabled
     }
 
+#if os(macOS)
+    func onImageTap(_ handler: @escaping @MainActor (MarkdownImageActivation) -> Void) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
+
     var body: some View {
 
         HStack {
@@ -65,6 +76,10 @@ struct MarkdownView: View {
                                                      onTagHover: { tagHoverReadout = $0 },
                                                      onLinkHover: { linkHoverReadout = $0 },
                                                      onContentSize: { handleContentSizeChange($0) })
+#if os(macOS)
+                                .onImageTap(imageTapHandler)
+#endif
+                                .equatable()
                         }
                         .scrollPosition($scrollPosition)
                         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
@@ -222,6 +237,15 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onTagHover: (String?) -> Void
     let onLinkHover: (String?) -> Void
     let onContentSize: (CGSize) -> Void
+#if os(macOS)
+    var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
+
+    func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.markdown == rhs.markdown
@@ -235,6 +259,7 @@ private struct StreamingMarkdownContent: View, Equatable {
             wordStream(from: markdown)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes,
            embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
+            .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
 #else
         PicoMarkdownView(stream: { [markdown] in
             wordStream(from: markdown)
