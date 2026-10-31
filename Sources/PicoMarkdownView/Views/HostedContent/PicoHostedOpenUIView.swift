@@ -39,6 +39,9 @@ struct PicoHostedOpenUIView: View {
                     .allowsHitTesting(false)
             }
         }
+        .onChange(of: context.availableWidth, initial: true) { _, width in
+            model.updateAvailableWidth(width)
+        }
         .onChange(of: colorScheme, initial: true) { _, value in
             model.updateAppearance(dark: value == .dark)
         }

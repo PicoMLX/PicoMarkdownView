@@ -36,6 +36,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
     @ObservationIgnored private var assetRoot: URL?
     @ObservationIgnored private var colorScheme = "light"
     @ObservationIgnored private var lastContentHeight: CGFloat?
+    @ObservationIgnored private var availableWidth: CGFloat?
     @ObservationIgnored private var pendingHeight: CGFloat?
     @ObservationIgnored private var heightScheduled = false
     @ObservationIgnored private var renderGeneration: UInt64 = 0
@@ -88,7 +89,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
         let messages = WKUserContentController()
         messages.add(PicoHostedOpenUIMessageBridge(model: self), name: "picoOpenUI")
         configuration.userContentController = messages
-        let view = PicoHostedOpenUIWebView(frame: NSRect(x: 0, y: 0, width: 600, height: Self.initialHeight),
+        let view = PicoHostedOpenUIWebView(frame: NSRect(x: 0, y: 0, width: availableWidth ?? 600, height: Self.initialHeight),
                                           configuration: configuration)
         view.navigationDelegate = self
         view.pageZoom = textScale
@@ -125,6 +126,25 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
         webView?.pageZoom = scale
         refreshScrollRegions()
         if let height = lastContentHeight { acceptContentHeight(height) }
+    }
+
+    /// A height fallback removes the representable from layout, but its retained
+    /// browser still needs the new width so wrapping can bring it below the limit.
+    func updateAvailableWidth(_ width: CGFloat) {
+        guard !isDisposed, width.isFinite, width > 0 else { return }
+        availableWidth = width
+        resizeBrowserDuringHeightFallback()
+    }
+
+    private func resizeBrowserDuringHeightFallback() {
+        guard heightError != nil, let width = availableWidth, let webView,
+              webView.frame.width != width else { return }
+        let oldHeight = webView.frame.height
+        let height = oldHeight.isFinite && oldHeight > 0 ? oldHeight : measuredHeight
+        setScrollRegions([])
+        webView.setFrameSize(CGSize(width: width, height: height))
+        webView.layoutSubtreeIfNeeded()
+        refreshScrollRegions()
     }
 
     func receive(_ body: Any, isMainFrame: Bool = true) {
@@ -229,6 +249,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
         guard points.isFinite, points <= Self.maximumHeight else {
             let message = "This OpenUI content is too tall to display inline."
             heightError = message
+            resizeBrowserDuringHeightFallback()
             onError?(message)
             return
         }

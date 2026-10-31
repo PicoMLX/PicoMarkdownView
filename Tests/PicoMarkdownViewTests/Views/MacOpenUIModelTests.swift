@@ -57,6 +57,71 @@ struct MacOpenUIModelTests {
         #expect(model.renderCount == initialRenderCount)
     }
 
+    @Test("Width updates recover a retained height-failed child without replacing its browser")
+    func widthUpdatesRetainedHeightFallback() throws {
+        _ = NSApplication.shared
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        model.updateAvailableWidth(240)
+        #expect(model.webView == nil, "Remembering width must not eagerly create a browser")
+        let browser = try #require(model.makeWebView())
+        #expect(browser.frame.width == 240)
+        browser.setFrameSize(CGSize(width: 240, height: 350))
+        let sourceID = model.sourceID
+        let markdown = model.markdown
+        model.updateAvailableWidth(320)
+        #expect(browser.frame.width == 240, "Healthy browsers stay under SwiftUI layout control")
+        model.receive(["kind": "size", "payload": ["height": 25_000.0], "sourceID": sourceID])
+        let heightFailure = try #require(model.error)
+        #expect(browser.frame.width == 320, "Entering fallback applies the latest width even before another width callback")
+        #expect(browser.frame.height == 350, "A rejected content height must not become the browser frame height")
+        for width in [CGFloat.nan, .infinity, -.infinity, 0, -10] {
+            model.updateAvailableWidth(width)
+        }
+        #expect(browser.frame.width == 320)
+        model.updateAvailableWidth(760)
+        #expect(browser.frame.width == 760)
+        #expect(browser.frame.height == 350)
+        #expect(model.error == heightFailure, "Resizing alone must wait for a valid measured height")
+        #expect(model.webView === browser)
+        model.receive(["kind": "size", "payload": ["height": 480.0], "sourceID": sourceID])
+        #expect(model.error == nil)
+        model.updateAvailableWidth(900)
+        #expect(browser.frame.width == 760, "Recovered browsers return to SwiftUI layout control")
+        #expect(model.webView === browser)
+        #expect(model.sourceID == sourceID)
+        #expect(model.markdown == markdown)
+        #expect(model.webViewCreationCount == 1)
+        #expect(model.renderCount == 0, "Width recovery must not resubmit the OpenUI program")
+        model.dispose()
+        model.updateAvailableWidth(1_000)
+        #expect(browser.frame.width == 760, "Disposed children ignore later width updates")
+        #expect(model.webView == nil)
+    }
+
+    @Test("Width-driven height recovery preserves unrelated failures", arguments: ["parser", "runtime"])
+    func widthRecoveryPreservesOtherFailures(_ failure: String) throws {
+        _ = NSApplication.shared
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        let browser = try #require(model.makeWebView())
+        browser.setFrameSize(CGSize(width: 240, height: 350))
+        model.receive(["kind": "size", "payload": ["height": 25_000.0], "sourceID": model.sourceID])
+        if failure == "parser" {
+            model.receive(["kind": "error", "payload": [["severity": "error", "message": "Invalid program"]],
+                           "sourceID": model.sourceID])
+        } else { model.webViewWebContentProcessDidTerminate(browser) }
+        let originalError = try #require(model.error)
+        model.updateAvailableWidth(760)
+        #expect(browser.frame.width == 760)
+        #expect(model.error == originalError)
+        model.receive(["kind": "size", "payload": ["height": 480.0], "sourceID": model.sourceID])
+        #expect(model.error == originalError, "Only a height failure can recover from a new measurement")
+        #expect(model.webView === browser)
+        #expect(model.webViewCreationCount == 1)
+        #expect(model.renderCount == 0)
+    }
+
     @Test("Changing zoom scales the last CSS height without another size message", .timeLimit(.minutes(1)))
     func textScaleUpdatesIntrinsicHeight() async {
         let model = PicoHostedOpenUIModel(source: source, language: "openui")
