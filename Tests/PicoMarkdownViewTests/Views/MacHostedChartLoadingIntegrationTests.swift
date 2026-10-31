@@ -7,7 +7,7 @@ import CryptoKit
 import Testing
 @testable import PicoMarkdownView
 
-@Suite("macOS hosted chart loading integration")
+@Suite("macOS hosted chart loading integration", .timeLimit(.minutes(1)))
 @MainActor
 struct MacHostedChartLoadingIntegrationTests {
     @Test("An empty opening fence immediately reserves one fixed native marker")
@@ -310,7 +310,9 @@ struct MacHostedChartLoadingIntegrationTests {
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, beforeScroll.layoutFragmentFrame.minY - 8)))
         scroll.reflectScrolledClipView(scroll.contentView)
         await model.waitForLoadingDelay()
-        await settle(view)
+        try await waitForNativeUpdate(in: scroll, window: window) {
+            attachment.hostingView?.window === window
+        }
         #expect(view.window === window && window.isVisible)
         let fragment = try #require(manager.textLayoutFragment(for: location))
         try #require(fragment.layoutFragmentFrame.intersects(view.visibleRect), "The loading marker must actually be in the native viewport")
@@ -524,18 +526,19 @@ struct MacHostedChartLoadingIntegrationTests {
     }
 
     private func waitForNativeUpdate(in outer: NSView, window: NSWindow,
-                                     sourceLocation: SourceLocation = #_sourceLocation, condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while !condition(), ContinuousClock.now < deadline {
+                                     condition: () -> Bool) async throws {
+        // TextKit mounts attachment views asynchronously after viewport layout.
+        // Await native readiness under the test's time limit, not a fixed number
+        // of yields or an independent wall-clock deadline.
+        while !condition() {
+            try Task.checkCancellation()
             await layout(outer, window: window)
             if let view = firstDescendant(StreamingTextKit2View.self, in: outer) { await settle(view) }
-            try await Task.sleep(for: .milliseconds(10))
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
         }
-        if !condition(), let view = firstDescendant(StreamingTextKit2View.self, in: outer) {
-            let attachment = firstHostedAttachment(in: view)
-            print("Nested streamed view: frame=\(view.frame), visible=\(view.visibleRect), host=\(String(describing: attachment?.hostingView)), estimate=\(String(describing: attachment?.measuredSize))")
-        }
-        try #require(condition(), "The streamed native view did not reach its expected state before the deadline", sourceLocation: sourceLocation)
+        try Task.checkCancellation()
         await layout(outer, window: window)
     }
 
