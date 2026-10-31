@@ -35,6 +35,45 @@ struct HTMLPreviewViewTests {
         #expect(background == "rgba(0, 0, 0, 0)")
     }
 
+    @Test("Full-document body spacing and offsets remain inside the measured preview", arguments: [false, true])
+    func bodySpacingIsIncludedInMeasuredExtent(withBorderAndOffset: Bool) async throws {
+        let border: Double = withBorderAndOffset ? 6 : 0
+        let offset: Double = withBorderAndOffset ? 12 : 0
+        let source = "<html><body style='padding:40px;border:\(border)px solid black;position:relative;top:\(offset)px'><div style='height:20px'>Report</div></body></html>"
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        let ready = AsyncStream.makeStream(of: Void.self)
+        view.onReady = { ready.continuation.yield(()) }
+        defer { view.onReady = nil; ready.continuation.finish() }
+        if !view.isReady {
+            var iterator = ready.stream.makeAsyncIterator()
+            try #require(await iterator.next() != nil)
+        }
+        let page = try #require(view.page)
+        let result = try await page.callJavaScript("""
+            const report = document.querySelector('#pico-html-content > div');
+            const rect = report.getBoundingClientRect();
+            const body = document.body.getBoundingClientRect();
+            const style = getComputedStyle(document.body);
+            return { text: report.textContent, top: rect.top, bottom: rect.bottom,
+                     bodyBottom: body.bottom, viewportHeight: innerHeight,
+                     padding: parseFloat(style.paddingTop), border: parseFloat(style.borderBottomWidth) };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect(values["text"] as? String == "Report")
+        #expect(values["padding"] as? Double == 40)
+        #expect(values["border"] as? Double == border)
+        let top = try #require(values["top"] as? Double)
+        let bottom = try #require(values["bottom"] as? Double)
+        let bodyBottom = try #require(values["bodyBottom"] as? Double)
+        let viewportHeight = try #require(values["viewportHeight"] as? Double)
+        #expect(abs(top - (40 + border + offset)) <= 1)
+        #expect(view.measuredHeight >= 100 + 2 * border + offset)
+        #expect(view.measuredHeight >= ceil(bodyBottom))
+        #expect(view.bounds.height >= ceil(bodyBottom))
+        #expect(top >= 0 && bottom <= viewportHeight, "The actual report must be inside the rendered browser viewport")
+    }
+
     @Test func browserReceivesOnlyStaticOfflineContent() async throws {
         let source = """
         <style>@import url('https://example.invalid/remote.css'); @keyframes spin { to { transform: rotate(360deg); } } p { animation: spin 1s infinite; transition: color 1s; color: rgb(12, 34, 56); background-image: url('file:///tmp/private.png'); }</style>
@@ -118,6 +157,7 @@ struct HTMLPreviewViewTests {
 
     @Test(arguments: [
         "<div style='height:5000px'>Too tall for a bounded preview</div>",
+        "<html><body style='padding:40px'><div style='height:4050px'>Body spacing exceeds the bounded preview</div></body></html>",
         "<p>Flowing report</p><div style='position:fixed;top:1000px;height:100px'>Outside the flow</div>"
     ])
     func unsupportedLayoutUsesSourceFallbackInsteadOfClipping(source: String) async throws {

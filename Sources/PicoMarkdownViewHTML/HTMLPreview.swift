@@ -351,7 +351,16 @@ final class HTMLPreviewContainer: NSView {
             // Author HTML is static, including inline !important animations
             // which can outrank our document's default stylesheet.
             document.getAnimations().forEach(animation => animation.cancel());
-            let height = Math.max(root.getBoundingClientRect().height, root.scrollHeight);
+            const rootRect = root.getBoundingClientRect();
+            const bodyRect = document.body.getBoundingClientRect();
+            const bodyStyle = getComputedStyle(document.body);
+            const trailingBodySpacing = (parseFloat(bodyStyle.paddingBottom) || 0)
+              + (parseFloat(bodyStyle.borderBottomWidth) || 0);
+            // The wrapper's height excludes body padding/borders and its
+            // document offset. Measure their bottom extent without using a
+            // viewport-minimum scrollHeight that could prevent shrinking.
+            let height = Math.max(bodyRect.bottom + window.scrollY,
+              rootRect.top + window.scrollY + Math.max(rootRect.height, root.scrollHeight) + trailingBodySpacing);
             if (Array.from(root.querySelectorAll('*')).some(element => {
               const rect = element.getBoundingClientRect();
               const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden';
@@ -363,7 +372,9 @@ final class HTMLPreviewContainer: NSView {
               token: '\(token.uuidString)', height, width: window.innerWidth
             });
           };
-          new ResizeObserver(measure).observe(root);
+          const observer = new ResizeObserver(measure);
+          observer.observe(root);
+          observer.observe(document.body, { box: 'border-box' });
           measure();
           document.fonts.ready.then(measure);
         })();
