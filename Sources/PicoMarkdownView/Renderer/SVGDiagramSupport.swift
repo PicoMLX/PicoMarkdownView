@@ -44,6 +44,7 @@ extension MarkdownRenderTheme {
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
                             svgRenderingEnabled: enabled,
-                            openUIRenderingEnabled: openUIRenderingEnabled)
+                            openUIRenderingEnabled: openUIRenderingEnabled,
+                            vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 }

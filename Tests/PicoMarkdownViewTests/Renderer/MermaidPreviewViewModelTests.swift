@@ -1,10 +1,11 @@
 #if os(macOS) && canImport(JavaScriptCore)
 import AppKit
+import Observation
 import Synchronization
 import Testing
 @testable import PicoMarkdownView
 
-@Suite("Paused macOS Mermaid previews")
+@Suite("Paused macOS Mermaid previews", .timeLimit(.minutes(1)))
 @MainActor
 struct MermaidPreviewViewModelTests {
     private let initialSource = "flowchart LR\n A[Start]\n"
@@ -216,12 +217,18 @@ struct MermaidPreviewViewModelTests {
     }
 
     private func waitUntil(_ predicate: @MainActor () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
-        while !predicate(), clock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
+        while !predicate() {
+            try Task.checkCancellation()
+            let change = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+            withObservationTracking {
+                _ = predicate()
+            } onChange: {
+                change.continuation.yield(())
+                change.continuation.finish()
+            }
+            for await _ in change.stream { break }
+            try Task.checkCancellation()
         }
-        try #require(predicate(), "The expected stream presentation did not arrive before the deadline")
     }
 }
 
@@ -239,6 +246,14 @@ private final class PreviewTestClock: Sendable {
         var fired: Set<Int> = []
     }
     private let state = Mutex(State())
+    private let scheduled: AsyncStream<Void>
+    private let scheduledContinuation: AsyncStream<Void>.Continuation
+
+    init() {
+        let signal = AsyncStream.makeStream(of: Void.self, bufferingPolicy: .bufferingNewest(1))
+        scheduled = signal.stream
+        scheduledContinuation = signal.continuation
+    }
 
     var timing: MermaidPreviewTiming {
         MermaidPreviewTiming(now: { self.state.withLock { $0.now } },
@@ -254,6 +269,7 @@ private final class PreviewTestClock: Sendable {
             state.sleeps[id] = Sleep(deadline: state.now.advanced(by: duration), continuation: gate.continuation)
             return id
         }
+        scheduledContinuation.yield(())
         defer { state.withLock { $0.sleeps[id] = nil } }
         // AsyncStream wakes on cancellation just like the production sleep.
         for await _ in gate.stream { break }
@@ -273,15 +289,14 @@ private final class PreviewTestClock: Sendable {
     func hasFired(_ id: Int) -> Bool { state.withLock { $0.fired.contains(id) } }
 
     func nextDeadline(after previous: Int = -1) async throws -> Int {
-        let wallClock = ContinuousClock()
-        let timeout = wallClock.now.advanced(by: .seconds(5))
-        var scheduled: Int?
-        repeat {
-            scheduled = state.withLock { $0.sleeps.keys.filter { $0 > previous }.min() }
-            if scheduled == nil { try await Task.sleep(for: .milliseconds(5)) }
-        } while scheduled == nil && wallClock.now < timeout
-        let latest = scheduled ?? state.withLock { $0.sleeps.keys.filter { $0 > previous }.min() }
-        return try #require(latest, "The expected trailing preview deadline was not scheduled")
+        var iterator = scheduled.makeAsyncIterator()
+        while true {
+            try Task.checkCancellation()
+            if let id = state.withLock({ $0.sleeps.keys.filter { $0 > previous }.min() }) { return id }
+            let event = await iterator.next()
+            try Task.checkCancellation()
+            _ = try #require(event, "The expected trailing preview deadline was not scheduled")
+        }
     }
 }
 

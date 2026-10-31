@@ -19,6 +19,12 @@ struct SVGRendererTests {
         #expect(enabled.withMermaidRendering(.disabled).svgRenderingEnabled)
         #expect(enabled.withCodeHighlighting(codeBlockTheme: nil, codeHighlighter: nil).svgRenderingEnabled)
         #expect(!enabled.withSVGRendering(false).svgRenderingEnabled)
+        #expect(enabled.withVegaLiteRendering(false).svgRenderingEnabled)
+
+        let chartsDisabled = defaults.withVegaLiteRendering(false).withSVGRendering()
+        #expect(chartsDisabled.svgRenderingEnabled)
+        #expect(!chartsDisabled.vegaLiteRenderingEnabled)
+        #expect(!chartsDisabled.withSVGRendering(false).vegaLiteRenderingEnabled)
     }
 
     @Test("Only the SVG info-string language opts into the renderer", arguments: [

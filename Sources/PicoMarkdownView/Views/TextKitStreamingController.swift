@@ -106,8 +106,18 @@ final class TextKitStreamingController: ObservableObject {
         backend.onOpenUIAction = handler
     }
 
-    func setSVGStreamActive(_ active: Bool) {
-        backend.setSVGStreamActive(active)
+    func setHostedStreamActive(_ active: Bool) {
+        backend.setHostedStreamActive(active)
+    }
+
+    func setSVGStreamActive(_ active: Bool) { setHostedStreamActive(active) }
+
+    func hostedVectorModel(for id: BlockID) -> PicoHostedVectorModel? {
+        backend.hostedVectorModel(for: id)
+    }
+
+    func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
+        backend.hostedAttachment(for: id)
     }
 
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
@@ -274,8 +284,9 @@ final class TextKitStreamingBackend {
         var table: RenderedTable? = nil
         var tableSnapshot: TableSnapshot? = nil
         var mermaidDiagram: RenderedMermaidDiagram? = nil
+        var vegaLiteChart: RenderedVegaLiteChart? = nil
         var codeBlockForCopy: RenderedCodeBlock? = nil
-        var mermaidIsClosed = true
+        var vectorIsClosed = true
         var imageRuns: [InlineRun]? = nil
         var imageIsClosed = false
         var svgGraphic: RenderedSVGGraphic? = nil
@@ -301,12 +312,12 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
     private weak var contentStorage: NSTextContentStorage?
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedMermaids: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedSVGs: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
-    private var svgStreamActive = true
+    private var hostedVectors: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedSVGs: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
                                          activation: MarkdownImageActivation)] = [:]
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+    private var hostedStreamActive = true
     private var hostedOpenUIs: [BlockID: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
@@ -323,28 +334,48 @@ final class TextKitStreamingBackend {
     }
 
     func setPaused(_ paused: Bool) {
+#if canImport(AppKit)
         guard isPaused != paused else { return }
+#endif
         isPaused = paused
 #if canImport(AppKit)
-        updateSVGLoadingActivity()
+        updateHostedLoadingActivity()
 #endif
     }
 
 #if canImport(AppKit)
-    func setSVGStreamActive(_ active: Bool) {
-        guard svgStreamActive != active else { return }
-        svgStreamActive = active
-        updateSVGLoadingActivity()
+    func setHostedStreamActive(_ active: Bool) {
+        guard hostedStreamActive != active else { return }
+        hostedStreamActive = active
+        updateHostedLoadingActivity()
     }
 
-    private var svgLoadingActivity: PicoHostedMediaModel.LoadingActivity {
-        isPaused ? .paused : (svgStreamActive ? .receiving : .stopped)
+    func setSVGStreamActive(_ active: Bool) { setHostedStreamActive(active) }
+
+    private var hostedLoadingActivity: PicoHostedVectorModel.LoadingActivity {
+        isPaused ? .paused : (hostedStreamActive ? .receiving : .stopped)
     }
 
-    private func updateSVGLoadingActivity() {
-        for entry in hostedSVGs.values {
-            entry.model.setLoadingActivity(svgLoadingActivity)
-        }
+    private func updateHostedLoadingActivity() {
+        for entry in hostedVectors.values { entry.model.setLoadingActivity(hostedLoadingActivity) }
+        for entry in hostedSVGs.values { entry.model.setLoadingActivity(hostedLoadingActivity) }
+    }
+
+    private func removeHostedVector(for id: BlockID) {
+        hostedVectors.removeValue(forKey: id)?.model.finishLoading()
+    }
+
+    private func removeAllHostedVectors() {
+        for entry in hostedVectors.values { entry.model.finishLoading() }
+        hostedVectors.removeAll()
+    }
+    private func removeHostedSVG(for id: BlockID) {
+        hostedSVGs.removeValue(forKey: id)?.model.finishLoading()
+    }
+
+    private func removeAllHostedSVGs() {
+        for entry in hostedSVGs.values { entry.model.finishLoading() }
+        hostedSVGs.removeAll()
     }
 #endif
 
@@ -385,9 +416,9 @@ final class TextKitStreamingBackend {
             blockOffsets = [0]
             indexByID.removeAll()
             hostedTables.removeAll()
-            hostedMermaids.removeAll()
+            removeAllHostedVectors()
             hostedImages.removeAll()
-            hostedSVGs.removeAll()
+            removeAllHostedSVGs()
             disposeOpenUIs()
         }
 #endif
@@ -420,9 +451,9 @@ final class TextKitStreamingBackend {
                 indexByID = [:]
 #if canImport(AppKit)
                 hostedTables.removeAll()
-                hostedMermaids.removeAll()
+                removeAllHostedVectors()
                 hostedImages.removeAll()
-                hostedSVGs.removeAll()
+                removeAllHostedSVGs()
                 disposeOpenUIs()
 #endif
                 return NSRange(location: 0, length: 0)
@@ -435,9 +466,9 @@ final class TextKitStreamingBackend {
             indexByID = [:]
 #if canImport(AppKit)
             hostedTables.removeAll()
-            hostedMermaids.removeAll()
+            removeAllHostedVectors()
             hostedImages.removeAll()
-            hostedSVGs.removeAll()
+            removeAllHostedSVGs()
             disposeOpenUIs()
 #endif
             return NSRange(location: 0, length: 0)
@@ -470,7 +501,7 @@ final class TextKitStreamingBackend {
             let data = blockData[index]
             if recordMatches(record, block: data.block) { continue }
 #if canImport(AppKit)
-            if updateHostedSVGOnly(at: index, block: data.block) || updateHostedMermaidOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
+            if updateHostedSVGOnly(at: index, block: data.block) || updateHostedVectorOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
 #endif
 
             let oldLength = record.length
@@ -481,7 +512,7 @@ final class TextKitStreamingBackend {
             records[index].content = data.block.content
             records[index].length = data.attributed.length
             records[index].nsAttributed = data.attributed
-            updateTableRecord(at: index, block: data.block)
+            updateHostedRecord(at: index, block: data.block)
 
             // Incremental offset update - O(1) for last block updates (streaming!)
             let delta = data.attributed.length - oldLength
@@ -609,7 +640,7 @@ final class TextKitStreamingBackend {
         storage.replaceCharacters(in: editedRange, with: attributed)
 
         records.insert(record, at: clampedIndex)
-        updateTableRecord(at: clampedIndex, block: block)
+        updateHostedRecord(at: clampedIndex, block: block)
         for i in clampedIndex..<records.count {
             indexByID[records[i].id] = i
         }
@@ -628,7 +659,7 @@ final class TextKitStreamingBackend {
         let record = records[index]
         guard !recordMatches(record, block: block) else { return selection }
 #if canImport(AppKit)
-        if updateHostedSVGOnly(at: index, block: block) || updateHostedMermaidOnly(at: index, block: block) || updateHostedTableOnly(at: index, block: block) { return selection }
+        if updateHostedSVGOnly(at: index, block: block) || updateHostedVectorOnly(at: index, block: block) || updateHostedTableOnly(at: index, block: block) { return selection }
 #endif
 
         let newAttributed = attributedString(for: block)
@@ -650,7 +681,7 @@ final class TextKitStreamingBackend {
         records[index].content = block.content
         records[index].length = newAttributed.length
         records[index].nsAttributed = newAttributed
-        updateTableRecord(at: index, block: block)
+        updateHostedRecord(at: index, block: block)
 
         let delta = newAttributed.length - oldLength
         if delta != 0 {
@@ -680,9 +711,9 @@ final class TextKitStreamingBackend {
             indexByID[record.id] = nil
 #if canImport(AppKit)
             hostedTables.removeValue(forKey: record.id)
-            hostedMermaids.removeValue(forKey: record.id)
+            removeHostedVector(for: record.id)
             hostedImages.removeValue(forKey: record.id)
-            hostedSVGs.removeValue(forKey: record.id)
+            removeHostedSVG(for: record.id)
             hostedOpenUIs.removeValue(forKey: record.id)?.model.dispose()
 #endif
         }
@@ -712,9 +743,9 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         let liveIDs = Set(blockData.map { $0.block.id })
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
-        hostedMermaids = hostedMermaids.filter { liveIDs.contains($0.key) }
+        for id in hostedVectors.keys.filter({ !liveIDs.contains($0) }) { removeHostedVector(for: id) }
         hostedImages = hostedImages.filter { liveIDs.contains($0.key) }
-        hostedSVGs = hostedSVGs.filter { liveIDs.contains($0.key) }
+        for id in hostedSVGs.keys.filter({ !liveIDs.contains($0) }) { removeHostedSVG(for: id) }
         for id in hostedOpenUIs.keys where !liveIDs.contains(id) {
             hostedOpenUIs.removeValue(forKey: id)?.model.dispose()
         }
@@ -724,7 +755,7 @@ final class TextKitStreamingBackend {
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
         records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
-        for index in records.indices { updateTableRecord(at: index, block: blockData[index].block) }
+        for index in records.indices { updateHostedRecord(at: index, block: blockData[index].block) }
         indexByID = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
         rebuildOffsets()
     }
@@ -884,10 +915,10 @@ final class TextKitStreamingBackend {
     private func recordMatches(_ record: BlockRecord, block: RenderedBlock) -> Bool {
 #if canImport(AppKit)
         return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
-            && record.mermaidDiagram == block.mermaidDiagram
+            && record.mermaidDiagram == block.mermaidDiagram && record.vegaLiteChart == block.vegaLiteChart
             && record.svgGraphic == block.svgGraphic
             && record.openUI == block.openUI
-            && (block.mermaidDiagram == nil || record.mermaidIsClosed == block.snapshot.isClosed)
+            && ((block.mermaidDiagram == nil && block.vegaLiteChart == nil) || record.vectorIsClosed == block.snapshot.isClosed)
             && (block.images.isEmpty || (record.imageIsClosed == block.snapshot.isClosed
                 && record.imageRuns == block.snapshot.inlineRuns))
 #else
@@ -895,13 +926,14 @@ final class TextKitStreamingBackend {
 #endif
     }
 
-    private func updateTableRecord(at index: Int, block: RenderedBlock) {
+    private func updateHostedRecord(at index: Int, block: RenderedBlock) {
 #if canImport(AppKit)
         records[index].table = block.table
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
-        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil && block.openUI == nil ? block.codeBlock : nil
-        records[index].mermaidIsClosed = block.snapshot.isClosed
+        records[index].vegaLiteChart = block.vegaLiteChart
+        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil && block.vegaLiteChart == nil && block.openUI == nil ? block.codeBlock : nil
+        records[index].vectorIsClosed = block.snapshot.isClosed
         records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
         records[index].imageIsClosed = block.snapshot.isClosed
         records[index].svgGraphic = block.svgGraphic
@@ -957,29 +989,43 @@ final class TextKitStreamingBackend {
         if let graphic = block.svgGraphic, let attributed = hostedSVGAttributedString(for: block, graphic: graphic) {
             hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
-            hostedMermaids.removeValue(forKey: block.id)
+            removeHostedVector(for: block.id)
             return attributed
         }
-        hostedSVGs.removeValue(forKey: block.id)
-        if let diagram = block.mermaidDiagram, let svg = diagram.svg {
+        removeHostedSVG(for: block.id)
+        if let vector = hostedVectorPresentation(for: block) {
             hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
-            let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)
-            if let existing = hostedMermaids[block.id] {
+            let entry: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)
+            if let existing = hostedVectors[block.id] {
                 entry = existing
-                entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
-                                   isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
+                entry.model.update(svg: vector.svg, source: vector.source, language: vector.language,
+                                   isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth, kind: vector.kind)
             } else {
-                let model = PicoHostedMediaModel(svg: svg, source: diagram.source,
-                                                  language: block.codeBlock?.language,
-                                                  isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
+                let model = PicoHostedVectorModel(svg: vector.svg, source: vector.source,
+                                                  language: vector.language,
+                                                  isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth,
+                                                  kind: vector.kind)
                 let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                     markdown: { model.markdownRepresentation() }) { context in
                         PicoHostedMediaView(model: model, context: context)
                     }
+                attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
+                if vector.kind == .vegaLite {
+                    // A nonnil transparent image bootstraps AppKit's lazy view
+                    // provider even before a chart has a vector document.
+                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
+                    attachment.attachmentCell = nil
+                }
                 entry = (model, attachment)
-                hostedMermaids[block.id] = entry
+                hostedVectors[block.id] = entry
             }
+            entry.model.setLoadingActivity(hostedLoadingActivity)
+            // Offscreen attachments are laid out before their views exist.
+            // Reserve the known vector viewport rather than a one-point row.
+            let width = vector.maxWidth ?? entry.model.intrinsicSize.width
+            entry.attachment.seedSizeBeforeViewCreation(CGSize(width: width,
+                height: entry.model.viewportHeight(availableWidth: width)))
             let attributed = NSMutableAttributedString(attributedString: .picoConverted(from: block.content))
             let marker = (attributed.string as NSString).range(of: "\u{FFFC}")
             if marker.location != NSNotFound {
@@ -987,7 +1033,7 @@ final class TextKitStreamingBackend {
             }
             return attributed
         }
-        hostedMermaids.removeValue(forKey: block.id)
+        removeHostedVector(for: block.id)
         let native = NSAttributedString.picoConverted(from: block.content)
         if let image = hostedImage(for: block, attributed: native) {
             hostedTables.removeValue(forKey: block.id)
@@ -1110,7 +1156,7 @@ final class TextKitStreamingBackend {
         if let existing = hostedSVGs[block.id] {
             existing.model.update(svg: graphic.source, source: graphic.source,
                                   language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth)
-            existing.model.setLoadingActivity(svgLoadingActivity)
+            existing.model.setLoadingActivity(hostedLoadingActivity)
             guard !graphic.isClosed || existing.model.isRenderable else { return nil }
             let width = existing.attachment.context.availableWidth
             existing.attachment.seedSizeBeforeViewCreation(CGSize(width: width,
@@ -1119,12 +1165,13 @@ final class TextKitStreamingBackend {
         } else {
             let model = PicoHostedMediaModel(svg: graphic.source, source: graphic.source,
                                               language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth, kind: .svg)
-            model.setLoadingActivity(svgLoadingActivity)
+            model.setLoadingActivity(hostedLoadingActivity)
             guard !graphic.isClosed || model.isRenderable else { return nil }
             let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                 markdown: { model.markdownRepresentation() }) { context in
                     PicoHostedMediaView(model: model, context: context)
                 }
+            attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
             // A transparent placeholder avoids AppKit's generic file icon
             // while retaining the nonnil image that bootstraps lazy providers.
             // The SVG itself is drawn by the hosted vector canvas.
@@ -1172,13 +1219,13 @@ final class TextKitStreamingBackend {
         // its model without replacing the native code fallback with a marker.
         entry.model.update(svg: graphic.source, source: graphic.source,
                            language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth)
-        entry.model.setLoadingActivity(svgLoadingActivity)
+        entry.model.setLoadingActivity(hostedLoadingActivity)
         guard !graphic.isClosed || entry.model.isRenderable else { return false }
         let width = entry.attachment.context.availableWidth
         entry.attachment.seedSizeBeforeViewCreation(CGSize(width: width,
             height: entry.model.viewportHeight(availableWidth: width)))
         entry.attachment.invalidateSize()
-        updateTableRecord(at: index, block: block)
+        updateHostedRecord(at: index, block: block)
         return true
     }
 
@@ -1281,14 +1328,41 @@ final class TextKitStreamingBackend {
         return nil
     }
 
-    private func updateHostedMermaidOnly(at index: Int, block: RenderedBlock) -> Bool {
+    private struct HostedVectorPresentation {
+        var source: String
+        var language: String?
+        var svg: String
+        var maxWidth: CGFloat?
+        var kind: PicoHostedVectorModel.Kind
+    }
+
+    private func hostedVectorPresentation(for block: RenderedBlock) -> HostedVectorPresentation? {
+        if let chart = block.vegaLiteChart {
+            return HostedVectorPresentation(source: chart.source, language: chart.language, svg: chart.svg,
+                                            maxWidth: chart.maxWidth, kind: .vegaLite)
+        }
+        if let diagram = block.mermaidDiagram, let svg = diagram.svg {
+            return HostedVectorPresentation(source: diagram.source, language: block.codeBlock?.language, svg: svg,
+                                            maxWidth: diagram.maxWidth, kind: .mermaid)
+        }
+        return nil
+    }
+
+    private func updateHostedVectorOnly(at index: Int, block: RenderedBlock) -> Bool {
         guard records[index].content == block.content,
-              let diagram = block.mermaidDiagram, let svg = diagram.svg,
-              let entry = hostedMermaids[block.id] else { return false }
-        entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
-                           isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
-        entry.attachment.invalidateSize()
-        updateTableRecord(at: index, block: block)
+              let vector = hostedVectorPresentation(for: block),
+              let entry = hostedVectors[block.id],
+              records[index].hostedAttachments.contains(where: { $0.attachment === entry.attachment }) else { return false }
+        let wasLoading = entry.model.isLoading
+        entry.model.update(svg: vector.svg, source: vector.source, language: vector.language,
+                           isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth, kind: vector.kind)
+        entry.model.setLoadingActivity(hostedLoadingActivity)
+        let width = vector.maxWidth ?? entry.model.intrinsicSize.width
+        entry.attachment.seedSizeBeforeViewCreation(CGSize(width: width,
+            height: entry.model.viewportHeight(availableWidth: width)))
+        // Source appends leave the loading row's geometry unchanged.
+        if !wasLoading || !entry.model.isLoading { entry.attachment.invalidateSize() }
+        updateHostedRecord(at: index, block: block)
         return true
     }
 
@@ -1298,7 +1372,7 @@ final class TextKitStreamingBackend {
               let entry = hostedTables[block.id] else { return false }
         entry.model.update(table: table, snapshot: snapshot, refreshExisting: hostedRefreshIDs.contains(block.id))
         entry.attachment.invalidateSize()
-        updateTableRecord(at: index, block: block)
+        updateHostedRecord(at: index, block: block)
         return true
     }
 
@@ -1346,8 +1420,12 @@ final class TextKitStreamingBackend {
     func hostedOpenUIModel(for id: BlockID) -> PicoHostedOpenUIModel? { hostedOpenUIs[id]?.model }
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
-        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment
+        hostedTables[id]?.attachment ?? hostedVectors[id]?.attachment ?? hostedSVGs[id]?.attachment
             ?? hostedImages[id]?.attachment ?? hostedOpenUIs[id]?.attachment
+    }
+
+    func hostedVectorModel(for id: BlockID) -> PicoHostedVectorModel? {
+        hostedVectors[id]?.model
     }
 #endif
 

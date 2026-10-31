@@ -169,7 +169,7 @@ public struct PicoMarkdownView: View {
                           hoverHandler: makeHoverHandler())
 #if os(macOS)
             .withDocumentIdentity(viewModel.documentIdentity)
-            .withSVGStreamActive(viewModel.isSVGStreamActive)
+            .withHostedStreamActive(viewModel.isHostedStreamActive)
             .withImageTapHandler(imageTapHandler)
             .withOpenUIAction(onOpenUIAction)
 #endif
@@ -304,13 +304,13 @@ import AppKit
 private struct TextKit2Container: NSViewRepresentable {
     var controller: TextKitStreamingController
     var documentIdentity: UInt64 = 0
-    var isSVGStreamActive = false
+    var isHostedStreamActive = false
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
 
-    func withSVGStreamActive(_ active: Bool) -> Self {
+    func withHostedStreamActive(_ active: Bool) -> Self {
         var container = self
-        container.isSVGStreamActive = active
+        container.isHostedStreamActive = active
         return container
     }
 
@@ -353,8 +353,8 @@ private struct TextKit2Container: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
         controller.installOpenUIActionHandler(onOpenUIAction)
-        // Activity can change without a block diff when a stream is canceled.
-        controller.setSVGStreamActive(isSVGStreamActive)
+        // Cancellation changes loading presentation without a block diff.
+        controller.setHostedStreamActive(isHostedStreamActive)
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration, documentIdentity: documentIdentity)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
         controller.installContentSizeObserver(on: nsView, onContentSize)
