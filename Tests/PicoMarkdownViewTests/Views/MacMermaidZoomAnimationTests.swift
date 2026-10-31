@@ -30,7 +30,7 @@ struct MacMermaidZoomAnimationTests {
         #expect(PicoMermaidZoomAnimation.duration == 0.18)
     }
 
-    @Test("Buttons and keyboard update the target immediately and finish vector zoom", arguments: [false, true])
+    @Test("Buttons and keyboard update the target immediately and finish vector zoom", .timeLimit(.minutes(1)), arguments: [false, true])
     func immediateTargetAndEventualCompletion(button: Bool) async throws {
         let fixture = makeFixture()
         defer { fixture.window.close() }
@@ -42,7 +42,8 @@ struct MacMermaidZoomAnimationTests {
         #expect(fixture.view.presentedDrawingRect == start, "Animation begins at the current drawing, without a jump")
         let target = fixture.model.drawingRect(in: fixture.view.bounds.size)
         #expect(target != start)
-        try await waitUntil { fixture.view.presentedDrawingRect == nil }
+        await fixture.view.waitForZoomAnimation()
+        #expect(fixture.view.presentedDrawingRect == nil)
         #expect(fixture.model.drawingRect(in: fixture.view.bounds.size) == target)
         #expect(fixture.model.presentationRevision == revision + 1,
                 "Animation frames must not republish Markdown or model state")
@@ -108,7 +109,7 @@ struct MacMermaidZoomAnimationTests {
         #expect(fixture.view.presentedDrawingRect == nil)
     }
 
-    @Test("Enabling Reduce Motion interrupts a running zoom")
+    @Test("Enabling Reduce Motion interrupts a running zoom", .timeLimit(.minutes(1)))
     func motionPreferenceChange() async throws {
         var reduceMotion = false
         let fixture = makeFixture(reducesMotion: { reduceMotion })
@@ -116,7 +117,8 @@ struct MacMermaidZoomAnimationTests {
         try zoomIn(fixture.view, button: false)
         try #require(fixture.view.presentedDrawingRect != nil)
         reduceMotion = true
-        try await waitUntil { fixture.view.presentedDrawingRect == nil }
+        await fixture.view.waitForZoomAnimation()
+        #expect(fixture.view.presentedDrawingRect == nil)
         #expect(fixture.model.zoom == 1.25)
     }
 
@@ -159,12 +161,5 @@ struct MacMermaidZoomAnimationTests {
     }
 
     private func descendants(of view: NSView) -> [NSView] { [view] + view.subviews.flatMap { descendants(of: $0) } }
-
-    private func waitUntil(_ predicate: @MainActor () -> Bool) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(5))
-        while !predicate(), clock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-        try #require(predicate(), "The zoom animation did not settle")
-    }
 }
 #endif

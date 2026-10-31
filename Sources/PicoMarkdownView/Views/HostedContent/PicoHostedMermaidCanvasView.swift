@@ -340,6 +340,12 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
         }
     }
 
+    /// Wait for the currently scheduled transition, including its final
+    /// presentation cleanup, without assuming a frame-delivery deadline.
+    func waitForZoomAnimation() async {
+        await zoomAnimationTask?.value
+    }
+
     private func cancelZoomAnimation() {
         zoomAnimationGeneration &+= 1
         zoomAnimationTask?.cancel()
