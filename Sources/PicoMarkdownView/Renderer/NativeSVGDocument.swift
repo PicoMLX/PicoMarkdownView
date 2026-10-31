@@ -24,7 +24,7 @@ final class NativeSVGDocument {
         parser.externalEntityResolvingPolicy = .never
         parser.delegate = validation
         guard parser.parse(), validation.isValid,
-              let imageData = Self.normalizedImageData(data),
+              let imageData = Self.normalizedImageData(data, isNeeded: validation.needsURLNormalization),
               let image = NSImage(data: imageData),
               Self.validDimension(image.size.width), Self.validDimension(image.size.height) else { return nil }
         // Replay the vector representation at the current zoom instead of
@@ -45,14 +45,14 @@ final class NativeSVGDocument {
                    from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
-    private static func normalizedImageData(_ data: Data) -> Data? {
+    private static func normalizedImageData(_ data: Data, isNeeded: Bool) -> Data? {
         // CoreSVG on macOS 27 misreads valid quoted fragment URLs as black.
         // Normalize only CSS/attribute values in the display representation;
         // the caller's source and visible text nodes remain untouched.
-        guard let regex = try? NSRegularExpression(pattern: #"(?i)url\s*\(\s*(['"])\s*(#[^'"()\s]+)\s*\1\s*\)"#),
-              let source = String(data: data, encoding: .utf8) else { return nil }
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        guard regex.numberOfMatches(in: source, range: range) > 0 else { return data }
+        // Validation inspects decoded XML values, including entity-encoded
+        // quotes. Unquoted documents keep the single-validation-pass fast path.
+        guard isNeeded else { return data }
+        guard let regex = QuotedSVGFragmentURL.expression else { return nil }
         guard let document = try? XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever, .nodePreserveWhitespace]),
               let root = document.rootElement() else { return nil }
         func normalized(_ value: String) -> String {
@@ -80,6 +80,19 @@ final class NativeSVGDocument {
     }
 }
 
+/// Shared by validation and display-only normalization so both inspect the
+/// same quoted-fragment syntax after XML has decoded entity references.
+private enum QuotedSVGFragmentURL {
+    static let expression = try? NSRegularExpression(pattern: #"(?i)url\s*\(\s*(['"])\s*(#[^'"()\s]+)\s*\1\s*\)"#)
+
+    static func isPresent(in value: String) -> Bool {
+        guard value.range(of: "url", options: .caseInsensitive) != nil else { return false }
+        guard let expression else { return true }
+        let range = NSRange(value.startIndex..<value.endIndex, in: value)
+        return expression.firstMatch(in: value, range: range) != nil
+    }
+}
+
 /// Validates the document envelope, not SVG geometry or CSS layout. AppKit owns
 /// those grammars. Only fragment references are permitted, including in CSS.
 private final class StaticSVGValidation: NSObject, XMLParserDelegate {
@@ -99,6 +112,7 @@ private final class StaticSVGValidation: NSObject, XMLParserDelegate {
     private var descriptionText = ""
     private var style = ""
     private(set) var isValid = true
+    private(set) var needsURLNormalization = false
 
     var accessibilityDescription: String? {
         let parts = [title, descriptionText].map {
@@ -132,13 +146,17 @@ private final class StaticSVGValidation: NSObject, XMLParserDelegate {
             } else if !Self.validReferences(value) {
                 reject(parser); return
             }
+            needsURLNormalization = needsURLNormalization || QuotedSVGFragmentURL.isPresent(in: value)
         }
         stack.append(elementName)
         if elementName == "style" { style = "" }
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
-        if elementName == "style", !Self.validCSS(style) { reject(parser); return }
+        if elementName == "style" {
+            guard Self.validCSS(style) else { reject(parser); return }
+            needsURLNormalization = needsURLNormalization || QuotedSVGFragmentURL.isPresent(in: style)
+        }
         _ = stack.popLast()
     }
 

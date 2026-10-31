@@ -142,6 +142,33 @@ struct NativeSVGDocumentTests {
         #expect(actual.bytes == expected.bytes)
     }
 
+    @Test("XML-encoded fragment quotes retain gradient colors and visible SVG text",
+          arguments: ["&quot;", "&apos;", "&#34;", "&#39;", "&#x22;", "&#x27;"], [false, true])
+    func entityEncodedFragmentQuotes(encodedQuote: String, inStylesheet: Bool) throws {
+        let definitions = "<defs><linearGradient id=\"g\"><stop stop-color=\"red\"/><stop offset=\"1\" stop-color=\"blue\"/></linearGradient></defs>"
+        let reference = "url(\(encodedQuote)#g\(encodedQuote))"
+        // Keep these quotes encoded in the text as well: a literal quoted URL
+        // anywhere in the raw XML used to accidentally activate normalization.
+        let text = "<text x=\"2\" y=\"60\" font-size=\"18\">\(reference)</text>"
+        let body = inStylesheet
+            ? "<style>rect { fill: \(reference); }</style><rect width=\"100\" height=\"25\"/>"
+            : "<rect width=\"100\" height=\"25\" fill=\"\(reference)\"/>"
+        let source = Self.svg(definitions + body + text)
+        let expectedDocument = try #require(NativeSVGDocument(svg: Self.svg(definitions +
+            "<rect width=\"100\" height=\"25\" fill=\"url(#g)\"/>" + text)))
+        let actualDocument = try #require(NativeSVGDocument(svg: source))
+        let expected = try draw(expectedDocument)
+        let actual = try draw(actualDocument)
+        let left = actual.pixel(x: 10, y: 10)
+        let right = actual.pixel(x: 90, y: 10)
+        #expect(left.red > left.blue + 100)
+        #expect(right.blue > right.red + 100)
+        // Includes the literal url("#g") / url('#g') text below the rectangle,
+        // so a display normalizer that rewrites text nodes fails this check.
+        let drawingMatches = actual.bytes.elementsEqual(expected.bytes)
+        #expect(drawingMatches, "Gradient and visible text match the unquoted-reference baseline")
+    }
+
     nonisolated private static func svg(_ body: String, dimensions: String = "width=\"100\" height=\"80\"") -> String {
         "<svg xmlns=\"http://www.w3.org/2000/svg\" \(dimensions)>\(body)</svg>"
     }
