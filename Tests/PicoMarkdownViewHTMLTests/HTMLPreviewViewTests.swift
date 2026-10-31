@@ -130,6 +130,104 @@ struct HTMLPreviewViewTests {
         #expect(bottom <= viewportHeight)
     }
 
+    @Test("Standards-mode body scrolling height excludes the large native viewport minimum")
+    func bodyScrollHeightIsIntrinsicInStandardsMode() async throws {
+        let (view, window) = makePreview(source: "<div style='height:20px'>Report</div>", width: 400)
+        defer { tearDown(view, window) }
+        view.onHeight = nil
+        window.setContentSize(NSSize(width: 400, height: 1000))
+        try await waitUntilReady(view)
+        let page = try #require(view.page)
+        let result = try await page.callJavaScript("""
+            return { mode: document.compatMode, bodyHeight: document.body.getBoundingClientRect().height,
+                     bodyScrollHeight: document.body.scrollHeight, rootScrollHeight: document.documentElement.scrollHeight,
+                     viewportHeight: innerHeight };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect(values["mode"] as? String == "CSS1Compat")
+        #expect(values["bodyHeight"] as? Double == 20)
+        #expect(values["bodyScrollHeight"] as? Double == 20)
+        #expect(values["viewportHeight"] as? Double == 1000)
+        #expect(values["rootScrollHeight"] as? Double == 1000)
+        #expect(view.measuredHeight == 20)
+    }
+
+    @Test("Body overflow height shrinks after width grows inside an unchanged large viewport")
+    func intrinsicBodyHeightShrinksInLargeViewport() async throws {
+        let source = "<p>" + String(repeating: "Responsive report content wraps with available width. ", count: 12) + "</p>"
+        let (view, window) = makePreview(source: source, width: 560)
+        defer { tearDown(view, window) }
+        let heights = AsyncStream.makeStream(of: CGFloat.self)
+        view.onHeight = { heights.continuation.yield($0) }
+        defer { view.onHeight = nil; heights.continuation.finish() }
+        window.setContentSize(NSSize(width: 560, height: 1000))
+        try await waitUntilReady(view)
+        let page = try #require(view.page)
+        let wideHeight = view.measuredHeight
+        try #require(wideHeight < 1000)
+        var iterator = heights.stream.makeAsyncIterator()
+        window.setContentSize(NSSize(width: 220, height: 1000))
+        while let height = await iterator.next() { if height > wideHeight { break } }
+        let narrowHeight = view.measuredHeight
+        try #require(narrowHeight > wideHeight)
+        window.setContentSize(NSSize(width: 560, height: 1000))
+        while let height = await iterator.next() { if height < narrowHeight { break } }
+        #expect(view.measuredHeight == wideHeight)
+        #expect(view.page === page)
+        #expect(view.loadCount == 1)
+        let result = try await page.callJavaScript("return { height:document.body.scrollHeight, viewport:innerHeight }", contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        let scrollHeight = try #require(values["height"] as? Double)
+        #expect(abs(scrollHeight - wideHeight) <= 1)
+        #expect(values["viewport"] as? Double == 1000)
+    }
+
+    @Test("In-flow generated content overflowing a fixed-height origin is fully painted")
+    func generatedVerticalOverflowIsMeasured() async throws {
+        let source = "<style>div::after { content:'Report';display:block;padding-top:200px;line-height:20px; }</style><div style='height:20px;line-height:20px'>Intro</div>"
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        try await waitUntilReady(view)
+        let page = try #require(view.page)
+        let result = try await page.callJavaScript("""
+            const origin = document.querySelector('body > div');
+            const rect = origin.getBoundingClientRect();
+            const pseudo = getComputedStyle(origin, '::after');
+            const reportY = rect.top + parseFloat(getComputedStyle(origin).lineHeight)
+              + parseFloat(pseudo.paddingTop) + parseFloat(pseudo.lineHeight) / 2;
+            const hit = document.elementFromPoint(rect.left + 20, reportY);
+            return { content:pseudo.content, bodyHeight:document.body.getBoundingClientRect().height,
+                     bodyScrollHeight:document.body.scrollHeight, originHeight:rect.height,
+                     reportY, viewportHeight:innerHeight, painted:hit === origin };
+            """, contentWorld: .defaultClient) as? [String: Any]
+        let values = try #require(result)
+        #expect((values["content"] as? String)?.contains("Report") == true)
+        #expect(values["bodyHeight"] as? Double == 20)
+        #expect(values["originHeight"] as? Double == 20)
+        let scrollHeight = try #require(values["bodyScrollHeight"] as? Double)
+        let reportY = try #require(values["reportY"] as? Double)
+        let viewportHeight = try #require(values["viewportHeight"] as? Double)
+        #expect(view.measuredHeight >= scrollHeight)
+        #expect(reportY < viewportHeight)
+        #expect(values["painted"] as? Bool == true, "The generated Report must be painted beyond its short originating element")
+    }
+
+    @Test("A transformed body's extra overflow uses source fallback instead of unscaled height", arguments: ["transform:scaleY(2)", "scale:1 2"])
+    func transformedBodyOverflowUsesSource(bodyTransform: String) async throws {
+        let source = "<html><head><style>div::after { content:'Report';display:block;padding-top:200px;line-height:20px; }</style></head><body style='height:20px;line-height:20px;\(bodyTransform);transform-origin:top left'><div style='height:20px'>Intro</div></body></html>"
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        let outcome = AsyncStream.makeStream(of: Bool.self)
+        view.onReady = { outcome.continuation.yield(true); outcome.continuation.finish() }
+        view.onFailure = { outcome.continuation.yield(false); outcome.continuation.finish() }
+        defer { view.onReady = nil; view.onFailure = nil; outcome.continuation.finish() }
+        var iterator = outcome.stream.makeAsyncIterator()
+        let becameReady = try #require(await iterator.next())
+        #expect(!becameReady)
+        #expect(view.hasFailed && !view.isReady)
+        #expect(view.page == nil)
+    }
+
     @Test("Static generated overflow falls back when narrow and paints when its box fits", arguments: [false, true])
     func staticGeneratedWidthMustFitViewport(wide: Bool) async throws {
         let source = "<style>div::after { content:'Report';display:block;width:600px;height:40px;text-align:right;background:red; }</style><div>Intro</div>"
