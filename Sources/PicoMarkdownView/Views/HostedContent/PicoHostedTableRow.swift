@@ -9,6 +9,7 @@ final class PicoHostedTableRow: Identifiable {
     private(set) var cells: [AttributedString]
     private(set) var labels: [String]
     private(set) var links: [PicoHostedTableLink]
+    @ObservationIgnored private var linkMenuPresenters: [Int: (PicoHostedTableLink) -> Void] = [:]
 
     init(id: Int, cells: [AttributedString], source: [[InlineRun]]) {
         self.id = id
@@ -23,6 +24,16 @@ final class PicoHostedTableRow: Identifiable {
         guard self.cells != cells else { return }
         self.cells = cells
         links = Self.links(in: cells)
+    }
+
+    func registerLinkMenuPresenter(in column: Int, _ presenter: @escaping (PicoHostedTableLink) -> Void) {
+        linkMenuPresenters[column] = presenter
+    }
+
+    func showLinkMenu(for link: PicoHostedTableLink) {
+        guard let component = link.id.split(separator: ":").first,
+              let column = Int(component) else { return }
+        linkMenuPresenters[column]?(link)
     }
 
     private static func labels(for source: [[InlineRun]], fallback: [AttributedString]) -> [String] {

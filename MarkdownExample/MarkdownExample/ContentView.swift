@@ -35,6 +35,9 @@ struct MarkdownExample: Identifiable, Hashable {
 
     static let examples = [
         MarkdownExample(
+            localFilename: "LinkMenus",
+            webURL: "about:blank"),
+        MarkdownExample(
             localFilename: "Tags",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Tags.md",
             tagPrefixes: [.mention, .hashtag, .ticker, .paired(open: "[[", close: "]]")]),

@@ -10,6 +10,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     var onContentSizeChanged: ((CGSize) -> Void)?
     var linkActionHandler: ((URL, String) -> Void)?
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
+    var linkContextMenu: ((URL, String, NSMenu) -> Void)?
     private var lastMermaidWidthBucket: Int?
     private var lastLaidOutWidth: CGFloat = -1
     private var lastReportedContentSize = CGSize(width: -1, height: -1)
@@ -63,6 +64,17 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
             return
         }
         handler(url, linkDisplayText(at: charIndex))
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let hit = hoverLink(at: convert(event.locationInWindow, from: nil)), let url = hit.url else {
+            return super.menu(for: event)
+        }
+        clearHover()
+        return PicoLinkContextMenu.make(url: url, displayText: hit.displayText, openLink: { [weak self] url, text in
+            if let handler = self?.linkActionHandler { handler(url, text) }
+            else { NSWorkspace.shared.open(url) }
+        }, customize: linkContextMenu)
     }
 
     override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting flag: Bool) {

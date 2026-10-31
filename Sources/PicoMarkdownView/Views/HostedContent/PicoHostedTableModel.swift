@@ -12,6 +12,7 @@ final class PicoHostedTableModel {
     private(set) var appendOperations = 0
     @ObservationIgnored var onOpenLink: (@MainActor (URL, String) -> Void)?
     @ObservationIgnored var onHoverLink: (@MainActor (URL?, String, CGRect?) -> Void)?
+    @ObservationIgnored var onLinkContextMenu: (@MainActor (URL, String) -> NSMenu)?
     @ObservationIgnored private var snapshot = TableSnapshot()
 
     var headers: [AttributedString]? { header?.cells }

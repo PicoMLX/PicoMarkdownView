@@ -5,6 +5,7 @@ import AppKit
 final class PicoHostedTableCellTextView: NSTextView, PicoHostedAttachmentHitTarget {
     var onOpenLink: (@MainActor (PicoHostedTableLink) -> Void)?
     var onHoverLink: (@MainActor (URL?, String, CGRect?) -> Void)?
+    var onLinkContextMenu: (@MainActor (URL, String) -> NSMenu?)?
     private var source: AttributedString?
     private var contentWidth: CGFloat = 0
     private var columnAlignment: TableAlignment = .none
@@ -81,8 +82,53 @@ final class PicoHostedTableCellTextView: NSTextView, PicoHostedAttachmentHitTarg
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool { link(at: point) != nil }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            if let menu = menu(for: event) { NSMenu.popUpContextMenu(menu, with: event, for: self) }
+            return
+        }
         guard let hit = link(at: convert(event.locationInWindow, from: nil)) else { return }
         onOpenLink?(hit.link)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let hit = link(at: convert(event.locationInWindow, from: nil)) else { return nil }
+        clearHover()
+        return contextMenu(for: hit.link)
+    }
+
+    func showLinkContextMenu(for link: PicoHostedTableLink) {
+        let localID = link.id.split(separator: ":").last.map(String.init)
+        guard window != nil,
+              let entry = linkRanges.first(where: {
+                  $0.link.id == localID && $0.link.url == link.url && $0.link.label == link.label
+              }),
+              let rect = firstSegmentRect(for: entry.range) else { return }
+        clearHover()
+        scrollToVisible(rect)
+        contextMenu(for: entry.link).popUp(positioning: nil, at: NSPoint(x: rect.minX, y: rect.maxY), in: self)
+    }
+
+    private func contextMenu(for link: PicoHostedTableLink) -> NSMenu {
+        if let menu = onLinkContextMenu?(link.url, link.label) { return menu }
+        return PicoLinkContextMenu.make(url: link.url, displayText: link.label, openLink: { [weak self] url, text in
+            if let handler = self?.onOpenLink {
+                handler(PicoHostedTableLink(id: link.id, url: url, label: text))
+            } else { NSWorkspace.shared.open(url) }
+        }, customize: nil)
+    }
+
+    private func firstSegmentRect(for range: NSRange) -> CGRect? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager,
+              let start = content.location(content.documentRange.location, offsetBy: range.location),
+              let end = content.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end) else { return nil }
+        manager.ensureLayout(for: textRange)
+        var firstRect: CGRect?
+        manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, rect, _, _ in
+            firstRect = rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
+            return false
+        }
+        return firstRect
     }
 
     override func updateTrackingAreas() {

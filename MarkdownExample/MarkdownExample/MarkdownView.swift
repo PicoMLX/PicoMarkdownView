@@ -224,6 +224,7 @@ private struct StreamingMarkdownContent: View, Equatable {
             .textSelection(.enabled)
             .padding()
             .onOpenLink { [onOpenURL] url in
+                guard !MockLinkContextMenus.isDemoURL(url) else { return .handled }
                 onOpenURL(url)
                 return .handled
             }
@@ -242,6 +243,9 @@ private struct StreamingMarkdownContent: View, Equatable {
             .onContentSize { [onContentSize] size in
                 onContentSize(size)
             }
+#if os(macOS)
+            .linkContextMenu(MockLinkContextMenus.customize)
+#endif
     }
 }
 
