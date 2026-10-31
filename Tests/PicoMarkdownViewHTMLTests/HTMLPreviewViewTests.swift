@@ -155,6 +155,24 @@ struct HTMLPreviewViewTests {
         #expect(await counter.count == 1)
     }
 
+    @Test("A viewport-fixed document body uses source fallback instead of clipping content above the preview")
+    func fixedBodyUsesSourceFallback() async throws {
+        let source = "<html><body style='position:fixed;bottom:0;height:300px;width:100%'><div style='height:300px'>Report</div></body></html>"
+        let (view, window) = makePreview(source: source, width: 400)
+        defer { tearDown(view, window) }
+        let outcome = AsyncStream.makeStream(of: Bool.self)
+        view.onReady = { outcome.continuation.yield(true); outcome.continuation.finish() }
+        view.onFailure = { outcome.continuation.yield(false); outcome.continuation.finish() }
+        defer { view.onReady = nil; view.onFailure = nil; outcome.continuation.finish() }
+        var iterator = outcome.stream.makeAsyncIterator()
+        let becameReady = try #require(await iterator.next())
+        #expect(!becameReady, "A fixed body is unsupported even when its document-space bottom is inside the initial viewport")
+        #expect(view.hasFailed)
+        #expect(!view.isReady)
+        #expect(view.page == nil)
+        #expect(view.measuredHeight == 1)
+    }
+
     @Test(arguments: [
         "<div style='height:5000px'>Too tall for a bounded preview</div>",
         "<html><body style='padding:40px'><div style='height:4050px'>Body spacing exceeds the bounded preview</div></body></html>",

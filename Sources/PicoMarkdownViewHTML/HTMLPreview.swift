@@ -361,7 +361,9 @@ final class HTMLPreviewContainer: NSView {
             // viewport-minimum scrollHeight that could prevent shrinking.
             let height = Math.max(bodyRect.bottom + window.scrollY,
               rootRect.top + window.scrollY + Math.max(rootRect.height, root.scrollHeight) + trailingBodySpacing);
-            if (Array.from(root.querySelectorAll('*')).some(element => {
+            // A fixed body can extend above the viewport while both bottom
+            // extents look bounded, so it shares the descendant fallback.
+            if (bodyStyle.position === 'fixed' || Array.from(root.querySelectorAll('*')).some(element => {
               const rect = element.getBoundingClientRect();
               const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden';
               // Viewport-fixed content has no intrinsic document height, even
