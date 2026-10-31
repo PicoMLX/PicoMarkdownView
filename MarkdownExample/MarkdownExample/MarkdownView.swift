@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Observation
 import PicoMarkdownView
 import WebKit
 
@@ -17,6 +18,7 @@ struct MarkdownView: View {
     private let webURL: URL
     @State private var markdown: String?
     @State private var loadError: String?
+    @State private var streamPacing = ExampleStreamPacing()
     private let localPath: String
     private let tagPrefixes: Set<TagPrefix>
     private let inputID: UUID
@@ -82,6 +84,7 @@ struct MarkdownView: View {
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
                                                      inputID: inputID,
+                                                     pacing: streamPacing,
                                                      tagPrefixes: tagPrefixes,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
@@ -129,17 +132,21 @@ struct MarkdownView: View {
     @ViewBuilder
     private var tagStatusPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let tag = lastTappedTag {
-                Label {
-                    Text("Selected Tag: \(Text(verbatim: "\(tag.prefix)\(tag.identifier)").bold())")
-                } icon: {
-                    Image(systemName: "hand.tap")
-                }
-                .font(.callout)
-            } else {
-                Label("Select a tag to see its details.", systemImage: "hand.tap")
+            HStack(alignment: .firstTextBaseline) {
+                if let tag = lastTappedTag {
+                    Label {
+                        Text("Selected Tag: \(Text(verbatim: "\(tag.prefix)\(tag.identifier)").bold())")
+                    } icon: {
+                        Image(systemName: "hand.tap")
+                    }
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                } else {
+                    Label("Select a tag to see its details.", systemImage: "hand.tap")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                streamSpeedButton
             }
 
             HStack(spacing: 16) {
@@ -160,6 +167,16 @@ struct MarkdownView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    private var streamSpeedButton: some View {
+        @Bindable var pacing = streamPacing
+        return Toggle(isOn: $pacing.isFast) {
+            Text("10×", tableName: "ExampleStreaming")
+        }
+        .toggleStyle(.button)
+        .controlSize(.small)
+        .help(Text("Stream the example at ten times the normal speed.", tableName: "ExampleStreaming"))
     }
 
     /// Content-growth → scroll-to-bottom, driven by PicoMarkdownView's
@@ -255,6 +272,7 @@ private enum AutoScrollConfig {
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let inputID: UUID
+    let pacing: ExampleStreamPacing
     let tagPrefixes: Set<TagPrefix>
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
@@ -267,8 +285,8 @@ private struct StreamingMarkdownContent: View, Equatable {
     }
 
     var body: some View {
-        PicoMarkdownView(stream: { [markdown] in
-            wordStream(from: markdown)
+        PicoMarkdownView(stream: { [markdown, pacing] in
+            wordStream(from: markdown, pacing: pacing)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes)
             .id(inputID)
             .textSelection(.enabled)
@@ -303,8 +321,19 @@ private struct StreamingMarkdownContent: View, Equatable {
     }
 }
 
-/// Creates a word-by-word AsyncStream from markdown text, simulating ~30 words/sec LLM inference.
-private func wordStream(from markdown: String) -> AsyncStream<String> {
+/// The producer reads the live setting without changing the stream's identity.
+@MainActor
+@Observable
+private final class ExampleStreamPacing {
+    var isFast = false
+
+    var wordDelay: Duration {
+        .nanoseconds(isFast ? 3_333_333 : 33_333_333)
+    }
+}
+
+/// Preserves word chunks at approximately 30 or 300 words per second.
+private func wordStream(from markdown: String, pacing: ExampleStreamPacing) -> AsyncStream<String> {
     AsyncStream<String> { continuation in
         let task = Task {
             var chunk = ""
@@ -317,7 +346,7 @@ private func wordStream(from markdown: String) -> AsyncStream<String> {
                         continuation.yield(chunk)
                         chunk = ""
                         wordSeen = false
-                        try? await Task.sleep(nanoseconds: 33_333_333)
+                        try? await Task.sleep(for: pacing.wordDelay)
                     }
                 } else {
                     wordSeen = true

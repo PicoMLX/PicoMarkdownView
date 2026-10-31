@@ -1,0 +1,14 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "10×" : {
+      "comment" : "Example stream speed toggle. Off is normal speed; on is ten times faster.",
+      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "10×" } } }
+    },
+    "Stream the example at ten times the normal speed." : {
+      "comment" : "Help for the example's ten-times streaming speed toggle.",
+      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Stream the example at ten times the normal speed." } } }
+    }
+  },
+  "version" : "1.0"
+}
