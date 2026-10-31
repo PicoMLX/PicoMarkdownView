@@ -15,6 +15,7 @@ struct RenderedContentResult {
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
+    var embeddedBlock: RenderedEmbeddedBlock? = nil
     var svgGraphic: RenderedSVGGraphic? = nil
     var vegaLiteChart: RenderedVegaLiteChart? = nil
     var openUI: RenderedOpenUIContent? = nil
@@ -39,6 +40,7 @@ actor MarkdownAttributeBuilder {
 #endif
     private var runtimeMermaidMaxWidth: CGFloat?
     private let mermaidPreviewTiming: MermaidPreviewTiming
+    private let embeddedBlockRenderers: [PicoEmbeddedBlockRenderer]
 
 #if canImport(AppKit)
     /// Cached geometry and its successful width must travel together when
@@ -100,7 +102,8 @@ actor MarkdownAttributeBuilder {
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          runtimeMermaidMaxWidth: CGFloat? = nil,
-         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
+         embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = []) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
@@ -108,6 +111,7 @@ actor MarkdownAttributeBuilder {
         self.vegaLiteProvider = VegaLiteChartProvider(theme: theme)
 #endif
         self.mermaidPreviewTiming = mermaidPreviewTiming
+        self.embeddedBlockRenderers = embeddedBlockRenderers
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
         // Resolve Sendable specs to platform types inside the actor
@@ -144,14 +148,45 @@ actor MarkdownAttributeBuilder {
                 blockquoteLevel: Int = 0, listIndent: CGFloat = 0, listMarker: String? = nil,
                 markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0,
                 spacingContext: BlockSpacingContext? = nil) async -> RenderedContentResult {
-        var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
-                                         blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+        var result: RenderedContentResult
 #if canImport(AppKit)
+        let embeddedRenderer = embeddedBlockRenderers.first(where: { $0.matches(snapshot.kind) })
+        if !snapshot.isClosed, embeddedRenderer?.showsLoadingPlaceholder == true {
+            // Pending adapters need source metadata, not a full attributed
+            // source rebuild/highlight on every streamed append.
+            let marker = NSAttributedString(string: "\u{FFFC}\n", attributes: [
+                .font: bodyFont,
+                .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind))
+            ])
+            result = RenderedContentResult(attributed: .picoConverted(from: marker), table: nil, listItem: nil,
+                                           blockquote: nil, math: nil, images: [], codeBlock: nil)
+        } else {
+            result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                         blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+        }
+        if !snapshot.isClosed, embeddedRenderer != nil {
+            // A default closed-only registration keeps its native open source,
+            // including when the built-in SVG option is also enabled.
+            result.svgGraphic = nil
+        }
+        if let renderer = embeddedRenderer, snapshot.isClosed || renderer.showsLoadingPlaceholder {
+            let kind: PicoEmbeddedBlockSelector
+            switch snapshot.kind {
+            case .htmlBlock: kind = .htmlBlock
+            case let .fencedCode(language): kind = .fencedCode(language: language ?? "")
+            default: kind = .htmlBlock // Selectors never match Markdown or math blocks.
+            }
+            result.embeddedBlock = RenderedEmbeddedBlock(renderer: renderer, source: snapshot.codeText ?? "",
+                                                        kind: kind, bodyFontSize: bodyFont.pointSize, isClosed: snapshot.isClosed)
+        }
         if let spacingContext {
             let spaced = applySpacing(spacingContext, to: result.attributed, previousKind: previousBlockKind)
             result.attributed = spaced.content
             result.paragraphSpacingAfter = spaced.after
         }
+#else
+        result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
+                                     blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
 #endif
         if listIndent > 0 || listMarker != nil {
             result.attributed = placeInListItem(result.attributed, indent: listIndent, marker: listMarker)
@@ -276,7 +311,8 @@ actor MarkdownAttributeBuilder {
             }
             // Interpret only a completed, explicitly opted-in payload. The
             // tokenizer and open-fence streaming continue using native code.
-            if theme.openUIRenderingEnabled, snapshot.isClosed,
+            if !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }),
+               theme.openUIRenderingEnabled, snapshot.isClosed,
                language?.split(whereSeparator: \.isWhitespace).first?.lowercased() == "openui" {
                 let spacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
                 let paragraph = makeCodeParagraphStyle(lineHeightMultiple: 1,
@@ -291,7 +327,8 @@ actor MarkdownAttributeBuilder {
                     codeBlock: RenderedCodeBlock(code: source, language: language),
                     openUI: RenderedOpenUIContent(source: source, language: language, fontSize: bodyFont.pointSize))
             }
-            if let graphic = SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+            if !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }),
+               let graphic = SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
                                                        maxWidth: theme.imageMaxWidth), !graphic.isClosed {
                 // Reserve one stable attachment while source streams. Raw SVG
                 // stays in metadata for copying, without repeatedly highlighting
@@ -855,7 +892,8 @@ actor MarkdownAttributeBuilder {
 #if os(macOS)
     private func renderVegaLiteFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {
-        guard theme.vegaLiteRenderingEnabled,
+        guard !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }),
+              theme.vegaLiteRenderingEnabled,
               case let .fencedCode(language) = snapshot.kind, isVegaLiteLanguage(language) else { return nil }
         let source = snapshot.codeText ?? ""
         if !snapshot.isClosed {
@@ -901,6 +939,11 @@ actor MarkdownAttributeBuilder {
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
+#if canImport(AppKit)
+        // An explicit source-backed registration owns this fence, including
+        // its native-code fallback while open or when its factory declines.
+        guard !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }) else { return nil }
+#endif
         guard let provider = mermaidProvider else { return nil }
         guard case let .fencedCode(language) = snapshot.kind, isMermaidLanguage(language) else { return nil }
 

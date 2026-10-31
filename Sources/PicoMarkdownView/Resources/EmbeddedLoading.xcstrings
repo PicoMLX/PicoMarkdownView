@@ -1,0 +1,30 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Preparing preview…" : {
+      "comment" : "Status shown while source for an embedded preview is arriving or being prepared.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Preparing preview…" }
+        }
+      }
+    },
+    "Preview incomplete" : {
+      "comment" : "Status shown when an embedded preview stops before its source is complete.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Preview incomplete" }
+        }
+      }
+    },
+    "Preview paused" : {
+      "comment" : "Status shown while updates to an embedded preview are paused.",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : { "state" : "translated", "value" : "Preview paused" }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

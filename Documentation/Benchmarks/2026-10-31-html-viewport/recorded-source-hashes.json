@@ -1,0 +1,19 @@
+{
+  "after": {
+    "Sources/PicoMarkdownView/Views/TextKitStreamingController.swift": "46e23ae8bc68b28e2e185b607848a85bdac2c45011d372f51dcff23bbe5d277b",
+    "Sources/PicoMarkdownViewHTML/HTMLPreview.swift": "16e8e5be82b09c812ad4c569f4e24cc36052c01f617931265e1cffa48f8e53ea",
+    "Sources/PicoMarkdownViewHTML/HTMLPreviewPolicy.swift": "0945aa5904f6726b00478f1771559bd4a7df252f1da8e678659eb84c45efbf7b",
+    "Sources/PicoMarkdownViewHTML/HTMLPreviewPreparation.swift": "edb97db0f0d883bd1c2b10c264207e6edc5b2f1a6016d7373fcd47fd9c119b4e",
+    "Sources/PicoMarkdownViewHTML/HTMLPreviewViewport.swift": "83c8a7612739ef675f9af14cbac2faf11160d82bd146c9e3603a49a48745b2a4",
+    "Tests/PicoMarkdownViewHTMLBenchmarks/HTMLChatTranscriptBenchmark.swift": "62cddfddbd8ae5c1e43219f30f305f442c08e63bfa65eed64e86a5a1798ebc16",
+    "Tests/PicoMarkdownViewHTMLBenchmarks/HTMLTranscriptBenchmark.swift": "468e7085cb24edca40663698f1b6c29b825599c472c1e3cb2cfa978edf99bb29"
+  },
+  "before": {
+    "Sources/PicoMarkdownView/Views/TextKitStreamingController.swift": "46e23ae8bc68b28e2e185b607848a85bdac2c45011d372f51dcff23bbe5d277b",
+    "Sources/PicoMarkdownViewHTML/HTMLPreview.swift": "1fd415363112eda0b655d6f7accc90a451831117e298293117a9e3b6da25590c",
+    "Sources/PicoMarkdownViewHTML/HTMLPreviewPolicy.swift": "0945aa5904f6726b00478f1771559bd4a7df252f1da8e678659eb84c45efbf7b",
+    "Sources/PicoMarkdownViewHTML/HTMLPreviewPreparation.swift": "8df6fc22f0e666cfac52656aa0209fd0c683e09d3615a428d3f15701158b75af",
+    "Tests/PicoMarkdownViewHTMLBenchmarks/HTMLChatTranscriptBenchmark.swift": "62cddfddbd8ae5c1e43219f30f305f442c08e63bfa65eed64e86a5a1798ebc16",
+    "Tests/PicoMarkdownViewHTMLBenchmarks/HTMLTranscriptBenchmark.swift": "468e7085cb24edca40663698f1b6c29b825599c472c1e3cb2cfa978edf99bb29"
+  }
+}

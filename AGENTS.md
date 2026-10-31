@@ -518,9 +518,13 @@ Coding style
 
 ## What not to do
 - No editing.
-- No raw HTML passthrough beyond a tiny safe subset (<br>, <kbd>, maybe <sup>/<sub> mapped to attributes).
-- No WebView dependency
+- No raw HTML passthrough in the native Markdown renderer beyond a tiny safe subset (<br>, <kbd>, maybe <sup>/<sub> mapped to attributes).
+- No WebView dependency in the core `PicoMarkdownView` product.
 - No MVVM (seriously)
+
+### Approved optional HTML preview adapter
+
+The separately linked, explicitly opted-in, macOS 27-only `PicoMarkdownViewHTML` product is a narrow exception to the HTML/WebView constraints above. It may use WebKit to render closed raw HTML blocks and `html-preview` fences as bounded, sanitized, static offline previews. Author scripts, navigation, forms and external resources remain disabled. Ordinary Markdown and math stay in their existing native renderers, the core stays WebKit-free, and iOS keeps its existing path. Preserve incremental streaming and original-source copying; evict offscreen WebPages while caching prepared content and measured height.
 
 
 ## References

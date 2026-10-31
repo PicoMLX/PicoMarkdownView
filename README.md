@@ -418,6 +418,23 @@ SVG uses the same bounded viewport, hover/focus Liquid Glass zoom pair, pan beha
 
 The renderer uses AppKit’s native SVG image decoder, without a WebView or another package dependency. It supports static shapes and text, CSS styles, gradients, clipping, masks and internal references. It does not claim full browser SVG support: malformed content and unsupported features such as filters, `foreignObject`, scripts, animation and external resources stay visible as source code. The example app’s **SVG** page enables this option only for that page and includes supported graphics plus a source-fallback example.
 
+### HTML previews (macOS, opt-in)
+
+The optional `PicoMarkdownViewHTML` product displays closed raw HTML blocks and explicit `html-preview` fences as static HTML/CSS views inside the macOS TextKit 2 document. Ordinary `html` fences remain code; surrounding Markdown and math keep their existing renderers.
+
+Add the additional product to your macOS target, then opt in:
+
+```swift
+import PicoMarkdownView
+import PicoMarkdownViewHTML
+
+PicoMarkdownView(stream: makeStream, embeddedBlockRenderers: [.htmlPreview])
+```
+
+Recognized preview blocks hide raw source immediately and show a compact loading placeholder after 350 ms. The same attachment becomes a preview after closure and preparation, preserves source copying as a single selection unit, and reflows with the available width. Scripts, navigation, forms and network resources are disabled; images become alternative text. The HTML preview adapter remains a separate optional product, and iOS rendering is unchanged. See [HTML preview setup and behavior](Documentation/HTMLPreviews.md) for conditional dependencies, raw HTML boundaries, and examples. The macOS example app's **HTMLPreviews** document opts in separately from the other samples.
+
+Opt-in [long-message performance](Documentation/HTMLPerformanceBenchmarks.md) and [viewport/lazy-chat benchmarks](Documentation/HTMLViewportBenchmarks.md) record streaming latency, readiness, page lifetime and host-process memory. They are not CI timing gates.
+
 ### Resetting Content
 
 To replace content, pass a new string/chunks/stream so the view creates a fresh input:
@@ -634,5 +651,6 @@ HTML blocks follow CommonMark: a line that starts with raw HTML (`<div>`,
 `<details>`, a comment, a lone tag, …) begins a `BlockKind.htmlBlock` whose
 lines are kept verbatim, Markdown included, until its end condition (for most
 tags, a blank line). Its text arrives like code, in `BlockSnapshot.codeText`,
-and PicoMarkdownView shows it as plain text in the body font; nothing is
-rendered as HTML.
+and PicoMarkdownView shows it as plain text in the body font by default.
+The optional macOS [HTML preview adapter](Documentation/HTMLPreviews.md) can
+render closed blocks when explicitly enabled.

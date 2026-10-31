@@ -31,6 +31,7 @@ final class MarkdownStreamingViewModel {
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private let tagPrefixes: Set<TagPrefix>
     private let mermaidPreviewTiming: MermaidPreviewTiming
+    private let embeddedBlockRenderers: [PicoEmbeddedBlockRenderer]
 
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
@@ -69,15 +70,18 @@ final class MarkdownStreamingViewModel {
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
-         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
+         embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = []) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
         self.tagPrefixes = tagPrefixes
         self.mermaidPreviewTiming = mermaidPreviewTiming
+        self.embeddedBlockRenderers = embeddedBlockRenderers
         self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
                                                    mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
-                                                   mermaidPreviewTiming: mermaidPreviewTiming)
+                                                   mermaidPreviewTiming: mermaidPreviewTiming,
+                                                   embeddedBlockRenderers: embeddedBlockRenderers)
     }
 
     func consume(_ input: MarkdownStreamingInput) async {
@@ -136,7 +140,8 @@ final class MarkdownStreamingViewModel {
 #endif
         let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
                                                     mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
-                                                    mermaidPreviewTiming: mermaidPreviewTiming)
+                                                    mermaidPreviewTiming: mermaidPreviewTiming,
+                                                   embeddedBlockRenderers: embeddedBlockRenderers)
         pipeline = newPipeline
         return (newPipeline, pipelineGeneration)
     }

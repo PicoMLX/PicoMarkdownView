@@ -1,0 +1,11 @@
+􀟈  Test run started.
+􀄵  Testing Library Version: 2403
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite HTMLChatTranscriptBenchmark started.
+􀟈  Test lazyTranscript() started.
+HTML_CHAT_BENCH pass=0 html=false visits=80 live_peak=0
+HTML_CHAT_BENCH pass=1 html=false visits=80 live_peak=0
+HTML_CHAT_BENCH pass=2 html=false visits=80 live_peak=0
+􁁛  Test lazyTranscript() passed after 37.736 seconds.
+􁁛  Suite HTMLChatTranscriptBenchmark passed after 37.736 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 37.736 seconds.

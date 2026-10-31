@@ -106,29 +106,39 @@ private final class OpenUIInteractionFixture {
         try await browser.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
     }
 
+    // Each test's Swift Testing time limit bounds these waits. A second,
+    // shorter wall-clock deadline can expire while unrelated MainActor work
+    // delays both this polling task and WebKit's queued readiness callbacks.
     func waitUntil(_ description: String, condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !condition() {
-            window.contentView?.layoutSubtreeIfNeeded()
-            guard ContinuousClock.now < deadline else {
-                Issue.record("Timed out: \(description)")
-                throw InteractionTimeout()
+        do {
+            while !condition() {
+                try Task.checkCancellation()
+                window.contentView?.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(20))
             }
-            try await Task.sleep(for: .milliseconds(20))
+        } catch {
+            recordInterruptedWait(description)
+            throw error
         }
     }
 
     func waitFor(_ description: String, script: String,
                  condition: ([String: Any]) -> Bool) async throws -> [String: Any] {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while true {
-            if let result = try await evaluate(script) as? [String: Any], condition(result) { return result }
-            guard ContinuousClock.now < deadline else {
-                Issue.record("Timed out: \(description)")
-                throw InteractionTimeout()
+        do {
+            while true {
+                try Task.checkCancellation()
+                if let result = try await evaluate(script) as? [String: Any], condition(result) { return result }
+                try await Task.sleep(for: .milliseconds(20))
             }
-            try await Task.sleep(for: .milliseconds(20))
+        } catch {
+            recordInterruptedWait(description)
+            throw error
         }
+    }
+
+    private func recordInterruptedWait(_ description: String) {
+        // Cancellation diagnostics must not wait for another WebKit callback.
+        Issue.record("Wait interrupted: \(description); ready=\(model.isReady), sizeMessages=\(model.sizeMessageCount), error=\(String(describing: model.error)), disposed=\(model.isDisposed), renders=\(model.renderCount), loading=\(browser.isLoading), url=\(String(describing: browser.url))")
     }
 
     func event(cssPoint: CGPoint, y: CGFloat = 0, phase: NSEvent.Phase) -> NSEvent {
@@ -137,7 +147,6 @@ private final class OpenUIInteractionFixture {
     }
 
     func close() { model.dispose(); window.close() }
-    private struct InteractionTimeout: Error {}
 }
 
 @MainActor

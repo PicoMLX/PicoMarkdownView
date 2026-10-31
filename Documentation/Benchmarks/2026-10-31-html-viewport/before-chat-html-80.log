@@ -1,0 +1,14 @@
+􀟈  Test run started.
+􀄵  Testing Library Version: 2403
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite HTMLChatTranscriptBenchmark started.
+􀟈  Test lazyTranscript() started.
+HTML_CHAT_FIXTURE unreachable=3 delivery=Snapshot(attempts: 0, chunks: 0, closingYield: nil) views=["Report 3\nNative paragraph before ite attachments=1 rawHTML=false frame=(0.0, 0.0, 744.0, 806.0) visible=(-28.0, -12.0, 800.0, 640.0) containers=[]"]
+􀢄  Test lazyTranscript() recorded an issue at HTMLChatTranscriptBenchmark.swift:15:6: Caught error: .unreachableMessage(3)
+􀢄  Test lazyTranscript() failed after 6.107 seconds with 1 issue.
+􀢄  Suite HTMLChatTranscriptBenchmark failed after 6.107 seconds with 1 issue.
+􀄵  /// Real public views in SwiftUI's lazy chat layout, separate from the direct
+􀄵  /// pipeline/controller micro-measurements in HTMLTranscriptBenchmark.
+􀢄  Test run with 1 test in 1 suite failed after 6.107 seconds with 1 issue.
+Note: Some test targets reported failures:
+  - PicoMarkdownViewHTMLBenchmarks (Swift Testing)

@@ -18,6 +18,7 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
+    let htmlPreviewsEnabled: Bool
     /// Large offline fixtures load asynchronously and omit the extra diagnostic views.
     let isLargeFixture: Bool
     /// Only the SVG demo opts into rendering SVG fences as native graphics.
@@ -27,6 +28,7 @@ struct MarkdownExample: Identifiable, Hashable {
          webURL: String,
          displayName: String? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         htmlPreviewsEnabled: Bool = false,
          isLargeFixture: Bool = false,
          svgRenderingEnabled: Bool = false) {
         self.name = displayName ?? localFilename
@@ -34,6 +36,7 @@ struct MarkdownExample: Identifiable, Hashable {
             ?? Bundle.main.path(forResource: localFilename, ofType: "md.deflate"))!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
+        self.htmlPreviewsEnabled = htmlPreviewsEnabled
         self.isLargeFixture = isLargeFixture
         self.svgRenderingEnabled = svgRenderingEnabled
     }
@@ -108,6 +111,10 @@ struct MarkdownExample: Identifiable, Hashable {
                                         webURL: "https://vega.github.io/vega-lite/examples/",
                                         displayName: "Charts-Gallery",
                                         isLargeFixture: true), at: charts + 1)
+        examples.append(MarkdownExample(
+            localFilename: "HTMLPreviews",
+            webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/HTMLPreviews.md",
+            htmlPreviewsEnabled: true))
         #endif
         return examples
     }()

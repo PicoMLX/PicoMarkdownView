@@ -16,6 +16,11 @@ let package = Package(
             name: "PicoMarkdownView",
             targets: ["PicoMarkdownView"]
         ),
+        // Separate, opt-in macOS HTML preview adapter.
+        .library(
+            name: "PicoMarkdownViewHTML",
+            targets: ["PicoMarkdownViewHTML"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3")),
@@ -35,6 +40,20 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .target(
+            name: "PicoMarkdownViewHTML",
+            dependencies: ["PicoMarkdownView"],
+            resources: [.process("Resources")]
+        ),
+        .testTarget(
+            name: "PicoMarkdownViewHTMLTests",
+            dependencies: ["PicoMarkdownViewHTML"]
+        ),
+        // Explicitly opt-in real-window latency/memory experiments; excluded from CI.
+        .testTarget(
+            name: "PicoMarkdownViewHTMLBenchmarks",
+            dependencies: ["PicoMarkdownView", "PicoMarkdownViewHTML"]
         ),
         .target(
             name: "PicoOpenUIRuntime",

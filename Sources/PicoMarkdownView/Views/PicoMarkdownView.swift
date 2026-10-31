@@ -42,10 +42,12 @@ public struct PicoMarkdownView: View {
                  theme: MarkdownRenderTheme,
                  imageProvider: MarkdownImageProvider?,
                  tagPrefixes: Set<TagPrefix>,
+                 embeddedBlockRenderers: [PicoEmbeddedBlockRenderer],
                  configuration: PicoTextKitConfiguration) {
         self.input = input
         self.configuration = configuration
-        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
+        _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes,
+                                                                                 embeddedBlockRenderers: embeddedBlockRenderers))
     }
 
 #if os(macOS)
@@ -72,7 +74,7 @@ public struct PicoMarkdownView: View {
 
     /// Creates a view that renders `text` as Markdown.
     ///
-    /// - Important: `theme`, `imageProvider`, and `tagPrefixes` are
+    /// - Important: `theme`, `imageProvider`, `tagPrefixes`, and `embeddedBlockRenderers` are
     ///   **construction-time configuration**: they are captured once when the
     ///   view's backing model is first created for a given view identity, and
     ///   are *not* re-read when you pass different values to an existing view.
@@ -92,11 +94,13 @@ public struct PicoMarkdownView: View {
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
                 tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+                embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = [],
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .text(text),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
                   tagPrefixes: tagPrefixes,
+                  embeddedBlockRenderers: embeddedBlockRenderers,
                   configuration: configuration)
     }
 
@@ -114,11 +118,13 @@ public struct PicoMarkdownView: View {
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
                 tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+                embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = [],
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .chunks(chunks),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
                   tagPrefixes: tagPrefixes,
+                  embeddedBlockRenderers: embeddedBlockRenderers,
                   configuration: configuration)
     }
 
@@ -148,11 +154,13 @@ public struct PicoMarkdownView: View {
                 imageProvider: MarkdownImageProvider? = nil,
                 remoteImagesEnabled: Bool = true,
                 tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+                embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = [],
                 configuration: PicoTextKitConfiguration = .default()) {
         self.init(input: .stream(stream, id: streamID),
                   theme: theme,
                   imageProvider: Self.resolveImageProvider(imageProvider, remoteImagesEnabled: remoteImagesEnabled),
                   tagPrefixes: tagPrefixes,
+                  embeddedBlockRenderers: embeddedBlockRenderers,
                   configuration: configuration)
     }
 
