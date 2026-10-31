@@ -186,6 +186,19 @@ actor MarkdownRenderer {
     /// parse is untouched: block ids, order and snapshots stay as they are.
     /// Returns the re-rendered blocks, or `nil` when the scale is unchanged.
     func updateTextScale(_ scale: CGFloat, codeBlockScale: CGFloat? = nil) async -> [RenderedBlock]? {
+#if os(macOS)
+        guard !Task.isCancelled else { return nil }
+        // Provider cancellation means "retain code" during stream consumption.
+        // A bounded presentation refresh must instead finish once accepted.
+        return await Task.immediate {
+            await self.updateTextScaleToCompletion(scale, codeBlockScale: codeBlockScale)
+        }.value
+#else
+        return await updateTextScaleToCompletion(scale, codeBlockScale: codeBlockScale)
+#endif
+    }
+
+    private func updateTextScaleToCompletion(_ scale: CGFloat, codeBlockScale: CGFloat?) async -> [RenderedBlock]? {
         let factor = scale.isFinite && scale > 0 ? scale : 1
         let codeFactor = codeBlockScale.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? factor
         guard factor != textScale || codeFactor != codeBlockTextScale else { return nil }
@@ -373,6 +386,17 @@ actor MarkdownRenderer {
     }
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
+#if os(macOS)
+        guard !Task.isCancelled else { return nil }
+        return await Task.immediate {
+            await self.updateContentWidthToCompletion(width)
+        }.value
+#else
+        return await updateContentWidthToCompletion(width)
+#endif
+    }
+
+    private func updateContentWidthToCompletion(_ width: CGFloat?) async -> [RenderedBlock]? {
         let effectiveWidth = effectiveMermaidContentWidth(for: width)
         let bucket = mermaidWidthBucket(for: effectiveWidth)
         guard bucket != mermaidContentWidthBucket else { return nil }

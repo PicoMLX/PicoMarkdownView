@@ -222,7 +222,18 @@ def rendering_preview(report_path: Path, chunks: list[str], fence_positions: lis
         classification = {"id": name, "outcome": sample["outcome"], "sourceBytes": sample["sourceBytes"]}
         if "dataMarkCount" in sample:
             classification["dataMarkCount"] = sample["dataMarkCount"]
+        if report.get("testedWidths"):
+            outcomes_by_width = sample.get("outcomesByWidth", {})
+            expected_widths = {str(width) for width in report["testedWidths"]}
+            if set(outcomes_by_width) != expected_widths or any(outcome != sample["outcome"] for outcome in outcomes_by_width.values()):
+                raise SystemExit(f"Rendering report has inconsistent width outcomes: {name}")
+        if "outcomesByWidth" in sample:
+            classification["outcomesByWidth"] = sample["outcomesByWidth"]
         classifications.append(classification)
+    baseline = set(report.get("baselineSuccessfulIDs", []))
+    successful = {sample["id"] for sample in samples if sample["outcome"] == "chart"}
+    if not baseline.issubset(successful):
+        raise SystemExit("Rendering preview would drop previously successful examples: " + ", ".join(sorted(baseline - successful)))
     # Keep the exact classification input in the repository, without copying
     # environment-specific timings. This normalized file is itself accepted by
     # --rendering-report, making preview regeneration reproducible offline.
@@ -236,6 +247,9 @@ def rendering_preview(report_path: Path, chunks: list[str], fence_positions: lis
         "uniqueSpecs": len(unique_entries),
         "samples": classifications,
     }
+    for key in ("testedWidths", "benchmarkReports", "baselineSuccessfulIDs", "sourceByteLimit"):
+        if key in report:
+            normalized_report[key] = report[key]
     normalized_bytes = json_bytes(normalized_report, pretty=True)
     preview_chunks = list(chunks)
     preview_entries = []
@@ -277,7 +291,8 @@ def rendering_preview(report_path: Path, chunks: list[str], fence_positions: lis
     preview_chunks[2] = (
         "Every retained chart uses its exact full inline dataset and original specification. "
         "Charts reported as unsupported are replaced by notices so their large fallback code blocks do not overwhelm the native view. "
-        "No retained chart is sampled, simplified, or rewritten. Interactive charts are static snapshots.\n\n")
+        "No retained chart is sampled, simplified, or rewritten. Interactive charts are static snapshots. "
+        "Size-limit data notes below preserve the original archive profile; preview inclusion follows the current measured renderer.\n\n")
     preview_chunks[3] = (
         f"The complete unmodified source for all {len(entries)} placements remains available separately as `{full_filename}` "
         "and can be exported to standalone Markdown with `Scripts/export-vega-lite-gallery.py --output /private/tmp/Charts-Gallery.md`. "
@@ -477,7 +492,9 @@ expression removal, interaction removal, or lowering of renderer limits.
 `upstreamSHA256` hashes the original specification bytes before inlining.
 Repeated IDs are distinguished by their 1-based `occurrence`.
 `dataIssues` records retained non-array data, images, and sources exceeding
-the current 128 KiB renderer limit; it is not a complete renderability claim.
+the original 128 KiB export profile. Those notes remain frozen with the full
+corpus and can predate the current renderer limits; they are not a complete
+renderability claim.
 
 The specifications retain the upstream BSD-3-Clause license in
 `Vega-Lite-LICENSE.txt`. Dataset licensing is separate: the pinned upstream
@@ -518,7 +535,10 @@ digest, retained-fence index or notice outcome, and the preview content digest.
 `preview-rendering-report.json` preserves the 189 distinct classifications and
 the original benchmark report digest, without copying its environment-specific
 timings. This classification is a measured snapshot of the current renderer,
-not a promise that every source in the full gallery is supported.
+not a promise that every source in the full gallery is supported. When present,
+`testedWidths` and `outcomesByWidth` record independent provider results at
+each width; `baselineSuccessfulIDs` prevents regeneration from removing the
+previously successful examples.
 """
     write(args.fixtures / "README.md", readme.encode("utf-8"))
     print(f"Exported {len(entries)} placements / {len(occurrence)} distinct specifications")

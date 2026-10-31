@@ -9,6 +9,7 @@ actor VegaLiteRuntime {
     static let shared: VegaLiteRuntime? = VegaLiteRuntime()
     private let context: JSContext
     private let renderFunction: JSValue
+    private let expressionValidator: JSValue
 
     private init?() {
         guard let context = JSContext() else { return nil }
@@ -32,13 +33,9 @@ actor VegaLiteRuntime {
             return width
         }
         context.setObject(measure, forKeyedSubscript: "picoVegaMeasureText" as NSString)
-        context.evaluateScript("""
-        var structuredClone = function(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); };
-        var setTimeout = function() { throw new Error('Asynchronous resources are unsupported'); };
-        var setInterval = setTimeout, clearTimeout = function() {}, clearInterval = clearTimeout;
-        var console = {log:function(){},warn:function(){},error:function(){},debug:function(){},info:function(){}};
-        """)
-        for name in ["vega-6.2.0.min", "vega-lite-6.5.0.min", "vega-interpreter-1.2.1", "pico-vega-lite"] {
+        context.evaluateScript(Self.bootstrapScript)
+        guard context.exception == nil else { return nil }
+        for name in ["vega-6.2.0.min", "vega-lite-6.5.0.min", "vega-interpreter-1.2.1", "pico-vega-expressions", "pico-vega-lite"] {
             guard let url = Bundle.module.url(forResource: name, withExtension: "js"),
                   let script = try? String(contentsOf: url, encoding: .utf8) else { return nil }
             context.exception = nil
@@ -46,9 +43,44 @@ actor VegaLiteRuntime {
             guard context.exception == nil else { return nil }
         }
         guard let render = context.objectForKeyedSubscript("picoRenderVegaLite"), !render.isUndefined else { return nil }
+        guard let validator = context.objectForKeyedSubscript("picoValidateVegaLiteExpressions"), !validator.isUndefined else { return nil }
         self.context = context
         self.renderFunction = render
+        self.expressionValidator = validator
     }
+
+    // Vega-Lite clones aggregation metadata containing Sets. JSON serialization
+    // invokes its Set.toJSON formatter and turns aliases into individual letters.
+    static let bootstrapScript = """
+    var structuredClone = function(value) {
+      const seen = new Map();
+      function copy(input) {
+        if (input === null || typeof input !== 'object') {
+          if (typeof input === 'function' || typeof input === 'symbol')
+            throw new TypeError('Unsupported compiler clone value');
+          return input;
+        }
+        if (seen.has(input)) return seen.get(input);
+        let output;
+        if (Array.isArray(input)) output = new Array(input.length);
+        else if (input instanceof Set) output = new Set();
+        else if (Object.prototype.toString.call(input) === '[object Object]') output = {};
+        else throw new TypeError('Unsupported compiler clone value');
+        seen.set(input, output);
+        if (input instanceof Set) {
+          for (const entry of input) output.add(copy(entry));
+        } else {
+          for (const key of Object.keys(input)) Object.defineProperty(output, key,
+            {value: copy(input[key]), enumerable: true, writable: true, configurable: true});
+        }
+        return output;
+      }
+      return copy(value);
+    };
+    var setTimeout = function() { throw new Error('Asynchronous resources are unsupported'); };
+    var setInterval = setTimeout, clearTimeout = function() {}, clearInterval = clearTimeout;
+    var console = {log:function(){},warn:function(){},error:function(){},debug:function(){},info:function(){}};
+    """
 
     private struct MeasureKey: Hashable {
         var text: String
@@ -66,6 +98,8 @@ actor VegaLiteRuntime {
             options["width"] = width
         }
         context.exception = nil
+        guard let validated = expressionValidator.call(withArguments: [source]),
+              validated.toBool(), context.exception == nil else { return nil }
         // JavaScriptCore drains native Promise jobs before this call returns.
         // The supported inline-only profile completes here, without timers,
         // polling, a run loop, or any thread blocking. Pending jobs fail closed.

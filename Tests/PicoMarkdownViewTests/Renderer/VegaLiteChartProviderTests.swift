@@ -25,10 +25,6 @@ import Testing
     @Test(arguments: [
         #"{"data":{"url":"https://example.com/data.json"},"mark":"bar"}"#,
         #"{"data":{"values":[{}]},"mark":"image"}"#,
-        #"{"data":{"values":[{}]},"mark":"bar","transform":[{"calculate":"repeat('x', 1000000000)","as":"x"}]}"#,
-        #"{"data":{"values":[{}]},"mark":"bar","transform":[{"filter":"datum.x > 1"}]}"#,
-        #"{"mark":"bar","transform":[{"filter":{"and":["repeat('x', 1000000000)"]}}]}"#,
-        #"{"mark":"bar","encoding":{"color":{"condition":{"test":"datum.x > 1","value":"red"},"value":"blue"}}}"#,
         #"{"data":{"sequence":{"start":0,"stop":1e12}},"mark":"bar"}"#,
         #"{"data":{"values":[{}]},"mark":"bar","transform":[{"density":"x","steps":1e12}]}"#,
         #"{"data":{"values":[{}]},"mark":"bar","encoding":{"x":{"field":"x","axis":{"tickCount":"millisecond"}}}}"#,
@@ -47,14 +43,73 @@ import Testing
         #expect(!VegaLiteSpecPolicy.accepts(source))
     }
 
+    @Test func boundedExpressionsRenderFilteredCalculatedAndConditionalMarks() async throws {
+        let source = #"{"data":{"values":[{"category":"A","x":1},{"category":"B","x":3},{"category":"C","x":5}]},"transform":[{"filter":{"and":["datum.x > 1",{"field":"x","lte":5}]}},{"calculate":"datum.x * 2","as":"doubled"}],"mark":"bar","encoding":{"x":{"field":"category","type":"nominal"},"y":{"field":"doubled","type":"quantitative"},"color":{"condition":{"test":"datum.x > 4","value":"red"},"value":"blue"}}}"#
+        #expect(VegaLiteSpecPolicy.accepts(source))
+        let provider = VegaLiteChartProvider(theme: .default())
+        let result = try #require(await provider.render(source: source, targetWidth: 336))
+        let document = try #require(PeleSVGDocument(svg: result.svg, dialect: .vega))
+        let marks = Self.descendants(document.root).filter { $0.attributes["aria-roledescription"] == "bar" }
+        #expect(marks.count == 2)
+        #expect(marks.contains { $0.attributes["aria-label"]?.contains("doubled: 6") == true })
+        #expect(marks.contains { $0.attributes["aria-label"]?.contains("doubled: 10") == true })
+        #expect(Set(marks.compactMap { $0.attributes["fill"] }).count == 2)
+        #expect(!result.svg.contains("NaN"))
+        #expect(document.makeCGImage(scale: 1) != nil)
+    }
+
+    @Test(arguments: [
+        "repeat('x', 1000000000)", "sequence(0, 1e12)", "format(1, '1000000000f')",
+        "datum.x.toString()", "datum['constructor']", "datum[datum.x]", "data('secret')",
+        "test(/(a+)+$/, datum.x)", "window", "datum.x = 3", "datum.x +", "[datum.x]"
+    ])
+    func unsupportedExpressionsFailBeforeRendering(_ expression: String) async throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": [["x": 2]]], "mark": "bar",
+            "transform": [["calculate": expression, "as": "y"]],
+            "encoding": ["y": ["field": "y", "type": "quantitative"]]
+        ])
+        let source = String(decoding: data, as: UTF8.self)
+        // The structural pass delegates expression syntax to the official AST parser.
+        #expect(VegaLiteSpecPolicy.accepts(source))
+        let provider = VegaLiteChartProvider(theme: .default())
+        #expect(await provider.render(source: source, targetWidth: 336) == nil)
+    }
+
+    @Test(arguments: ["datum.toString", "datum.valueOf"])
+    func inheritedFunctionsAreNotScalarExpressionResults(_ expression: String) async throws {
+        let source = "{\"data\":{\"values\":[{\"x\":1}]},\"transform\":[{\"calculate\":\"" + expression + "\",\"as\":\"label\"}],\"mark\":\"text\",\"encoding\":{\"text\":{\"field\":\"label\"}}}"
+        let provider = VegaLiteChartProvider(theme: .default())
+        #expect(await provider.render(source: source, targetWidth: 336) == nil)
+    }
+
+    @Test func expressionResultsCannotGrowAcrossCalculationStages() async throws {
+        let source = #"{"data":{"values":[{"label":"xxxxxxxx"}]},"transform":[{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"},{"calculate":"datum.label + datum.label","as":"label"}],"mark":"text","encoding":{"text":{"field":"label"}}}"#
+        #expect(VegaLiteSpecPolicy.accepts(source))
+        let provider = VegaLiteChartProvider(theme: .default())
+        #expect(await provider.render(source: source, targetWidth: 336) == nil)
+        // One failed chart must not poison the serial runtime's next render.
+        #expect(await provider.render(source: Self.bars, targetWidth: 336) != nil)
+    }
+
     @Test func dataColumnsAreNotInterpretedAsSpecificationKeys() {
-        let source = #"{"data":{"values":[{"url":"https://example.com","expr":"column data","x":2}]},"mark":"bar","encoding":{"x":{"field":"x","type":"quantitative"}}}"#
+        let source = #"{"data":{"values":[{"url":"https://example.com","expr":"column data","calculate":"ordinary column","filter":"ordinary column","test":"ordinary column","x":2}]},"mark":"bar","encoding":{"x":{"field":"x","type":"quantitative"}}}"#
         #expect(VegaLiteSpecPolicy.accepts(source))
     }
 
     @Test func boundedDeclarativeTransformsRemainAvailable() {
         let source = #"{"data":{"values":[{"category":"A","value":2},{"category":"A","value":3}]},"transform":[{"filter":{"field":"value","gte":2}},{"aggregate":[{"op":"sum","field":"value","as":"total"}],"groupby":["category"]}],"mark":"bar","encoding":{"x":{"field":"category","type":"nominal"},"y":{"field":"total","type":"quantitative"}}}"#
         #expect(VegaLiteSpecPolicy.accepts(source))
+    }
+
+    @Test func repeatedFieldsReferToTheEnclosingComposition() async throws {
+        let source = #"{"data":{"values":[{"category":"A","first":2,"second":3},{"category":"B","first":4,"second":5}]},"repeat":{"layer":["first","second"]},"spec":{"mark":"bar","encoding":{"x":{"field":"category","type":"nominal"},"y":{"field":{"repeat":"layer"},"type":"quantitative"},"color":{"datum":{"repeat":"layer"},"type":"nominal"},"xOffset":{"datum":{"repeat":"layer"}}}}}"#
+        #expect(VegaLiteSpecPolicy.accepts(source))
+        let provider = VegaLiteChartProvider(theme: .default())
+        let result = try #require(await provider.render(source: source, targetWidth: 336))
+        let document = try #require(PeleSVGDocument(svg: result.svg, dialect: .vega))
+        #expect(Self.descendants(document.root).filter { $0.attributes["aria-roledescription"] == "bar" }.count == 4)
+        #expect(!result.svg.contains("NaN"))
     }
 
     @Test func tupleAndCompositionBudgetsApplyBeforeJavaScript() throws {

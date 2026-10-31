@@ -33,7 +33,9 @@ expression removal, interaction removal, or lowering of renderer limits.
 `upstreamSHA256` hashes the original specification bytes before inlining.
 Repeated IDs are distinguished by their 1-based `occurrence`.
 `dataIssues` records retained non-array data, images, and sources exceeding
-the current 128 KiB renderer limit; it is not a complete renderability claim.
+the original 128 KiB export profile. Those notes remain frozen with the full
+corpus and can predate the current renderer limits; they are not a complete
+renderability claim.
 
 The specifications retain the upstream BSD-3-Clause license in
 `Vega-Lite-LICENSE.txt`. Dataset licensing is separate: the pinned upstream
@@ -74,4 +76,7 @@ digest, retained-fence index or notice outcome, and the preview content digest.
 `preview-rendering-report.json` preserves the 189 distinct classifications and
 the original benchmark report digest, without copying its environment-specific
 timings. This classification is a measured snapshot of the current renderer,
-not a promise that every source in the full gallery is supported.
+not a promise that every source in the full gallery is supported. When present,
+`testedWidths` and `outcomesByWidth` record independent provider results at
+each width; `baselineSuccessfulIDs` prevents regeneration from removing the
+previously successful examples.

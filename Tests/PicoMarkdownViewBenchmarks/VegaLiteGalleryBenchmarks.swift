@@ -12,19 +12,24 @@ struct VegaLiteGalleryBenchmarks {
     @Test("Real gallery chart rendering and complete streamed Markdown pipeline",
           .enabled(if: ProcessInfo.processInfo.environment["PICO_RUN_VEGA_GALLERY_BENCHMARKS"] == "1"))
     func officialGallery() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let targetWidth = Int(environment["PICO_VEGA_GALLERY_TARGET_WIDTH"] ?? "480") ?? 480
+        try #require((64...2048).contains(targetWidth))
+        let providersOnly = environment["PICO_VEGA_GALLERY_PROVIDER_ONLY"] == "1"
         let clock = ContinuousClock()
         let loadStart = clock.now
         let fixture = try BenchmarkGallery.load()
         try #require(fixture.entries.count == fixture.sources.count)
         var report = GalleryBenchmarkReport(
             operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
+            providerChartTargetWidth: targetWidth,
             galleryEntries: fixture.entries.count, markdownBytes: fixture.markdown.utf8.count,
             fixtureLoadSeconds: seconds(loadStart.duration(to: clock.now)),
             notes: [
                 "Cold means a fresh provider cache; VegaLiteRuntime.shared is reused. The first call may include runtime initialization.",
                 "Provider timings include policy checks, compiler/runtime SVG generation and the runtime's SVG validation.",
                 "SVG parse and native draw timings are additional isolated operations on successful chart results.",
-                "Direct provider timings request width 480; pipeline timings use the default theme with no runtime width constraint.",
+                "Direct provider timings request width \(targetWidth); pipeline timings use the default theme with no runtime width constraint.",
                 "Pipeline timings include tokenizer, assembler and renderer; they exclude TextKit layout, on-screen presentation and animation.",
                 "Fallback timings and successful chart timings are reported separately. No timing assertions are made."
             ])
@@ -38,7 +43,7 @@ struct VegaLiteGalleryBenchmarks {
             let accepted = VegaLiteSpecPolicy.accepts(source)
             let provider = VegaLiteChartProvider(theme: .default())
             let start = clock.now
-            let result = await provider.render(source: source, targetWidth: 480)
+            let result = await provider.render(source: source, targetWidth: CGFloat(targetWidth))
             let elapsed = seconds(start.duration(to: clock.now))
             var sample = GalleryRenderSample(id: entry.id, categories: entry.category,
                                              sourceBytes: source.utf8.count, dataIssues: entry.dataIssues)
@@ -48,7 +53,7 @@ struct VegaLiteGalleryBenchmarks {
                 sample.svgBytes = result.svg.utf8.count
                 for _ in 0..<5 {
                     let warmStart = clock.now
-                    let warm = await provider.render(source: source, targetWidth: 480)
+                    let warm = await provider.render(source: source, targetWidth: CGFloat(targetWidth))
                     sample.providerCacheWarmSeconds.append(seconds(warmStart.duration(to: clock.now)))
                     #expect(warm == result, "\(entry.id) warm cache must preserve its chart")
                 }
@@ -71,9 +76,15 @@ struct VegaLiteGalleryBenchmarks {
         report.uniqueSpecs = report.samples.count
         report.providerSummary = summarize(report.samples)
         report.peakResidentBytesAfterProviders = peakResidentBytes()
-        report.completedPhase = "providers"
+        report.completedPhase = providersOnly ? "providers-only" : "providers"
+        if providersOnly {
+            report.notes.append("Provider-only mode requested; no complete-document Markdown pipeline was run.")
+            report.processLifetimePeakResidentBytes = peakResidentBytes()
+        }
         try saveCheckpoint(report)
         print("Vega-Lite provider outcome summary: " + String(decoding: try JSONEncoder().encode(report.providerSummary), as: UTF8.self))
+
+        if providersOnly { return }
 
         // The complete document is fed twice: once in one call, once in UTF-8
         // chunks no larger than 8 KiB. Chunks are created only as consumed.
@@ -245,6 +256,7 @@ private struct GalleryBenchmarkReport: Encodable {
     var buildConfiguration = "release"
     #endif
     var providerChartTargetWidth = 480
+    var sourceByteLimit = VegaLiteSpecPolicy.maxSourceBytes
     var galleryEntries: Int
     var markdownBytes: Int
     var fixtureLoadSeconds: Double

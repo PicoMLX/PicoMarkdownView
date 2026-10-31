@@ -60,8 +60,8 @@ struct VegaLiteGalleryTests {
         let fullDigest = SHA256.hash(data: Data(fixture.markdown.utf8)).map { String(format: "%02x", $0) }.joined()
         #expect(preview.kind == "rendering-preview")
         #expect(preview.entryCount == 203)
-        #expect(preview.chartCount == 53)
-        #expect(preview.noticeCount == 150)
+        #expect(preview.chartCount == 128)
+        #expect(preview.noticeCount == 75)
         #expect(preview.markdown.decodedBytes == data.count)
         #expect(preview.markdown.decodedSHA256 == digest)
         #expect(preview.sourceMarkdownSHA256 == fullDigest)
@@ -104,6 +104,44 @@ struct VegaLiteGalleryTests {
         }
         #expect(kept == preview.chartCount)
         #expect(notices == preview.noticeCount)
+    }
+
+
+    @Test("User-reported missing official charts retain their real data marks", arguments: [
+        "bar_aggregate", "bar_aggregate_sort_by_encoding", "bar_grouped_repeated",
+        "stacked_bar_weather", "stacked_bar_count_corner_radius_mark", "stacked_bar_normalize",
+        "stacked_bar_h_normalized_labeled", "bar_layered_transparent",
+        "bar_diverging_stack_population_pyramid", "bar_diverging_stack_transform"
+    ], [336, 480])
+    func userReportedOfficialChartsRender(id: String, width: Int) async throws {
+        let expectedMarks = [
+            "bar_aggregate": 19, "bar_aggregate_sort_by_encoding": 19,
+            "bar_grouped_repeated": 26, "stacked_bar_weather": 54,
+            "stacked_bar_count_corner_radius_mark": 54, "stacked_bar_normalize": 38,
+            "stacked_bar_h_normalized_labeled": 76, "bar_layered_transparent": 38,
+            "bar_diverging_stack_population_pyramid": 38, "bar_diverging_stack_transform": 40
+        ]
+        let fixture = try Self.fixture.get()
+        let index = try #require(fixture.entries.firstIndex { $0.id == id })
+        let source = fixture.source(at: index)
+        #expect(VegaLiteSpecPolicy.accepts(source), "\(id) at \(width) points")
+        let pipeline = MarkdownStreamingPipeline()
+        _ = await pipeline.updateMermaidContentWidth(CGFloat(width))
+        _ = await pipeline.feed("```vega-lite\n" + source + "```\n\n")
+        _ = await pipeline.finish()
+        let blocks = await pipeline.blocksSnapshot()
+        let block = try #require(blocks.first { $0.vegaLiteChart != nil }, "\(id) at \(width) points")
+        let chart = try #require(block.vegaLiteChart)
+        #expect(blocks.count == 1)
+        #expect(block.snapshot.isClosed)
+        #expect(block.snapshot.codeText == source)
+        #expect(chart.source == source)
+        #expect(!chart.svg.contains("NaN"))
+        #expect(!chart.svg.contains("Infinity"))
+        let document = try #require(PeleSVGDocument(svg: chart.svg, dialect: .vega))
+        #expect(Self.dataMarks(in: document.root) == expectedMarks[id], "\(id) must retain its complete grouped or stacked data")
+        let bitmap = try #require(document.makeCGImage(scale: 1))
+        #expect(Self.paintedPixels(in: bitmap) > 100)
     }
 
     @Test("Bounded official examples produce real native marks and preserve exact fence source")

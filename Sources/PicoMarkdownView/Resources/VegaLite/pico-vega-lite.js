@@ -42,7 +42,7 @@
     allocationRejected = false;
     let view;
     try {
-      const spec = JSON.parse(source);
+      const spec = picoPrepareVegaLiteExpressions(JSON.parse(source));
       function sizes(node) {
         if (!node || typeof node !== 'object') return;
         if (Array.isArray(node)) { node.forEach(sizes); return; }
@@ -70,7 +70,7 @@
       vega.resetSVGDefIds();
       view = new vega.View(runtime, {renderer: 'none', expr: vega.expressionInterpreter, loader: loader});
       view.toSVG().then(function (svg) {
-        if (allocationRejected) result.status = 'failed';
+        if (allocationRejected || picoVegaExpressionsRejected()) result.status = 'failed';
         else { result.svg = svg; result.status = 'done'; }
         view.finalize();
       }, function () {

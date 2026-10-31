@@ -2,22 +2,22 @@
   "version": 1,
   "kind": "rendering-preview",
   "entryCount": 203,
-  "chartCount": 53,
-  "noticeCount": 150,
-  "distinctChartCount": 51,
+  "chartCount": 128,
+  "noticeCount": 75,
+  "distinctChartCount": 115,
   "sourceManifest": "manifest.json",
   "sourceMarkdownSHA256": "44153d851aa7c09754c545a24444e5eca368701709bde93c71033822b2cc702f",
   "renderingReport": {
     "file": "preview-rendering-report.json",
-    "sha256": "1e2c6a5a143e200f796e4fdd3a3d865ecbffee5f3fdf259fe297a56135bf57ca",
-    "benchmarkReportSHA256": "b5eece3b3b7694e73de7c0766b430e114bab82c1be43f8089278c34e1037777c"
+    "sha256": "f10903a80c6c2c85227affba9f6a82119eea255ae50c40a15c17d301f7b5e1f4",
+    "benchmarkReportSHA256": "f4191ff00a2e95366eb0237b96abeab325ad988c7ad0877a21a76d4475b9e92d"
   },
   "markdown": {
     "file": "Charts-Gallery-Preview.md.deflate",
     "compression": "deflate-raw",
-    "decodedBytes": 1337554,
-    "decodedSHA256": "8b52d6624b3db22f25737529ce96f6ec5449e9933d8a848df8b35a3b2f075049",
-    "compressedBytes": 145991
+    "decodedBytes": 32080820,
+    "decodedSHA256": "29f39485f15b71acaec096b3c07fa86ba4a81bfc2d16ca1454c2b03d3c80c83b",
+    "compressedBytes": 4047784
   },
   "entries": [
     {
@@ -64,9 +64,9 @@
       "sourceSHA256": "966ece8a68116aa8c186d699404d771cec0e6cc79bd8ec92d87adb5afa4924fc",
       "sourceBytes": 27442,
       "fullEntryIndex": 2,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 2
     },
     {
       "id": "bar_aggregate_sort_by_encoding",
@@ -80,9 +80,9 @@
       "sourceSHA256": "8524a07f5f1208f5933a797ce68307656b248574f69a527faf209e3ddd6340ee",
       "sourceBytes": 27450,
       "fullEntryIndex": 3,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 3
     },
     {
       "id": "bar_grouped",
@@ -98,7 +98,7 @@
       "fullEntryIndex": 4,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 2
+      "fenceIndex": 4
     },
     {
       "id": "bar_grouped_repeated",
@@ -112,9 +112,9 @@
       "sourceSHA256": "f0e7f90d6b0d61d090602e9acb54613578e46c1fa2d838505e5b520b6c342bda",
       "sourceBytes": 1281975,
       "fullEntryIndex": 5,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 5
     },
     {
       "id": "stacked_bar_weather",
@@ -128,9 +128,9 @@
       "sourceSHA256": "40826d6e51eab34251e3a748f90ea00b8d36b95858e39de77cdd2951ee2f067f",
       "sourceBytes": 159631,
       "fullEntryIndex": 6,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 6
     },
     {
       "id": "stacked_bar_count_corner_radius_mark",
@@ -144,9 +144,9 @@
       "sourceSHA256": "4372f3b01e40aec260c8a6a67560ea4c6e9003f57e5cb72cd329ce8bbf43b5eb",
       "sourceBytes": 159482,
       "fullEntryIndex": 7,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 7
     },
     {
       "id": "stacked_bar_h",
@@ -162,7 +162,7 @@
       "fullEntryIndex": 8,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 3
+      "fenceIndex": 8
     },
     {
       "id": "stacked_bar_normalize",
@@ -176,9 +176,9 @@
       "sourceSHA256": "f853c7d9eb44485e037730c8f20b8dd431ed8a129f3c278f1e88a666df579a3a",
       "sourceBytes": 27503,
       "fullEntryIndex": 9,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 9
     },
     {
       "id": "stacked_bar_h_normalized_labeled",
@@ -192,9 +192,9 @@
       "sourceSHA256": "139e2590ce70ea068a8e607b165d9334d712ad87c087dfbc5bccaf5f432b2fda",
       "sourceBytes": 27791,
       "fullEntryIndex": 10,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 10
     },
     {
       "id": "bar_gantt",
@@ -210,7 +210,7 @@
       "fullEntryIndex": 11,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 4
+      "fenceIndex": 11
     },
     {
       "id": "bar_color_disabled_scale",
@@ -226,7 +226,7 @@
       "fullEntryIndex": 12,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 5
+      "fenceIndex": 12
     },
     {
       "id": "bar_layered_transparent",
@@ -240,9 +240,9 @@
       "sourceSHA256": "6b8dd63ffbde4bc8e26691d5d3bd3c9af22698c115ea822d22d004f293f4a240",
       "sourceBytes": 27638,
       "fullEntryIndex": 13,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 13
     },
     {
       "id": "bar_diverging_stack_population_pyramid",
@@ -256,9 +256,9 @@
       "sourceSHA256": "78c85bfdb7c561169d422dbced9c987955b41ba442670fed443df5bc7749be30",
       "sourceBytes": 27926,
       "fullEntryIndex": 14,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 14
     },
     {
       "id": "bar_diverging_stack_transform",
@@ -272,9 +272,9 @@
       "sourceSHA256": "67d9a738021d04be9b9a6f401f993b43a22995f465054ecd0f0a73119929c07c",
       "sourceBytes": 4517,
       "fullEntryIndex": 15,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 15
     },
     {
       "id": "layer_bar_labels",
@@ -290,7 +290,7 @@
       "fullEntryIndex": 16,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 6
+      "fenceIndex": 16
     },
     {
       "id": "layer_bar_labels_grey",
@@ -304,9 +304,9 @@
       "sourceSHA256": "3d9e2982fb3286fc82767989f602a0f5f12340bc13181d115c394610a5a54c8f",
       "sourceBytes": 1282010,
       "fullEntryIndex": 17,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 17
     },
     {
       "id": "bar_month_temporal_initial",
@@ -321,8 +321,8 @@
       "sourceBytes": 159539,
       "fullEntryIndex": 18,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "bar_month_temporal_band_center",
@@ -336,9 +336,9 @@
       "sourceSHA256": "17c5f6dead003378702d0f88df803cceb5aa662747c25cd995d93a02de95ecc5",
       "sourceBytes": 159437,
       "fullEntryIndex": 19,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 18
     },
     {
       "id": "bar_negative",
@@ -352,9 +352,9 @@
       "sourceSHA256": "f2a15109f87d8e9c5f7d32050cd47ba107874c6d675295eecac144c7e00a2ea4",
       "sourceBytes": 654,
       "fullEntryIndex": 20,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 19
     },
     {
       "id": "bar_negative_horizontal_label",
@@ -386,7 +386,7 @@
       "fullEntryIndex": 22,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 7
+      "fenceIndex": 20
     },
     {
       "id": "bar_heatlane",
@@ -400,9 +400,9 @@
       "sourceSHA256": "54fd802372429038b8a5e1d7f800f9b8b491e3b2d53df9f4f2f360d8003ed0bb",
       "sourceBytes": 72936,
       "fullEntryIndex": 23,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 21
     },
     {
       "id": "histogram",
@@ -416,9 +416,9 @@
       "sourceSHA256": "8e5b07a52c1dc2dc06ba6da7cb6a803ffa20bc96b3013bfe51f5e50867a64160",
       "sourceBytes": 1281714,
       "fullEntryIndex": 24,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 22
     },
     {
       "id": "bar_binned_data",
@@ -448,9 +448,9 @@
       "sourceSHA256": "9e5d57f526e28750d12e2aa71774d8032c8955d2f9ce2f88e00364f396842754",
       "sourceBytes": 672,
       "fullEntryIndex": 26,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 23
     },
     {
       "id": "histogram_nonlinear",
@@ -497,8 +497,8 @@
       "sourceBytes": 1281843,
       "fullEntryIndex": 29,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "area_density_stacked",
@@ -528,9 +528,9 @@
       "sourceSHA256": "02701e970b6681b5070027b1a209def7167df000576f966bf6e1e1186581dd68",
       "sourceBytes": 1281790,
       "fullEntryIndex": 31,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 24
     },
     {
       "id": "rect_binned_heatmap",
@@ -544,9 +544,9 @@
       "sourceSHA256": "e3ddf36666355ad81b5e98594cafca4d30527ec86ef2b6390273830cc396f4de",
       "sourceBytes": 1282043,
       "fullEntryIndex": 32,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 25
     },
     {
       "id": "area_cumulative_freq",
@@ -560,9 +560,9 @@
       "sourceSHA256": "6ed311c73ba8655acd891c7ec61813ed344bfbce236ebcf6d48c4f9696834026",
       "sourceBytes": 1281967,
       "fullEntryIndex": 33,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 26
     },
     {
       "id": "layer_cumulative_histogram",
@@ -576,9 +576,9 @@
       "sourceSHA256": "ee7abddaa061b09c7a0e4f9092662a88487f8cf72964f28fcb9f6c58ba8f475b",
       "sourceBytes": 1282324,
       "fullEntryIndex": 34,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 27
     },
     {
       "id": "circle_wilkinson_dotplot",
@@ -594,7 +594,7 @@
       "fullEntryIndex": 35,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 8
+      "fenceIndex": 28
     },
     {
       "id": "isotype_bar_chart",
@@ -610,7 +610,7 @@
       "fullEntryIndex": 36,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 9
+      "fenceIndex": 29
     },
     {
       "id": "isotype_bar_chart_emoji",
@@ -625,8 +625,8 @@
       "sourceBytes": 2267,
       "fullEntryIndex": 37,
       "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "outcome": "runtime-or-svg-fallback",
+      "reason": "runtime or SVG compatibility restriction"
     },
     {
       "id": "bar_percent_of_total",
@@ -640,9 +640,9 @@
       "sourceSHA256": "5978ee09042ac2bf526a6342611cdd9c93cbe53d02ead5d42337960e88437a65",
       "sourceBytes": 640,
       "fullEntryIndex": 38,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 30
     },
     {
       "id": "point_2d",
@@ -658,7 +658,7 @@
       "fullEntryIndex": 39,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 10
+      "fenceIndex": 31
     },
     {
       "id": "tick_dot",
@@ -672,9 +672,9 @@
       "sourceSHA256": "42ebfd60eceaeb002ca811b26a47df88f7ef644d3eac83040c06a61c0eb95551",
       "sourceBytes": 159366,
       "fullEntryIndex": 40,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 32
     },
     {
       "id": "tick_strip",
@@ -690,7 +690,7 @@
       "fullEntryIndex": 41,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 11
+      "fenceIndex": 33
     },
     {
       "id": "point_color_with_shape",
@@ -706,7 +706,7 @@
       "fullEntryIndex": 42,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 12
+      "fenceIndex": 34
     },
     {
       "id": "circle_binned",
@@ -720,9 +720,9 @@
       "sourceSHA256": "02701e970b6681b5070027b1a209def7167df000576f966bf6e1e1186581dd68",
       "sourceBytes": 1281790,
       "fullEntryIndex": 43,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 35
     },
     {
       "id": "point_bubble",
@@ -738,7 +738,7 @@
       "fullEntryIndex": 44,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 13
+      "fenceIndex": 36
     },
     {
       "id": "point_invalid_color",
@@ -752,9 +752,9 @@
       "sourceSHA256": "4d52061e74278e43e56bf189efd3a91cbd805e3146a8e650b53ea0ecfe0cb74f",
       "sourceBytes": 1281919,
       "fullEntryIndex": 45,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 37
     },
     {
       "id": "circle",
@@ -770,7 +770,7 @@
       "fullEntryIndex": 46,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 14
+      "fenceIndex": 38
     },
     {
       "id": "circle_bubble_health_income",
@@ -800,9 +800,9 @@
       "sourceSHA256": "4c7e7a6e7cb6397fc66c55e3d5f3cafe923437e9e2d993dfa5746dc3eb4be681",
       "sourceBytes": 45892,
       "fullEntryIndex": 48,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 39
     },
     {
       "id": "text_scatterplot_colored",
@@ -816,9 +816,9 @@
       "sourceSHA256": "19084577a0643cafad745d3a802e1c2042abcc8ff27b10de9d7aff4d57f4d202",
       "sourceBytes": 72037,
       "fullEntryIndex": 49,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 40
     },
     {
       "id": "scatter_image",
@@ -849,8 +849,8 @@
       "sourceBytes": 1281936,
       "fullEntryIndex": 51,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "point_offset_random",
@@ -865,8 +865,8 @@
       "sourceBytes": 72126,
       "fullEntryIndex": 52,
       "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "outcome": "runtime-or-svg-fallback",
+      "reason": "runtime or SVG compatibility restriction"
     },
     {
       "id": "line",
@@ -880,9 +880,9 @@
       "sourceSHA256": "0cc06ea8e1dc8b7c1deb247d6ae8abc656e71d48be75ee391391fdb2b2b24ef3",
       "sourceBytes": 30437,
       "fullEntryIndex": 53,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 41
     },
     {
       "id": "line_overlay",
@@ -898,7 +898,7 @@
       "fullEntryIndex": 54,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 15
+      "fenceIndex": 42
     },
     {
       "id": "line_overlay_stroked",
@@ -914,7 +914,7 @@
       "fullEntryIndex": 55,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 16
+      "fenceIndex": 43
     },
     {
       "id": "line_color",
@@ -930,7 +930,7 @@
       "fullEntryIndex": 56,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 17
+      "fenceIndex": 44
     },
     {
       "id": "repeat_layer",
@@ -944,9 +944,9 @@
       "sourceSHA256": "e9dec529562207ae47875eff1f1d3e35e200a118921af9f1fb55fa2c945b4034",
       "sourceBytes": 1281939,
       "fullEntryIndex": 57,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 45
     },
     {
       "id": "line_color_halo",
@@ -978,7 +978,7 @@
       "fullEntryIndex": 59,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 18
+      "fenceIndex": 46
     },
     {
       "id": "line_step",
@@ -992,9 +992,9 @@
       "sourceSHA256": "7fe0d4f90864313d508448c9622146c3fad003347155f68bc25d1091a07fea55",
       "sourceBytes": 30473,
       "fullEntryIndex": 60,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 47
     },
     {
       "id": "line_monotone",
@@ -1008,9 +1008,9 @@
       "sourceSHA256": "98e7ec9b7bdb62aa3eb8caf912d41677c777753846cda92ec0505d24ff1796f5",
       "sourceBytes": 30423,
       "fullEntryIndex": 61,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 48
     },
     {
       "id": "line_conditional_axis",
@@ -1042,7 +1042,7 @@
       "fullEntryIndex": 63,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 19
+      "fenceIndex": 49
     },
     {
       "id": "line_bump",
@@ -1058,7 +1058,7 @@
       "fullEntryIndex": 64,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 20
+      "fenceIndex": 50
     },
     {
       "id": "trail_color",
@@ -1074,7 +1074,7 @@
       "fullEntryIndex": 65,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 21
+      "fenceIndex": 51
     },
     {
       "id": "trail_comet",
@@ -1106,7 +1106,7 @@
       "fullEntryIndex": 67,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 22
+      "fenceIndex": 52
     },
     {
       "id": "layer_line_co2_concentration",
@@ -1120,9 +1120,9 @@
       "sourceSHA256": "2ed3fd37bba3f5a0073a74034a08ec4bc0af673ab4b7f0adc18dca2e2de08a9f",
       "sourceBytes": 46521,
       "fullEntryIndex": 68,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 53
     },
     {
       "id": "window_rank",
@@ -1138,7 +1138,7 @@
       "fullEntryIndex": 69,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 23
+      "fenceIndex": 54
     },
     {
       "id": "sequence_line_fold",
@@ -1170,7 +1170,7 @@
       "fullEntryIndex": 71,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 24
+      "fenceIndex": 55
     },
     {
       "id": "line_dashed_part",
@@ -1186,7 +1186,7 @@
       "fullEntryIndex": 72,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 25
+      "fenceIndex": 56
     },
     {
       "id": "area",
@@ -1200,9 +1200,9 @@
       "sourceSHA256": "321bd3389c15ede6a0a00d01b7e090c4bb72d75fa20f3b342c8d09eb48047d2c",
       "sourceBytes": 185896,
       "fullEntryIndex": 73,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 57
     },
     {
       "id": "area_gradient",
@@ -1216,9 +1216,9 @@
       "sourceSHA256": "c12b3611bb99ac40cb458ec6d9ede4a3d297cd4e8a789110be30beec8e2e60d4",
       "sourceBytes": 30605,
       "fullEntryIndex": 74,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 58
     },
     {
       "id": "area_overlay",
@@ -1232,9 +1232,9 @@
       "sourceSHA256": "4e7703a069f8b1cbd658bd510940fc38c8a02600521724d55f147d5707d29c8e",
       "sourceBytes": 30471,
       "fullEntryIndex": 75,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 59
     },
     {
       "id": "stacked_area",
@@ -1248,9 +1248,9 @@
       "sourceSHA256": "e54bedf0727cac458ee60f7205c07368cb2c5d97d8dc3583153d3edce9e5ff55",
       "sourceBytes": 185940,
       "fullEntryIndex": 76,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 60
     },
     {
       "id": "stacked_area_normalize",
@@ -1264,9 +1264,9 @@
       "sourceSHA256": "b99d40ee484d46d69d0fd7341b23fb49c039630ec962c118af78814c4c1a914e",
       "sourceBytes": 185987,
       "fullEntryIndex": 77,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 61
     },
     {
       "id": "stacked_area_stream",
@@ -1280,9 +1280,9 @@
       "sourceSHA256": "75d8473da489d82ad27b694e11f3f9a8f3f68158b7f578475fb047e4cd752219",
       "sourceBytes": 185997,
       "fullEntryIndex": 78,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 62
     },
     {
       "id": "area_horizon",
@@ -1296,9 +1296,9 @@
       "sourceSHA256": "bf7159660acfd89a2470d0c0d41a7757330c026b98a504eba1225a45b6fde074",
       "sourceBytes": 1066,
       "fullEntryIndex": 79,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 63
     },
     {
       "id": "rect_heatmap",
@@ -1314,7 +1314,7 @@
       "fullEntryIndex": 80,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 26
+      "fenceIndex": 64
     },
     {
       "id": "rect_heatmap_weather",
@@ -1328,9 +1328,9 @@
       "sourceSHA256": "88cfe59896c9255b4622529cf89e5e6b78358b6cb2021c62cc048c61b92dfcc0",
       "sourceBytes": 159710,
       "fullEntryIndex": 81,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 65
     },
     {
       "id": "rect_binned_heatmap",
@@ -1344,9 +1344,9 @@
       "sourceSHA256": "e3ddf36666355ad81b5e98594cafca4d30527ec86ef2b6390273830cc396f4de",
       "sourceBytes": 1282043,
       "fullEntryIndex": 82,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 66
     },
     {
       "id": "circle_github_punchcard",
@@ -1362,7 +1362,7 @@
       "fullEntryIndex": 83,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 27
+      "fenceIndex": 67
     },
     {
       "id": "layer_text_heatmap",
@@ -1376,9 +1376,9 @@
       "sourceSHA256": "b2b9fcca3ffbf480cd3559178ba27d52cf3ebf78a3ce7288d1b25f2a52cfa930",
       "sourceBytes": 72328,
       "fullEntryIndex": 84,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 68
     },
     {
       "id": "rect_lasagna",
@@ -1392,9 +1392,9 @@
       "sourceSHA256": "b384fa63baecb9d44019ba61ba3f07a4d88de7e90a9d2002fec7f29284f73516",
       "sourceBytes": 30876,
       "fullEntryIndex": 85,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 69
     },
     {
       "id": "rect_mosaic_labelled_with_offset",
@@ -1408,9 +1408,9 @@
       "sourceSHA256": "e4ca6c045324779ba647fc713d81af46df4253fedcc1bac60512f944829def99",
       "sourceBytes": 74014,
       "fullEntryIndex": 86,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 70
     },
     {
       "id": "point_angle_windvector",
@@ -1425,8 +1425,8 @@
       "sourceBytes": 403607,
       "fullEntryIndex": 87,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "arc_pie",
@@ -1442,7 +1442,7 @@
       "fullEntryIndex": 88,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 28
+      "fenceIndex": 71
     },
     {
       "id": "arc_pie_normalize_tooltip",
@@ -1458,7 +1458,7 @@
       "fullEntryIndex": 89,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 29
+      "fenceIndex": 72
     },
     {
       "id": "arc_donut",
@@ -1474,7 +1474,7 @@
       "fullEntryIndex": 90,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 30
+      "fenceIndex": 73
     },
     {
       "id": "layer_arc_label",
@@ -1490,7 +1490,7 @@
       "fullEntryIndex": 91,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 31
+      "fenceIndex": 74
     },
     {
       "id": "arc_radial",
@@ -1506,7 +1506,7 @@
       "fullEntryIndex": 92,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 32
+      "fenceIndex": 75
     },
     {
       "id": "arc_pie_pyramid",
@@ -1522,7 +1522,7 @@
       "fullEntryIndex": 93,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 33
+      "fenceIndex": 76
     },
     {
       "id": "bar_percent_of_total",
@@ -1536,9 +1536,9 @@
       "sourceSHA256": "5978ee09042ac2bf526a6342611cdd9c93cbe53d02ead5d42337960e88437a65",
       "sourceBytes": 640,
       "fullEntryIndex": 94,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 77
     },
     {
       "id": "joinaggregate_mean_difference",
@@ -1552,9 +1552,9 @@
       "sourceSHA256": "59f39c0e3e5779e9de8892f3962745f5eb1635e4d3056888ac1e905df8173bc6",
       "sourceBytes": 1282095,
       "fullEntryIndex": 95,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 78
     },
     {
       "id": "joinaggregate_mean_difference_by_year",
@@ -1568,9 +1568,9 @@
       "sourceSHA256": "65272b0b2db3aaed49853828a1badc5d94dc6ff9fabfc159778bb31e54326534",
       "sourceBytes": 1282490,
       "fullEntryIndex": 96,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 79
     },
     {
       "id": "joinaggregate_residual_graph",
@@ -1584,9 +1584,9 @@
       "sourceSHA256": "3e9f7a3131db068b827869b4dc119147dd24d0cf5cfc1f5615225657b335f80e",
       "sourceBytes": 1282386,
       "fullEntryIndex": 97,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 80
     },
     {
       "id": "window_rank",
@@ -1602,7 +1602,7 @@
       "fullEntryIndex": 98,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 34
+      "fenceIndex": 81
     },
     {
       "id": "waterfall_chart",
@@ -1632,9 +1632,9 @@
       "sourceSHA256": "44661160f191d66314539a99fd85a486994e59705cee3c74a7156be44d94d0b1",
       "sourceBytes": 1189,
       "fullEntryIndex": 100,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 82
     },
     {
       "id": "window_top_k_others",
@@ -1648,9 +1648,9 @@
       "sourceSHA256": "e4b10b18a57a2fedc68acea1c5a2083a9c72fc1470cddc866bd0ef5cadaaeab1",
       "sourceBytes": 1282362,
       "fullEntryIndex": 101,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 83
     },
     {
       "id": "lookup",
@@ -1680,9 +1680,9 @@
       "sourceSHA256": "6ed311c73ba8655acd891c7ec61813ed344bfbce236ebcf6d48c4f9696834026",
       "sourceBytes": 1281967,
       "fullEntryIndex": 103,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 84
     },
     {
       "id": "layer_cumulative_histogram",
@@ -1696,9 +1696,9 @@
       "sourceSHA256": "ee7abddaa061b09c7a0e4f9092662a88487f8cf72964f28fcb9f6c58ba8f475b",
       "sourceBytes": 1282324,
       "fullEntryIndex": 104,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 85
     },
     {
       "id": "parallel_coordinate",
@@ -1728,9 +1728,9 @@
       "sourceSHA256": "ff1df78944ae39923859b662c7146eef73a50c592738242390825951ed5fd958",
       "sourceBytes": 1281886,
       "fullEntryIndex": 106,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 86
     },
     {
       "id": "layer_line_mean_point_raw",
@@ -1744,9 +1744,9 @@
       "sourceSHA256": "b3f008c08177a095dc0bbb252d5d929e8ff518cfee78cf2d9449e5eb14e080ed",
       "sourceBytes": 30611,
       "fullEntryIndex": 107,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 87
     },
     {
       "id": "layer_line_rolling_mean_point_raw",
@@ -1760,9 +1760,9 @@
       "sourceSHA256": "128a5762cab24e6a5c660fdeffed03b626742e2c12240f6c49ce8a567bcf4233",
       "sourceBytes": 159891,
       "fullEntryIndex": 108,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 88
     },
     {
       "id": "layer_line_window",
@@ -1776,9 +1776,9 @@
       "sourceSHA256": "19e04da039cd0191748c7471b7756d89abea905cf252e5897875840376191fbe",
       "sourceBytes": 8100,
       "fullEntryIndex": 109,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 89
     },
     {
       "id": "point_quantile_quantile",
@@ -1809,8 +1809,8 @@
       "sourceBytes": 1282322,
       "fullEntryIndex": 111,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "layer_point_line_loess",
@@ -1825,8 +1825,8 @@
       "sourceBytes": 1282034,
       "fullEntryIndex": 112,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "window_impute_null",
@@ -1840,9 +1840,9 @@
       "sourceSHA256": "88ccf546c1b21f9421893ca9808a8c96e68ef4c94de300439d30695319873e95",
       "sourceBytes": 799,
       "fullEntryIndex": 113,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 90
     },
     {
       "id": "ternary",
@@ -1874,7 +1874,7 @@
       "fullEntryIndex": 115,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 35
+      "fenceIndex": 91
     },
     {
       "id": "layer_point_errorbar_stdev",
@@ -1890,7 +1890,7 @@
       "fullEntryIndex": 116,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 36
+      "fenceIndex": 92
     },
     {
       "id": "layer_line_errorband_ci",
@@ -1906,7 +1906,7 @@
       "fullEntryIndex": 117,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 37
+      "fenceIndex": 93
     },
     {
       "id": "layer_scatter_errorband_1D_stdev_global_mean",
@@ -1922,7 +1922,7 @@
       "fullEntryIndex": 118,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 38
+      "fenceIndex": 94
     },
     {
       "id": "boxplot_minmax_2D_vertical",
@@ -1938,7 +1938,7 @@
       "fullEntryIndex": 119,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 39
+      "fenceIndex": 95
     },
     {
       "id": "boxplot_2D_vertical",
@@ -1954,7 +1954,7 @@
       "fullEntryIndex": 120,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 40
+      "fenceIndex": 96
     },
     {
       "id": "boxplot_preaggregated",
@@ -1986,7 +1986,7 @@
       "fullEntryIndex": 122,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 41
+      "fenceIndex": 97
     },
     {
       "id": "layer_bar_fruit",
@@ -2002,7 +2002,7 @@
       "fullEntryIndex": 123,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 42
+      "fenceIndex": 98
     },
     {
       "id": "layer_text_heatmap",
@@ -2016,9 +2016,9 @@
       "sourceSHA256": "b2b9fcca3ffbf480cd3559178ba27d52cf3ebf78a3ce7288d1b25f2a52cfa930",
       "sourceBytes": 72328,
       "fullEntryIndex": 124,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 99
     },
     {
       "id": "layer_line_co2_concentration",
@@ -2032,9 +2032,9 @@
       "sourceSHA256": "2ed3fd37bba3f5a0073a74034a08ec4bc0af673ab4b7f0adc18dca2e2de08a9f",
       "sourceBytes": 46521,
       "fullEntryIndex": 125,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 100
     },
     {
       "id": "layer_bar_annotations",
@@ -2048,9 +2048,9 @@
       "sourceSHA256": "3c7eb76172777a42aa28ca83675b606861769434c9f0e2a426e93bf29a9b82e4",
       "sourceBytes": 1243,
       "fullEntryIndex": 126,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 101
     },
     {
       "id": "layer_precipitation_mean",
@@ -2064,9 +2064,9 @@
       "sourceSHA256": "e8e8e0c49e555616e98275a3dd8e05461599a3c73a389682f8fd310506131742",
       "sourceBytes": 159596,
       "fullEntryIndex": 127,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 102
     },
     {
       "id": "layer_histogram_global_mean",
@@ -2080,9 +2080,9 @@
       "sourceSHA256": "5316ce6b70b5450c6cd7890fb07dfdb900bc6ddabe5b6237667e9ef614d6b3c3",
       "sourceBytes": 1281845,
       "fullEntryIndex": 128,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 103
     },
     {
       "id": "layer_falkensee",
@@ -2098,7 +2098,7 @@
       "fullEntryIndex": 129,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 43
+      "fenceIndex": 104
     },
     {
       "id": "layer_line_mean_point_raw",
@@ -2112,9 +2112,9 @@
       "sourceSHA256": "b3f008c08177a095dc0bbb252d5d929e8ff518cfee78cf2d9449e5eb14e080ed",
       "sourceBytes": 30611,
       "fullEntryIndex": 130,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 105
     },
     {
       "id": "layer_line_rolling_mean_point_raw",
@@ -2128,9 +2128,9 @@
       "sourceSHA256": "128a5762cab24e6a5c660fdeffed03b626742e2c12240f6c49ce8a567bcf4233",
       "sourceBytes": 159891,
       "fullEntryIndex": 131,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 106
     },
     {
       "id": "layer_likert",
@@ -2144,9 +2144,9 @@
       "sourceSHA256": "51f9adf3c5b6ae2c29c1a35c9fb32a97612b556c69bb8fb8f277696ab7457d3b",
       "sourceBytes": 9886,
       "fullEntryIndex": 132,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 107
     },
     {
       "id": "concat_layer_voyager_result",
@@ -2160,9 +2160,9 @@
       "sourceSHA256": "2a97f11e102356314e1bd5811d11a86bb5e9adca6136226f29e440fb2cb0e1ba",
       "sourceBytes": 2170,
       "fullEntryIndex": 133,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 108
     },
     {
       "id": "layer_candlestick",
@@ -2176,9 +2176,9 @@
       "sourceSHA256": "20de10eec726cafb8fc764cdcc5b0cf7f283807ed601d01a0ec75f93f3a4567d",
       "sourceBytes": 5628,
       "fullEntryIndex": 134,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 109
     },
     {
       "id": "layer_ranged_dot",
@@ -2194,7 +2194,7 @@
       "fullEntryIndex": 135,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 44
+      "fenceIndex": 110
     },
     {
       "id": "facet_bullet",
@@ -2210,7 +2210,7 @@
       "fullEntryIndex": 136,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 45
+      "fenceIndex": 111
     },
     {
       "id": "layer_dual_axis",
@@ -2224,9 +2224,9 @@
       "sourceSHA256": "41bf6da3631a81bfa862f452f45ca5d090e6b76c507c342462703170304d0f89",
       "sourceBytes": 382270,
       "fullEntryIndex": 137,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 112
     },
     {
       "id": "area_horizon",
@@ -2240,9 +2240,9 @@
       "sourceSHA256": "bf7159660acfd89a2470d0c0d41a7757330c026b98a504eba1225a45b6fde074",
       "sourceBytes": 1066,
       "fullEntryIndex": 138,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 113
     },
     {
       "id": "bar_layered_weather",
@@ -2258,7 +2258,7 @@
       "fullEntryIndex": 139,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 46
+      "fenceIndex": 114
     },
     {
       "id": "wheat_wages",
@@ -2272,9 +2272,9 @@
       "sourceSHA256": "9f2a1582fa9d030350de3f4fe9a1cdf14a5dfe19b740dee3b5424abfbd5c143d",
       "sourceBytes": 5212,
       "fullEntryIndex": 140,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 115
     },
     {
       "id": "trellis_bar",
@@ -2288,9 +2288,9 @@
       "sourceSHA256": "51148e8ec0a95e1c6583de0693de97a0b74dbdfd79d76b245d1edc1f9dcbb9af",
       "sourceBytes": 27617,
       "fullEntryIndex": 141,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 116
     },
     {
       "id": "trellis_stacked_bar",
@@ -2306,7 +2306,7 @@
       "fullEntryIndex": 142,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 47
+      "fenceIndex": 117
     },
     {
       "id": "trellis_scatter",
@@ -2321,8 +2321,8 @@
       "sourceBytes": 1281817,
       "fullEntryIndex": 143,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "trellis_bar_histogram",
@@ -2338,7 +2338,7 @@
       "fullEntryIndex": 144,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 48
+      "fenceIndex": 118
     },
     {
       "id": "trellis_anscombe",
@@ -2354,7 +2354,7 @@
       "fullEntryIndex": 145,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 49
+      "fenceIndex": 119
     },
     {
       "id": "trellis_barley",
@@ -2370,7 +2370,7 @@
       "fullEntryIndex": 146,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 50
+      "fenceIndex": 120
     },
     {
       "id": "trellis_area",
@@ -2384,9 +2384,9 @@
       "sourceSHA256": "b75db8f9829fb94f5708b1c8d89657091cb9167a09ec4d15510e7d46c42acdae",
       "sourceBytes": 30697,
       "fullEntryIndex": 147,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 121
     },
     {
       "id": "trellis_area_seattle",
@@ -2401,8 +2401,8 @@
       "sourceBytes": 741381,
       "fullEntryIndex": 148,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "area_density_facet",
@@ -2434,7 +2434,7 @@
       "fullEntryIndex": 150,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 51
+      "fenceIndex": 122
     },
     {
       "id": "repeat_layer",
@@ -2448,9 +2448,9 @@
       "sourceSHA256": "e9dec529562207ae47875eff1f1d3e35e200a118921af9f1fb55fa2c945b4034",
       "sourceBytes": 1281939,
       "fullEntryIndex": 151,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 123
     },
     {
       "id": "vconcat_weather",
@@ -2464,9 +2464,9 @@
       "sourceSHA256": "5ed71595b5c65c0e1b5da64c0f5ea4c2ce5ebc2707d0bad159287152b4e00b49",
       "sourceBytes": 382074,
       "fullEntryIndex": 152,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 124
     },
     {
       "id": "repeat_histogram",
@@ -2512,9 +2512,9 @@
       "sourceSHA256": "145f7b68f301301b9fee8e75484faf7e01f1857a4fac2a3afcdd762cccf50c75",
       "sourceBytes": 1282222,
       "fullEntryIndex": 155,
-      "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 125
     },
     {
       "id": "concat_bar_scales_discretize",
@@ -2530,7 +2530,7 @@
       "fullEntryIndex": 156,
       "disposition": "chart",
       "outcome": "chart",
-      "fenceIndex": 52
+      "fenceIndex": 126
     },
     {
       "id": "nested_concat_align",
@@ -2545,8 +2545,8 @@
       "sourceBytes": 1282220,
       "fullEntryIndex": 157,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "concat_population_pyramid",
@@ -2560,9 +2560,9 @@
       "sourceSHA256": "a70392bea171bc34b88c75e572fd6cc431249d9acf27b5e49122bbe5432fb4ef",
       "sourceBytes": 28263,
       "fullEntryIndex": 158,
-      "disposition": "notice",
-      "outcome": "policy-fallback",
-      "reason": "unsupported data, expression, interaction, or other policy restriction"
+      "disposition": "chart",
+      "outcome": "chart",
+      "fenceIndex": 127
     },
     {
       "id": "geo_choropleth",
@@ -2576,8 +2576,8 @@
       "sourceBytes": 735371,
       "fullEntryIndex": 159,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "geo_circle",
@@ -2606,8 +2606,8 @@
       "sourceBytes": 1116493,
       "fullEntryIndex": 161,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "geo_rule",
@@ -2636,8 +2636,8 @@
       "sourceBytes": 648043,
       "fullEntryIndex": 163,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "geo_text",
@@ -2651,8 +2651,8 @@
       "sourceBytes": 646644,
       "fullEntryIndex": 164,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "geo_line",
@@ -2666,8 +2666,8 @@
       "sourceBytes": 1590747,
       "fullEntryIndex": 165,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "geo_trellis",
@@ -2681,8 +2681,8 @@
       "sourceBytes": 693699,
       "fullEntryIndex": 166,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "geo_layer_line_london",
@@ -2726,8 +2726,8 @@
       "sourceBytes": 1339035,
       "fullEntryIndex": 169,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_geo_facet_species",
@@ -2773,8 +2773,8 @@
       "sourceBytes": 1282046,
       "fullEntryIndex": 172,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_legend",
@@ -2789,8 +2789,8 @@
       "sourceBytes": 186157,
       "fullEntryIndex": 173,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "point_href",
@@ -2837,8 +2837,8 @@
       "sourceBytes": 186007,
       "fullEntryIndex": 176,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_paintbrush",
@@ -2901,8 +2901,8 @@
       "sourceBytes": 159784,
       "fullEntryIndex": 180,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_line_hover",
@@ -2981,8 +2981,8 @@
       "sourceBytes": 159931,
       "fullEntryIndex": 185,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "isotype_grid",
@@ -3077,8 +3077,8 @@
       "sourceBytes": 446726,
       "fullEntryIndex": 191,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "dynamic_color_legend",
@@ -3093,8 +3093,8 @@
       "sourceBytes": 160744,
       "fullEntryIndex": 192,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "param_search_input",
@@ -3157,8 +3157,8 @@
       "sourceBytes": 178977,
       "fullEntryIndex": 196,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_layered_crossfilter",
@@ -3173,8 +3173,8 @@
       "sourceBytes": 179099,
       "fullEntryIndex": 197,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_splom",
@@ -3205,8 +3205,8 @@
       "sourceBytes": 1282573,
       "fullEntryIndex": 199,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "interactive_seattle_weather",
@@ -3221,8 +3221,8 @@
       "sourceBytes": 160463,
       "fullEntryIndex": 200,
       "disposition": "notice",
-      "outcome": "source-size-fallback",
-      "reason": "source exceeds the renderer's size limit"
+      "outcome": "policy-fallback",
+      "reason": "unsupported data, expression, interaction, or other policy restriction"
     },
     {
       "id": "airport_connections",

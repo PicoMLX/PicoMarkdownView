@@ -59,15 +59,16 @@ actor VegaLiteChartProvider {
 }
 
 /// A deliberately bounded static profile, checked before entering JavaScript.
-/// User expressions, resource URLs, generators and interactive bindings are
-/// outside this profile. Vega-Lite's own expressions use its AST interpreter.
+/// Resource URLs, generators and interactive bindings are outside this profile.
+/// Bounded expressions are checked against Vega's AST before compilation and
+/// evaluated by the official interpreter, without dynamic code generation.
 enum VegaLiteSpecPolicy {
-    static let maxSourceBytes = 131_072
+    static let maxSourceBytes = 2_097_152
     private static let transforms: Set<String> = [
-        "aggregate", "joinaggregate", "bin", "timeUnit", "filter", "window", "fold", "stack", "sample"
+        "aggregate", "joinaggregate", "bin", "timeUnit", "filter", "calculate", "window", "fold", "stack", "sample"
     ]
     private static let forbidden: Set<String> = [
-        "url", "href", "expr", "signal", "calculate", "labelExpr", "bind", "select",
+        "url", "href", "expr", "signal", "labelExpr", "bind", "select",
         "sequence", "density", "loess", "regression", "graticule", "sphere", "lookup",
         "impute", "pivot", "flatten", "projection", "__proto__", "constructor", "prototype"
     ]
@@ -87,7 +88,9 @@ enum VegaLiteSpecPolicy {
     }
 
     private static func isDeclarativePredicate(_ value: Any, depth: Int = 0) -> Bool {
-        guard depth <= 32, let object = value as? [String: Any], !object.isEmpty else { return false }
+        guard depth <= 32 else { return false }
+        if let expression = value as? String { return !expression.isEmpty && expression.utf8.count <= 8_192 }
+        guard let object = value as? [String: Any], !object.isEmpty else { return false }
         for key in ["and", "or"] {
             if let children = object[key] {
                 guard let children = children as? [Any], !children.isEmpty,
@@ -114,7 +117,7 @@ enum VegaLiteSpecPolicy {
 
         mutating func visit(_ value: Any, depth: Int, dataValue: Bool = false, dataDefinition: Bool = false) -> Bool {
             nodes += 1
-            guard nodes <= 20_000, depth <= 32 else { return false }
+            guard nodes <= 400_000, depth <= 32 else { return false }
             if let string = value as? String { return string.utf8.count <= 8_192 }
             if let number = value as? NSNumber {
                 let n = number.doubleValue
@@ -177,6 +180,10 @@ enum VegaLiteSpecPolicy {
                     guard let definition = data as? [String: Any],
                           definition["values"] is [Any] || definition["name"] is String else { return false }
                 }
+                if let expression = object["calculate"] {
+                    guard let expression = expression as? String, !expression.isEmpty,
+                          expression.utf8.count <= 8_192 else { return false }
+                }
                 for key in ["filter", "test"] {
                     if let predicate = object[key], !VegaLiteSpecPolicy.isDeclarativePredicate(predicate) { return false }
                 }
@@ -194,7 +201,11 @@ enum VegaLiteSpecPolicy {
                         guard multiplyCompositions(by: array.count) else { return false }
                     }
                 }
-                if let repeatSpec = object["repeat"] {
+                if let reference = object["repeat"] as? String {
+                    // Encoding field references select an enclosing repeat;
+                    // they do not introduce another composition.
+                    guard ["row", "column", "layer"].contains(reference) else { return false }
+                } else if let repeatSpec = object["repeat"] {
                     let repeats: Int
                     if let array = repeatSpec as? [Any] { repeats = array.count }
                     else if let repeatObject = repeatSpec as? [String: [Any]] {
