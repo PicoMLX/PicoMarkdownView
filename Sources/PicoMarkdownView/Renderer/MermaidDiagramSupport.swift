@@ -6,6 +6,9 @@ import CoreGraphics
 public enum MermaidRenderingMode: Sendable, Equatable {
     case disabled
     case onFenceClose
+    /// On macOS, periodically previews complete source lines and refreshes
+    /// the latest prefix when input pauses. Invalid prefixes retain the last
+    /// valid drawing. UIKit keeps its fence-close rendering behavior.
     case bestEffortDebounced(milliseconds: Int)
 
     var isEnabled: Bool {
@@ -22,6 +25,9 @@ struct MermaidRenderRequest: Sendable {
     var source: String
     var targetWidth: CGFloat?
     var scale: CGFloat
+#if os(macOS)
+    var isPreview = false
+#endif
 }
 
 struct MermaidRenderResult: @unchecked Sendable {
@@ -54,6 +60,9 @@ extension MarkdownRenderTheme {
                             imageMaxWidth: imageMaxWidth,
                             codeBlockTheme: codeBlockTheme,
                             codeHighlighter: codeHighlighter,
-                            mermaidRenderingMode: mode)
+                            mermaidRenderingMode: mode,
+                            svgRenderingEnabled: svgRenderingEnabled,
+                            openUIRenderingEnabled: openUIRenderingEnabled,
+                            vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 }

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Observation
 import PicoMarkdownView
 import WebKit
 
@@ -15,8 +16,17 @@ struct MarkdownView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let webURL: URL
-    private let markdown: String
+    @State private var markdown: String?
+    @State private var loadError: String?
+    @State private var streamPacing = ExampleStreamPacing()
+    private let localPath: String
     private let tagPrefixes: Set<TagPrefix>
+    private let inputID: UUID
+    private let isLargeFixture: Bool
+    private let svgRenderingEnabled: Bool
+#if os(macOS)
+    private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+#endif
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -29,17 +39,54 @@ struct MarkdownView: View {
     @State private var tagHoverReadout: String?
     @State private var linkHoverReadout: String?
     @State private var contentSize: CGSize?
+    @State private var lastOpenUIAction: String?
 
     private let autoScrollClock = ContinuousClock()
 
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
-        self.markdown = try! String(contentsOfFile: example.localPath, encoding: .utf8)
+        self.localPath = example.localPath
+        self._markdown = State(initialValue: example.isLargeFixture ? nil : try! example.loadMarkdown())
         self.tagPrefixes = example.tagPrefixes
+        self.inputID = example.id
+        self.isLargeFixture = example.isLargeFixture
+        self.svgRenderingEnabled = example.svgRenderingEnabled
     }
 
-    var body: some View {
+#if os(macOS)
+    func onImageTap(_ handler: @escaping @MainActor (MarkdownImageActivation) -> Void) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
 
+    var body: some View {
+        Group {
+            if let markdown {
+                loadedContent(markdown)
+            } else if let loadError {
+                ContentUnavailableView("Unable to load gallery", systemImage: "exclamationmark.triangle",
+                                       description: Text(loadError))
+            } else {
+                ProgressView("Loading gallery…")
+            }
+        }
+        .task(id: inputID) {
+            guard markdown == nil, isLargeFixture else { return }
+            do {
+                let text = try await loadGalleryMarkdown(from: localPath)
+                try Task.checkCancellation()
+                markdown = text
+            } catch is CancellationError {
+                return
+            } catch {
+                loadError = error.localizedDescription
+            }
+        }
+    }
+
+    private func loadedContent(_ markdown: String) -> some View {
         HStack {
             TabView {
                 Tab("Markdown", systemImage: "square.fill.text.grid.1x2") {
@@ -50,32 +97,43 @@ struct MarkdownView: View {
                             // properties so scrollPosition state changes don't
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
+                                                     inputID: inputID,
+                                                     pacing: streamPacing,
                                                      tagPrefixes: tagPrefixes,
+                                                     svgRenderingEnabled: svgRenderingEnabled,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
                                                      onTagHover: { tagHoverReadout = $0 },
                                                      onLinkHover: { linkHoverReadout = $0 },
-                                                     onContentSize: { handleContentSizeChange($0) })
+                                                     onContentSize: { handleContentSizeChange($0) },
+                                                     onOpenUIAction: { lastOpenUIAction = $0.humanFriendlyMessage })
+#if os(macOS)
+                                .onImageTap(imageTapHandler)
+#endif
+                                .equatable()
                         }
                         .scrollPosition($scrollPosition)
                         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
                             let offsetY = geometry.contentOffset.y
                             let visibleBottom = offsetY + geometry.containerSize.height
                             let isNearBottom = geometry.contentSize.height - visibleBottom < AutoScrollConfig.nearBottomThreshold
-                            return ScrollMetrics(offsetY: offsetY, isNearBottom: isNearBottom)
+                            return ScrollMetrics(offsetY: offsetY, isNearBottom: isNearBottom,
+                                                 contentHeight: isLargeFixture ? geometry.contentSize.height : 0)
                         } action: { oldMetrics, newMetrics in
                             handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
                         }
                     }
                 }
-                Tab("Diagnostics", systemImage: "ladybug") {
-                    ScrollView {
-                        PicoMarkdownDebugView(text: markdown)
+                if !isLargeFixture {
+                    Tab("Diagnostics", systemImage: "ladybug") {
+                        ScrollView {
+                            PicoMarkdownDebugView(text: markdown)
+                        }
                     }
-                }
-                Tab("Plain Text", systemImage: "text.alignleft") {
-                    ScrollView {
-                        Text(markdown)
+                    Tab("Plain Text", systemImage: "text.alignleft") {
+                        ScrollView {
+                            Text(markdown)
+                        }
                     }
                 }
             }
@@ -94,19 +152,34 @@ struct MarkdownView: View {
     @ViewBuilder
     private var tagStatusPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let tag = lastTappedTag {
-                Label {
-                    Text("Selected Tag: \(Text(verbatim: "\(tag.prefix)\(tag.identifier)").bold())")
-                } icon: {
-                    Image(systemName: "hand.tap")
-                }
-                .font(.callout)
-            } else {
-                Label("Select a tag to see its details.", systemImage: "hand.tap")
+            HStack(alignment: .firstTextBaseline) {
+                if let tag = lastTappedTag {
+                    Label {
+                        Text("Selected Tag: \(Text(verbatim: "\(tag.prefix)\(tag.identifier)").bold())")
+                    } icon: {
+                        Image(systemName: "hand.tap")
+                    }
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                } else {
+                    Label("Select a tag to see its details.", systemImage: "hand.tap")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                streamSpeedButton
             }
 
+#if os(macOS)
+            if let lastOpenUIAction {
+                Label {
+                    Text(verbatim: lastOpenUIAction)
+                } icon: {
+                    Image(systemName: "rectangle.and.hand.point.up.left")
+                }
+                    .font(.callout)
+                    .accessibilityLabel("OpenUI action: \(lastOpenUIAction)")
+            }
+#endif
             HStack(spacing: 16) {
                 #if os(macOS)
                 let hover = tagHoverReadout ?? linkHoverReadout
@@ -127,13 +200,23 @@ struct MarkdownView: View {
         .background(.bar)
     }
 
+    private var streamSpeedButton: some View {
+        @Bindable var pacing = streamPacing
+        return Toggle(isOn: $pacing.isFast) {
+            Text("10×", tableName: "ExampleStreaming")
+        }
+        .toggleStyle(.button)
+        .controlSize(.small)
+        .help(Text("Stream the example at ten times the normal speed.", tableName: "ExampleStreaming"))
+    }
+
     /// Content-growth → scroll-to-bottom, driven by PicoMarkdownView's
-    /// `onContentSize` callback. This is the *only* place we react to the
-    /// document getting taller; scrolling never changes content size, so there
-    /// is no feedback loop here. (Also feeds the status-panel readout.)
+    /// `onContentSize` callback for ordinary examples. The gallery follows the
+    /// scroll view's applied geometry below because its large code-to-chart
+    /// replacements can shrink the document. Also feeds the status readout.
     private func handleContentSizeChange(_ size: CGSize) {
         contentSize = size
-        guard isAutoScrolling else { return }
+        guard !isLargeFixture, isAutoScrolling else { return }
         // Suppress the brief window after our own programmatic scroll so its
         // animation frames aren't later misread by the scroll observer as a
         // user scroll-up.
@@ -141,9 +224,22 @@ struct MarkdownView: View {
         scrollToBottom(animated: !reduceMotion)
     }
 
-    /// Scroll *position* → pause/resume only. Growth detection now lives in
-    /// `handleContentSizeChange`, so this no longer tracks content height.
+    /// Scroll position pauses/resumes following. The gallery additionally follows
+    /// height changes after SwiftUI has applied them to the scroll view.
     private func handleScrollMetricsChange(from old: ScrollMetrics, to new: ScrollMetrics) {
+        if isLargeFixture {
+            // A closed fence can replace thousands of source lines with one chart.
+            // Follow only once SwiftUI knows the new height, not from the earlier
+            // NSTextView size callback. Reflow is not a user scroll gesture.
+            let positionedByUser = scrollPosition.isPositionedByUser
+            if positionedByUser {
+                isAutoScrolling = new.isNearBottom
+            }
+            if isAutoScrolling, positionedByUser || new.contentHeight != old.contentHeight {
+                scrollToBottom(animated: false)
+            }
+            return
+        }
         let scrollDeltaY = new.offsetY - old.offsetY
 
         let now = autoScrollClock.now
@@ -189,6 +285,7 @@ struct MarkdownView: View {
 private struct ScrollMetrics: Equatable {
     let offsetY: CGFloat
     let isNearBottom: Bool
+    let contentHeight: CGFloat
 }
 
 private enum AutoScrollConfig {
@@ -199,28 +296,44 @@ private enum AutoScrollConfig {
 }
 
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
-/// SwiftUI compares only the `markdown` string via `==` and skips body
-/// re-evaluation when the parent re-renders due to scroll-position changes,
-/// preventing the stream from restarting. The closures and `tagPrefixes` are
+/// SwiftUI compares the stable input identity and its SVG presentation option,
+/// skipping body re-evaluation when the parent re-renders due to scroll-position
+/// changes so the stream does not restart. The closures and `tagPrefixes` are
 /// excluded from `==` — they're stable for a given document.
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
+    let inputID: UUID
+    let pacing: ExampleStreamPacing
     let tagPrefixes: Set<TagPrefix>
+    let svgRenderingEnabled: Bool
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
     let onTagHover: (String?) -> Void
     let onLinkHover: (String?) -> Void
     let onContentSize: (CGSize) -> Void
+    let onOpenUIAction: (PicoOpenUIActionEvent) -> Void
+#if os(macOS)
+    var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
+
+    func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.markdown == rhs.markdown
+        lhs.inputID == rhs.inputID && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
     }
 
     var body: some View {
-        PicoMarkdownView(stream: { [markdown] in
-            wordStream(from: markdown)
-        }, tagPrefixes: tagPrefixes)
-            .id(markdown)
+        PicoMarkdownView(stream: { [markdown, pacing] in
+            wordStream(from: markdown, pacing: pacing)
+        }, theme: exampleTheme, tagPrefixes: tagPrefixes)
+#if os(macOS)
+            .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
+#endif
+            .id(inputID)
             .textSelection(.enabled)
             .padding()
             .onOpenLink { [onOpenURL] url in
@@ -240,6 +353,9 @@ private struct StreamingMarkdownContent: View, Equatable {
             .onLinkHover { [onLinkHover] url, _ in
                 onLinkHover(url.map { String(localized: "Link: \($0.absoluteString)") })
             }
+#if os(macOS)
+            .onOpenUIAction(onOpenUIAction)
+#endif
             .onContentSize { [onContentSize] size in
                 onContentSize(size)
             }
@@ -247,10 +363,32 @@ private struct StreamingMarkdownContent: View, Equatable {
             .linkContextMenu(MockLinkContextMenus.customize)
 #endif
     }
+
+    private var exampleTheme: MarkdownRenderTheme {
+#if os(macOS)
+        .default()
+            .withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+            .withSVGRendering(svgRenderingEnabled)
+            .withOpenUIRendering()
+#else
+        .default()
+#endif
+    }
 }
 
-/// Creates a word-by-word AsyncStream from markdown text, simulating ~30 words/sec LLM inference.
-private func wordStream(from markdown: String) -> AsyncStream<String> {
+/// The producer reads the live setting without changing the stream's identity.
+@MainActor
+@Observable
+private final class ExampleStreamPacing {
+    var isFast = false
+
+    var wordDelay: Duration {
+        .nanoseconds(isFast ? 3_333_333 : 33_333_333)
+    }
+}
+
+/// Preserves word chunks at approximately 30 or 300 words per second.
+private func wordStream(from markdown: String, pacing: ExampleStreamPacing) -> AsyncStream<String> {
     AsyncStream<String> { continuation in
         let task = Task {
             var chunk = ""
@@ -263,7 +401,7 @@ private func wordStream(from markdown: String) -> AsyncStream<String> {
                         continuation.yield(chunk)
                         chunk = ""
                         wordSeen = false
-                        try? await Task.sleep(nanoseconds: 33_333_333)
+                        try? await Task.sleep(for: pacing.wordDelay)
                     }
                 } else {
                     wordSeen = true
@@ -278,4 +416,15 @@ private func wordStream(from markdown: String) -> AsyncStream<String> {
             task.cancel()
         }
     }
+}
+
+/// The full corpus is a deliberately large test fixture. Inflate it away from
+/// the UI actor; ordinary examples retain their existing small-file path.
+@concurrent
+private func loadGalleryMarkdown(from path: String) async throws -> String {
+    try Task.checkCancellation()
+    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let decoded = try (data as NSData).decompressed(using: .zlib) as Data
+    try Task.checkCancellation()
+    return String(decoding: decoded, as: UTF8.self)
 }

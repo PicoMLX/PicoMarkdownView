@@ -29,11 +29,16 @@ let package = Package(
         .target(
             name: "PicoMarkdownView",
             dependencies: [
-                .product(name: "SwiftMath", package: "SwiftMath")
+                .product(name: "SwiftMath", package: "SwiftMath"),
+                .target(name: "PicoOpenUIRuntime", condition: .when(platforms: [.macOS]))
             ],
             resources: [
                 .process("Resources")
             ]
+        ),
+        .target(
+            name: "PicoOpenUIRuntime",
+            resources: [.copy("Resources/OpenUI")]
         ),
         .testTarget(
             name: "PicoMarkdownViewTests",
@@ -60,7 +65,8 @@ let package = Package(
             name: "PicoMarkdownViewBenchmarks",
             dependencies: ["PicoMarkdownView"],
             exclude: [
-                "benchmark-results.md"
+                "benchmark-results.md",
+                "vega-gallery-results.md"
             ],
             resources: [
                 .process("Benchmarks/sample1.md")

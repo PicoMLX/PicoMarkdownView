@@ -32,19 +32,26 @@ public struct InlineRun: Sendable, Equatable {
     public var image: InlineImage?
     public var math: MathInlinePayload?
     public var tag: Tag?
+    /// The normalized label of a reference such as `[1]` that streamed
+    /// before anything defined it, so it went out as text. When a definition
+    /// for the label arrives later (`ChunkResult.lateLinkDefinitions`), the
+    /// assembler links the run; its text stays as it streamed.
+    public var referenceLabel: String?
 
     public init(text: String,
                 style: InlineStyle = [],
                 linkURL: String? = nil,
                 image: InlineImage? = nil,
                 math: MathInlinePayload? = nil,
-                tag: Tag? = nil) {
+                tag: Tag? = nil,
+                referenceLabel: String? = nil) {
         self.text = text
         self.style = style
         self.linkURL = linkURL
         self.image = image
         self.math = math
         self.tag = tag
+        self.referenceLabel = referenceLabel
     }
 
     /// Whether two runs can be merged into one by concatenating their ``text``
@@ -66,7 +73,7 @@ public struct InlineRun: Sendable, Equatable {
         if tag != nil || other.tag != nil { return false }
         if math != nil || other.math != nil { return false }
         if image != nil || other.image != nil { return false }
-        return style == other.style && linkURL == other.linkURL
+        return style == other.style && linkURL == other.linkURL && referenceLabel == other.referenceLabel
     }
 }
 
@@ -312,10 +319,15 @@ public struct OpenBlockState: Sendable, Equatable {
 public struct ChunkResult: Sendable, Equatable {
     public var events: [BlockEvent]
     public var openBlocks: [OpenBlockState]
+    /// Link definitions that arrived in this chunk for labels the text had
+    /// already used, as normalized label to destination URL. Runs tagged
+    /// with such a label (`InlineRun.referenceLabel`) link to it from now on.
+    public var lateLinkDefinitions: [String: String]
 
-    public init(events: [BlockEvent], openBlocks: [OpenBlockState]) {
+    public init(events: [BlockEvent], openBlocks: [OpenBlockState], lateLinkDefinitions: [String: String] = [:]) {
         self.events = events
         self.openBlocks = openBlocks
+        self.lateLinkDefinitions = lateLinkDefinitions
     }
 }
 

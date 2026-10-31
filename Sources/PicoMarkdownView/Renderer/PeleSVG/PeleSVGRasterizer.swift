@@ -63,7 +63,10 @@ extension PeleSVGDocument {
 
     /// Draws into a context whose user space is points with the y axis
     /// pointing down and the origin at the drawing's top-left corner.
-    func draw(in context: CGContext) {
+    /// `strokesAsFills` is used by the macOS hosted vector canvas to avoid
+    /// QuartzCore's accelerated line-stroking backend. Outline geometry stays
+    /// vector based; bitmap rendering keeps the original stroke path.
+    func draw(in context: CGContext, strokesAsFills: Bool = false) {
         context.saveGState()
         context.setShouldAntialias(true)
         context.setAllowsAntialiasing(true)
@@ -75,7 +78,7 @@ extension PeleSVGDocument {
 
         var style = PeleSVGStyle()
         style.apply(element: root)
-        drawChildren(of: root, style: style, in: context)
+        drawChildren(of: root, style: style, in: context, strokesAsFills: strokesAsFills)
         context.restoreGState()
     }
 
@@ -84,14 +87,17 @@ extension PeleSVGDocument {
         "image", "foreignObject", "style", "script", "clipPath", "mask", "filter", "pattern", "marker", "symbol", "use"
     ]
 
-    private func drawChildren(of element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext) {
+    private func drawChildren(of element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         for case let .element(child) in element.children {
-            draw(child, parentStyle: style, in: context)
+            draw(child, parentStyle: style, in: context, strokesAsFills: strokesAsFills)
         }
     }
 
-    private func draw(_ element: PeleSVGElement, parentStyle: PeleSVGStyle, in context: CGContext) {
+    private func draw(_ element: PeleSVGElement, parentStyle: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         guard !Self.skippedElements.contains(element.name) else { return }
+        #if os(macOS)
+        if dialect == .vega, VegaSVGCompatibility.isHidden(element) { return }
+        #endif
         var style = parentStyle
         style.apply(element: element)
 
@@ -102,27 +108,35 @@ extension PeleSVGDocument {
             context.concatenate(PeleSVGValue.transform(transform))
         }
 
+        #if os(macOS)
+        if dialect == .vega, let reference = element.attributes["clip-path"],
+           let id = VegaSVGCompatibility.localReference(reference), let path = vegaClipPaths[id] {
+            context.addPath(path)
+            context.clip()
+        }
+        #endif
+
         switch element.name {
         case "g", "a", "switch":
             withGroupOpacity(style.opacity, in: context) {
-                drawChildren(of: element, style: style, in: context)
+                drawChildren(of: element, style: style, in: context, strokesAsFills: strokesAsFills)
             }
         case "svg":
             applyNestedViewport(of: element, in: context)
             withGroupOpacity(style.opacity, in: context) {
-                drawChildren(of: element, style: style, in: context)
+                drawChildren(of: element, style: style, in: context, strokesAsFills: strokesAsFills)
             }
         case "path", "rect", "circle", "ellipse", "line", "polygon", "polyline":
             if let path = makePath(for: element, style: style) {
                 // `opacity` applies to the shape as a whole, so fill and
                 // stroke must be composited together, not each at half.
                 withGroupOpacity(style.opacity, in: context) {
-                    paint(path, style: style, in: context)
+                    paint(path, style: style, in: context, strokesAsFills: strokesAsFills)
                 }
             }
         case "text":
             withGroupOpacity(style.opacity, in: context) {
-                drawText(element, style: style, in: context)
+                drawText(element, style: style, in: context, strokesAsFills: strokesAsFills)
             }
         default:
             break
@@ -214,7 +228,7 @@ extension PeleSVGDocument {
         }
     }
 
-    private func paint(_ path: CGPath, style: PeleSVGStyle, in context: CGContext) {
+    private func paint(_ path: CGPath, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         if case let .gradient(id, _) = style.fill, let gradient = gradients[id] {
             fill(path, with: gradient, opacity: style.fillOpacity, in: context)
         } else if let color = style.resolvedColor(style.fill, opacity: style.fillOpacity) {
@@ -230,8 +244,25 @@ extension PeleSVGDocument {
             context.setLineJoin(style.lineJoin)
             context.setLineDash(phase: style.dashOffset, lengths: style.dashes)
             context.addPath(path)
-            context.strokePath()
+            strokeCurrentPath(in: context, color: color, strokesAsFills: strokesAsFills)
         }
+    }
+
+    private func strokeCurrentPath(in context: CGContext, color: CGColor, strokesAsFills: Bool) {
+        #if os(macOS)
+        if strokesAsFills {
+            // CoreGraphics expands with the current width, dash, cap, join
+            // and transform. Filling the result preserves the stroke without
+            // submitting line primitives when scrolling clips the drawing.
+            context.replacePathWithStrokedPath()
+            if !context.isPathEmpty {
+                context.setFillColor(color)
+                context.fillPath()
+            }
+            return
+        }
+        #endif
+        context.strokePath()
     }
 
     private func fill(_ path: CGPath, with gradient: PeleSVGGradient, opacity: CGFloat, in context: CGContext) {
@@ -243,18 +274,32 @@ extension PeleSVGDocument {
                                           colors: colors as CFArray,
                                           locations: gradient.stops.map(\.offset)) else { return }
         context.saveGState()
+        defer { context.restoreGState() }
         context.addPath(path)
         context.clip()
         var start = gradient.start
         var end = gradient.end
         if !gradient.userSpace {
             let box = path.boundingBoxOfPath
-            start = CGPoint(x: box.minX + start.x * box.width, y: box.minY + start.y * box.height)
-            end = CGPoint(x: box.minX + end.x * box.width, y: box.minY + end.y * box.height)
+            #if os(macOS)
+            let usesUnitCoordinates = dialect == .vega
+            #else
+            let usesUnitCoordinates = false
+            #endif
+            if usesUnitCoordinates {
+                guard box.width > 0, box.height > 0, box.width.isFinite, box.height.isFinite else { return }
+                // Transform the whole unit-box gradient, including its color
+                // normals. Scaling only endpoints skews diagonal gradients in
+                // non-square shapes. The original path is already clipped.
+                context.translateBy(x: box.minX, y: box.minY)
+                context.scaleBy(x: box.width, y: box.height)
+            } else {
+                start = CGPoint(x: box.minX + start.x * box.width, y: box.minY + start.y * box.height)
+                end = CGPoint(x: box.minX + end.x * box.width, y: box.minY + end.y * box.height)
+            }
         }
         context.drawLinearGradient(cgGradient, start: start, end: end,
                                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        context.restoreGState()
     }
 
     // MARK: Text
@@ -264,15 +309,24 @@ extension PeleSVGDocument {
         var style: PeleSVGStyle
         var x: CGFloat?
         var y: CGFloat?
+        var dx: CGFloat = 0
+        var dy: CGFloat = 0
     }
 
     /// Draws `<text>` with its `<tspan>` children. Runs are grouped into
-    /// chunks at every absolute `x`/`y`; `text-anchor` aligns a whole chunk,
+    /// chunks at every absolute `x`/`y` (or Vega relative `dx`/`dy`);
+    /// `text-anchor` aligns a whole chunk,
     /// so a line made of differently styled spans stays centered as one.
-    private func drawText(_ element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext) {
+    private func drawText(_ element: PeleSVGElement, style: PeleSVGStyle, in context: CGContext, strokesAsFills: Bool) {
         var runs: [TextRun] = []
         var pending = (x: element.length("x"), y: element.length("y"))
         collectRuns(of: element, style: style, pending: &pending, into: &runs)
+        #if os(macOS)
+        if dialect == .vega, !runs.isEmpty {
+            runs[0].dx += element.length("dx", default: 0)
+            runs[0].dy += element.length("dy", default: 0)
+        }
+        #endif
         runs = normalizeWhitespace(runs, preserve: style.preserveSpace)
         guard !runs.isEmpty else { return }
 
@@ -280,11 +334,14 @@ extension PeleSVGDocument {
         var index = 0
         while index < runs.count {
             var next = index + 1
-            while next < runs.count, runs[next].x == nil, runs[next].y == nil { next += 1 }
+            while next < runs.count, runs[next].x == nil, runs[next].y == nil,
+                  runs[next].dx == 0, runs[next].dy == 0 { next += 1 }
             let chunk = runs[index..<next]
 
             if let x = chunk.first?.x { pen.x = x }
             if let y = chunk.first?.y { pen.y = y }
+            pen.x += chunk.first?.dx ?? 0
+            pen.y += chunk.first?.dy ?? 0
 
             let lines = chunk.map(makeLine)
             let total = lines.reduce(CGFloat(0)) { $0 + $1.width }
@@ -310,7 +367,7 @@ extension PeleSVGDocument {
                     context.setLineDash(phase: 0, lengths: [])
                     context.move(to: CGPoint(x: x, y: y))
                     context.addLine(to: CGPoint(x: x + line.width, y: y))
-                    context.strokePath()
+                    strokeCurrentPath(in: context, color: color, strokesAsFills: strokesAsFills)
                 }
                 x += line.width
             }
@@ -332,7 +389,16 @@ extension PeleSVGDocument {
                 var spanStyle = style
                 spanStyle.apply(element: span)
                 var spanPending = (x: span.length("x") ?? pending.x, y: span.length("y") ?? pending.y)
+                #if os(macOS)
+                let start = runs.count
+                #endif
                 collectRuns(of: span, style: spanStyle, pending: &spanPending, into: &runs)
+                #if os(macOS)
+                if dialect == .vega, start < runs.count {
+                    runs[start].dx += span.length("dx", default: 0)
+                    runs[start].dy += span.length("dy", default: 0)
+                }
+                #endif
                 if spanPending.x == nil, spanPending.y == nil {
                     // The span emitted a run that consumed the position.
                     pending = (nil, nil)
@@ -382,7 +448,8 @@ extension PeleSVGDocument {
         let font = PeleSVGFonts.font(family: run.style.fontFamily,
                                      size: run.style.fontSize,
                                      bold: run.style.bold,
-                                     italic: run.style.italic)
+                                     italic: run.style.italic,
+                                     dialect: dialect)
         let color = run.style.resolvedColor(run.style.fill, opacity: run.style.fillOpacity)
             ?? PeleSVGValue.rgba(0, 0, 0, 0)
         var attributes: [NSAttributedString.Key: Any] = [
@@ -433,7 +500,11 @@ extension PeleSVGDocument {
 /// families become the system fonts, so diagrams match the surrounding
 /// text; named families are used when installed.
 enum PeleSVGFonts {
-    static func font(family: String, size: CGFloat, bold: Bool, italic: Bool) -> CTFont {
+    static func font(family: String, size: CGFloat, bold: Bool, italic: Bool,
+                     dialect: PeleSVGDocument.Dialect = .pele) -> CTFont {
+        #if os(macOS)
+        let family = dialect == .vega ? VegaSVGCompatibility.fontFamily(family) : family
+        #endif
         let platformFont = platformFont(family: family, size: max(size, 1), bold: bold, italic: italic)
         return platformFont as CTFont
     }

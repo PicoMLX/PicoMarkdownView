@@ -55,8 +55,27 @@ struct PeleSVGGradient {
 /// paths, basic shapes, `text`/`tspan`, links, nested `svg` icons,
 /// `translate`/`rotate` transforms and linear gradients — and that is the
 /// whole of what is supported. Anything else (`image`, `foreignObject`,
-/// filters, CSS stylesheets) is ignored rather than drawn wrongly.
+/// filters, CSS stylesheets) is ignored rather than drawn wrongly. macOS's
+/// opt-in Vega dialect adds only the constructs its bundled runtime emits;
+/// unsupported render features reject the chart so its provider can fall back.
 struct PeleSVGDocument {
+    enum Dialect {
+        case pele
+        #if os(macOS)
+        /// The SVG emitted by the bundled Vega runtime, never arbitrary SVG.
+        case vega
+        #endif
+    }
+
+    let dialect: Dialect
+    #if os(macOS)
+    let vegaClipPaths: [String: CGPath]
+    /// Vega's axis and mark descriptions, for the hosted canvas's VoiceOver label.
+    var accessibilitySummary: String? {
+        dialect == .vega ? VegaSVGCompatibility.accessibilitySummary(in: root) : nil
+    }
+    #endif
+
     let root: PeleSVGElement
     /// Intrinsic size in points, from the root `width`/`height`.
     let width: CGFloat
@@ -66,8 +85,9 @@ struct PeleSVGDocument {
     let gradients: [String: PeleSVGGradient]
 
     /// Parses Pele's markup. Returns `nil` for markup that is not well-formed
-    /// XML, lacks a root `<svg>`, or has no usable size.
-    init?(svg: String) {
+    /// XML, lacks a root `<svg>`, or has no usable size. The opt-in Vega
+    /// dialect also rejects unsupported render-critical features.
+    init?(svg: String, dialect: Dialect = .pele) {
         guard let data = svg.data(using: .utf8) else { return nil }
         let builder = PeleSVGTreeBuilder()
         let parser = XMLParser(data: data)
@@ -94,11 +114,27 @@ struct PeleSVGDocument {
         let height = explicitHeight ?? viewBox.height
         guard width > 0, height > 0, width.isFinite, height.isFinite else { return nil }
 
+        #if os(macOS)
+        if dialect == .vega {
+            guard VegaSVGCompatibility.isSupported(root),
+                  let clips = VegaSVGCompatibility.clipPaths(in: root) else { return nil }
+            self.vegaClipPaths = clips
+        } else {
+            self.vegaClipPaths = [:]
+        }
+        #endif
+        self.dialect = dialect
         self.root = root
         self.width = width
         self.height = height
         self.viewBox = viewBox
+        #if os(macOS)
+        self.gradients = dialect == .vega
+            ? VegaSVGCompatibility.gradients(in: root)
+            : Self.collectGradients(in: root)
+        #else
         self.gradients = Self.collectGradients(in: root)
+        #endif
     }
 
     private static func collectGradients(in element: PeleSVGElement) -> [String: PeleSVGGradient] {

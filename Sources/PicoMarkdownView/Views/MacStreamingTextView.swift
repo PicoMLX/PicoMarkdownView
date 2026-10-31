@@ -6,6 +6,9 @@ import AppKit
 @MainActor
 final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     private let backend: TextKitStreamingBackend
+    private(set) lazy var codeBlockCopyControls = MacCodeBlockCopyControls(textView: self) { [weak backend = self.backend] id in
+        backend?.codeBlockForCopy(id: id)?.code
+    }
     var onMermaidContentWidthChanged: ((CGFloat?) -> Void)?
     var onContentSizeChanged: ((CGSize) -> Void)?
     var linkActionHandler: ((URL, String) -> Void)?
@@ -15,6 +18,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
     private var lastLaidOutWidth: CGFloat = -1
     private var lastReportedContentSize = CGSize(width: -1, height: -1)
     private var hoverTrackingArea: NSTrackingArea?
+    private weak var codeCopyClipView: NSClipView?
     private var lastHoverLinkStart: Int?
     private var measuring = false
 
@@ -38,6 +42,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         textContainer?.widthTracksTextView = true
         register([.onScrollingOutOfViewport, .onEditingInlineParagraphs],
                  forTextAttachmentViewProviderType: PicoHostedAttachmentViewProvider.self)
+        backend.onDocumentReset = { [weak self] in self?.codeBlockCopyControls.clear() }
         backend.onHostedContentSizeChanged = { [weak self] range in
             self?.invalidateHostedLayout(in: range)
         }
@@ -51,6 +56,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         if let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 {
             let attributes = paragraph.attributedString.attributes(at: 0, effectiveRange: nil)
             if attributes[.picoBlockquoteLevel] != nil || attributes[.picoCodeBlockBackgroundColor] != nil
+                || attributes[.picoCodeBlockToolbarHeight] != nil
                 || attributes[.attachment] is MacHorizontalRuleAttachment || attributes[.picoHeadingUnderlinePadding] != nil {
                 return MacMarkdownTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
             }
@@ -58,7 +64,52 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
 
+    nonisolated func textLayoutManager(_ textLayoutManager: NSTextLayoutManager,
+                                       renderingAttributesForLink link: Any,
+                                       at location: NSTextLocation,
+                                       defaultAttributes renderingAttributes: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any]? {
+        guard Self.linkURL(from: link)?.scheme?.lowercased() == "pico-image-activation" else { return nil }
+        // Keep native link tracking and its cursor without underlining the
+        // full-width attachment used to host a clickable image.
+        var attributes = renderingAttributes
+        attributes[.underlineStyle] = 0
+        return attributes
+    }
+
+    /// Hit testing for context menus uses the visible image, not the wider
+    /// hosted attachment frame. Activation itself uses native link tracking.
+    func imageCanvasTarget(at point: NSPoint) -> PicoHostedMediaCanvasView? {
+        Self.imageCanvasTarget(atWindowPoint: convert(point, to: nil), in: self)
+    }
+
+    private static func imageCanvasTarget(atWindowPoint point: NSPoint, in view: NSView) -> PicoHostedMediaCanvasView? {
+        let local = view.convert(point, from: nil)
+        guard view.window != nil, !view.isHidden, view.alphaValue > 0,
+              view.bounds.intersection(view.visibleRect).contains(local) else { return nil }
+        if let canvas = view as? PicoHostedMediaCanvasView, canvas.model.isImage { return canvas }
+        for child in view.subviews.reversed() {
+            if let target = imageCanvasTarget(atWindowPoint: point, in: child) { return target }
+        }
+        return nil
+    }
+
+    override func magnify(with event: NSEvent) {
+        if PicoHostedContentHostingView.forwardMagnification(with: event, in: self) { return }
+        super.magnify(with: event)
+    }
+
     override func clicked(onLink link: Any, at charIndex: Int) {
+        if let url = Self.linkURL(from: link), backend.isImageActivationLink(url) {
+            // TextKit's own link tracking distinguishes a click from dragging
+            // a selection. The actual image is narrower than some host frames.
+            if let event = NSApp.currentEvent, event.windowNumber == window?.windowNumber,
+               event.type == .leftMouseDown || event.type == .leftMouseUp {
+                guard let canvas = imageCanvasTarget(at: convert(event.locationInWindow, from: nil)),
+                      backend.imageAttachmentRange(for: canvas)?.location == charIndex else { return }
+            }
+            _ = backend.activateImageLink(url, at: charIndex)
+            return
+        }
         guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
             super.clicked(onLink: link, at: charIndex)
             return
@@ -98,6 +149,63 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
             return super.writeSelection(to: pboard, type: type)
         }
         return pboard.setString(markdownForSelection(), forType: .string)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        if let canvas = imageCanvasTarget(at: point), let id = backend.imageID(for: canvas) {
+            // Do not expose AppKit's Open Link/Copy Link actions for our
+            // private image-activation route. Source export stays Markdown.
+            let menu = NSMenu()
+            let item = NSMenuItem(title: "Copy Image Markdown", action: #selector(copyImageMarkdown(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = ImageCopyRequest(id: id, generation: backend.documentGeneration)
+            menu.addItem(item)
+            return menu
+        }
+        if let link = linkHit(at: point, includeImageActivation: true)?.url,
+           backend.isImageActivationLink(link) { return NSMenu() }
+        let menu = super.menu(for: event) ?? NSMenu()
+        guard let id = codeBlockID(at: point),
+              backend.codeBlockForCopy(id: id) != nil else { return menu }
+        let item = NSMenuItem(title: "Copy code", action: #selector(copyCodeBlock(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = CodeBlockCopyRequest(id: id, generation: backend.documentGeneration)
+        menu.insertItem(item, at: 0)
+        menu.insertItem(.separator(), at: 1)
+        return menu
+    }
+
+    @objc private func copyImageMarkdown(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? ImageCopyRequest,
+              request.generation == backend.documentGeneration,
+              let markdown = backend.imageMarkdownForCopy(id: request.id) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(markdown, forType: .string)
+    }
+
+    private struct ImageCopyRequest {
+        let id: BlockID
+        let generation: UInt64
+    }
+
+    @objc private func copyCodeBlock(_ sender: NSMenuItem) {
+        guard let request = sender.representedObject as? CodeBlockCopyRequest,
+              request.generation == backend.documentGeneration,
+              let code = backend.codeBlockForCopy(id: request.id)?.code else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+    }
+
+    private struct CodeBlockCopyRequest {
+        let id: BlockID
+        let generation: UInt64
+    }
+
+    private func codeBlockID(at point: NSPoint) -> BlockID? {
+        guard let fragment = textLayoutManager?.textLayoutFragment(for: CGPoint(
+            x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)) else { return nil }
+        return MacCodeBlockCopy.blockID(in: fragment)
     }
 
     private var selectionContainsHostedContent: Bool {
@@ -140,11 +248,36 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        observeCodeCopyViewport()
+        if window == nil { codeBlockCopyControls.clear() }
         if window != nil {
             needsLayout = true
             needsDisplay = true
             invalidateIntrinsicContentSize()
         }
+    }
+
+    private func observeCodeCopyViewport() {
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: codeCopyClipView)
+        codeCopyClipView = window == nil ? nil : enclosingScrollView?.contentView
+        if let codeCopyClipView {
+            codeCopyClipView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(codeCopyViewportChanged(_:)),
+                name: NSView.boundsDidChangeNotification, object: codeCopyClipView)
+        }
+    }
+
+    @objc private func codeCopyViewportChanged(_ notification: Notification) {
+        codeBlockCopyControls.updateLayout()
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        let buttons = codeBlockCopyControls.buttons.values.sorted { $0.frame.minY < $1.frame.minY }
+        for button in buttons where !children.contains(where: { ($0 as? NSView) === button }) {
+            children.append(button)
+        }
+        return children
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -161,6 +294,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         updateHostedContent()
         notifyMermaidContentWidthIfNeeded()
         let size = measuredContentSize()
+        codeBlockCopyControls.updateLayout()
         if let onContentSizeChanged, bounds.width > 0,
            abs(size.width - lastReportedContentSize.width) > 0.5 || abs(size.height - lastReportedContentSize.height) > 0.5 {
             lastReportedContentSize = size
@@ -185,7 +319,17 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         // SwiftUI embeds a complete message in a List/LazyVStack, so it needs
         // the message's full height. Streaming edits remain block-local.
         manager.ensureLayout(for: content.documentRange)
-        let height = ceil(manager.usageBoundsForTextContainer.maxY + textContainerInset.height * 2)
+        // Usage bounds can retain the extent of removed code after a large
+        // streamed fence becomes an attachment. Use the current final fragment.
+        var contentHeight: CGFloat = 0
+        if !content.documentRange.isEmpty {
+            manager.enumerateTextLayoutFragments(from: nil,
+                options: [.reverse, .ensuresLayout, .ensuresExtraLineFragment]) { fragment in
+                contentHeight = fragment.layoutFragmentFrame.maxY
+                return false
+            }
+        }
+        let height = ceil(contentHeight + textContainerInset.height * 2)
         return CGSize(width: bounds.width, height: max(0, height))
     }
 
@@ -222,8 +366,14 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         hoverTrackingArea = area
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        codeBlockCopyControls.updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
+        codeBlockCopyControls.updateHover(at: convert(event.locationInWindow, from: nil))
         guard let hoverHandler else { return }
         if let info = hoverLink(at: convert(event.locationInWindow, from: nil)) {
             guard info.linkStart != lastHoverLinkStart else { return }
@@ -234,6 +384,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        codeBlockCopyControls.updateHover(at: nil)
         clearHover()
     }
 
@@ -245,6 +396,11 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
 
     /// TextKit 2 geometry keeps ordinary link and tag hover out of compatibility mode.
     func hoverLink(at point: NSPoint) -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
+        linkHit(at: point, includeImageActivation: false)
+    }
+
+    private func linkHit(at point: NSPoint, includeImageActivation: Bool)
+        -> (url: URL?, displayText: String, linkStart: Int, rect: CGRect?)? {
         guard let manager = textLayoutManager, let content = manager.textContentManager,
               let storage = textStorage, storage.length > 0 else { return nil }
         let nearest = min(characterIndexForInsertion(at: point), storage.length - 1)
@@ -252,6 +408,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
             var range = NSRange(location: 0, length: 0)
             guard let link = storage.attribute(.link, at: index, longestEffectiveRange: &range,
                 in: NSRange(location: 0, length: storage.length)), let textRange = textRange(range, in: content) else { continue }
+            if !includeImageActivation, let url = Self.linkURL(from: link), backend.isImageActivationLink(url) { continue }
             var hitRect: CGRect?
             manager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, rect, _, _ in
                 let viewRect = rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y)
@@ -271,7 +428,7 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return NSTextRange(location: start, end: end)
     }
 
-    private static func linkURL(from link: Any) -> URL? {
+    nonisolated private static func linkURL(from link: Any) -> URL? {
         if let url = link as? URL { return url }
         if let string = link as? String { return URL(string: string) }
         return nil

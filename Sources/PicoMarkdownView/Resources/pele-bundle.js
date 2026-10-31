@@ -242,6 +242,7 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
     options = options || {};
     try {
       var renderOptions = { responsive: false };
+      if (typeof options.idPrefix === 'string' && /^[\w-]+$/.test(options.idPrefix)) { renderOptions.idPrefix = options.idPrefix; }
       if (typeof options.fontSize === 'number' && options.fontSize > 0) { renderOptions.fontSize = options.fontSize; }
       if (typeof options.fontFamily === 'string' && options.fontFamily !== '') { renderOptions.fontFamily = options.fontFamily; }
       if (typeof options.fontFamilyMono === 'string' && options.fontFamilyMono !== '') { renderOptions.fontFamilyMono = options.fontFamilyMono; }
@@ -256,9 +257,11 @@ but found: '${en(Ye)}'`);(sr[nt[Ye]]&Rp)!==0;)Ye++;return In.slice(fn[e],_n[Ye-1
         };
       }
       var result = pele.render(String(source), renderOptions);
+      var theme = Object.assign({}, options.theme || {},
+        (options.diagramThemeOverrides || {})[result.type] || {});
       return {
         ok: true,
-        svg: resolveVariables(result.svg, options.theme || {}),
+        svg: resolveVariables(result.svg, theme),
         width: result.width,
         height: result.height,
         type: result.type

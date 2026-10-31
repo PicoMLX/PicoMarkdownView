@@ -79,6 +79,59 @@ noninteractive content that participates in the outer text selection, or
 This primitive does not change the parser's supported Markdown syntax. Hosted
 content must provide a finite intrinsic height at its proposed width.
 
+### OpenUI on macOS
+
+Opt in to the official OpenUI web renderer for `openui` fences on macOS 27:
+
+```swift
+let theme = MarkdownRenderTheme.default().withOpenUIRendering()
+
+PicoMarkdownView(stream: makeStream, theme: theme)
+    .onOpenUIAction { event in
+        // Original OpenUI action, including params.context and scoped formState.
+        // Your app decides whether to request a model response or open a URL.
+        handleAction(event)
+    }
+```
+
+The fence contains an OpenUI Lang program. For example:
+
+````markdown
+Before the interactive view.
+
+```openui
+root = Stack([card])
+card = Card([TextContent("Choose a next step"), Buttons([next], "row")])
+next = Button("Continue", @ToAssistant("Continue planning", {viewId: "planner"}), "primary")
+```
+
+Native Markdown continues here.
+````
+
+An open fence streams as native code. When its fence closes (or the stream
+finishes), that block becomes one interactive TextKit 2 child using the bundled
+React/OpenUI components. Other Markdown stays native. Later chunks, text sizing,
+width and light/dark changes retain the child and its form state; they do not
+reload its document. WebKit page zoom follows the theme body size and
+`markdownTextScale`/Dynamic Type without resubmitting the source. This first
+version does not progressively decode an open
+OpenUI program.
+
+Dragging a native text selection through the child selects the whole block.
+Copying exports its original fenced source, including in mixed selections; the
+error presentation also offers **Copy source**. Inputs and buttons remain interactive, and
+vertical wheel scrolling passes to the transcript. Parse/render failures show
+an error with source copying available. Actions are data callbacks only: the
+library does not make model requests, run tools or open URLs automatically.
+
+The web assets are bundled locally with pinned versions and no CDN dependency.
+Remote images/network requests are disabled in this initial renderer. WebViews
+are created lazily when TextKit materializes their child views and retained until
+their blocks are removed; a transcript with many visited OpenUI blocks therefore
+retains multiple WebViews. The runtime target and assets are macOS-only. iOS
+keeps native code rendering, and existing math rendering is unchanged.
+See [the runtime build notes](Web/OpenUI/README.md) for dependency updates.
+
 ### Configuration
 
 ```swift
@@ -160,6 +213,8 @@ Built-in `CodeBlockTheme` presets:
 - `.prismDefault()` — the previous Prism-flavored palette
 - `.monospaced()` — no token coloring
 
+On macOS, native code blocks have a Liquid Glass Copy button in a reserved header. It appears when the pointer is over the block or the control receives keyboard or accessibility focus. Copy exports the current code body as plain text, preserving whitespace and omitting Markdown fences; it also works while code is streaming. Right-click anywhere in a code block for **Copy code**. The code remains native selectable TextKit 2 text. The iOS rendering path is unchanged.
+
 To swap palettes, disable highlighting, or plug in a different engine entirely, use `withCodeHighlighting` on the theme. `CodeSyntaxHighlighter` is the extension point — any engine that can turn `(code, language)` into an `AttributedString` works (Splash, tree-sitter, a native highlighter, …):
 
 ```swift
@@ -196,11 +251,46 @@ Conformances must be `Sendable`; `highlight` is called off the main actor while 
 
 The bundled grammar set is regenerated with `Scripts/bundle-prism.sh` (pins the Prism version, resolves component dependencies, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/prism-bundle.js` by hand — change the language list in `Scripts/bundle-prism.js` and rerun the script.
 
+### Images
+
+On macOS 27, a closed paragraph containing just one loaded image uses a TextKit 2 hosted attachment, including standalone images in lists and blockquotes. Images retain their aspect ratio and existing `imageMaxWidth` limit without initial upscaling. There are no inline image zoom controls; ordinary wheel scrolling and selection remain part of the document.
+
+Use `onImageTap` to present an app-owned viewer. The callback receives the loaded source image, source URL, alternative text and optional title, so the app can implement its own lightbox, zoom, copying and export without fetching the image again:
+
+```swift
+#if os(macOS)
+PicoMarkdownView(markdown)
+    .onImageTap { activation in
+        selectedImage = activation
+    }
+    .padding()
+#endif
+```
+
+The callback is available on `PicoMarkdownView` on macOS. Apply it before general SwiftUI view modifiers such as `padding`. A plain click, keyboard activation or VoiceOver press requests the viewer; dragging still selects Markdown across the image. Without a callback, the image stays static. Pass `nil` to remove a callback without replacing the view. Document selection and the image context menu copy image Markdown, including URL, alternative text and title. Reference-style image syntax is normalized to an inline destination.
+
+Images mixed with prose, multiple images in one paragraph, heading images, and table-cell images keep their existing rendering and do not invoke this callback. An open image paragraph keeps its native attachment until closure, since more streamed prose may still follow. Existing asynchronous image loading and block-local refreshes are reused. iOS image rendering is unchanged.
+
+The macOS example owns a lightbox over its whole window content, with zoom, pan, Copy Image, Save and Escape dismissal. Mermaid, SVG and Vega-Lite retain their inline controls.
+
 ### Diagrams (Mermaid)
 
-Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle, and the resulting SVG is rasterized natively with CoreGraphics on both macOS and iOS (no WebView, no SVG library). Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
+Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle. On macOS 27, a TextKit 2 hosted attachment draws the SVG paths and text directly with CoreGraphics; zoom redraws vectors at the new scale. iOS keeps its existing native bitmap attachments. Neither path uses a WebView or an SVG library. Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
 
 A diagram renders once its closing fence arrives; while the block is still streaming it shows as a highlighted code block, so streaming cost is unchanged. Colors follow the `MarkdownRenderTheme` (code block foreground/background for text and node surfaces, `linkColor` for accents) in light and dark mode, labels are measured and drawn in the system font, and a flowchart that is too wide for the view is laid out vertically instead of being scaled down. Sources Pele cannot parse stay as code blocks.
+
+On macOS, a connected Liquid Glass zoom pair and a separate Copy Mermaid button float in the top-right corner. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom uses a short ease-out animation that respects Reduce Motion; zoom and pan stay inside a bounded viewport, respecting quote/list indentation. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Escape resets navigation. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
+
+To show a growing diagram while source streams on macOS:
+
+```swift
+let theme = MarkdownRenderTheme.default()
+    .withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+
+PicoMarkdownView(stream: makeStream, theme: theme)
+```
+
+Previews try completed source lines periodically and retain the last valid drawing while a statement is incomplete. Pele lays out each accepted prefix as a whole, so nodes can move as the graph grows. This does not reparse surrounding Markdown. Open previews stop beyond 8 KiB or 256 lines to bound layout work; the complete source is still rendered when the fence ends. The final render always runs regardless of the preview interval, and invalid final source falls back to code. The default `.onFenceClose` behavior and the iOS path are unchanged. The macOS example app enables progressive previews.
 
 To keep mermaid fences as plain code:
 
@@ -208,11 +298,125 @@ To keep mermaid fences as plain code:
 let theme = MarkdownRenderTheme.default().withMermaidRendering(.disabled)
 ```
 
+Diagram coverage runs in the normal unit tests and both CI jobs. `PeleSkillExamplesTests` covers all 32 bundled diagram families; `PeleDemoExamplesTests` renders the 58 published examples shown in the demo through the real Pele bundle and native SVG drawing, including the macOS vector stroke path. These regression samples do not prove 100% syntax, configuration or visual fidelity. The native SVG drawer deliberately skips unsupported browser features such as embedded images, filters, masks and `foreignObject`. Performance benchmarks live in `PicoMarkdownViewBenchmarks` and are excluded from CI; they measure tokenizer/assembler throughput, not diagram feature coverage.
+
 The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele version, verifies the npm tarball checksum, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/pele-bundle.js` by hand — bump the version in the script and rerun it.
 
 #### Teaching your model to draw
 
 Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
+
+### Charts (Vega-Lite, macOS 27)
+
+Closed fenced blocks with the exact `vega-lite` language render as native vector
+charts on macOS, enabled by default. The bundled official Vega-Lite compiler and
+Vega runtime run in JavaScriptCore, generate SVG, and reuse the same native host,
+zoom/pan controls, and source copying as Mermaid. No WebView is used. Ordinary
+`json` and `vega` fences remain code, and iOS retains its existing code renderer.
+
+````markdown
+```vega-lite
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "data": {"values": [{"region": "North", "units": 28}, {"region": "South", "units": 19}]},
+  "mark": "bar",
+  "encoding": {
+    "x": {"field": "region", "type": "nominal"},
+    "y": {"field": "units", "type": "quantitative"}
+  }
+}
+```
+````
+
+While a chart fence is open, one compact hosted row replaces its raw JSON.
+After 350 ms it shows a native spinner and “Receiving chart…”; fast charts appear
+directly without waiting. Its height stays fixed while source arrives, and its
+reveal deadline starts once per block. Paused or cancelled streams show a static
+status instead of a continuing spinner. Charts compile only at fence closure
+(or normal end of stream); invalid or unsupported final specs fall back to code.
+Only that block compiles, without reparsing earlier Markdown. Native selection
+crosses the loading row or finished chart atomically and exports the original
+fenced JSON, not the generated SVG. Quote/list indentation and `imageMaxWidth`
+also apply to chart viewports; zoom stays inside the frame. Math is unchanged.
+
+The current profile supports **static charts with inline data**, bounded
+`filter`, `calculate` and conditional `test` expressions, and standard repeat
+references. External resources, unsupported arbitrary expressions, geospatial
+projections, unbounded data generators and unsupported SVG features fall back to
+the original code block. Input, geometry and output are bounded. Chart marks
+expose Vega's generated accessibility data descriptions to VoiceOver. Chart colors can be specified in the source; otherwise
+labels follow the surrounding theme and the chart background is transparent.
+
+To display charts as code:
+
+```swift
+let theme = MarkdownRenderTheme.default().withVegaLiteRendering(false)
+```
+
+See **Charts** in the example app for bar, temporal line, scatter, list, and quote
+examples. `Scripts/bundle-vega-lite.sh` pins and verifies the bundled upstream
+packages; the bundled licenses and provenance are in `Resources/VegaLite`.
+
+The macOS example app also includes **Charts-Gallery**, imported from the official
+Vega-Lite 6.5.0 gallery: 203 placements of 189 distinct specifications. Its native
+preview keeps all example headings and links, renders **128 supported placements
+(115 distinct specifications)** with their exact exported source, and gives
+short notices for the **75 placements** outside the current profile. The
+five-example **Charts** page remains available for quick checks. Both pages use
+the same word-by-word stream at a nominal 30 words per second. The live **10×**
+toggle switches to about 300 words per second without restarting the stream.
+Chart fences keep a stable delayed loading row while source arrives and compile
+when they close. The performance benchmark has no artificial delivery delay.
+
+The complete, unmodified gallery export includes every dataset in full and is
+about 64 MiB of Markdown (9.2 MiB in compressed storage). It remains a separate
+export and opt-in stress corpus. Displaying all of its oversized code fallbacks
+at once proved unsuitable for the normal viewer: a real-window stress run spent
+most main-thread time in full-document TextKit sizing/line breaking and reached
+roughly 9 GB peak physical footprint. The preview replaces unsupported source
+fallbacks with notices; the complete export retains every original specification.
+
+`Scripts/export-vega-lite-gallery.py` regenerates the pinned, offline-capable
+corpus, manifest, licenses and data attribution. See
+[the fixture instructions](Tests/Fixtures/VegaLiteGallery/README.md) for a standalone
+Markdown export and preview regeneration. Coverage tests validate all 203 exact
+fenced sources; the heavier render/pipeline benchmark is opt-in. The
+[gallery performance report](Tests/PicoMarkdownViewBenchmarks/vega-gallery-results.md)
+separates successful charts, cache hits, native drawing and source fallbacks,
+and explains the limits of the recorded debug measurements.
+
+### SVG graphics (macOS, opt-in)
+
+To display a fenced `svg` block as a graphic on macOS 27, enable SVG rendering on the theme:
+
+```swift
+let theme = MarkdownRenderTheme.default().withSVGRendering()
+PicoMarkdownView(markdown, theme: theme)
+```
+
+````markdown
+A native Markdown paragraph before the graphic.
+
+```svg
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120">
+  <title>Two overlapping circles</title>
+  <circle cx="95" cy="60" r="44" fill="#4f46e5"/>
+  <circle cx="145" cy="60" r="44" fill="#06b6d4" opacity="0.75"/>
+</svg>
+```
+
+A native Markdown paragraph after the graphic.
+````
+
+SVG rendering is off by default. Only `svg` fences opt into this presentation; raw HTML and ordinary code fences keep their existing behavior. iOS continues to display SVG fences as code, and math keeps its current renderer.
+
+While an SVG fence streams on macOS, its raw XML is hidden. If it stays open for 350 ms, a subtle loading card appears in its place; fences that finish sooner avoid a loading flash. Pausing presentation or canceling the stream leaves a static status instead of an indefinitely spinning indicator. Canceling does not finish or change the parser's open fence.
+
+When the block closes, a valid, supported SVG replaces the loading presentation. The completed source is decoded once; no incomplete SVG prefixes are rendered. Malformed or unsupported completed SVG returns to readable source code. Surrounding Markdown stays in the same TextKit 2 view; the tokenizer and assembler remain incremental. Resizing and zooming redraw the existing native image without reparsing the SVG source. Copying an open loading attachment still exports its received SVG source in a Markdown fence.
+
+SVG uses the same bounded viewport, hover/focus Liquid Glass zoom pair, pan behavior and whole-block selection as Mermaid. **Copy SVG** copies its fenced Markdown; **Copy source** copies only the SVG body. A document selection spanning prose and a graphic expands the attachment to its fenced source. The SVG’s own colors and transparency are retained, so authors should choose colors that work against the page background and supply a descriptive `<title>` or `<desc>`.
+
+The renderer uses AppKit’s native SVG image decoder, without a WebView or another package dependency. It supports static shapes and text, CSS styles, gradients, clipping, masks and internal references. It does not claim full browser SVG support: malformed content and unsupported features such as filters, `foreignObject`, scripts, animation and external resources stay visible as source code. The example app’s **SVG** page enables this option only for that page and includes supported graphics plus a source-fallback example.
 
 ### Resetting Content
 

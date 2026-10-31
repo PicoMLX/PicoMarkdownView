@@ -1,0 +1,270 @@
+{
+  "versions": {
+    "@openuidev/lang-core": "1.0.2",
+    "@openuidev/react-lang": "1.0.2",
+    "@openuidev/react-ui": "0.18.1",
+    "@openuidev/react-headless": "0.18.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "katex": "0.16.47"
+  },
+  "files": [
+    {
+      "name": "app.css",
+      "bytes": 381074
+    },
+    {
+      "name": "app.js",
+      "bytes": 3470156
+    },
+    {
+      "name": "app.js.LEGAL.txt",
+      "bytes": 76323
+    },
+    {
+      "name": "fonts/KaTeX_AMS-Regular-CYEKBG2K.woff",
+      "bytes": 33516
+    },
+    {
+      "name": "fonts/KaTeX_AMS-Regular-JKX5W2C4.ttf",
+      "bytes": 63632
+    },
+    {
+      "name": "fonts/KaTeX_AMS-Regular-U6PRYMIZ.woff2",
+      "bytes": 28076
+    },
+    {
+      "name": "fonts/KaTeX_Caligraphic-Bold-5QL5CMTE.woff2",
+      "bytes": 6912
+    },
+    {
+      "name": "fonts/KaTeX_Caligraphic-Bold-WZ3QSGD3.woff",
+      "bytes": 7716
+    },
+    {
+      "name": "fonts/KaTeX_Caligraphic-Bold-ZTS3R3HK.ttf",
+      "bytes": 12368
+    },
+    {
+      "name": "fonts/KaTeX_Caligraphic-Regular-3LKEU76G.woff",
+      "bytes": 7656
+    },
+    {
+      "name": "fonts/KaTeX_Caligraphic-Regular-A7XRTZ5Q.ttf",
+      "bytes": 12344
+    },
+    {
+      "name": "fonts/KaTeX_Caligraphic-Regular-KX5MEWCF.woff2",
+      "bytes": 6908
+    },
+    {
+      "name": "fonts/KaTeX_Fraktur-Bold-2QVFK6NQ.woff2",
+      "bytes": 11348
+    },
+    {
+      "name": "fonts/KaTeX_Fraktur-Bold-T4SWXBMT.woff",
+      "bytes": 13296
+    },
+    {
+      "name": "fonts/KaTeX_Fraktur-Bold-WGHVTYOR.ttf",
+      "bytes": 19584
+    },
+    {
+      "name": "fonts/KaTeX_Fraktur-Regular-2PEIFJSJ.woff2",
+      "bytes": 11316
+    },
+    {
+      "name": "fonts/KaTeX_Fraktur-Regular-5U4OPH2X.ttf",
+      "bytes": 19572
+    },
+    {
+      "name": "fonts/KaTeX_Fraktur-Regular-PQMHCIK6.woff",
+      "bytes": 13208
+    },
+    {
+      "name": "fonts/KaTeX_Main-Bold-2GA4IZIN.woff",
+      "bytes": 29912
+    },
+    {
+      "name": "fonts/KaTeX_Main-Bold-W5FBVCZM.ttf",
+      "bytes": 51336
+    },
+    {
+      "name": "fonts/KaTeX_Main-Bold-YP5VVQRP.woff2",
+      "bytes": 25324
+    },
+    {
+      "name": "fonts/KaTeX_Main-BoldItalic-4P4C7HJH.woff",
+      "bytes": 19412
+    },
+    {
+      "name": "fonts/KaTeX_Main-BoldItalic-N4V3DX7S.woff2",
+      "bytes": 16780
+    },
+    {
+      "name": "fonts/KaTeX_Main-BoldItalic-ODMLBJJQ.ttf",
+      "bytes": 32968
+    },
+    {
+      "name": "fonts/KaTeX_Main-Italic-I43T2HSR.ttf",
+      "bytes": 33580
+    },
+    {
+      "name": "fonts/KaTeX_Main-Italic-RELBIK7M.woff2",
+      "bytes": 16988
+    },
+    {
+      "name": "fonts/KaTeX_Main-Italic-SASNQFN2.woff",
+      "bytes": 19676
+    },
+    {
+      "name": "fonts/KaTeX_Main-Regular-ARRPAO67.woff2",
+      "bytes": 26272
+    },
+    {
+      "name": "fonts/KaTeX_Main-Regular-P5I74A2A.woff",
+      "bytes": 30772
+    },
+    {
+      "name": "fonts/KaTeX_Main-Regular-W74P5G27.ttf",
+      "bytes": 53580
+    },
+    {
+      "name": "fonts/KaTeX_Math-BoldItalic-6EBV3DK5.woff",
+      "bytes": 18668
+    },
+    {
+      "name": "fonts/KaTeX_Math-BoldItalic-K4WTGH3J.woff2",
+      "bytes": 16400
+    },
+    {
+      "name": "fonts/KaTeX_Math-BoldItalic-VB447A4D.ttf",
+      "bytes": 31196
+    },
+    {
+      "name": "fonts/KaTeX_Math-Italic-6KGCHLFN.woff2",
+      "bytes": 16440
+    },
+    {
+      "name": "fonts/KaTeX_Math-Italic-KKK3USB2.woff",
+      "bytes": 18748
+    },
+    {
+      "name": "fonts/KaTeX_Math-Italic-SON4MRCA.ttf",
+      "bytes": 31308
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Bold-RRNVJFFW.woff2",
+      "bytes": 12216
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Bold-STQ6RXC7.ttf",
+      "bytes": 24504
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Bold-X5M5EMOD.woff",
+      "bytes": 14408
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Italic-HMPFTM52.woff2",
+      "bytes": 12028
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Italic-PSN4QKYX.woff",
+      "bytes": 14112
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Italic-WTBAZBGY.ttf",
+      "bytes": 22364
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Regular-2TL3USAE.ttf",
+      "bytes": 19436
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Regular-OQCII6EP.woff",
+      "bytes": 12316
+    },
+    {
+      "name": "fonts/KaTeX_SansSerif-Regular-XIQ62X4E.woff2",
+      "bytes": 10344
+    },
+    {
+      "name": "fonts/KaTeX_Script-Regular-72OLXYNA.ttf",
+      "bytes": 16648
+    },
+    {
+      "name": "fonts/KaTeX_Script-Regular-A5IFOEBS.woff",
+      "bytes": 10588
+    },
+    {
+      "name": "fonts/KaTeX_Script-Regular-APUWIHLP.woff2",
+      "bytes": 9644
+    },
+    {
+      "name": "fonts/KaTeX_Size1-Regular-4HRHTS65.woff",
+      "bytes": 6496
+    },
+    {
+      "name": "fonts/KaTeX_Size1-Regular-5LRUTBFT.woff2",
+      "bytes": 5468
+    },
+    {
+      "name": "fonts/KaTeX_Size1-Regular-7K6AASVL.ttf",
+      "bytes": 12228
+    },
+    {
+      "name": "fonts/KaTeX_Size2-Regular-222HN3GT.ttf",
+      "bytes": 11508
+    },
+    {
+      "name": "fonts/KaTeX_Size2-Regular-K5ZHAIS6.woff",
+      "bytes": 6188
+    },
+    {
+      "name": "fonts/KaTeX_Size2-Regular-LELKET5D.woff2",
+      "bytes": 5208
+    },
+    {
+      "name": "fonts/KaTeX_Size3-Regular-TLFPAHDE.woff",
+      "bytes": 4420
+    },
+    {
+      "name": "fonts/KaTeX_Size3-Regular-UFCO6WCA.ttf",
+      "bytes": 7588
+    },
+    {
+      "name": "fonts/KaTeX_Size3-Regular-WQRQ47UD.woff2",
+      "bytes": 3624
+    },
+    {
+      "name": "fonts/KaTeX_Size4-Regular-7PGNVPQK.ttf",
+      "bytes": 10364
+    },
+    {
+      "name": "fonts/KaTeX_Size4-Regular-CDMV7U5C.woff2",
+      "bytes": 4928
+    },
+    {
+      "name": "fonts/KaTeX_Size4-Regular-PKMWZHNC.woff",
+      "bytes": 5980
+    },
+    {
+      "name": "fonts/KaTeX_Typewriter-Regular-3F5K6SQ6.ttf",
+      "bytes": 27556
+    },
+    {
+      "name": "fonts/KaTeX_Typewriter-Regular-MJMFSK64.woff",
+      "bytes": 16028
+    },
+    {
+      "name": "fonts/KaTeX_Typewriter-Regular-VBYJ4NRC.woff2",
+      "bytes": 13568
+    },
+    {
+      "name": "index.html",
+      "bytes": 594
+    }
+  ],
+  "bundledPackageCount": 183
+}

@@ -15,15 +15,56 @@ struct RenderedContentResult {
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
+    var svgGraphic: RenderedSVGGraphic? = nil
+    var vegaLiteChart: RenderedVegaLiteChart? = nil
+    var openUI: RenderedOpenUIContent? = nil
+    var paragraphSpacingAfter: CGFloat? = nil
+}
+
+/// Presentation context for macOS paragraph margins. UIKit keeps its existing
+/// margin rules; this carries no tokenizer or assembler state.
+struct BlockSpacingContext: Sendable, Equatable {
+    enum Gap: Sendable, Equatable { case standard, paragraph, listItem, none }
+    var previousSpacingAfter: CGFloat?
+    var gap: Gap
+    var suppressTrailingListSpacing: Bool
 }
 
 actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
+#if os(macOS)
+    private let vegaLiteProvider: VegaLiteChartProvider
+#endif
     private var runtimeMermaidMaxWidth: CGFloat?
+    private let mermaidPreviewTiming: MermaidPreviewTiming
 
 #if canImport(AppKit)
+    /// Cached geometry and its successful width must travel together when
+    /// an older request returns a drawing produced by a newer resize.
+    private struct MermaidVectorPresentation {
+        let diagram: MermaidVectorRenderResult
+        let maxWidth: CGFloat?
+    }
+
+    private struct MermaidPreview {
+        var diagram: MermaidVectorPresentation?
+        var attemptedBytes = 0
+        var attemptedWidth: CGFloat?
+        var lastAttempt: ContinuousClock.Instant?
+        var generation: UInt64 = 0
+        var completedSource: String?
+        var previewLimitReached = false
+    }
+
+    private var mermaidPreviews: [BlockID: MermaidPreview] = [:]
+    private var nextMermaidPreviewGeneration: UInt64 = 0
+
+    func discardMermaidPreviews(for ids: Set<BlockID>) {
+        for id in ids { mermaidPreviews[id] = nil }
+    }
+
     private struct CachedTable {
         var sourceHeaders: [[InlineRun]]?
         var alignments: [TableAlignment]?
@@ -58,10 +99,15 @@ actor MarkdownAttributeBuilder {
     init(theme: MarkdownRenderTheme,
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
-         runtimeMermaidMaxWidth: CGFloat? = nil) {
+         runtimeMermaidMaxWidth: CGFloat? = nil,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
+#if os(macOS)
+        self.vegaLiteProvider = VegaLiteChartProvider(theme: theme)
+#endif
+        self.mermaidPreviewTiming = mermaidPreviewTiming
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
         // Resolve Sendable specs to platform types inside the actor
@@ -96,9 +142,17 @@ actor MarkdownAttributeBuilder {
     /// a quote inside a list item start at `blockquoteBarInset`.
     func render(snapshot: BlockSnapshot, previousBlockKind: BlockKind? = nil,
                 blockquoteLevel: Int = 0, listIndent: CGFloat = 0, listMarker: String? = nil,
-                markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0) async -> RenderedContentResult {
+                markerOnFirstChild: Bool = false, blockquoteBarInset: CGFloat = 0,
+                spacingContext: BlockSpacingContext? = nil) async -> RenderedContentResult {
         var result = await renderContent(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                          blockquoteLevel: blockquoteLevel, markerOnFirstChild: markerOnFirstChild)
+#if canImport(AppKit)
+        if let spacingContext {
+            let spaced = applySpacing(spacingContext, to: result.attributed, previousKind: previousBlockKind)
+            result.attributed = spaced.content
+            result.paragraphSpacingAfter = spaced.after
+        }
+#endif
         if listIndent > 0 || listMarker != nil {
             result.attributed = placeInListItem(result.attributed, indent: listIndent, marker: listMarker)
         }
@@ -127,6 +181,42 @@ actor MarkdownAttributeBuilder {
         result.attributed = .picoConverted(from: content)
         return result
     }
+
+#if canImport(AppKit)
+    private func applySpacing(_ context: BlockSpacingContext, to attributed: AttributedString,
+                              previousKind: BlockKind?) -> (content: AttributedString, after: CGFloat?) {
+        let content = NSMutableAttributedString(attributedString: .picoConverted(from: attributed))
+        guard content.length > 0 else { return (attributed, nil) }
+        let firstRange = (content.string as NSString).paragraphRange(for: NSRange(location: 0, length: 1))
+        let first = (content.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+            .mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+        if let previousAfter = context.previousSpacingAfter {
+            let desiredGap: CGFloat
+            switch context.gap {
+            case .paragraph: desiredGap = bodyFont.pointSize
+            case .listItem: desiredGap = bodyFont.pointSize * 0.25
+            case .none: desiredGap = 0
+            case .standard:
+                // Preserve the block's own margin, compensating for the
+                // visible predecessor's actual trailing space.
+                desiredGap = (previousKind.map { margins(for: $0).bottomMargin } ?? 0) + first.paragraphSpacingBefore
+            }
+            first.paragraphSpacingBefore = max(0, desiredGap - previousAfter)
+        } else if context.gap != .standard {
+            first.paragraphSpacingBefore = 0
+        }
+        content.addAttribute(.paragraphStyle, value: first, range: firstRange)
+        if context.suppressTrailingListSpacing {
+            let lastRange = (content.string as NSString).paragraphRange(for: NSRange(location: content.length - 1, length: 1))
+            let last = (content.attribute(.paragraphStyle, at: content.length - 1, effectiveRange: nil) as? NSParagraphStyle)?
+                .mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+            last.paragraphSpacing = 0
+            content.addAttribute(.paragraphStyle, value: last, range: lastRange)
+        }
+        let after = (content.attribute(.paragraphStyle, at: content.length - 1, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing
+        return (.picoConverted(from: content), after)
+    }
+#endif
 
     private func placeInListItem(_ attributed: AttributedString, indent: CGFloat, marker: String?) -> AttributedString {
         let content = NSMutableAttributedString(attributedString: .picoConverted(from: attributed))
@@ -179,7 +269,44 @@ actor MarkdownAttributeBuilder {
         case .blockquote:
             return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                           level: max(1, blockquoteLevel))
-        case .fencedCode:
+        case .fencedCode(let language):
+#if os(macOS)
+            if let chart = await renderVegaLiteFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
+                return chart
+            }
+            // Interpret only a completed, explicitly opted-in payload. The
+            // tokenizer and open-fence streaming continue using native code.
+            if theme.openUIRenderingEnabled, snapshot.isClosed,
+               language?.split(whereSeparator: \.isWhitespace).first?.lowercased() == "openui" {
+                let spacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
+                let paragraph = makeCodeParagraphStyle(lineHeightMultiple: 1,
+                    spacingBefore: spacing.spacingBefore, spacingAfter: spacing.spacingAfter)
+                let marker = NSAttributedString(string: "\u{FFFC}\n", attributes: [
+                    .font: bodyFont, .foregroundColor: PlatformColor.rendererLabel,
+                    .paragraphStyle: paragraph
+                ])
+                let source = snapshot.codeText ?? ""
+                return RenderedContentResult(attributed: .picoConverted(from: marker),
+                    table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                    codeBlock: RenderedCodeBlock(code: source, language: language),
+                    openUI: RenderedOpenUIContent(source: source, language: language, fontSize: bodyFont.pointSize))
+            }
+            if let graphic = SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+                                                       maxWidth: theme.imageMaxWidth), !graphic.isClosed {
+                // Reserve one stable attachment while source streams. Raw SVG
+                // stays in metadata for copying, without repeatedly highlighting
+                // it or decoding incomplete SVG documents.
+                let content = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+                    .font: bodyFont,
+                    .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                        previousKind: previousBlockKind))
+                ])
+                return RenderedContentResult(attributed: .picoConverted(from: content),
+                    table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                    codeBlock: RenderedCodeBlock(code: graphic.source, language: graphic.language),
+                    svgGraphic: graphic)
+            }
+#endif
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
             }
@@ -269,7 +396,9 @@ actor MarkdownAttributeBuilder {
                                         blockquote: nil,
                                         math: nil,
                                         images: [],
-                                        codeBlock: RenderedCodeBlock(code: text, language: language))
+                                        codeBlock: RenderedCodeBlock(code: text, language: language),
+                                        svgGraphic: SVGDiagramSupport.graphic(for: snapshot, enabled: theme.svgRenderingEnabled,
+                                                                              maxWidth: theme.imageMaxWidth))
         case .horizontalRule:
             let content = renderHorizontalRule()
             return RenderedContentResult(attributed: AttributedString(content),
@@ -506,9 +635,11 @@ actor MarkdownAttributeBuilder {
 
         // Spacing via margin collapsing
         var listSpacing = collapsedSpacing(for: snapshot.kind, previousKind: previousBlockKind)
+#if !canImport(AppKit)
         if listDepth > 0 {
             listSpacing.spacingAfter = max(0, listSpacing.spacingAfter - 2)
         }
+#endif
         let listParagraph = makeParagraphStyle(listSpacing)
 
         // Measure the actual bullet width
@@ -559,9 +690,8 @@ actor MarkdownAttributeBuilder {
         // Apply the SAME paragraph style to the terminating "\n" as to the body,
         // mirroring renderInlineBlock. A paragraph's trailing paragraphSpacing is
         // resolved from its terminating character's style, so reusing listParagraph
-        // here makes the inter-item gap honor listSpacing.spacingAfter (4pt top-level,
-        // 2pt nested) instead of a hardcoded 6pt that overrode the margin system and
-        // defeated the depth-based reduction above.
+        // here makes the inter-item gap honor the margin system instead of a
+        // separate, hardcoded gap on the terminating character.
         rendered.append(NSAttributedString(string: "\n",
                                            attributes: [.font: bodyFont,
                                                         .paragraphStyle: listParagraph]))
@@ -617,13 +747,21 @@ actor MarkdownAttributeBuilder {
             default: return BlockMargins(topMargin: 12, bottomMargin: 6, lineHeightMultiple: 1.12)
             }
         case .paragraph:
+#if canImport(AppKit)
+            return BlockMargins(topMargin: 0, bottomMargin: bodyFont.pointSize, lineHeightMultiple: 1.24)
+#else
             return BlockMargins(topMargin: 0, bottomMargin: 12, lineHeightMultiple: 1.24)
+#endif
         case .fencedCode:
             return BlockMargins(topMargin: 12, bottomMargin: 12, lineHeightMultiple: 1.24)
         case .blockquote:
             return BlockMargins(topMargin: 8, bottomMargin: 8, lineHeightMultiple: 1.24)
         case .listItem:
+#if canImport(AppKit)
+            return BlockMargins(topMargin: 0, bottomMargin: bodyFont.pointSize * 0.25, lineHeightMultiple: 1.24)
+#else
             return BlockMargins(topMargin: 0, bottomMargin: 2, lineHeightMultiple: 1.24)
+#endif
         case .horizontalRule:
             return BlockMargins(topMargin: 20, bottomMargin: 20, lineHeightMultiple: 1.0)
         case .table:
@@ -714,10 +852,55 @@ actor MarkdownAttributeBuilder {
                              range: firstParagraphRange)
     }
 
+#if os(macOS)
+    private func renderVegaLiteFenceIfAvailable(snapshot: BlockSnapshot,
+                                               previousBlockKind: BlockKind?) async -> RenderedContentResult? {
+        guard theme.vegaLiteRenderingEnabled,
+              case let .fencedCode(language) = snapshot.kind, isVegaLiteLanguage(language) else { return nil }
+        let source = snapshot.codeText ?? ""
+        if !snapshot.isClosed {
+            // Append-only source remains in metadata. The native document keeps
+            // one marker instead of highlighting and laying out JSON prefixes.
+            return vegaLiteMarker(snapshot: snapshot, source: source, language: language,
+                                  svg: "", size: .zero, width: effectiveAttachmentMaxWidth(),
+                                  previousBlockKind: previousBlockKind)
+        }
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        while !Task.isCancelled {
+            let width = effectiveAttachmentMaxWidth()
+            let chart = await vegaLiteProvider.render(source: source, targetWidth: width)
+            // A resize can arrive while compilation is suspended. Geometry and
+            // its width cap must belong to the same accepted presentation.
+            guard width == effectiveAttachmentMaxWidth() else { continue }
+            guard !Task.isCancelled, let chart else { return nil }
+            return vegaLiteMarker(snapshot: snapshot, source: source, language: language,
+                                  svg: chart.svg, size: chart.intrinsicSize, width: width,
+                                  previousBlockKind: previousBlockKind)
+        }
+        return nil
+    }
+
+    private func vegaLiteMarker(snapshot: BlockSnapshot, source: String, language: String?,
+                                svg: String, size: CGSize, width: CGFloat?,
+                                previousBlockKind: BlockKind?) -> RenderedContentResult {
+        let result = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+            .font: bodyFont,
+            .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                previousKind: previousBlockKind))
+        ])
+        return RenderedContentResult(attributed: .picoConverted(from: result),
+                                     table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                                     codeBlock: RenderedCodeBlock(code: source, language: language),
+                                     vegaLiteChart: RenderedVegaLiteChart(source: source, language: language,
+                                                                        svg: svg, intrinsicSize: size, maxWidth: width))
+    }
+
+#endif
+
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
-        guard snapshot.isClosed else { return nil }
         guard let provider = mermaidProvider else { return nil }
         guard case let .fencedCode(language) = snapshot.kind, isMermaidLanguage(language) else { return nil }
 
@@ -725,6 +908,29 @@ actor MarkdownAttributeBuilder {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
         let mermaidMaxWidth = effectiveMermaidMaxWidth()
+#if canImport(AppKit)
+        if let vectorProvider = provider as? any MermaidVectorDiagramProvider {
+            guard let presentation = await vectorDiagram(snapshot: snapshot, source: source,
+                                                         provider: vectorProvider, width: mermaidMaxWidth) else { return nil }
+            let diagram = presentation.diagram
+            // A stable marker retains native paragraph/list/quote placement.
+            // The main-actor backend supplies the actual view attachment.
+            let result = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+                .font: bodyFont,
+                .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                    previousKind: previousBlockKind))
+            ])
+            return RenderedContentResult(attributed: .picoConverted(from: result),
+                                         table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                                         codeBlock: RenderedCodeBlock(code: source, language: language),
+                                         mermaidDiagram: RenderedMermaidDiagram(source: source,
+                                                                              size: diagram.intrinsicSize,
+                                                                              diagnostics: diagram.diagnostics,
+                                                                              svg: diagram.svg,
+                                                                              maxWidth: presentation.maxWidth))
+        }
+#endif
+        guard snapshot.isClosed else { return nil }
         let request = MermaidRenderRequest(source: source,
                                            targetWidth: mermaidMaxWidth,
                                            scale: await mermaidRenderScale())
@@ -760,6 +966,74 @@ actor MarkdownAttributeBuilder {
                                                                           size: targetSize,
                                                                           diagnostics: diagram.diagnostics))
     }
+
+#if canImport(AppKit)
+    /// Pele lays out the whole diagram, so previews are bounded and coalesced
+    /// at completed lines. Markdown tokenization and surrounding blocks stay
+    /// incremental; an invalid tail keeps the last successful drawing.
+    private func vectorDiagram(snapshot: BlockSnapshot, source: String,
+                               provider: any MermaidVectorDiagramProvider,
+                               width: CGFloat?) async -> MermaidVectorPresentation? {
+        let previous = mermaidPreviews[snapshot.id]
+        var preview = previous ?? MermaidPreview()
+        let candidate: String
+        if snapshot.isClosed {
+            if preview.completedSource == source, preview.attemptedWidth == width { return preview.diagram }
+            candidate = source
+        } else {
+            guard case .bestEffortDebounced(let milliseconds) = theme.mermaidRenderingMode else { return nil }
+            guard !preview.previewLimitReached else { return preview.diagram }
+            guard source.utf8.count <= 8_192 else {
+                preview.previewLimitReached = true
+                mermaidPreviews[snapshot.id] = preview
+                return preview.diagram
+            }
+            if width == preview.attemptedWidth, let lastAttempt = preview.lastAttempt,
+               lastAttempt.duration(to: mermaidPreviewTiming.now()) < .milliseconds(max(0, milliseconds)) {
+                return preview.diagram
+            }
+            guard let lastNewline = source.lastIndex(of: "\n") else { return preview.diagram }
+            let prefix = source[...lastNewline]
+            let bytes = prefix.utf8.count
+            guard bytes != preview.attemptedBytes || width != preview.attemptedWidth else { return preview.diagram }
+            candidate = String(prefix)
+            let lines = candidate.split(separator: "\n", omittingEmptySubsequences: false)
+            guard lines.count <= 257 else {
+                preview.previewLimitReached = true
+                mermaidPreviews[snapshot.id] = preview
+                return preview.diagram
+            }
+            guard lines.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count > 1 else {
+                return preview.diagram
+            }
+        }
+
+        nextMermaidPreviewGeneration &+= 1
+        preview.generation = nextMermaidPreviewGeneration
+        preview.attemptedBytes = candidate.utf8.count
+        preview.attemptedWidth = width
+        preview.lastAttempt = mermaidPreviewTiming.now()
+        mermaidPreviews[snapshot.id] = preview
+        let generation = preview.generation
+        let rendered = await provider.renderVector(MermaidRenderRequest(source: candidate, targetWidth: width,
+                                                                        scale: 1, isPreview: !snapshot.isClosed))
+        guard let current = mermaidPreviews[snapshot.id], current.generation == generation else {
+            return mermaidPreviews[snapshot.id]?.diagram
+        }
+        guard !Task.isCancelled else {
+            mermaidPreviews[snapshot.id] = previous
+            return snapshot.isClosed ? nil : previous?.diagram
+        }
+        let presentation = rendered.map { MermaidVectorPresentation(diagram: $0, maxWidth: width) }
+        if snapshot.isClosed {
+            mermaidPreviews[snapshot.id]?.completedSource = source
+            mermaidPreviews[snapshot.id]?.diagram = presentation
+            return presentation
+        }
+        if let presentation { mermaidPreviews[snapshot.id]?.diagram = presentation }
+        return mermaidPreviews[snapshot.id]?.diagram
+    }
+#endif
 
     private func isMermaidLanguage(_ language: String?) -> Bool {
         guard let language else { return false }
@@ -902,7 +1176,12 @@ actor MarkdownAttributeBuilder {
         let indent = BlockquoteBarMetrics.textIndent(level: level)
         paragraphStyle.firstLineHeadIndent = indent
         paragraphStyle.headIndent = indent
+#if canImport(AppKit)
+        paragraphStyle.lineHeightMultiple = 1.24
+        paragraphStyle.paragraphSpacing = bodyFont.pointSize
+#else
         paragraphStyle.paragraphSpacing = 8
+#endif
         paragraphStyle.paragraphSpacingBefore = spacingBefore
         return paragraphStyle
     }
