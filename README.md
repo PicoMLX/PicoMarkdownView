@@ -196,13 +196,19 @@ Conformances must be `Sendable`; `highlight` is called off the main actor while 
 
 The bundled grammar set is regenerated with `Scripts/bundle-prism.sh` (pins the Prism version, resolves component dependencies, and smoke-tests the output before writing). Never edit `Sources/PicoMarkdownView/Resources/prism-bundle.js` by hand — change the language list in `Scripts/bundle-prism.js` and rerun the script.
 
+### Images
+
+On macOS 27, a closed paragraph containing just one loaded image uses a TextKit 2 hosted attachment, including standalone images in lists and blockquotes. The image keeps its aspect ratio and existing `imageMaxWidth` limit without upscaling its initial size. Hover or keyboard focus reveals the same Liquid Glass zoom pair and Copy control used by diagrams. Zoom and pan stay inside the image frame; Escape resets navigation so wheel scrolling returns to the document. Copy exports image Markdown with its URL, alternative text and optional title. Reference-style image syntax is normalized to an inline destination.
+
+Images mixed with prose, multiple images in one paragraph, heading images, and table-cell images keep their existing rendering. An open image paragraph keeps its native attachment until closure, since more streamed prose may still follow. Existing asynchronous image loading and block-local refreshes are reused. iOS image rendering is unchanged.
+
 ### Diagrams (Mermaid)
 
 Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle. On macOS 27, a TextKit 2 hosted attachment draws the SVG paths and text directly with CoreGraphics; zoom redraws vectors at the new scale. iOS keeps its existing native bitmap attachments. Neither path uses a WebView or an SVG library. Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
 
 A diagram renders once its closing fence arrives; while the block is still streaming it shows as a highlighted code block, so streaming cost is unchanged. Colors follow the `MarkdownRenderTheme` (code block foreground/background for text and node surfaces, `linkColor` for accents) in light and dark mode, labels are measured and drawn in the system font, and a flowchart that is too wide for the view is laid out vertically instead of being scaled down. Sources Pele cannot parse stay as code blocks.
 
-On macOS, native Liquid Glass buttons float in the top-right corner for zoom, Fit Diagram, Fit Width, Expand/Restore and Copy Mermaid. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom and pan stay inside a bounded viewport; Fit Width can enlarge a small diagram to the available message width, respecting quote/list indentation. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
+On macOS, a connected Liquid Glass zoom pair and a separate Copy Mermaid button float in the top-right corner. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom uses a short ease-out animation that respects Reduce Motion; zoom and pan stay inside a bounded viewport, respecting quote/list indentation. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Escape resets navigation. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
 
 To show a growing diagram while source streams on macOS:
 

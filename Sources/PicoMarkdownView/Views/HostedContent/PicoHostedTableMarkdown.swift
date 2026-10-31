@@ -22,7 +22,7 @@ enum PicoHostedTableMarkdown {
         return ([row(headers), row(separators)] + rows.map(row)).joined(separator: "\n") + "\n"
     }
 
-    private static func inline(_ runs: [InlineRun]) -> String {
+    static func inline(_ runs: [InlineRun]) -> String {
         var coalesced: [InlineRun] = []
         for run in runs {
             if let last = coalesced.last, last.canCoalesce(with: run) {

@@ -3,35 +3,36 @@ import AppKit
 import SwiftUI
 
 @MainActor
-struct PicoHostedMermaidView: View {
-    let model: PicoHostedMermaidModel
+struct PicoHostedMediaView: View {
+    let model: PicoHostedMediaModel
     let context: PicoHostedAttachmentContext
 
     var body: some View {
         let width = model.viewportWidth(availableWidth: context.availableWidth)
-        PicoHostedMermaidCanvas(model: model, isSelected: context.isSelected)
+        PicoHostedMediaCanvas(model: model, isSelected: context.isSelected)
             .frame(width: width,
                    height: model.viewportHeight(availableWidth: width))
     }
 }
 
 @MainActor
-private struct PicoHostedMermaidCanvas: NSViewRepresentable {
-    let model: PicoHostedMermaidModel
+private struct PicoHostedMediaCanvas: NSViewRepresentable {
+    let model: PicoHostedMediaModel
     let isSelected: Bool
-    func makeNSView(context: Context) -> PicoHostedMermaidCanvasView {
-        PicoHostedMermaidCanvasView(model: model)
+    func makeNSView(context: Context) -> PicoHostedMediaCanvasView {
+        PicoHostedMediaCanvasView(model: model)
     }
 
-    func updateNSView(_ view: PicoHostedMermaidCanvasView, context: Context) {
+    func updateNSView(_ view: PicoHostedMediaCanvasView, context: Context) {
         view.isSelected = isSelected
         view.refreshPresentation()
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedMermaidCanvasView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedMediaCanvasView, context: Context) -> CGSize? {
         let width = model.viewportWidth(availableWidth: proposal.width ?? 1)
         return CGSize(width: width,
                       height: model.viewportHeight(availableWidth: width))
     }
 }
+typealias PicoHostedMermaidView = PicoHostedMediaView
 #endif

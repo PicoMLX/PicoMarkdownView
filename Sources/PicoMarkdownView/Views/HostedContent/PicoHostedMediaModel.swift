@@ -5,8 +5,13 @@ import Observation
 /// Source and interaction state survive attachment measurement and redraws.
 @MainActor
 @Observable
-final class PicoHostedMermaidModel {
+final class PicoHostedMediaModel {
     enum Fit: Equatable { case diagram, width }
+    private enum Content { case mermaid, image }
+
+    private let content: Content
+    private(set) var altText = ""
+    private(set) var title: String?
 
     private(set) var source: String
     private(set) var language: String?
@@ -23,16 +28,48 @@ final class PicoHostedMermaidModel {
 
     @ObservationIgnored private(set) var document: PeleSVGDocument?
     @ObservationIgnored private var svg: String
+    @ObservationIgnored private var image: NSImage?
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
     init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
+        self.content = .mermaid
         self.svg = svg
         self.source = source
         self.language = language
         self.isClosed = isClosed
         self.maxWidth = Self.normalizedMaxWidth(maxWidth)
         parse(svg)
+    }
+
+    init(image: NSImage, size: CGSize, markdown: String, altText: String,
+         title: String? = nil, maxWidth: CGFloat? = nil) {
+        self.content = .image
+        self.svg = ""
+        self.image = image
+        self.source = markdown
+        self.language = nil
+        self.isClosed = true
+        self.altText = altText
+        self.title = title
+        self.intrinsicSize = Self.normalizedImageSize(size)
+        self.maxWidth = Self.normalizedMaxWidth(maxWidth)
+    }
+
+    func update(image: NSImage, size: CGSize, markdown: String, altText: String,
+                title: String? = nil, maxWidth: CGFloat? = nil) {
+        let size = Self.normalizedImageSize(size)
+        let maxWidth = Self.normalizedMaxWidth(maxWidth)
+        guard self.image !== image || intrinsicSize != size || source != markdown
+                || self.altText != altText || self.title != title || self.maxWidth != maxWidth else { return }
+        self.image = image
+        self.intrinsicSize = size
+        self.source = markdown
+        self.altText = altText
+        self.title = title
+        self.maxWidth = maxWidth
+        pan = clamped(pan)
+        changed()
     }
 
     func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
@@ -51,18 +88,64 @@ final class PicoHostedMermaidModel {
         changed()
     }
 
-    var isRenderable: Bool { document != nil }
+    var isImage: Bool { content == .image }
+    var isRenderable: Bool { isImage ? image != nil : document != nil }
+
+    var accessibilityLabel: String {
+        guard isImage else { return "Mermaid diagram" }
+        return !altText.isEmpty ? altText : title.flatMap { $0.isEmpty ? nil : $0 } ?? "Image"
+    }
+
+    var accessibilityHelp: String {
+        guard isImage else { return "Diagram source: " + source }
+        let caption = title.flatMap { $0.isEmpty ? nil : $0 }.map { $0 + ". " } ?? ""
+        return caption + "Image Markdown: " + source
+    }
+
+    var copyLabel: String { isImage ? "Copy Image Markdown" : "Copy Mermaid" }
+    var copyHelp: String {
+        isImage ? "Copies the image's Markdown, including its source, alternative text and title."
+            : "Copies the diagram's Mermaid source as Markdown, including its code fences."
+    }
+    var copyToolTip: String {
+        isImage ? "Copy Image Markdown." : "Copy Mermaid Markdown, including code fences."
+    }
+    var zoomLabel: String { isImage ? "Image zoom" : "Diagram zoom" }
+    var zoomHelp: String {
+        "Zoom within the \(isImage ? "image" : "diagram") frame. Press Escape to reset zoom and return to the text."
+    }
+
+    /// Draw directly from the source image or parsed vector document at the
+    /// current zoom; attachment sizing never creates another bitmap.
+    func draw(in context: CGContext, destination: CGRect) {
+        guard destination.width > 0, destination.height > 0 else { return }
+        if let image {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+            context.interpolationQuality = .high
+            image.draw(in: destination, from: .zero, operation: .sourceOver,
+                       fraction: 1, respectFlipped: true, hints: nil)
+            NSGraphicsContext.restoreGraphicsState()
+        } else if let document {
+            context.saveGState()
+            context.translateBy(x: destination.minX, y: destination.minY)
+            context.scaleBy(x: destination.width / document.width, y: destination.height / document.height)
+            document.draw(in: context, strokesAsFills: true)
+            context.restoreGState()
+        }
+    }
 
     func viewportWidth(availableWidth: CGFloat) -> CGFloat {
         let available = availableWidth.isFinite ? max(1, availableWidth) : 1
-        return min(available, maxWidth ?? available)
+        let capped = min(available, maxWidth ?? available)
+        return isImage ? min(capped, intrinsicSize.width) : capped
     }
 
     func viewportHeight(availableWidth: CGFloat) -> CGFloat {
-        if isExpanded { return 600 }
+        if !isImage && isExpanded { return 600 }
         let width = viewportWidth(availableWidth: availableWidth)
         let height = intrinsicSize.height * width / max(1, intrinsicSize.width)
-        return min(360, max(140, height))
+        return isImage ? max(1, height) : min(360, max(140, height))
     }
 
     func updateViewport(_ size: CGSize) {
@@ -135,6 +218,7 @@ final class PicoHostedMermaidModel {
     }
 
     func markdownRepresentation() -> String {
+        if isImage { return source }
         let info = language ?? "mermaid"
         let marker: Character = info.contains("`") ? "~" : "`"
         var longest = 0
@@ -186,6 +270,13 @@ final class PicoHostedMermaidModel {
         return CGPoint(x: min(x, max(-x, point.x)), y: min(y, max(-y, point.y)))
     }
 
+    private static func normalizedImageSize(_ size: CGSize) -> CGSize {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return CGSize(width: 1, height: 1)
+        }
+        return size
+    }
+
     private static func normalizedMaxWidth(_ width: CGFloat?) -> CGFloat? {
         width.flatMap { $0.isFinite && $0 > 0 ? max(1, $0) : nil }
     }
@@ -195,4 +286,6 @@ final class PicoHostedMermaidModel {
         onPresentationChanged?()
     }
 }
+// Mermaid uses the same navigation state and canvas as block images.
+typealias PicoHostedMermaidModel = PicoHostedMediaModel
 #endif

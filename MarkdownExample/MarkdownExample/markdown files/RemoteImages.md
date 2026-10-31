@@ -1,6 +1,6 @@
 # Remote Images
 
-This sample exercises remote Markdown image loading in `PicoMarkdownView`.
+This sample exercises remote Markdown image loading in `PicoMarkdownView`. On macOS, hover over either standalone image to reveal zoom and Copy Markdown controls. Zoom stays inside the image frame; press Escape to reset. The image mixed with text below keeps its inline rendering.
 
 ## HTTPS image
 

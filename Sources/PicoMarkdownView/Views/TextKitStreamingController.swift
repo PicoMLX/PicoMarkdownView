@@ -259,6 +259,8 @@ final class TextKitStreamingBackend {
         var tableSnapshot: TableSnapshot? = nil
         var mermaidDiagram: RenderedMermaidDiagram? = nil
         var mermaidIsClosed = true
+        var imageRuns: [InlineRun]? = nil
+        var imageIsClosed = false
         var hostedAttachments: [HostedRecord] = []
 #endif
     }
@@ -281,6 +283,7 @@ final class TextKitStreamingBackend {
     private weak var contentStorage: NSTextContentStorage?
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedMermaids: [BlockID: (model: PicoHostedMermaidModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -332,6 +335,7 @@ final class TextKitStreamingBackend {
             indexByID.removeAll()
             hostedTables.removeAll()
             hostedMermaids.removeAll()
+            hostedImages.removeAll()
         }
 #endif
         if deferred != nil {
@@ -364,6 +368,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
                 hostedTables.removeAll()
                 hostedMermaids.removeAll()
+                hostedImages.removeAll()
 #endif
                 return NSRange(location: 0, length: 0)
             }
@@ -376,6 +381,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
             hostedTables.removeAll()
             hostedMermaids.removeAll()
+            hostedImages.removeAll()
 #endif
             return NSRange(location: 0, length: 0)
         }
@@ -618,6 +624,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
             hostedTables.removeValue(forKey: record.id)
             hostedMermaids.removeValue(forKey: record.id)
+            hostedImages.removeValue(forKey: record.id)
 #endif
         }
         records.removeSubrange(removalRange)
@@ -647,6 +654,7 @@ final class TextKitStreamingBackend {
         let liveIDs = Set(blockData.map { $0.block.id })
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
         hostedMermaids = hostedMermaids.filter { liveIDs.contains($0.key) }
+        hostedImages = hostedImages.filter { liveIDs.contains($0.key) }
 #endif
         return selection.clamped(maxLength: storage.length)
     }
@@ -815,6 +823,8 @@ final class TextKitStreamingBackend {
         return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
             && record.mermaidDiagram == block.mermaidDiagram
             && (block.mermaidDiagram == nil || record.mermaidIsClosed == block.snapshot.isClosed)
+            && (block.images.isEmpty || (record.imageIsClosed == block.snapshot.isClosed
+                && record.imageRuns == block.snapshot.inlineRuns))
 #else
         return record.content == block.content
 #endif
@@ -826,6 +836,8 @@ final class TextKitStreamingBackend {
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
         records[index].mermaidIsClosed = block.snapshot.isClosed
+        records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
+        records[index].imageIsClosed = block.snapshot.isClosed
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
@@ -846,6 +858,7 @@ final class TextKitStreamingBackend {
     private func attributedString(for block: RenderedBlock) -> NSAttributedString {
 #if canImport(AppKit)
         if let diagram = block.mermaidDiagram, let svg = diagram.svg {
+            hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
             let entry: (model: PicoHostedMermaidModel, attachment: PicoHostedAttachment)
             if let existing = hostedMermaids[block.id] {
@@ -871,9 +884,15 @@ final class TextKitStreamingBackend {
             return attributed
         }
         hostedMermaids.removeValue(forKey: block.id)
+        let native = NSAttributedString.picoConverted(from: block.content)
+        if let image = hostedImage(for: block, attributed: native) {
+            hostedTables.removeValue(forKey: block.id)
+            return image
+        }
+        hostedImages.removeValue(forKey: block.id)
         guard let table = block.table, let snapshot = block.snapshot.table else {
             hostedTables.removeValue(forKey: block.id)
-            let attributed = NSAttributedString.picoConverted(from: block.content)
+            let attributed = native
             if case .heading(let level) = block.kind, level == 1 || level == 2 {
                 return MacHeadingUnderline.applying(to: attributed)
             }
@@ -919,6 +938,58 @@ final class TextKitStreamingBackend {
     }
 
 #if canImport(AppKit)
+    /// Wait for closure: more text in the same streamed paragraph would make
+    /// this an inline image. Reuse the renderer's loaded image and preserve
+    /// native list markers, quote bars, paragraph spacing and indentation.
+    private func hostedImage(for block: RenderedBlock, attributed: NSAttributedString) -> NSAttributedString? {
+        switch block.kind {
+        case .paragraph, .listItem, .blockquote: break
+        default: return nil
+        }
+        guard block.snapshot.isClosed, block.images.count == 1,
+              let runs = block.snapshot.inlineRuns else { return nil }
+        var imageRun: InlineRun?
+        for run in runs {
+            if run.image != nil {
+                guard imageRun == nil else { return nil }
+                imageRun = run
+            } else if !run.style.isEmpty || run.linkURL != nil || run.math != nil || run.tag != nil
+                        || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        guard let run = imageRun else { return nil }
+        var loaded: (attachment: NSTextAttachment, range: NSRange)?
+        attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
+            if let attachment = value as? NSTextAttachment, attachment.image != nil {
+                loaded = (attachment, range)
+            }
+        }
+        guard let loaded, let image = loaded.attachment.image, loaded.range.length == 1 else { return nil }
+        let size = loaded.attachment.bounds.size
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
+        let markdown = PicoHostedTableMarkdown.inline([run])
+        let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)
+        if let existing = hostedImages[block.id] {
+            entry = existing
+            entry.model.update(image: image, size: size, markdown: markdown, altText: run.text,
+                               title: run.image?.title, maxWidth: size.width)
+            entry.attachment.invalidateSize()
+        } else {
+            let model = PicoHostedMediaModel(image: image, size: size, markdown: markdown,
+                                             altText: run.text, title: run.image?.title, maxWidth: size.width)
+            let attachment = PicoHostedAttachment(interaction: .selectableBlock,
+                markdown: { model.markdownRepresentation() }) { context in
+                    PicoHostedMediaView(model: model, context: context)
+                }
+            entry = (model, attachment)
+            hostedImages[block.id] = entry
+        }
+        let result = NSMutableAttributedString(attributedString: attributed)
+        result.addAttribute(.attachment, value: entry.attachment, range: loaded.range)
+        return result
+    }
+
     private func updateHostedMermaidOnly(at index: Int, block: RenderedBlock) -> Bool {
         guard records[index].content == block.content,
               let diagram = block.mermaidDiagram, let svg = diagram.svg,
@@ -963,7 +1034,7 @@ final class TextKitStreamingBackend {
     func resetDocumentOnNextApply() { shouldResetDocument = true }
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
-        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment
+        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedImages[id]?.attachment
     }
 #endif
 
