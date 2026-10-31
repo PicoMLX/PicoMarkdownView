@@ -23,6 +23,8 @@ public struct MarkdownRenderTheme: Sendable {
     public let mermaidRenderingMode: MermaidRenderingMode
     /// Render completed `svg` fences as hosted vectors on macOS. UIKit keeps code rendering.
     public let svgRenderingEnabled: Bool
+    /// Render completed `openui` fences as interactive hosted content on macOS.
+    public let openUIRenderingEnabled: Bool
 
     public init(bodyFont: FontSpec,
                 codeFont: FontSpec,
@@ -33,7 +35,8 @@ public struct MarkdownRenderTheme: Sendable {
                 codeBlockTheme: CodeBlockTheme? = nil,
                 codeHighlighter: AnyCodeSyntaxHighlighter? = nil,
                 mermaidRenderingMode: MermaidRenderingMode = .onFenceClose,
-                svgRenderingEnabled: Bool = false) {
+                svgRenderingEnabled: Bool = false,
+                openUIRenderingEnabled: Bool = false) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
         self.blockquoteColor = blockquoteColor
@@ -44,6 +47,7 @@ public struct MarkdownRenderTheme: Sendable {
         self.codeHighlighter = codeHighlighter
         self.mermaidRenderingMode = mermaidRenderingMode
         self.svgRenderingEnabled = svgRenderingEnabled
+        self.openUIRenderingEnabled = openUIRenderingEnabled
     }
 
     public static func `default`() -> MarkdownRenderTheme {
@@ -92,7 +96,8 @@ public struct MarkdownRenderTheme: Sendable {
                             codeBlockTheme: codeBlockTheme,
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
-                            svgRenderingEnabled: svgRenderingEnabled)
+                            svgRenderingEnabled: svgRenderingEnabled,
+                            openUIRenderingEnabled: openUIRenderingEnabled)
     }
 
     /// A copy with every font size multiplied by `scale`, except the code
@@ -119,7 +124,8 @@ public struct MarkdownRenderTheme: Sendable {
                                    codeBlockTheme: scaledCodeTheme,
                                    codeHighlighter: codeHighlighter,
                                    mermaidRenderingMode: mermaidRenderingMode,
-                                   svgRenderingEnabled: svgRenderingEnabled)
+                                   svgRenderingEnabled: svgRenderingEnabled,
+                                   openUIRenderingEnabled: openUIRenderingEnabled)
     }
 }
 
@@ -640,6 +646,7 @@ actor MarkdownRenderer {
                              codeBlock: rendered.codeBlock,
                              mermaidDiagram: rendered.mermaidDiagram,
                              svgGraphic: rendered.svgGraphic,
+                             openUI: rendered.openUI,
                              blockquoteLevel: quoteLevel,
                              listPlacement: placement)
         return (block, rendered.paragraphSpacingAfter)
@@ -661,7 +668,7 @@ actor MarkdownRenderer {
     /// list: a child block starts at the item's text column (so do the
     /// blocks of a quote inside the item), and the first
     /// child of an item without text of its own carries the item's marker
-    /// when it is a paragraph, heading or macOS Mermaid fence. The item then
+    /// when it is a paragraph, heading or supported macOS hosted fence. The item then
     /// renders nothing.
     /// A quote's bars start at the column the quote starts at, and stay
     /// there for every block inside it.
@@ -670,6 +677,8 @@ actor MarkdownRenderer {
             if case .heading = kind { return true }
 #if os(macOS)
             if case .fencedCode(let language) = kind {
+                if theme.openUIRenderingEnabled,
+                   language?.split(whereSeparator: \.isWhitespace).first?.lowercased() == "openui" { return true }
                 if theme.svgRenderingEnabled, SVGDiagramSupport.isSVGLanguage(language) { return true }
                 if theme.mermaidRenderingMode.isEnabled {
                     return ["mermaid", "mmd", "mermaidjs"].contains(language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
@@ -721,6 +730,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram?
     var svgGraphic: RenderedSVGGraphic? = nil
+    var openUI: RenderedOpenUIContent? = nil
     /// Enclosing quote depth (0 outside any quote); drives the bars and
     /// indent children of a quote are drawn with.
     var blockquoteLevel: Int = 0
@@ -751,6 +761,7 @@ extension RenderedBlock {
         codeBlock = rendered.codeBlock
         mermaidDiagram = rendered.mermaidDiagram
         svgGraphic = rendered.svgGraphic
+        openUI = rendered.openUI
     }
 
     static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
@@ -765,7 +776,8 @@ extension RenderedBlock {
         lhs.images == rhs.images &&
         lhs.codeBlock == rhs.codeBlock &&
         lhs.mermaidDiagram == rhs.mermaidDiagram &&
-        lhs.svgGraphic == rhs.svgGraphic
+        lhs.svgGraphic == rhs.svgGraphic &&
+        lhs.openUI == rhs.openUI
     }
 }
 

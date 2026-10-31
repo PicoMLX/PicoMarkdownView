@@ -25,6 +25,9 @@ public struct PicoMarkdownView: View {
     @Environment(\.picoOnTagHover) private var onTagHover
     @Environment(\.picoOnLinkHover) private var onLinkHover
     @Environment(\.picoOnContentSize) private var onContentSize
+#if os(macOS)
+    @Environment(\.picoOnOpenUIAction) private var onOpenUIAction
+#endif
     @Environment(\.picoTextScale) private var hostTextScale
     /// Follows the Dynamic Type setting while the view is on screen. The
     /// theme already reflects the setting in force when it was created, so
@@ -167,6 +170,7 @@ public struct PicoMarkdownView: View {
 #if os(macOS)
             .withDocumentIdentity(viewModel.documentIdentity)
             .withImageTapHandler(imageTapHandler)
+            .withOpenUIAction(onOpenUIAction)
 #endif
             .task(id: consumeTaskID) {
                 await viewModel.consume(input)
@@ -300,10 +304,17 @@ private struct TextKit2Container: NSViewRepresentable {
     var controller: TextKitStreamingController
     var documentIdentity: UInt64 = 0
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+    var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
 
     func withImageTapHandler(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
         var container = self
         container.imageTapHandler = handler
+        return container
+    }
+
+    func withOpenUIAction(_ handler: ((PicoOpenUIActionEvent) -> Void)?) -> Self {
+        var container = self
+        container.onOpenUIAction = handler
         return container
     }
 
@@ -322,6 +333,7 @@ private struct TextKit2Container: NSViewRepresentable {
     var hoverHandler: ((URL?, String, CGRect?) -> Void)?
 
     func makeNSView(context: Context) -> NSTextView {
+        controller.installOpenUIActionHandler(onOpenUIAction)
         let view = controller.makeTextKit2View(configuration: configuration)
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
         controller.installContentSizeObserver(on: view, onContentSize)
@@ -332,6 +344,7 @@ private struct TextKit2Container: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
+        controller.installOpenUIActionHandler(onOpenUIAction)
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration, documentIdentity: documentIdentity)
         onMeasuredContentWidth(controller.mermaidContentWidth(for: nsView))
         controller.installContentSizeObserver(on: nsView, onContentSize)
