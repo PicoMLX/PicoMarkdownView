@@ -128,6 +128,7 @@ actor MarkdownRenderer {
     private let injectedMermaidProvider: (any MermaidDiagramProvider)?
     private let snapshotProvider: SnapshotProvider
     private let mermaidPreviewTiming: MermaidPreviewTiming
+    private let embeddedBlockRenderers: [PicoEmbeddedBlockRenderer]
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
 #if canImport(AppKit)
@@ -149,16 +150,19 @@ actor MarkdownRenderer {
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
          mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
+         embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] = [],
          snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.injectedMermaidProvider = mermaidProvider
         self.mermaidPreviewTiming = mermaidPreviewTiming
+        self.embeddedBlockRenderers = embeddedBlockRenderers
         let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
         self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
                                                          imageProvider: imageProvider,
                                                          mermaidProvider: resolvedMermaidProvider,
-                                                         mermaidPreviewTiming: mermaidPreviewTiming)
+                                                         mermaidPreviewTiming: mermaidPreviewTiming,
+                                                         embeddedBlockRenderers: embeddedBlockRenderers)
         self.snapshotProvider = snapshotProvider
     }
 
@@ -181,7 +185,8 @@ actor MarkdownRenderer {
             imageProvider: imageProvider,
             mermaidProvider: injectedMermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme),
             runtimeMermaidMaxWidth: runtimeMermaidContentWidth,
-            mermaidPreviewTiming: mermaidPreviewTiming)
+            mermaidPreviewTiming: mermaidPreviewTiming,
+                                                         embeddedBlockRenderers: embeddedBlockRenderers)
         builderGeneration &+= 1
 
         // The stream may append to a block while its scaled render awaits
@@ -430,6 +435,7 @@ actor MarkdownRenderer {
 #if canImport(AppKit)
             let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
                 || blocks[acceptedIndex].mermaidDiagram != rendered.mermaidDiagram
+                || blocks[acceptedIndex].embeddedBlock != rendered.embeddedBlock
 #else
             let didMutate = oldContent != newContent
 #endif
@@ -632,6 +638,7 @@ actor MarkdownRenderer {
                              images: rendered.images,
                              codeBlock: rendered.codeBlock,
                              mermaidDiagram: rendered.mermaidDiagram,
+                             embeddedBlock: rendered.embeddedBlock,
                              blockquoteLevel: quoteLevel,
                              listPlacement: placement)
         return (block, rendered.paragraphSpacingAfter)
@@ -659,6 +666,9 @@ actor MarkdownRenderer {
     /// there for every block inside it.
     private func listPlacement(for snapshot: BlockSnapshot) -> ListPlacement {
         func carriesMarker(_ kind: BlockKind) -> Bool {
+#if os(macOS)
+            if embeddedBlockRenderers.contains(where: { $0.matches(kind) }) { return true }
+#endif
             if case .heading = kind { return true }
 #if os(macOS)
             if case .fencedCode(let language) = kind, theme.mermaidRenderingMode.isEnabled {
@@ -709,6 +719,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var images: [RenderedImage] = []
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram?
+    var embeddedBlock: RenderedEmbeddedBlock? = nil
     /// Enclosing quote depth (0 outside any quote); drives the bars and
     /// indent children of a quote are drawn with.
     var blockquoteLevel: Int = 0
@@ -738,6 +749,7 @@ extension RenderedBlock {
         images = rendered.images
         codeBlock = rendered.codeBlock
         mermaidDiagram = rendered.mermaidDiagram
+        embeddedBlock = rendered.embeddedBlock
     }
 
     static func == (lhs: RenderedBlock, rhs: RenderedBlock) -> Bool {
@@ -751,7 +763,8 @@ extension RenderedBlock {
         lhs.math == rhs.math &&
         lhs.images == rhs.images &&
         lhs.codeBlock == rhs.codeBlock &&
-        lhs.mermaidDiagram == rhs.mermaidDiagram
+        lhs.mermaidDiagram == rhs.mermaidDiagram &&
+        lhs.embeddedBlock == rhs.embeddedBlock
     }
 }
 
