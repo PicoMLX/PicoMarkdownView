@@ -22,7 +22,7 @@ enum PicoHostedTableMarkdown {
         return ([row(headers), row(separators)] + rows.map(row)).joined(separator: "\n") + "\n"
     }
 
-    private static func inline(_ runs: [InlineRun]) -> String {
+    static func inline(_ runs: [InlineRun]) -> String {
         var coalesced: [InlineRun] = []
         for run in runs {
             if let last = coalesced.last, last.canCoalesce(with: run) {
@@ -128,13 +128,15 @@ enum PicoHostedTableMarkdown {
     }
 
     private static func escapeTitle(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
             .replacingOccurrences(of: "\n", with: " ")
     }
 
     private static func escapeDestination(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\", with: "\\\\")
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "(", with: "\\(")
             .replacingOccurrences(of: ")", with: "\\)")
             .replacingOccurrences(of: " ", with: "%20")

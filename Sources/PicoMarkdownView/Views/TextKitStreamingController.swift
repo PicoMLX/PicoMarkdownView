@@ -241,6 +241,11 @@ final class TextKitStreamingController: ObservableObject {
         backend.onHostedLink = handler
     }
 
+    func installImageTapHandler(on textView: NSTextView,
+                                _ handler: (@MainActor (MarkdownImageActivation) -> Void)?) {
+        backend.setImageTapHandler(handler)
+    }
+
     func installHoverHandler(on textView: NSTextView, _ handler: ((URL?, String, CGRect?) -> Void)?) {
         (textView as? StreamingTextKit2View)?.hoverHandler = handler
         backend.onHostedHover = handler
@@ -267,6 +272,8 @@ final class TextKitStreamingBackend {
         var mermaidDiagram: RenderedMermaidDiagram? = nil
         var codeBlockForCopy: RenderedCodeBlock? = nil
         var mermaidIsClosed = true
+        var imageRuns: [InlineRun]? = nil
+        var imageIsClosed = false
         var svgGraphic: RenderedSVGGraphic? = nil
         var hostedAttachments: [HostedRecord] = []
 #endif
@@ -289,9 +296,12 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
     private weak var contentStorage: NSTextContentStorage?
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedMermaids: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedSVGs: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedMermaids: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedSVGs: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
     private var svgStreamActive = true
+    private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
+                                         activation: MarkdownImageActivation)] = [:]
+    private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
     private var hostedRefreshIDs: Set<BlockID> = []
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -320,7 +330,7 @@ final class TextKitStreamingBackend {
         updateSVGLoadingActivity()
     }
 
-    private var svgLoadingActivity: PicoHostedVectorModel.LoadingActivity {
+    private var svgLoadingActivity: PicoHostedMediaModel.LoadingActivity {
         isPaused ? .paused : (svgStreamActive ? .receiving : .stopped)
     }
 
@@ -369,6 +379,7 @@ final class TextKitStreamingBackend {
             indexByID.removeAll()
             hostedTables.removeAll()
             hostedMermaids.removeAll()
+            hostedImages.removeAll()
             hostedSVGs.removeAll()
         }
 #endif
@@ -402,6 +413,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
                 hostedTables.removeAll()
                 hostedMermaids.removeAll()
+                hostedImages.removeAll()
                 hostedSVGs.removeAll()
 #endif
                 return NSRange(location: 0, length: 0)
@@ -415,6 +427,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
             hostedTables.removeAll()
             hostedMermaids.removeAll()
+            hostedImages.removeAll()
             hostedSVGs.removeAll()
 #endif
             return NSRange(location: 0, length: 0)
@@ -658,6 +671,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
             hostedTables.removeValue(forKey: record.id)
             hostedMermaids.removeValue(forKey: record.id)
+            hostedImages.removeValue(forKey: record.id)
             hostedSVGs.removeValue(forKey: record.id)
 #endif
         }
@@ -688,6 +702,7 @@ final class TextKitStreamingBackend {
         let liveIDs = Set(blockData.map { $0.block.id })
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
         hostedMermaids = hostedMermaids.filter { liveIDs.contains($0.key) }
+        hostedImages = hostedImages.filter { liveIDs.contains($0.key) }
         hostedSVGs = hostedSVGs.filter { liveIDs.contains($0.key) }
 #endif
         return selection.clamped(maxLength: storage.length)
@@ -858,6 +873,8 @@ final class TextKitStreamingBackend {
             && record.mermaidDiagram == block.mermaidDiagram
             && record.svgGraphic == block.svgGraphic
             && (block.mermaidDiagram == nil || record.mermaidIsClosed == block.snapshot.isClosed)
+            && (block.images.isEmpty || (record.imageIsClosed == block.snapshot.isClosed
+                && record.imageRuns == block.snapshot.inlineRuns))
 #else
         return record.content == block.content
 #endif
@@ -870,6 +887,8 @@ final class TextKitStreamingBackend {
         records[index].mermaidDiagram = block.mermaidDiagram
         records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil ? block.codeBlock : nil
         records[index].mermaidIsClosed = block.snapshot.isClosed
+        records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
+        records[index].imageIsClosed = block.snapshot.isClosed
         records[index].svgGraphic = block.svgGraphic
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
@@ -891,25 +910,27 @@ final class TextKitStreamingBackend {
     private func attributedString(for block: RenderedBlock) -> NSAttributedString {
 #if canImport(AppKit)
         if let graphic = block.svgGraphic, let attributed = hostedSVGAttributedString(for: block, graphic: graphic) {
+            hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
             hostedMermaids.removeValue(forKey: block.id)
             return attributed
         }
         hostedSVGs.removeValue(forKey: block.id)
         if let diagram = block.mermaidDiagram, let svg = diagram.svg {
+            hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
-            let entry: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)
+            let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)
             if let existing = hostedMermaids[block.id] {
                 entry = existing
                 entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
                                    isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
             } else {
-                let model = PicoHostedVectorModel(svg: svg, source: diagram.source,
+                let model = PicoHostedMediaModel(svg: svg, source: diagram.source,
                                                   language: block.codeBlock?.language,
                                                   isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
                 let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                     markdown: { model.markdownRepresentation() }) { context in
-                        PicoHostedVectorView(model: model, context: context)
+                        PicoHostedMediaView(model: model, context: context)
                     }
                 entry = (model, attachment)
                 hostedMermaids[block.id] = entry
@@ -922,9 +943,15 @@ final class TextKitStreamingBackend {
             return attributed
         }
         hostedMermaids.removeValue(forKey: block.id)
+        let native = NSAttributedString.picoConverted(from: block.content)
+        if let image = hostedImage(for: block, attributed: native) {
+            hostedTables.removeValue(forKey: block.id)
+            return image
+        }
+        hostedImages.removeValue(forKey: block.id)
         guard let table = block.table, let snapshot = block.snapshot.table else {
             hostedTables.removeValue(forKey: block.id)
-            let attributed = NSAttributedString.picoConverted(from: block.content)
+            let attributed = native
             if case .heading(let level) = block.kind, level == 1 || level == 2 {
                 return MacHeadingUnderline.applying(to: attributed)
             }
@@ -970,11 +997,71 @@ final class TextKitStreamingBackend {
     }
 
 #if canImport(AppKit)
+    /// Wait for closure: more text in the same streamed paragraph would make
+    /// this an inline image. Reuse the renderer's loaded image and preserve
+    /// native list markers, quote bars, paragraph spacing and indentation.
+    private func hostedImage(for block: RenderedBlock, attributed: NSAttributedString) -> NSAttributedString? {
+        switch block.kind {
+        case .paragraph, .listItem, .blockquote: break
+        default: return nil
+        }
+        guard block.snapshot.isClosed, block.images.count == 1,
+              let runs = block.snapshot.inlineRuns else { return nil }
+        var imageRun: InlineRun?
+        for run in runs {
+            if run.image != nil {
+                guard imageRun == nil else { return nil }
+                imageRun = run
+            } else if !run.style.isEmpty || run.linkURL != nil || run.math != nil || run.tag != nil
+                        || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        guard let run = imageRun else { return nil }
+        var loaded: (attachment: NSTextAttachment, range: NSRange)?
+        attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
+            if let attachment = value as? NSTextAttachment, attachment.image != nil {
+                loaded = (attachment, range)
+            }
+        }
+        guard let loaded, let image = loaded.attachment.image, loaded.range.length == 1 else { return nil }
+        let size = loaded.attachment.bounds.size
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
+        guard let source = run.image?.source, let sourceURL = URL(string: source) else { return nil }
+        let markdown = PicoHostedTableMarkdown.inline([run])
+        let activation = MarkdownImageActivation(image: image, sourceURL: sourceURL, altText: run.text,
+                                                  title: run.image?.title, preferredSize: size, markdown: markdown)
+        let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
+                    activation: MarkdownImageActivation)
+        if let existing = hostedImages[block.id] {
+            entry = (existing.model, existing.attachment, activation)
+            entry.model.update(image: image, size: size, markdown: markdown, altText: run.text,
+                               title: run.image?.title, maxWidth: size.width)
+            entry.attachment.invalidateSize()
+        } else {
+            let model = PicoHostedMediaModel(image: image, size: size, markdown: markdown,
+                                             altText: run.text, title: run.image?.title, maxWidth: size.width)
+            let attachment = PicoHostedAttachment(interaction: .selectableBlock,
+                markdown: { model.markdownRepresentation() }) { context in
+                    PicoHostedMediaView(model: model, context: context)
+                }
+            entry = (model, attachment, activation)
+        }
+        hostedImages[block.id] = entry
+        configureImageActivation(for: block.id)
+        let result = NSMutableAttributedString(attributedString: attributed)
+        result.addAttribute(.attachment, value: entry.attachment, range: loaded.range)
+        if imageTapHandler != nil, let link = imageActivationLink(for: block.id) {
+            result.addAttributes([.link: link, .toolTip: "Open image"], range: loaded.range)
+        }
+        return result
+    }
+
     /// Keep one attachment while an SVG fence loads, then validate the closed
     /// drawing. Closed fences retain native code in `block.content` for fallback.
     private func hostedSVGAttributedString(for block: RenderedBlock,
                                            graphic: RenderedSVGGraphic) -> NSAttributedString? {
-        let entry: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)
+        let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)
         if let existing = hostedSVGs[block.id] {
             existing.model.update(svg: graphic.source, source: graphic.source,
                                   language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth)
@@ -985,13 +1072,13 @@ final class TextKitStreamingBackend {
                 height: existing.model.viewportHeight(availableWidth: width)))
             entry = existing
         } else {
-            let model = PicoHostedVectorModel(svg: graphic.source, source: graphic.source,
+            let model = PicoHostedMediaModel(svg: graphic.source, source: graphic.source,
                                               language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth, kind: .svg)
             model.setLoadingActivity(svgLoadingActivity)
             guard !graphic.isClosed || model.isRenderable else { return nil }
             let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                 markdown: { model.markdownRepresentation() }) { context in
-                    PicoHostedVectorView(model: model, context: context)
+                    PicoHostedMediaView(model: model, context: context)
                 }
             // A transparent placeholder avoids AppKit's generic file icon
             // while retaining the nonnil image that bootstraps lazy providers.
@@ -1043,6 +1130,105 @@ final class TextKitStreamingBackend {
         entry.attachment.invalidateSize()
         updateTableRecord(at: index, block: block)
         return true
+    }
+
+    /// Changing the callback updates only the attachment link attribute and
+    /// existing accessibility actions; it never rebuilds the Markdown stream.
+    func setImageTapHandler(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) {
+        let wasEnabled = imageTapHandler != nil
+        imageTapHandler = handler
+        guard wasEnabled != (handler != nil) else { return }
+        let patch = {
+            self.storage.beginEditing()
+            defer { self.storage.endEditing() }
+            for id in self.hostedImages.keys {
+                self.configureImageActivation(for: id)
+                self.updateImageActivationLink(for: id)
+            }
+        }
+        if let contentStorage { contentStorage.performEditingTransaction(patch) }
+        else { patch() }
+    }
+
+    /// The reserved route is always consumed here, including invalid/stale
+    /// tokens, so it cannot escape through the app's ordinary link handler.
+    func isImageActivationLink(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "pico-image-activation"
+    }
+
+    private func imageActivationLink(for id: BlockID) -> URL? {
+        guard let entry = hostedImages[id] else { return nil }
+        return URL(string: "pico-image-activation://\(documentGeneration)/\(id)/\(entry.attachment.hostedContentID.uuidString)")
+    }
+
+    @discardableResult
+    func activateImageLink(_ url: URL, at characterIndex: Int) -> Bool {
+        guard imageTapHandler != nil, characterIndex >= 0, characterIndex < storage.length,
+              let attachment = storage.attribute(.attachment, at: characterIndex, effectiveRange: nil) as? PicoHostedAttachment,
+              let currentLink = storage.attribute(.link, at: characterIndex, effectiveRange: nil) as? URL,
+              currentLink == url else { return false }
+        for (id, entry) in hostedImages where entry.attachment === attachment {
+            guard indexByID[id] != nil, imageActivationLink(for: id) == url else { return false }
+            return entry.model.activateImage()
+        }
+        return false
+    }
+
+    private func updateImageActivationLink(for id: BlockID) {
+        guard let entry = hostedImages[id], let index = indexByID[id],
+              let hosted = records[index].hostedAttachments.first(where: { $0.attachment === entry.attachment }) else { return }
+        let local = NSRange(location: hosted.offset, length: 1)
+        let range = NSRange(location: rangeForRecord(at: index).location + hosted.offset, length: 1)
+        let attributed = NSMutableAttributedString(attributedString: records[index].nsAttributed)
+        if imageTapHandler != nil, let link = imageActivationLink(for: id) {
+            let attributes: [NSAttributedString.Key: Any] = [.link: link, .toolTip: "Open image"]
+            storage.addAttributes(attributes, range: range)
+            attributed.addAttributes(attributes, range: local)
+        } else {
+            storage.removeAttribute(.link, range: range)
+            storage.removeAttribute(.toolTip, range: range)
+            attributed.removeAttribute(.link, range: local)
+            attributed.removeAttribute(.toolTip, range: local)
+        }
+        records[index].nsAttributed = attributed
+    }
+
+    private func configureImageActivation(for id: BlockID) {
+        guard let entry = hostedImages[id] else { return }
+        guard imageTapHandler != nil else {
+            entry.model.onImageTap = nil
+            return
+        }
+        entry.model.onImageTap = { [weak self, weak model = entry.model] in
+            guard let self, let model, let current = self.hostedImages[id], current.model === model else { return }
+            self.imageTapHandler?(current.activation)
+        }
+    }
+
+    func imageID(for view: NSView) -> BlockID? {
+        hostedImages.first { id, entry in
+            guard indexByID[id] != nil, let host = entry.attachment.hostingView else { return false }
+            return view === host || view.isDescendant(of: host)
+        }?.key
+    }
+
+    func imageMarkdownForCopy(id: BlockID) -> String? {
+        guard let entry = hostedImages[id], let index = indexByID[id],
+              records[index].hostedAttachments.contains(where: { $0.attachment === entry.attachment }) else { return nil }
+        return entry.activation.markdown
+    }
+
+    /// Native text selection may select the image's one-character attachment
+    /// on a click. That atomic selection is distinct from selecting a range.
+    func imageAttachmentRange(for view: NSView) -> NSRange? {
+        for (id, entry) in hostedImages {
+            guard let host = entry.attachment.hostingView,
+                  view === host || view.isDescendant(of: host),
+                  let index = indexByID[id],
+                  let hosted = records[index].hostedAttachments.first(where: { $0.attachment === entry.attachment }) else { continue }
+            return NSRange(location: rangeForRecord(at: index).location + hosted.offset, length: 1)
+        }
+        return nil
     }
 
     private func updateHostedMermaidOnly(at index: Int, block: RenderedBlock) -> Bool {
@@ -1104,7 +1290,7 @@ final class TextKitStreamingBackend {
     func resetDocumentOnNextApply() { shouldResetDocument = true }
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
-        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment
+        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment ?? hostedSVGs[id]?.attachment ?? hostedImages[id]?.attachment
     }
 #endif
 

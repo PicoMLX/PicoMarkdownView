@@ -4,6 +4,9 @@ import Observation
 public struct PicoMarkdownView: View {
     private let input: MarkdownStreamingInput
     private let configuration: PicoTextKitConfiguration
+#if os(macOS)
+    private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+#endif
 
     @State private var viewModel: MarkdownStreamingViewModel
     /// Stable per-view-identity token used as the `.task` id for `.stream`
@@ -38,6 +41,19 @@ public struct PicoMarkdownView: View {
         self.configuration = configuration
         _viewModel = State(initialValue: MarkdownStreamingViewModel(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes))
     }
+
+#if os(macOS)
+    /// Activates loaded standalone images without adding inline controls.
+    /// The app can present the captured image in its own window or sheet.
+    /// Apply this modifier before generic View modifiers such as `padding()`.
+    /// Updating the handler does not restart the Markdown stream. Pass `nil`
+    /// to remove activation while keeping the same view and image attachments.
+    public func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
 
     private var consumeTaskID: String {
         guard input.isStream else { return input.id }
@@ -151,6 +167,7 @@ public struct PicoMarkdownView: View {
 #if os(macOS)
             .withDocumentIdentity(viewModel.documentIdentity)
             .withSVGStreamActive(viewModel.isSVGStreamActive)
+            .withImageTapHandler(imageTapHandler)
 #endif
             .task(id: consumeTaskID) {
                 await viewModel.consume(input)
@@ -284,10 +301,17 @@ private struct TextKit2Container: NSViewRepresentable {
     var controller: TextKitStreamingController
     var documentIdentity: UInt64 = 0
     var isSVGStreamActive = false
+    var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
 
     func withSVGStreamActive(_ active: Bool) -> Self {
         var container = self
         container.isSVGStreamActive = active
+        return container
+    }
+
+    func withImageTapHandler(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
+        var container = self
+        container.imageTapHandler = handler
         return container
     }
 
@@ -311,6 +335,7 @@ private struct TextKit2Container: NSViewRepresentable {
         controller.installContentSizeObserver(on: view, onContentSize)
         controller.installLinkHandler(on: view, linkHandler)
         controller.installHoverHandler(on: view, hoverHandler)
+        controller.installImageTapHandler(on: view, imageTapHandler)
         return view
     }
 
@@ -322,6 +347,7 @@ private struct TextKit2Container: NSViewRepresentable {
         controller.installContentSizeObserver(on: nsView, onContentSize)
         controller.installLinkHandler(on: nsView, linkHandler)
         controller.installHoverHandler(on: nsView, hoverHandler)
+        controller.installImageTapHandler(on: nsView, imageTapHandler)
     }
 }
 #endif

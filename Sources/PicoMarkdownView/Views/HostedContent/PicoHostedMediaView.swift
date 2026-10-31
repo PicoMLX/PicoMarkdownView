@@ -3,8 +3,8 @@ import AppKit
 import SwiftUI
 
 @MainActor
-struct PicoHostedVectorView: View {
-    let model: PicoHostedVectorModel
+struct PicoHostedMediaView: View {
+    let model: PicoHostedMediaModel
     let context: PicoHostedAttachmentContext
 
     var body: some View {
@@ -12,7 +12,7 @@ struct PicoHostedVectorView: View {
         // Keep the native drawing view in the same hosting hierarchy when
         // the loading row becomes a graphic. Only its presentation changes.
         ZStack(alignment: .topLeading) {
-            PicoHostedVectorCanvas(model: model, isSelected: context.isSelected)
+            PicoHostedMediaCanvas(model: model, isSelected: context.isSelected)
                 .frame(width: width,
                        height: model.viewportHeight(availableWidth: width))
             if model.isLoadingSVG {
@@ -26,22 +26,24 @@ struct PicoHostedVectorView: View {
 }
 
 @MainActor
-private struct PicoHostedVectorCanvas: NSViewRepresentable {
-    let model: PicoHostedVectorModel
+private struct PicoHostedMediaCanvas: NSViewRepresentable {
+    let model: PicoHostedMediaModel
     let isSelected: Bool
-    func makeNSView(context: Context) -> PicoHostedVectorCanvasView {
-        PicoHostedVectorCanvasView(model: model)
+    func makeNSView(context: Context) -> PicoHostedMediaCanvasView {
+        PicoHostedMediaCanvasView(model: model)
     }
 
-    func updateNSView(_ view: PicoHostedVectorCanvasView, context: Context) {
+    func updateNSView(_ view: PicoHostedMediaCanvasView, context: Context) {
         view.isSelected = isSelected
         view.refreshPresentation()
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedVectorCanvasView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: PicoHostedMediaCanvasView, context: Context) -> CGSize? {
         let width = model.viewportWidth(availableWidth: proposal.width ?? 1)
         return CGSize(width: width,
                       height: model.viewportHeight(availableWidth: width))
     }
 }
+typealias PicoHostedVectorView = PicoHostedMediaView
+typealias PicoHostedMermaidView = PicoHostedMediaView
 #endif

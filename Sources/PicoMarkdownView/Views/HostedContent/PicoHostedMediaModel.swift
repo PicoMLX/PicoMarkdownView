@@ -5,28 +5,46 @@ import Observation
 /// Source and interaction state survive attachment measurement and redraws.
 @MainActor
 @Observable
-final class PicoHostedVectorModel {
+final class PicoHostedMediaModel {
     enum Fit: Equatable { case diagram, width }
     enum LoadingActivity: Equatable { case receiving, paused, stopped }
     static let svgLoadingDelay: Duration = .milliseconds(350)
     static let svgLoadingHeight: CGFloat = 48
     enum Kind {
-        case mermaid, svg
+        case mermaid, svg, image
 
-        var defaultLanguage: String { self == .mermaid ? "mermaid" : "svg" }
-        var accessibilityLabel: String { self == .mermaid ? "Mermaid diagram" : "SVG graphic" }
-        var copyTitle: String { self == .mermaid ? "Copy Mermaid" : "Copy SVG" }
+        var defaultLanguage: String {
+            switch self { case .mermaid: "mermaid"; case .svg: "svg"; case .image: "" }
+        }
+        var accessibilityLabel: String {
+            switch self { case .mermaid: "Mermaid diagram"; case .svg: "SVG graphic"; case .image: "Image" }
+        }
+        var copyTitle: String {
+            switch self { case .mermaid: "Copy Mermaid"; case .svg: "Copy SVG"; case .image: "Copy Image Markdown" }
+        }
         var copyHelp: String {
-            self == .mermaid
-                ? "Copies the diagram's Mermaid source as Markdown, including its code fences."
-                : "Copies the graphic's SVG source as Markdown, including its code fences."
+            switch self {
+            case .mermaid: "Copies the diagram's Mermaid source as Markdown, including its code fences."
+            case .svg: "Copies the graphic's SVG source as Markdown, including its code fences."
+            case .image: "Copies the image's Markdown, including its source, alternative text and title."
+            }
         }
         var copyToolTip: String {
-            self == .mermaid ? "Copy Mermaid Markdown, including code fences." : "Copy SVG Markdown, including code fences."
+            switch self {
+            case .mermaid: "Copy Mermaid Markdown, including code fences."
+            case .svg: "Copy SVG Markdown, including code fences."
+            case .image: "Copy Image Markdown."
+            }
         }
     }
 
     let kind: Kind
+    private(set) var altText = ""
+    private(set) var title: String?
+    /// Optional activation belongs to the app; images remain static otherwise.
+    var onImageTap: (@MainActor () -> Void)? {
+        didSet { onPresentationChanged?() }
+    }
 
     private(set) var source: String
     private(set) var language: String?
@@ -46,6 +64,7 @@ final class PicoHostedVectorModel {
     @ObservationIgnored private(set) var document: PicoHostedVectorDocument?
     @ObservationIgnored private var svg: String
     @ObservationIgnored private var loadingTask: Task<Void, Never>?
+    @ObservationIgnored private var image: NSImage?
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
@@ -65,6 +84,35 @@ final class PicoHostedVectorModel {
     }
 
     deinit { loadingTask?.cancel() }
+
+    init(image: NSImage, size: CGSize, markdown: String, altText: String,
+         title: String? = nil, maxWidth: CGFloat? = nil) {
+        self.kind = .image
+        self.svg = ""
+        self.image = image
+        self.source = markdown
+        self.language = nil
+        self.isClosed = true
+        self.altText = altText
+        self.title = title
+        self.intrinsicSize = Self.normalizedImageSize(size)
+        self.maxWidth = Self.normalizedMaxWidth(maxWidth)
+    }
+
+    func update(image: NSImage, size: CGSize, markdown: String, altText: String,
+                title: String? = nil, maxWidth: CGFloat? = nil) {
+        let size = Self.normalizedImageSize(size)
+        let maxWidth = Self.normalizedMaxWidth(maxWidth)
+        guard self.image !== image || intrinsicSize != size || source != markdown
+                || self.altText != altText || self.title != title || self.maxWidth != maxWidth else { return }
+        self.image = image
+        self.intrinsicSize = size
+        self.source = markdown
+        self.altText = altText
+        self.title = title
+        self.maxWidth = maxWidth
+        changed()
+    }
 
     func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
         let maxWidth = Self.normalizedMaxWidth(maxWidth)
@@ -88,7 +136,8 @@ final class PicoHostedVectorModel {
         changed()
     }
 
-    var isRenderable: Bool { document != nil }
+    var isImage: Bool { kind == .image }
+    var isRenderable: Bool { isImage ? image != nil : document != nil }
     var isLoadingSVG: Bool { kind == .svg && !isClosed }
 
     func setLoadingActivity(_ activity: LoadingActivity) {
@@ -119,17 +168,59 @@ final class PicoHostedVectorModel {
         }
     }
 
+    var canActivateImage: Bool { isImage && image != nil && onImageTap != nil }
+
+    var accessibilityLabel: String {
+        if isImage { return !altText.isEmpty ? altText : title.flatMap { $0.isEmpty ? nil : $0 } ?? "Image" }
+        let description = document?.accessibilityDescription
+        return description.map { kind.accessibilityLabel + ": " + $0 } ?? kind.accessibilityLabel
+    }
+
+    var imageAccessibilityHelp: String? {
+        let caption = title.flatMap { $0.isEmpty ? nil : $0 }
+        let activation = canActivateImage ? "Open image. Press Space or Return to activate." : nil
+        let parts = [caption, activation].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: ". ")
+    }
+
+    @discardableResult
+    func activateImage() -> Bool {
+        guard canActivateImage, let onImageTap else { return false }
+        onImageTap()
+        return true
+    }
+
+    /// Source images retain their own resolution; vector decoders stay separate.
+    func draw(in context: CGContext, destination: CGRect) {
+        guard destination.width > 0, destination.height > 0 else { return }
+        if let image {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+            context.interpolationQuality = .high
+            image.draw(in: destination, from: .zero, operation: .sourceOver,
+                       fraction: 1, respectFlipped: true, hints: nil)
+            NSGraphicsContext.restoreGraphicsState()
+        } else if let document {
+            context.saveGState()
+            context.translateBy(x: destination.minX, y: destination.minY)
+            context.scaleBy(x: destination.width / document.width, y: destination.height / document.height)
+            document.draw(in: context)
+            context.restoreGState()
+        }
+    }
+
     func viewportWidth(availableWidth: CGFloat) -> CGFloat {
         let available = availableWidth.isFinite ? max(1, availableWidth) : 1
-        return min(available, maxWidth ?? available)
+        let capped = min(available, maxWidth ?? available)
+        return isImage ? min(capped, intrinsicSize.width) : capped
     }
 
     func viewportHeight(availableWidth: CGFloat) -> CGFloat {
         if isLoadingSVG { return Self.svgLoadingHeight }
-        if isExpanded { return 600 }
+        if !isImage && isExpanded { return 600 }
         let width = viewportWidth(availableWidth: availableWidth)
         let height = intrinsicSize.height * width / max(1, intrinsicSize.width)
-        return min(360, max(140, height))
+        return isImage ? max(1, height) : min(360, max(140, height))
     }
 
     func updateViewport(_ size: CGSize) {
@@ -150,18 +241,19 @@ final class PicoHostedVectorModel {
     }
 
     var capturesScroll: Bool {
+        guard !isImage else { return false }
         let rect = drawingRect(in: viewport)
         return isNavigationActive && (rect.width > viewport.width + 0.5 || rect.height > viewport.height + 0.5)
     }
 
     func activateNavigation() {
-        guard !isNavigationActive else { return }
+        guard !isImage, !isNavigationActive else { return }
         isNavigationActive = true
         changed()
     }
 
     func zoom(by factor: CGFloat) {
-        guard factor.isFinite, factor > 0 else { return }
+        guard !isImage, factor.isFinite, factor > 0 else { return }
         let next = min(8, max(0.25, zoom * factor))
         guard next != zoom else { return }
         zoom = next
@@ -171,6 +263,7 @@ final class PicoHostedVectorModel {
     }
 
     func fitDiagram() {
+        guard !isImage else { return }
         fit = .diagram
         zoom = 1
         pan = .zero
@@ -179,6 +272,7 @@ final class PicoHostedVectorModel {
     }
 
     func fitWidth() {
+        guard !isImage else { return }
         fit = .width
         zoom = 1
         pan = .zero
@@ -187,13 +281,14 @@ final class PicoHostedVectorModel {
     }
 
     func toggleExpanded() {
+        guard !isImage else { return }
         isExpanded.toggle()
         changed()
     }
 
     @discardableResult
     func pan(by delta: CGPoint) -> Bool {
-        guard delta.x.isFinite, delta.y.isFinite else { return false }
+        guard !isImage, delta.x.isFinite, delta.y.isFinite else { return false }
         let next = clamped(CGPoint(x: pan.x + delta.x, y: pan.y + delta.y))
         guard next != pan else { return false }
         pan = next
@@ -202,6 +297,7 @@ final class PicoHostedVectorModel {
     }
 
     func markdownRepresentation() -> String {
+        if isImage { return source }
         let info = language ?? kind.defaultLanguage
         let marker: Character = info.contains("`") ? "~" : "`"
         var longest = 0
@@ -241,6 +337,7 @@ final class PicoHostedVectorModel {
         case .svg:
             // User-supplied SVG must fall back to source if a later update is invalid.
             document = NativeSVGDocument(svg: svg).map(PicoHostedVectorDocument.svg)
+        case .image: return
         }
         intrinsicSize = document.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
     }
@@ -260,6 +357,13 @@ final class PicoHostedVectorModel {
         return CGPoint(x: min(x, max(-x, point.x)), y: min(y, max(-y, point.y)))
     }
 
+    private static func normalizedImageSize(_ size: CGSize) -> CGSize {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else {
+            return CGSize(width: 1, height: 1)
+        }
+        return size
+    }
+
     private static func normalizedMaxWidth(_ width: CGFloat?) -> CGFloat? {
         width.flatMap { $0.isFinite && $0 > 0 ? max(1, $0) : nil }
     }
@@ -269,7 +373,10 @@ final class PicoHostedVectorModel {
         onPresentationChanged?()
     }
 }
-/// Both sources use the same viewport and controls; their decoders stay separate.
+typealias PicoHostedVectorModel = PicoHostedMediaModel
+typealias PicoHostedMermaidModel = PicoHostedMediaModel
+
+/// Vector sources share a viewport and controls; their decoders stay separate.
 @MainActor
 enum PicoHostedVectorDocument {
     case pele(PeleSVGDocument)
