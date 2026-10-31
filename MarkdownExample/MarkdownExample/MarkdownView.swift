@@ -20,7 +20,7 @@ struct MarkdownView: View {
     private let localPath: String
     private let tagPrefixes: Set<TagPrefix>
     private let inputID: UUID
-    private let chunkCharacters: Int?
+    private let isLargeFixture: Bool
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -39,10 +39,10 @@ struct MarkdownView: View {
     init(_ example: MarkdownExample) {
         self.webURL = example.webURL
         self.localPath = example.localPath
-        self._markdown = State(initialValue: example.chunkCharacters == nil ? try! example.loadMarkdown() : nil)
+        self._markdown = State(initialValue: example.isLargeFixture ? nil : try! example.loadMarkdown())
         self.tagPrefixes = example.tagPrefixes
         self.inputID = example.id
-        self.chunkCharacters = example.chunkCharacters
+        self.isLargeFixture = example.isLargeFixture
     }
 
     var body: some View {
@@ -57,7 +57,7 @@ struct MarkdownView: View {
             }
         }
         .task(id: inputID) {
-            guard markdown == nil, chunkCharacters != nil else { return }
+            guard markdown == nil, isLargeFixture else { return }
             do {
                 let text = try await loadGalleryMarkdown(from: localPath)
                 try Task.checkCancellation()
@@ -82,7 +82,6 @@ struct MarkdownView: View {
                             // re-evaluate PicoMarkdownView's body (restarting the stream).
                             StreamingMarkdownContent(markdown: markdown,
                                                      inputID: inputID,
-                                                     chunkCharacters: chunkCharacters,
                                                      tagPrefixes: tagPrefixes,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
@@ -96,13 +95,13 @@ struct MarkdownView: View {
                             let visibleBottom = offsetY + geometry.containerSize.height
                             let isNearBottom = geometry.contentSize.height - visibleBottom < AutoScrollConfig.nearBottomThreshold
                             return ScrollMetrics(offsetY: offsetY, isNearBottom: isNearBottom,
-                                                 contentHeight: chunkCharacters == nil ? 0 : geometry.contentSize.height)
+                                                 contentHeight: isLargeFixture ? geometry.contentSize.height : 0)
                         } action: { oldMetrics, newMetrics in
                             handleScrollMetricsChange(from: oldMetrics, to: newMetrics)
                         }
                     }
                 }
-                if chunkCharacters == nil {
+                if !isLargeFixture {
                     Tab("Diagnostics", systemImage: "ladybug") {
                         ScrollView {
                             PicoMarkdownDebugView(text: markdown)
@@ -169,7 +168,7 @@ struct MarkdownView: View {
     /// replacements can shrink the document. Also feeds the status readout.
     private func handleContentSizeChange(_ size: CGSize) {
         contentSize = size
-        guard chunkCharacters == nil, isAutoScrolling else { return }
+        guard !isLargeFixture, isAutoScrolling else { return }
         // Suppress the brief window after our own programmatic scroll so its
         // animation frames aren't later misread by the scroll observer as a
         // user scroll-up.
@@ -180,7 +179,7 @@ struct MarkdownView: View {
     /// Scroll position pauses/resumes following. The gallery additionally follows
     /// height changes after SwiftUI has applied them to the scroll view.
     private func handleScrollMetricsChange(from old: ScrollMetrics, to new: ScrollMetrics) {
-        if chunkCharacters != nil {
+        if isLargeFixture {
             // A closed fence can replace thousands of source lines with one chart.
             // Follow only once SwiftUI knows the new height, not from the earlier
             // NSTextView size callback. Reflow is not a user scroll gesture.
@@ -256,7 +255,6 @@ private enum AutoScrollConfig {
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let inputID: UUID
-    let chunkCharacters: Int?
     let tagPrefixes: Set<TagPrefix>
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
@@ -265,16 +263,12 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onContentSize: (CGSize) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.inputID == rhs.inputID && lhs.chunkCharacters == rhs.chunkCharacters
+        lhs.inputID == rhs.inputID
     }
 
     var body: some View {
-        PicoMarkdownView(stream: { [markdown, chunkCharacters] in
-            if let chunkCharacters {
-                let cursor = MarkdownChunkCursor(markdown: markdown, chunkCharacters: chunkCharacters)
-                return AsyncStream(unfolding: { await cursor.next() })
-            }
-            return wordStream(from: markdown)
+        PicoMarkdownView(stream: { [markdown] in
+            wordStream(from: markdown)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes)
             .id(inputID)
             .textSelection(.enabled)
@@ -306,34 +300,6 @@ private struct StreamingMarkdownContent: View, Equatable {
 #else
         .default()
 #endif
-    }
-}
-
-/// Pull-based delivery prevents a large gallery from filling an unbounded
-/// AsyncStream queue. Pacing each subsequent pull makes incremental rendering
-/// visible without spending minutes delivering the embedded datasets word by word.
-private actor MarkdownChunkCursor {
-    private let markdown: String
-    private let chunkCharacters: Int
-    private var index: String.Index
-
-    init(markdown: String, chunkCharacters: Int) {
-        self.markdown = markdown
-        self.chunkCharacters = max(1, chunkCharacters)
-        self.index = markdown.startIndex
-    }
-
-    func next() async -> String? {
-        guard !Task.isCancelled, index < markdown.endIndex else { return nil }
-        if index != markdown.startIndex {
-            do { try await Task.sleep(for: .milliseconds(33)) }
-            catch { return nil }
-        }
-        guard !Task.isCancelled else { return nil }
-        let end = markdown.index(index, offsetBy: chunkCharacters, limitedBy: markdown.endIndex) ?? markdown.endIndex
-        let chunk = String(markdown[index..<end])
-        index = end
-        return chunk
     }
 }
 

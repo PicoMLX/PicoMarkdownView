@@ -279,9 +279,9 @@ Vega-Lite 6.5.0 gallery: 203 placements of 189 distinct specifications. Its nati
 preview keeps all example headings and links, renders the 53 currently supported
 placements with their exact exported source, and gives short notices for the
 150 examples outside the current profile. The five-example **Charts** page is
-still available for quick checks. The gallery demo delivers 2,048-character chunks
-at 33 ms intervals so incremental rendering is visible; charts appear when their
-JSON fences close. The performance benchmark has no artificial delivery delay.
+still available for quick checks. Both pages use the same word-by-word stream at
+about 30 words per second; charts appear when their JSON fences close. The
+performance benchmark has no artificial delivery delay.
 
 The complete, unmodified gallery export includes every dataset in full and is
 about 64 MiB of Markdown (9.2 MiB in compressed storage). It remains a separate

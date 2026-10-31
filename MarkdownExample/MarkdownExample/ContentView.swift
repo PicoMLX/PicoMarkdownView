@@ -18,20 +18,20 @@ struct MarkdownExample: Identifiable, Hashable {
     /// Most examples use the defaults (`@`, `#`); the Tags demo opts into the
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
-    /// Large offline fixtures use paced, pull-based chunks instead of word delays.
-    let chunkCharacters: Int?
+    /// Large offline fixtures load asynchronously and omit the extra diagnostic views.
+    let isLargeFixture: Bool
 
     init(localFilename: String,
          webURL: String,
          displayName: String? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
-         chunkCharacters: Int? = nil) {
+         isLargeFixture: Bool = false) {
         self.name = displayName ?? localFilename
         self.localPath = (Bundle.main.path(forResource: localFilename, ofType: "md")
             ?? Bundle.main.path(forResource: localFilename, ofType: "md.deflate"))!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
-        self.chunkCharacters = chunkCharacters
+        self.isLargeFixture = isLargeFixture
     }
 
     func loadMarkdown() throws -> String {
@@ -93,7 +93,7 @@ struct MarkdownExample: Identifiable, Hashable {
         examples.insert(MarkdownExample(localFilename: "Charts-Gallery-Preview",
                                         webURL: "https://vega.github.io/vega-lite/examples/",
                                         displayName: "Charts-Gallery",
-                                        chunkCharacters: 2_048), at: charts + 1)
+                                        isLargeFixture: true), at: charts + 1)
         #endif
         return examples
     }()
