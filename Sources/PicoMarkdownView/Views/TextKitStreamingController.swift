@@ -258,7 +258,8 @@ final class TextKitStreamingBackend {
         var table: RenderedTable? = nil
         var tableSnapshot: TableSnapshot? = nil
         var mermaidDiagram: RenderedMermaidDiagram? = nil
-        var mermaidIsClosed = true
+        var vegaLiteChart: RenderedVegaLiteChart? = nil
+        var vectorIsClosed = true
         var hostedAttachments: [HostedRecord] = []
 #endif
     }
@@ -280,7 +281,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
     private weak var contentStorage: NSTextContentStorage?
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedMermaids: [BlockID: (model: PicoHostedMermaidModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedVectors: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -331,7 +332,7 @@ final class TextKitStreamingBackend {
             blockOffsets = [0]
             indexByID.removeAll()
             hostedTables.removeAll()
-            hostedMermaids.removeAll()
+            hostedVectors.removeAll()
         }
 #endif
         if deferred != nil {
@@ -363,7 +364,7 @@ final class TextKitStreamingBackend {
                 indexByID = [:]
 #if canImport(AppKit)
                 hostedTables.removeAll()
-                hostedMermaids.removeAll()
+                hostedVectors.removeAll()
 #endif
                 return NSRange(location: 0, length: 0)
             }
@@ -375,7 +376,7 @@ final class TextKitStreamingBackend {
             indexByID = [:]
 #if canImport(AppKit)
             hostedTables.removeAll()
-            hostedMermaids.removeAll()
+            hostedVectors.removeAll()
 #endif
             return NSRange(location: 0, length: 0)
         }
@@ -407,7 +408,7 @@ final class TextKitStreamingBackend {
             let data = blockData[index]
             if recordMatches(record, block: data.block) { continue }
 #if canImport(AppKit)
-            if updateHostedMermaidOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
+            if updateHostedVectorOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
 #endif
 
             let oldLength = record.length
@@ -418,7 +419,7 @@ final class TextKitStreamingBackend {
             records[index].content = data.block.content
             records[index].length = data.attributed.length
             records[index].nsAttributed = data.attributed
-            updateTableRecord(at: index, block: data.block)
+            updateHostedRecord(at: index, block: data.block)
 
             // Incremental offset update - O(1) for last block updates (streaming!)
             let delta = data.attributed.length - oldLength
@@ -546,7 +547,7 @@ final class TextKitStreamingBackend {
         storage.replaceCharacters(in: editedRange, with: attributed)
 
         records.insert(record, at: clampedIndex)
-        updateTableRecord(at: clampedIndex, block: block)
+        updateHostedRecord(at: clampedIndex, block: block)
         for i in clampedIndex..<records.count {
             indexByID[records[i].id] = i
         }
@@ -565,7 +566,7 @@ final class TextKitStreamingBackend {
         let record = records[index]
         guard !recordMatches(record, block: block) else { return selection }
 #if canImport(AppKit)
-        if updateHostedMermaidOnly(at: index, block: block) || updateHostedTableOnly(at: index, block: block) { return selection }
+        if updateHostedVectorOnly(at: index, block: block) || updateHostedTableOnly(at: index, block: block) { return selection }
 #endif
 
         let newAttributed = attributedString(for: block)
@@ -587,7 +588,7 @@ final class TextKitStreamingBackend {
         records[index].content = block.content
         records[index].length = newAttributed.length
         records[index].nsAttributed = newAttributed
-        updateTableRecord(at: index, block: block)
+        updateHostedRecord(at: index, block: block)
 
         let delta = newAttributed.length - oldLength
         if delta != 0 {
@@ -617,7 +618,7 @@ final class TextKitStreamingBackend {
             indexByID[record.id] = nil
 #if canImport(AppKit)
             hostedTables.removeValue(forKey: record.id)
-            hostedMermaids.removeValue(forKey: record.id)
+            hostedVectors.removeValue(forKey: record.id)
 #endif
         }
         records.removeSubrange(removalRange)
@@ -646,14 +647,14 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         let liveIDs = Set(blockData.map { $0.block.id })
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
-        hostedMermaids = hostedMermaids.filter { liveIDs.contains($0.key) }
+        hostedVectors = hostedVectors.filter { liveIDs.contains($0.key) }
 #endif
         return selection.clamped(maxLength: storage.length)
     }
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
         records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
-        for index in records.indices { updateTableRecord(at: index, block: blockData[index].block) }
+        for index in records.indices { updateHostedRecord(at: index, block: blockData[index].block) }
         indexByID = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
         rebuildOffsets()
     }
@@ -813,19 +814,20 @@ final class TextKitStreamingBackend {
     private func recordMatches(_ record: BlockRecord, block: RenderedBlock) -> Bool {
 #if canImport(AppKit)
         return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
-            && record.mermaidDiagram == block.mermaidDiagram
-            && (block.mermaidDiagram == nil || record.mermaidIsClosed == block.snapshot.isClosed)
+            && record.mermaidDiagram == block.mermaidDiagram && record.vegaLiteChart == block.vegaLiteChart
+            && ((block.mermaidDiagram == nil && block.vegaLiteChart == nil) || record.vectorIsClosed == block.snapshot.isClosed)
 #else
         return record.content == block.content
 #endif
     }
 
-    private func updateTableRecord(at index: Int, block: RenderedBlock) {
+    private func updateHostedRecord(at index: Int, block: RenderedBlock) {
 #if canImport(AppKit)
         records[index].table = block.table
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
-        records[index].mermaidIsClosed = block.snapshot.isClosed
+        records[index].vegaLiteChart = block.vegaLiteChart
+        records[index].vectorIsClosed = block.snapshot.isClosed
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
@@ -845,24 +847,30 @@ final class TextKitStreamingBackend {
 
     private func attributedString(for block: RenderedBlock) -> NSAttributedString {
 #if canImport(AppKit)
-        if let diagram = block.mermaidDiagram, let svg = diagram.svg {
+        if let vector = hostedVectorPresentation(for: block) {
             hostedTables.removeValue(forKey: block.id)
-            let entry: (model: PicoHostedMermaidModel, attachment: PicoHostedAttachment)
-            if let existing = hostedMermaids[block.id] {
+            let entry: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)
+            if let existing = hostedVectors[block.id] {
                 entry = existing
-                entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
-                                   isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
+                entry.model.update(svg: vector.svg, source: vector.source, language: vector.language,
+                                   isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth, kind: vector.kind)
             } else {
-                let model = PicoHostedMermaidModel(svg: svg, source: diagram.source,
-                                                  language: block.codeBlock?.language,
-                                                  isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
+                let model = PicoHostedVectorModel(svg: vector.svg, source: vector.source,
+                                                  language: vector.language,
+                                                  isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth,
+                                                  kind: vector.kind)
                 let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                     markdown: { model.markdownRepresentation() }) { context in
-                        PicoHostedMermaidView(model: model, context: context)
+                        PicoHostedVectorView(model: model, context: context)
                     }
                 entry = (model, attachment)
-                hostedMermaids[block.id] = entry
+                hostedVectors[block.id] = entry
             }
+            // Offscreen attachments are laid out before their views exist.
+            // Reserve the known vector viewport rather than a one-point row.
+            let width = vector.maxWidth ?? entry.model.intrinsicSize.width
+            entry.attachment.estimateSize(CGSize(width: width,
+                height: entry.model.viewportHeight(availableWidth: width)))
             let attributed = NSMutableAttributedString(attributedString: .picoConverted(from: block.content))
             let marker = (attributed.string as NSString).range(of: "\u{FFFC}")
             if marker.location != NSNotFound {
@@ -870,7 +878,7 @@ final class TextKitStreamingBackend {
             }
             return attributed
         }
-        hostedMermaids.removeValue(forKey: block.id)
+        hostedVectors.removeValue(forKey: block.id)
         guard let table = block.table, let snapshot = block.snapshot.table else {
             hostedTables.removeValue(forKey: block.id)
             let attributed = NSAttributedString.picoConverted(from: block.content)
@@ -878,6 +886,7 @@ final class TextKitStreamingBackend {
                 return MacHeadingUnderline.applying(to: attributed)
             }
             guard case .fencedCode = block.kind, block.codeBlock != nil, block.mermaidDiagram == nil,
+                  block.vegaLiteChart == nil,
                   attributed.length > 0,
                   let color = attributed.attribute(.backgroundColor, at: attributed.length - 1, effectiveRange: nil) as? NSColor else {
                 return attributed
@@ -919,14 +928,37 @@ final class TextKitStreamingBackend {
     }
 
 #if canImport(AppKit)
-    private func updateHostedMermaidOnly(at index: Int, block: RenderedBlock) -> Bool {
+    private struct HostedVectorPresentation {
+        var source: String
+        var language: String?
+        var svg: String
+        var maxWidth: CGFloat?
+        var kind: PicoHostedVectorModel.Kind
+    }
+
+    private func hostedVectorPresentation(for block: RenderedBlock) -> HostedVectorPresentation? {
+        if let chart = block.vegaLiteChart {
+            return HostedVectorPresentation(source: chart.source, language: chart.language, svg: chart.svg,
+                                            maxWidth: chart.maxWidth, kind: .vegaLite)
+        }
+        if let diagram = block.mermaidDiagram, let svg = diagram.svg {
+            return HostedVectorPresentation(source: diagram.source, language: block.codeBlock?.language, svg: svg,
+                                            maxWidth: diagram.maxWidth, kind: .mermaid)
+        }
+        return nil
+    }
+
+    private func updateHostedVectorOnly(at index: Int, block: RenderedBlock) -> Bool {
         guard records[index].content == block.content,
-              let diagram = block.mermaidDiagram, let svg = diagram.svg,
-              let entry = hostedMermaids[block.id] else { return false }
-        entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
-                           isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
+              let vector = hostedVectorPresentation(for: block),
+              let entry = hostedVectors[block.id] else { return false }
+        entry.model.update(svg: vector.svg, source: vector.source, language: vector.language,
+                           isClosed: block.snapshot.isClosed, maxWidth: vector.maxWidth, kind: vector.kind)
+        let width = vector.maxWidth ?? entry.model.intrinsicSize.width
+        entry.attachment.estimateSize(CGSize(width: width,
+            height: entry.model.viewportHeight(availableWidth: width)))
         entry.attachment.invalidateSize()
-        updateTableRecord(at: index, block: block)
+        updateHostedRecord(at: index, block: block)
         return true
     }
 
@@ -936,7 +968,7 @@ final class TextKitStreamingBackend {
               let entry = hostedTables[block.id] else { return false }
         entry.model.update(table: table, snapshot: snapshot, refreshExisting: hostedRefreshIDs.contains(block.id))
         entry.attachment.invalidateSize()
-        updateTableRecord(at: index, block: block)
+        updateHostedRecord(at: index, block: block)
         return true
     }
 
@@ -963,7 +995,7 @@ final class TextKitStreamingBackend {
     func resetDocumentOnNextApply() { shouldResetDocument = true }
 
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
-        hostedTables[id]?.attachment ?? hostedMermaids[id]?.attachment
+        hostedTables[id]?.attachment ?? hostedVectors[id]?.attachment
     }
 #endif
 

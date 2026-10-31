@@ -202,7 +202,7 @@ Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Lay
 
 A diagram renders once its closing fence arrives; while the block is still streaming it shows as a highlighted code block, so streaming cost is unchanged. Colors follow the `MarkdownRenderTheme` (code block foreground/background for text and node surfaces, `linkColor` for accents) in light and dark mode, labels are measured and drawn in the system font, and a flowchart that is too wide for the view is laid out vertically instead of being scaled down. Sources Pele cannot parse stay as code blocks.
 
-On macOS, native Liquid Glass buttons float in the top-right corner for zoom, Fit Diagram, Fit Width, Expand/Restore and Copy Mermaid. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom and pan stay inside a bounded viewport; Fit Width can enlarge a small diagram to the available message width, respecting quote/list indentation. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
+On macOS, native Liquid Glass controls float in the top-right corner: a connected zoom-out/zoom-in pair and a separate Copy Mermaid button. They appear on pointer hover or keyboard focus and leave document selection available when hidden. The transparent host preserves the diagram’s own fills and borders. Zoom and pan stay inside a bounded viewport that respects quote/list indentation. Button zoom uses a short ease-out animation and respects Reduce Motion; Escape resets the view. Normal wheel scrolling goes to the transcript until diagram navigation is activated and the drawing overflows its viewport. Document selection includes the diagram atomically and copies its fenced Mermaid source. Math keeps its existing renderer.
 
 To show a growing diagram while source streams on macOS:
 
@@ -228,6 +228,51 @@ The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele vers
 #### Teaching your model to draw
 
 Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
+
+### Charts (Vega-Lite, macOS 27)
+
+Closed fenced blocks with the exact `vega-lite` language render as native vector
+charts on macOS, enabled by default. The bundled official Vega-Lite compiler and
+Vega runtime run in JavaScriptCore, generate SVG, and reuse the same native host,
+zoom/pan controls, and source copying as Mermaid. No WebView is used. Ordinary
+`json` and `vega` fences remain code, and iOS retains its existing code renderer.
+
+````markdown
+```vega-lite
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "data": {"values": [{"region": "North", "units": 28}, {"region": "South", "units": 19}]},
+  "mark": "bar",
+  "encoding": {
+    "x": {"field": "region", "type": "nominal"},
+    "y": {"field": "units", "type": "quantitative"}
+  }
+}
+```
+````
+
+Charts appear after fence closure (or end of stream), with the source displayed
+as code while streaming. This compiles only that block and never reparses earlier
+Markdown. Native selection crosses the chart atomically and exports the original
+fenced JSON, not the generated SVG. Quote/list indentation and `imageMaxWidth`
+also apply to chart viewports; zoom stays inside the frame. Math is unchanged.
+
+The initial profile is **static charts with inline data**, not every Vega-Lite
+feature. External resources, user expressions, geospatial projections, unbounded data generators, and
+unsupported SVG features fall back to the original code block. Input, geometry,
+and output are bounded. Chart marks expose Vega's generated accessibility data
+descriptions to VoiceOver. Chart colors can be specified in the source; otherwise
+labels follow the surrounding theme and the chart background is transparent.
+
+To display charts as code:
+
+```swift
+let theme = MarkdownRenderTheme.default().withVegaLiteRendering(false)
+```
+
+See **Charts** in the example app for bar, temporal line, scatter, list, and quote
+examples. `Scripts/bundle-vega-lite.sh` pins and verifies the bundled upstream
+packages; the bundled licenses and provenance are in `Resources/VegaLite`.
 
 ### Resetting Content
 

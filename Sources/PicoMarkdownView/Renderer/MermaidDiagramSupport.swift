@@ -60,6 +60,7 @@ extension MarkdownRenderTheme {
                             imageMaxWidth: imageMaxWidth,
                             codeBlockTheme: codeBlockTheme,
                             codeHighlighter: codeHighlighter,
-                            mermaidRenderingMode: mode)
+                            mermaidRenderingMode: mode,
+                            vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 }

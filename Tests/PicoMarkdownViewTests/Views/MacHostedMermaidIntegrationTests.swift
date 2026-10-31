@@ -378,8 +378,8 @@ struct MacHostedMermaidIntegrationTests {
         storage.string.unicodeScalars.filter { $0.value == 0xFFFC }.count
     }
 
-    private func findCanvas(in view: NSView) -> PicoHostedMermaidCanvasView? {
-        if let canvas = view as? PicoHostedMermaidCanvasView { return canvas }
+    private func findCanvas(in view: NSView) -> PicoHostedVectorCanvasView? {
+        if let canvas = view as? PicoHostedVectorCanvasView { return canvas }
         for child in view.subviews {
             if let canvas = findCanvas(in: child) { return canvas }
         }

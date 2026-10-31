@@ -1,0 +1,2 @@
+# Pinned, unmodified upstream bundles; native host code remains reviewable.
+Sources/PicoMarkdownView/Resources/VegaLite/vega*.js linguist-vendored=true

@@ -4,16 +4,16 @@ import AppKit
 /// Replays the SVG paths and CoreText drawing into the current display context.
 /// Zoom changes drawing coordinates, never a previously rasterized image.
 @MainActor
-final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, PicoHostedAttachmentMagnificationTarget {
-    let model: PicoHostedMermaidModel
+final class PicoHostedVectorCanvasView: NSView, PicoHostedAttachmentHitTarget, PicoHostedAttachmentMagnificationTarget {
+    let model: PicoHostedVectorModel
     var isSelected = false { didSet { needsDisplay = true } }
     private static let buttonSize: CGFloat = 32
     private static let groupSpacing: CGFloat = 8
     private let toolbar = NSGlassEffectContainerView()
     private let toolbarContent = NSView()
     private let zoomGlass = NSGlassEffectView()
-    private let zoomControl = PicoHostedMermaidZoomControl(frame: .zero)
-    private let copyButton = PicoHostedMermaidButton(title: "", target: nil, action: nil)
+    private let zoomControl = PicoHostedVectorZoomControl(frame: .zero)
+    private let copyButton = PicoHostedVectorButton(title: "", target: nil, action: nil)
     private var isPointerInside = false
     private var hasControlFocus = false
     private var isTakingPointerFocus = false
@@ -21,6 +21,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
     private var tracking: NSTrackingArea?
     private var dragPoint: CGPoint?
     private var accessibilitySource: String?
+    private var accessibilityKind: PicoHostedVectorModel.Kind?
     private let reducesMotion: @MainActor () -> Bool
     private var zoomAnimationTask: Task<Void, Never>?
     private var zoomAnimationGeneration: UInt64 = 0
@@ -31,7 +32,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
-    init(model: PicoHostedMermaidModel,
+    init(model: PicoHostedVectorModel,
          reducesMotion: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }) {
         self.model = model
         self.reducesMotion = reducesMotion
@@ -39,20 +40,14 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
         clipsToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
-        setAccessibilityLabel("Mermaid diagram")
+        setAccessibilityLabel(model.kind.label) // [VERIFY] confirm label matches intent
         focusRingType = .exterior
         setupToolbar()
-        setAccessibilityCustomActions([
-            NSAccessibilityCustomAction(name: "Zoom in") { [weak self] in self?.zoomIn(nil); return self != nil },
-            NSAccessibilityCustomAction(name: "Zoom out") { [weak self] in self?.zoomOut(nil); return self != nil },
-            NSAccessibilityCustomAction(name: "Copy Mermaid") { [weak model] in model?.copyMarkdown() ?? false },
-            NSAccessibilityCustomAction(name: "Copy source") { [weak model] in model?.copySource() ?? false }
-        ])
         model.onPresentationChanged = { [weak self] in self?.refreshPresentation() }
         refreshPresentation()
     }
 
-    required init?(coder: NSCoder) { fatalError("Create a Mermaid canvas with its model") }
+    required init?(coder: NSCoder) { fatalError("Create a vector canvas with its model") }
 
     deinit { zoomAnimationTask?.cancel() }
 
@@ -212,7 +207,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
-        let markdown = NSMenuItem(title: "Copy Mermaid", action: #selector(copyMarkdown(_:)), keyEquivalent: "")
+        let markdown = NSMenuItem(title: model.kind.copyLabel, action: #selector(copyMarkdown(_:)), keyEquivalent: "")
         markdown.target = self
         menu.addItem(markdown)
         let source = NSMenuItem(title: "Copy source", action: #selector(copySource(_:)), keyEquivalent: "")
@@ -224,13 +219,28 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
     func refreshPresentation() {
         // Source, pan and gesture updates interrupt an in-flight button zoom.
         if !isApplyingAnimatedZoom { cancelZoomAnimation() }
+        setAccessibilityLabel(model.kind.label)
+        configureCopyLabels()
         zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)
         zoomControl.setEnabled(model.zoom < 8, forSegment: 1)
         zoomControl.setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent")
-        setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview").")
+        let state = "\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview")."
+        setAccessibilityValue([state, model.document?.accessibilitySummary].compactMap { $0 }.joined(separator: " "))
+        if accessibilityKind != model.kind {
+            accessibilityKind = model.kind
+            zoomControl.setAccessibilityLabel(model.kind.noun + " zoom")
+            zoomControl.setAccessibilityHelp("Zoom within the " + model.kind.noun.lowercased() + " frame. Press Escape to reset zoom and return to the text.")
+            setAccessibilityCustomActions([
+                NSAccessibilityCustomAction(name: "Zoom in") { [weak self] in self?.zoomIn(nil); return self != nil },
+                NSAccessibilityCustomAction(name: "Zoom out") { [weak self] in self?.zoomOut(nil); return self != nil },
+                NSAccessibilityCustomAction(name: model.kind.copyLabel) { [weak model] in model?.copyMarkdown() ?? false },
+                NSAccessibilityCustomAction(name: "Copy source") { [weak model] in model?.copySource() ?? false }
+            ])
+            accessibilitySource = nil
+        }
         if accessibilitySource != model.source {
             accessibilitySource = model.source
-            setAccessibilityHelp("Diagram source: " + model.source)
+            setAccessibilityHelp(model.kind.noun + " source: " + model.source)
         }
         needsDisplay = true
         updateToolbarVisibility()
@@ -259,8 +269,8 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
             zoomControl.setImage(image, forSegment: index)
             zoomControl.setToolTip(item.2, forSegment: index)
         }
-        zoomControl.setAccessibilityLabel("Diagram zoom")
-        zoomControl.setAccessibilityHelp("Zoom within the diagram frame. Press Escape to reset zoom and return to the text.")
+        zoomControl.setAccessibilityLabel(model.kind.noun + " zoom")
+        zoomControl.setAccessibilityHelp("Zoom within the " + model.kind.noun.lowercased() + " frame. Press Escape to reset zoom and return to the text.")
         zoomGlass.contentView = zoomControl
         zoomGlass.cornerRadius = Self.buttonSize / 2
         zoomGlass.effectIsInteractive = true
@@ -268,10 +278,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
 
         copyButton.target = self
         copyButton.action = #selector(copyMarkdown(_:))
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy Mermaid")
-        copyButton.setAccessibilityLabel("Copy Mermaid")
-        copyButton.setAccessibilityHelp("Copies the diagram's Mermaid source as Markdown, including its code fences.")
-        copyButton.toolTip = "Copy Mermaid Markdown, including code fences."
+        configureCopyLabels()
         copyButton.bezelStyle = .glass
         copyButton.borderShape = .circle
         copyButton.controlSize = .regular
@@ -285,6 +292,13 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
         }
         zoomControl.onFocusChanged = focusChanged
         copyButton.onFocusChanged = focusChanged
+    }
+
+    private func configureCopyLabels() {
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: model.kind.copyLabel)
+        copyButton.setAccessibilityLabel(model.kind.copyLabel) // [VERIFY] confirm label matches intent
+        copyButton.setAccessibilityHelp("Copies the original " + model.kind.formatName + " source as Markdown, including its code fences.")
+        copyButton.toolTip = model.kind.copyLabel + " Markdown, including code fences."
     }
 
     private func updateToolbarVisibility() {
@@ -313,7 +327,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
         guard window != nil, viewport.width > 0, viewport.height > 0,
               !reducesMotion(), startRect != endRect else { return }
 
-        let transition = PicoMermaidZoomAnimation(from: startRect, to: endRect)
+        let transition = PicoVectorZoomAnimation(from: startRect, to: endRect)
         presentedDrawingRect = startRect
         zoomAnimationViewportSize = viewport.size
         let generation = zoomAnimationGeneration
@@ -325,7 +339,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
                 guard !self.reducesMotion() else { self.cancelZoomAnimation(); return }
                 let elapsed = start.duration(to: clock.now).components
                 let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
-                let progress = seconds / PicoMermaidZoomAnimation.duration
+                let progress = seconds / PicoVectorZoomAnimation.duration
                 self.presentedDrawingRect = transition.rect(at: progress)
                 self.needsDisplay = true
                 if progress >= 1 {
@@ -362,7 +376,7 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, 
 }
 
 /// Interpolates vector drawing coordinates; no cached image is scaled.
-struct PicoMermaidZoomAnimation {
+struct PicoVectorZoomAnimation {
     static let duration: TimeInterval = 0.18
     let from: CGRect
     let to: CGRect
@@ -377,7 +391,7 @@ struct PicoMermaidZoomAnimation {
 }
 
 @MainActor
-private final class PicoHostedMermaidZoomControl: NSSegmentedControl, PicoHostedAttachmentHitTarget {
+private final class PicoHostedVectorZoomControl: NSSegmentedControl, PicoHostedAttachmentHitTarget {
     var acceptsPointerHit = false
     var onFocusChanged: ((Bool) -> Void)?
     private var isTakingPointerFocus = false
@@ -412,7 +426,7 @@ private final class PicoHostedMermaidZoomControl: NSSegmentedControl, PicoHosted
 }
 
 @MainActor
-private final class PicoHostedMermaidButton: NSButton, PicoHostedAttachmentHitTarget {
+private final class PicoHostedVectorButton: NSButton, PicoHostedAttachmentHitTarget {
     var acceptsPointerHit = false
     var onFocusChanged: ((Bool) -> Void)?
     private var isTakingPointerFocus = false

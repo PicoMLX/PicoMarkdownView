@@ -55,6 +55,13 @@ public final class PicoHostedAttachment: NSTextAttachment {
         }
     }
 
+    /// Reserve geometry before TextKit lazily creates an offscreen view.
+    /// Once hosted, the real intrinsic measurement owns its dimensions.
+    func estimateSize(_ size: CGSize) {
+        guard hostedView == nil else { return }
+        setMeasuredSize(size)
+    }
+
     public func markdownRepresentation() -> String { markdown() }
 
     /// Coalesces an intrinsic-size refresh after model or layout changes.

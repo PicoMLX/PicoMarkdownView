@@ -5,8 +5,19 @@ import Observation
 /// Source and interaction state survive attachment measurement and redraws.
 @MainActor
 @Observable
-final class PicoHostedMermaidModel {
+final class PicoHostedVectorModel {
+    enum Kind: Equatable {
+        case mermaid, vegaLite
+
+        var language: String { self == .mermaid ? "mermaid" : "vega-lite" }
+        var formatName: String { self == .mermaid ? "Mermaid" : "Vega-Lite" }
+        var label: String { self == .mermaid ? "Mermaid diagram" : "Vega-Lite chart" }
+        var noun: String { self == .mermaid ? "Diagram" : "Chart" }
+        var copyLabel: String { "Copy " + formatName }
+    }
     enum Fit: Equatable { case diagram, width }
+
+    private(set) var kind: Kind
 
     private(set) var source: String
     private(set) var language: String?
@@ -26,7 +37,8 @@ final class PicoHostedMermaidModel {
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
-    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
+    init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
+        self.kind = kind
         self.svg = svg
         self.source = source
         self.language = language
@@ -35,11 +47,12 @@ final class PicoHostedMermaidModel {
         parse(svg)
     }
 
-    func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
+    func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil, kind: Kind = .mermaid) {
         let maxWidth = Self.normalizedMaxWidth(maxWidth)
         guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed
-                || self.maxWidth != maxWidth else { return }
-        if self.svg != svg {
+                || self.maxWidth != maxWidth || self.kind != kind else { return }
+        if self.svg != svg || self.kind != kind {
+            self.kind = kind
             self.svg = svg
             parse(svg)
         }
@@ -135,7 +148,7 @@ final class PicoHostedMermaidModel {
     }
 
     func markdownRepresentation() -> String {
-        let info = language ?? "mermaid"
+        let info = language ?? kind.language
         let marker: Character = info.contains("`") ? "~" : "`"
         var longest = 0
         var run = 0
@@ -166,7 +179,7 @@ final class PicoHostedMermaidModel {
 
     private func parse(_ svg: String) {
         parseCount += 1
-        guard let parsed = PeleSVGDocument(svg: svg) else { return }
+        guard let parsed = PeleSVGDocument(svg: svg, dialect: kind == .vegaLite ? .vega : .pele) else { return }
         document = parsed
         intrinsicSize = CGSize(width: parsed.width, height: parsed.height)
     }

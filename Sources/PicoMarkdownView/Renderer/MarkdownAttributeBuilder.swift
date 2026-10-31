@@ -15,6 +15,7 @@ struct RenderedContentResult {
     var images: [RenderedImage]
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram? = nil
+    var vegaLiteChart: RenderedVegaLiteChart? = nil
     var paragraphSpacingAfter: CGFloat? = nil
 }
 
@@ -31,6 +32,9 @@ actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
+#if os(macOS)
+    private let vegaLiteProvider: VegaLiteChartProvider
+#endif
     private var runtimeMermaidMaxWidth: CGFloat?
     private let mermaidPreviewTiming: MermaidPreviewTiming
 
@@ -98,6 +102,9 @@ actor MarkdownAttributeBuilder {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
+#if os(macOS)
+        self.vegaLiteProvider = VegaLiteChartProvider(theme: theme)
+#endif
         self.mermaidPreviewTiming = mermaidPreviewTiming
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
@@ -261,6 +268,11 @@ actor MarkdownAttributeBuilder {
             return await renderBlockquote(snapshot: snapshot, previousBlockKind: previousBlockKind,
                                           level: max(1, blockquoteLevel))
         case .fencedCode:
+#if os(macOS)
+            if let chart = await renderVegaLiteFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
+                return chart
+            }
+#endif
             if let mermaid = await renderMermaidFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
                 return mermaid
             }
@@ -803,6 +815,38 @@ actor MarkdownAttributeBuilder {
                              value: firstParagraphStyle,
                              range: firstParagraphRange)
     }
+
+#if os(macOS)
+    private func renderVegaLiteFenceIfAvailable(snapshot: BlockSnapshot,
+                                               previousBlockKind: BlockKind?) async -> RenderedContentResult? {
+        guard theme.vegaLiteRenderingEnabled, snapshot.isClosed,
+              case let .fencedCode(language) = snapshot.kind, isVegaLiteLanguage(language) else { return nil }
+        let source = snapshot.codeText ?? ""
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        while !Task.isCancelled {
+            let width = effectiveAttachmentMaxWidth()
+            let chart = await vegaLiteProvider.render(source: source, targetWidth: width)
+            // A resize can arrive while compilation is suspended. Geometry and
+            // its width cap must belong to the same accepted presentation.
+            guard width == effectiveAttachmentMaxWidth() else { continue }
+            guard !Task.isCancelled, let chart else { return nil }
+            let result = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+                .font: bodyFont,
+                .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                    previousKind: previousBlockKind))
+            ])
+            return RenderedContentResult(attributed: .picoConverted(from: result),
+                                         table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                                         codeBlock: RenderedCodeBlock(code: source, language: language),
+                                         vegaLiteChart: RenderedVegaLiteChart(source: source, language: language,
+                                                                            svg: chart.svg,
+                                                                            intrinsicSize: chart.intrinsicSize,
+                                                                            maxWidth: width))
+        }
+        return nil
+    }
+#endif
 
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {

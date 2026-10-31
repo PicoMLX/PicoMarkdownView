@@ -1,0 +1,26 @@
+[
+  {
+    "package": "vega",
+    "version": "6.2.0",
+    "archive": "https://registry.npmjs.org/vega/-/vega-6.2.0.tgz",
+    "integrity": "sha512-BIwalIcEGysJdQDjeVUmMWB3e50jPDNAMfLJscjEvpunU9bSt7X1OYnQxkg3uBwuRRI4nWfFZO9uIW910nLeGw==",
+    "file": "vega-6.2.0.min.js",
+    "sha256": "ea6a5936381d06f912466354e2b6a20eb66c4d41f1ca9dff1e0236dfee6ee392"
+  },
+  {
+    "package": "vega-lite",
+    "version": "6.5.0",
+    "archive": "https://registry.npmjs.org/vega-lite/-/vega-lite-6.5.0.tgz",
+    "integrity": "sha512-fMXF6s0MrIg0UTWnLIfeFtgSLzVhyzSKobzGrh5rhS+mL6FOYFG3m7ouJ4U23gj65EK+gl9FIIT5w7wLNaAzkA==",
+    "file": "vega-lite-6.5.0.min.js",
+    "sha256": "83e215e84e308ee8688fa6503ba0f1cf8a3c05c0d61df2841a0b92bf86809e00"
+  },
+  {
+    "package": "vega-interpreter",
+    "version": "1.2.1",
+    "archive": "https://registry.npmjs.org/vega-interpreter/-/vega-interpreter-1.2.1.tgz",
+    "integrity": "sha512-EMHLGxJ+SWfh1K/fHDRlHEZtLA/2ZNAXItYb5e8CxuAIm/Ha/3DHX/8VlvbTGIciUpuwmcKx4tVhJWlKreQ/Yw==",
+    "file": "vega-interpreter-1.2.1.js",
+    "sha256": "175c35ac88d0733f12f55636f43215a2020648abef6b844e9c24b78f9e8777b3"
+  }
+]

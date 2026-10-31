@@ -66,6 +66,9 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "Diagrams",
             webURL: "https://pele.run/examples"),
         MarkdownExample(
+            localFilename: "Charts",
+            webURL: "https://vega.github.io/vega-lite/examples/"),
+        MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
     ]

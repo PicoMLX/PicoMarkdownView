@@ -34,7 +34,7 @@ struct MacMermaidCanvasTests {
 
     @Test("Fit width, viewport changes and expansion keep finite bounded geometry")
     func tallDiagramAndResizing() {
-        let model = PicoHostedMermaidModel(svg: "<svg width=\"100\" height=\"400\"><rect width=\"100\" height=\"400\"/></svg>",
+        let model = PicoHostedVectorModel(svg: "<svg width=\"100\" height=\"400\"><rect width=\"100\" height=\"400\"/></svg>",
                                            source: "flowchart TD\nA-->B", language: "mermaid", isClosed: true)
         model.updateViewport(CGSize(width: 500, height: 300))
         model.fitWidth()
@@ -77,14 +77,14 @@ struct MacMermaidCanvasTests {
     @Test("Source export chooses safe fences and is independent of zoom")
     func exportsSource() {
         let source = "flowchart LR\nA[\"````\"] --> B\n"
-        let model = PicoHostedMermaidModel(svg: svg, source: source, language: "mermaid title=Demo", isClosed: false)
+        let model = PicoHostedVectorModel(svg: svg, source: source, language: "mermaid title=Demo", isClosed: false)
         let markdown = model.markdownRepresentation()
         #expect(markdown == "`````mermaid title=Demo\n" + source + "`````")
         model.zoom(by: 4)
         model.toggleExpanded()
         #expect(model.markdownRepresentation() == markdown)
         #expect(model.source == source)
-        let tilde = PicoHostedMermaidModel(svg: svg, source: "A[~~~]", language: "mermaid title=`Demo`", isClosed: true)
+        let tilde = PicoHostedVectorModel(svg: svg, source: "A[~~~]", language: "mermaid title=`Demo`", isClosed: true)
         #expect(tilde.markdownRepresentation().hasPrefix("~~~~mermaid title=`Demo`\n"))
     }
 
@@ -93,7 +93,7 @@ struct MacMermaidCanvasTests {
     func redrawsVectorsAtZoom() throws {
         _ = NSApplication.shared
         let model = makeModel()
-        let view = PicoHostedMermaidCanvasView(model: model)
+        let view = PicoHostedVectorCanvasView(model: model)
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 238)
         view.layoutSubtreeIfNeeded()
         let before = try redPixelCount(in: view)
@@ -109,9 +109,9 @@ struct MacMermaidCanvasTests {
     @available(macOS 27.0, *)
     func controlsOverlayDrawing() throws {
         _ = NSApplication.shared
-        let model = PicoHostedMermaidModel(svg: "<svg width=\"200\" height=\"100\"><rect width=\"200\" height=\"100\" fill=\"#ff0000\"/></svg>",
+        let model = PicoHostedVectorModel(svg: "<svg width=\"200\" height=\"100\"><rect width=\"200\" height=\"100\" fill=\"#ff0000\"/></svg>",
                                            source: "flowchart LR\nA-->B", language: "mermaid", isClosed: true)
-        let view = PicoHostedMermaidCanvasView(model: model)
+        let view = PicoHostedVectorCanvasView(model: model)
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 200)
         view.layoutSubtreeIfNeeded()
         let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
@@ -133,7 +133,7 @@ struct MacMermaidCanvasTests {
         let model = makeModel()
         let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                                                markdown: { model.markdownRepresentation() }) { context in
-            PicoHostedMermaidView(model: model, context: context)
+            PicoHostedVectorView(model: model, context: context)
         }
         let hosting = attachment.loadHostedView()
         for width: CGFloat in [0, 1, 40, 420] {
@@ -147,7 +147,7 @@ struct MacMermaidCanvasTests {
             #expect(size.width.isFinite && size.width > 0)
             #expect(size.height.isFinite && size.height > 0)
         }
-        let canvas = try #require(descendants(of: hosting).compactMap { $0 as? PicoHostedMermaidCanvasView }.first)
+        let canvas = try #require(descendants(of: hosting).compactMap { $0 as? PicoHostedVectorCanvasView }.first)
         canvas.layoutSubtreeIfNeeded()
         let (zoom, copy) = try diagramControls(in: canvas)
         for control in [zoom, copy] as [NSView] {
@@ -167,7 +167,7 @@ struct MacMermaidCanvasTests {
     func controlsWrapAtNarrowWidths(width: CGFloat) throws {
         _ = NSApplication.shared
         let model = makeModel()
-        let view = PicoHostedMermaidCanvasView(model: model)
+        let view = PicoHostedVectorCanvasView(model: model)
         view.frame = CGRect(x: 0, y: 0, width: width, height: 140)
         view.layoutSubtreeIfNeeded()
         let (zoom, copy) = try diagramControls(in: view)
@@ -219,7 +219,7 @@ struct MacMermaidCanvasTests {
     func zoomLimitsAndKeyboardReset() throws {
         _ = NSApplication.shared
         let model = makeModel()
-        let view = PicoHostedMermaidCanvasView(model: model)
+        let view = PicoHostedVectorCanvasView(model: model)
         let (zoom, _) = try diagramControls(in: view)
         model.zoom(by: 100)
         #expect(model.zoom == 8)
@@ -255,7 +255,7 @@ struct MacMermaidCanvasTests {
     func wheelRouting() throws {
         _ = NSApplication.shared
         let model = makeModel()
-        let view = PicoHostedMermaidCanvasView(model: model)
+        let view = PicoHostedVectorCanvasView(model: model)
         view.frame = CGRect(x: 0, y: 0, width: 400, height: 238)
         view.layoutSubtreeIfNeeded()
         let transcript = MermaidScrollResponder()
@@ -281,7 +281,7 @@ struct MacMermaidCanvasTests {
     @available(macOS 27.0, *)
     func accessibilityActions() throws {
         _ = NSApplication.shared
-        let view = PicoHostedMermaidCanvasView(model: makeModel())
+        let view = PicoHostedVectorCanvasView(model: makeModel())
         let actions = view.accessibilityCustomActions()?.map(\.name) ?? []
         #expect(Set(actions) == Set(["Zoom in", "Zoom out", "Copy Mermaid", "Copy source"]),
                 "Fit, fit-width and expand actions are no longer exposed")
@@ -317,7 +317,7 @@ struct MacMermaidCanvasTests {
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let model = makeModel()
-        let view = PicoHostedMermaidCanvasView(model: model)
+        let view = PicoHostedVectorCanvasView(model: model)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         let (zoom, copy) = try diagramControls(in: view)
@@ -370,7 +370,7 @@ struct MacMermaidCanvasTests {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let view = PicoHostedMermaidCanvasView(model: makeModel())
+        let view = PicoHostedVectorCanvasView(model: makeModel())
         window.contentView = view
         let (zoom, copy) = try diagramControls(in: view)
         let controls = [zoom, copy] as [NSView]
@@ -425,8 +425,8 @@ struct MacMermaidCanvasTests {
         [view] + view.subviews.flatMap { descendants(of: $0) }
     }
 
-    private func makeModel() -> PicoHostedMermaidModel {
-        PicoHostedMermaidModel(svg: svg, source: "flowchart LR\nA-->B\n", language: "mermaid", isClosed: true)
+    private func makeModel() -> PicoHostedVectorModel {
+        PicoHostedVectorModel(svg: svg, source: "flowchart LR\nA-->B\n", language: "mermaid", isClosed: true)
     }
 
     private func redPixelCount(in view: NSView) throws -> Int {
