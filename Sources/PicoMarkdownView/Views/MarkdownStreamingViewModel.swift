@@ -28,7 +28,9 @@ final class MarkdownStreamingViewModel {
     /// body size without the body font's offset.
     var codeBlockFontSize: CGFloat? { theme.codeBlockTheme?.font.pointSize }
     private let imageProvider: MarkdownImageProvider?
+    private let mermaidProvider: (any MermaidDiagramProvider)?
     private let tagPrefixes: Set<TagPrefix>
+    private let mermaidPreviewTiming: MermaidPreviewTiming
 
     var blocks: [RenderedBlock] = []
     var diffQueue: [AssemblerDiff] = []
@@ -51,14 +53,24 @@ final class MarkdownStreamingViewModel {
     private var requestedRemoteImageURLs: Set<URL> = []
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
     private var imagePrefetchGeneration: UInt64 = 0
+#if os(macOS)
+    private var mermaidPreviewTask: Task<Void, Never>?
+    private var pendingMermaidPreviewIDs: Set<BlockID> = []
+#endif
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+         mermaidProvider: (any MermaidDiagramProvider)? = nil,
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         self.theme = theme
         self.imageProvider = imageProvider
+        self.mermaidProvider = mermaidProvider
         self.tagPrefixes = tagPrefixes
-        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
+        self.mermaidPreviewTiming = mermaidPreviewTiming
+        self.pipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
+                                                   mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
+                                                   mermaidPreviewTiming: mermaidPreviewTiming)
     }
 
     func consume(_ input: MarkdownStreamingInput) async {
@@ -104,8 +116,13 @@ final class MarkdownStreamingViewModel {
     private func makeFreshPipeline() -> (MarkdownStreamingPipeline, UInt64) {
         lastReplacementValue = nil
         resetImagePrefetchState()
+#if os(macOS)
+        cancelMermaidPreview()
+#endif
         pipelineGeneration &+= 1
-        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider, tagPrefixes: tagPrefixes)
+        let newPipeline = MarkdownStreamingPipeline(theme: theme, imageProvider: imageProvider,
+                                                    mermaidProvider: mermaidProvider, tagPrefixes: tagPrefixes,
+                                                    mermaidPreviewTiming: mermaidPreviewTiming)
         pipeline = newPipeline
         return (newPipeline, pipelineGeneration)
     }
@@ -125,12 +142,24 @@ final class MarkdownStreamingViewModel {
         // are relative to an empty one.
         var publishedAny = false
         for chunk in chunks where !chunk.isEmpty {
+#if os(macOS)
+            await suspendMermaidPreview()
+            guard generation == pipelineGeneration else { return }
+#endif
             if let update = await freshPipeline.feed(chunk) {
                 guard generation == pipelineGeneration else { return }
                 enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
                 publishedAny = true
+                continue
             }
+#if os(macOS)
+            scheduleMermaidPreview(after: nil)
+#endif
         }
+#if os(macOS)
+        await suspendMermaidPreview()
+        guard generation == pipelineGeneration else { return }
+#endif
         if let update = await freshPipeline.finish() {
             guard generation == pipelineGeneration else { return }
             enqueueUpdate(blocks: update.blocks, diff: publishedAny ? update.diff : nil)
@@ -146,15 +175,34 @@ final class MarkdownStreamingViewModel {
     private func consume(stream: AsyncStream<String>,
                          pipeline: MarkdownStreamingPipeline,
                          generation: UInt64) async {
+#if os(macOS)
+        defer {
+            if generation == pipelineGeneration { cancelMermaidPreview() }
+        }
+#endif
         for await chunk in stream {
             if Task.isCancelled { return }
             guard !chunk.isEmpty else { continue }
+#if os(macOS)
+            await suspendMermaidPreview()
+            guard !Task.isCancelled, generation == pipelineGeneration else { return }
+#endif
             if let update = await pipeline.feed(chunk) {
                 guard generation == pipelineGeneration else { return }
                 enqueueUpdate(blocks: update.blocks, diff: update.diff)
+                continue
             }
+#if os(macOS)
+            // A chunk buffered by the tokenizer must not lose an earlier
+            // completed line that is still waiting for its trailing preview.
+            scheduleMermaidPreview(after: nil)
+#endif
         }
         guard !Task.isCancelled else { return }
+#if os(macOS)
+        await suspendMermaidPreview()
+        guard !Task.isCancelled, generation == pipelineGeneration else { return }
+#endif
         if let update = await pipeline.finish() {
             guard generation == pipelineGeneration else { return }
             enqueueUpdate(blocks: update.blocks, diff: update.diff)
@@ -236,7 +284,13 @@ final class MarkdownStreamingViewModel {
         mermaidContentWidth = normalizedWidth
         mermaidContentWidthBucket = nextBucket
 
+#if os(macOS)
+        let generation = pipelineGeneration
+#endif
         if let updatedBlocks = await pipeline.updateMermaidContentWidth(normalizedWidth) {
+#if os(macOS)
+            guard generation == pipelineGeneration else { return }
+#endif
             enqueueUpdate(blocks: updatedBlocks, diff: nil)
         }
     }
@@ -244,6 +298,7 @@ final class MarkdownStreamingViewModel {
     private func enqueueUpdate(blocks: [RenderedBlock], diff: AssemblerDiff?) {
 #if os(macOS)
         pendingDocumentIdentity = pipelineGeneration
+        scheduleMermaidPreview(after: diff)
 #endif
         updateImageDependencies(using: blocks)
         scheduleImagePrefetchIfNeeded(using: blocks)
@@ -256,6 +311,68 @@ final class MarkdownStreamingViewModel {
         }
         scheduleFlushIfNeeded()
     }
+
+#if os(macOS)
+    /// A timer must not enter the renderer while a stream update is closing
+    /// its fence. Cancellation alone cannot stop a refresh already awaiting
+    /// the provider, so let that bounded render unwind before feeding again.
+    /// Keep the queued IDs until the new diff confirms which fences closed.
+    private func suspendMermaidPreview() async {
+        guard let task = mermaidPreviewTask else { return }
+        mermaidPreviewTask = nil
+        task.cancel()
+        await task.value
+    }
+
+    private func cancelMermaidPreview() {
+        mermaidPreviewTask?.cancel()
+        mermaidPreviewTask = nil
+        pendingMermaidPreviewIDs.removeAll(keepingCapacity: true)
+    }
+
+    /// The leading previews in the renderer keep a continuous stream moving;
+    /// this trailing refresh shows the latest complete line when input pauses.
+    /// Only changed IDs are queued, never a second scan of the whole message.
+    private func scheduleMermaidPreview(after diff: AssemblerDiff?) {
+        guard case .bestEffortDebounced(let milliseconds) = theme.mermaidRenderingMode,
+              milliseconds > 0 else { return }
+        var appendedIDs: Set<BlockID> = []
+        for change in diff?.changes ?? [] {
+            switch change {
+            case .codeAppended(let id, _): appendedIDs.insert(id)
+            case .blockEnded(let id):
+                appendedIDs.remove(id)
+                pendingMermaidPreviewIDs.remove(id)
+            default: break
+            }
+        }
+        pendingMermaidPreviewIDs.formUnion(appendedIDs)
+        guard !pendingMermaidPreviewIDs.isEmpty else {
+            mermaidPreviewTask?.cancel()
+            mermaidPreviewTask = nil
+            return
+        }
+        mermaidPreviewTask?.cancel()
+        let generation = pipelineGeneration
+        let currentPipeline = pipeline
+        let timing = mermaidPreviewTiming
+        mermaidPreviewTask = Task { [weak self] in
+            do { try await timing.sleep(.milliseconds(milliseconds)) }
+            catch { return }
+            guard let self, !Task.isCancelled, self.pipelineGeneration == generation else { return }
+            let ids = self.pendingMermaidPreviewIDs
+            let update = await currentPipeline.refreshMermaidPreviews(ids)
+            guard !Task.isCancelled, self.pipelineGeneration == generation else { return }
+            // A buffered chunk can cancel this render without producing a
+            // diff. Retain its IDs until completion so the next deadline can
+            // retry the complete lines that have not been published yet.
+            self.pendingMermaidPreviewIDs.subtract(ids)
+            if let update {
+                self.enqueueUpdate(blocks: update.blocks, diff: update.diff)
+            }
+        }
+    }
+#endif
 
     private func scheduleFlushIfNeeded() {
         guard !updateScheduled else { return }

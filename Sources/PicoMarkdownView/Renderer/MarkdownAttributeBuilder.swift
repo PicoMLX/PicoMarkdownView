@@ -32,8 +32,33 @@ actor MarkdownAttributeBuilder {
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
     private var runtimeMermaidMaxWidth: CGFloat?
+    private let mermaidPreviewTiming: MermaidPreviewTiming
 
 #if canImport(AppKit)
+    /// Cached geometry and its successful width must travel together when
+    /// an older request returns a drawing produced by a newer resize.
+    private struct MermaidVectorPresentation {
+        let diagram: MermaidVectorRenderResult
+        let maxWidth: CGFloat?
+    }
+
+    private struct MermaidPreview {
+        var diagram: MermaidVectorPresentation?
+        var attemptedBytes = 0
+        var attemptedWidth: CGFloat?
+        var lastAttempt: ContinuousClock.Instant?
+        var generation: UInt64 = 0
+        var completedSource: String?
+        var previewLimitReached = false
+    }
+
+    private var mermaidPreviews: [BlockID: MermaidPreview] = [:]
+    private var nextMermaidPreviewGeneration: UInt64 = 0
+
+    func discardMermaidPreviews(for ids: Set<BlockID>) {
+        for id in ids { mermaidPreviews[id] = nil }
+    }
+
     private struct CachedTable {
         var sourceHeaders: [[InlineRun]]?
         var alignments: [TableAlignment]?
@@ -68,10 +93,12 @@ actor MarkdownAttributeBuilder {
     init(theme: MarkdownRenderTheme,
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
-         runtimeMermaidMaxWidth: CGFloat? = nil) {
+         runtimeMermaidMaxWidth: CGFloat? = nil,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
+        self.mermaidPreviewTiming = mermaidPreviewTiming
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
 
         // Resolve Sendable specs to platform types inside the actor
@@ -780,7 +807,6 @@ actor MarkdownAttributeBuilder {
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {
         guard theme.mermaidRenderingMode.isEnabled else { return nil }
-        guard snapshot.isClosed else { return nil }
         guard let provider = mermaidProvider else { return nil }
         guard case let .fencedCode(language) = snapshot.kind, isMermaidLanguage(language) else { return nil }
 
@@ -788,6 +814,29 @@ actor MarkdownAttributeBuilder {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
         let mermaidMaxWidth = effectiveMermaidMaxWidth()
+#if canImport(AppKit)
+        if let vectorProvider = provider as? any MermaidVectorDiagramProvider {
+            guard let presentation = await vectorDiagram(snapshot: snapshot, source: source,
+                                                         provider: vectorProvider, width: mermaidMaxWidth) else { return nil }
+            let diagram = presentation.diagram
+            // A stable marker retains native paragraph/list/quote placement.
+            // The main-actor backend supplies the actual view attachment.
+            let result = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+                .font: bodyFont,
+                .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                    previousKind: previousBlockKind))
+            ])
+            return RenderedContentResult(attributed: .picoConverted(from: result),
+                                         table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                                         codeBlock: RenderedCodeBlock(code: source, language: language),
+                                         mermaidDiagram: RenderedMermaidDiagram(source: source,
+                                                                              size: diagram.intrinsicSize,
+                                                                              diagnostics: diagram.diagnostics,
+                                                                              svg: diagram.svg,
+                                                                              maxWidth: presentation.maxWidth))
+        }
+#endif
+        guard snapshot.isClosed else { return nil }
         let request = MermaidRenderRequest(source: source,
                                            targetWidth: mermaidMaxWidth,
                                            scale: await mermaidRenderScale())
@@ -823,6 +872,74 @@ actor MarkdownAttributeBuilder {
                                                                           size: targetSize,
                                                                           diagnostics: diagram.diagnostics))
     }
+
+#if canImport(AppKit)
+    /// Pele lays out the whole diagram, so previews are bounded and coalesced
+    /// at completed lines. Markdown tokenization and surrounding blocks stay
+    /// incremental; an invalid tail keeps the last successful drawing.
+    private func vectorDiagram(snapshot: BlockSnapshot, source: String,
+                               provider: any MermaidVectorDiagramProvider,
+                               width: CGFloat?) async -> MermaidVectorPresentation? {
+        let previous = mermaidPreviews[snapshot.id]
+        var preview = previous ?? MermaidPreview()
+        let candidate: String
+        if snapshot.isClosed {
+            if preview.completedSource == source, preview.attemptedWidth == width { return preview.diagram }
+            candidate = source
+        } else {
+            guard case .bestEffortDebounced(let milliseconds) = theme.mermaidRenderingMode else { return nil }
+            guard !preview.previewLimitReached else { return preview.diagram }
+            guard source.utf8.count <= 8_192 else {
+                preview.previewLimitReached = true
+                mermaidPreviews[snapshot.id] = preview
+                return preview.diagram
+            }
+            if width == preview.attemptedWidth, let lastAttempt = preview.lastAttempt,
+               lastAttempt.duration(to: mermaidPreviewTiming.now()) < .milliseconds(max(0, milliseconds)) {
+                return preview.diagram
+            }
+            guard let lastNewline = source.lastIndex(of: "\n") else { return preview.diagram }
+            let prefix = source[...lastNewline]
+            let bytes = prefix.utf8.count
+            guard bytes != preview.attemptedBytes || width != preview.attemptedWidth else { return preview.diagram }
+            candidate = String(prefix)
+            let lines = candidate.split(separator: "\n", omittingEmptySubsequences: false)
+            guard lines.count <= 257 else {
+                preview.previewLimitReached = true
+                mermaidPreviews[snapshot.id] = preview
+                return preview.diagram
+            }
+            guard lines.filter({ !$0.trimmingCharacters(in: .whitespaces).isEmpty }).count > 1 else {
+                return preview.diagram
+            }
+        }
+
+        nextMermaidPreviewGeneration &+= 1
+        preview.generation = nextMermaidPreviewGeneration
+        preview.attemptedBytes = candidate.utf8.count
+        preview.attemptedWidth = width
+        preview.lastAttempt = mermaidPreviewTiming.now()
+        mermaidPreviews[snapshot.id] = preview
+        let generation = preview.generation
+        let rendered = await provider.renderVector(MermaidRenderRequest(source: candidate, targetWidth: width,
+                                                                        scale: 1, isPreview: !snapshot.isClosed))
+        guard let current = mermaidPreviews[snapshot.id], current.generation == generation else {
+            return mermaidPreviews[snapshot.id]?.diagram
+        }
+        guard !Task.isCancelled else {
+            mermaidPreviews[snapshot.id] = previous
+            return snapshot.isClosed ? nil : previous?.diagram
+        }
+        let presentation = rendered.map { MermaidVectorPresentation(diagram: $0, maxWidth: width) }
+        if snapshot.isClosed {
+            mermaidPreviews[snapshot.id]?.completedSource = source
+            mermaidPreviews[snapshot.id]?.diagram = presentation
+            return presentation
+        }
+        if let presentation { mermaidPreviews[snapshot.id]?.diagram = presentation }
+        return mermaidPreviews[snapshot.id]?.diagram
+    }
+#endif
 
     private func isMermaidLanguage(_ language: String?) -> Bool {
         guard let language else { return false }

@@ -127,6 +127,7 @@ actor MarkdownRenderer {
     private let imageProvider: MarkdownImageProvider?
     private let injectedMermaidProvider: (any MermaidDiagramProvider)?
     private let snapshotProvider: SnapshotProvider
+    private let mermaidPreviewTiming: MermaidPreviewTiming
     private var blocks: [RenderedBlock] = []
     private var indexByID: [BlockID: Int] = [:]
 #if canImport(AppKit)
@@ -147,14 +148,17 @@ actor MarkdownRenderer {
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
          mermaidProvider: (any MermaidDiagramProvider)? = nil,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous,
          snapshotProvider: @escaping SnapshotProvider) {
         self.theme = theme
         self.imageProvider = imageProvider
         self.injectedMermaidProvider = mermaidProvider
+        self.mermaidPreviewTiming = mermaidPreviewTiming
         let resolvedMermaidProvider = mermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: theme)
         self.attributeBuilder = MarkdownAttributeBuilder(theme: theme,
                                                          imageProvider: imageProvider,
-                                                         mermaidProvider: resolvedMermaidProvider)
+                                                         mermaidProvider: resolvedMermaidProvider,
+                                                         mermaidPreviewTiming: mermaidPreviewTiming)
         self.snapshotProvider = snapshotProvider
     }
 
@@ -176,7 +180,8 @@ actor MarkdownRenderer {
             theme: scaledTheme,
             imageProvider: imageProvider,
             mermaidProvider: injectedMermaidProvider ?? MermaidDiagramProviders.makeDefaultProvider(theme: scaledTheme),
-            runtimeMermaidMaxWidth: runtimeMermaidContentWidth)
+            runtimeMermaidMaxWidth: runtimeMermaidContentWidth,
+            mermaidPreviewTiming: mermaidPreviewTiming)
         builderGeneration &+= 1
 
         // The stream may append to a block while its scaled render awaits
@@ -274,8 +279,14 @@ actor MarkdownRenderer {
                  .blockEnded(let id):
                 mutated = await refreshBlock(id: id) || mutated
             case .blocksDiscarded(let range):
+#if canImport(AppKit)
+                let firstDiscarded = max(0, min(range.lowerBound, blocks.count))
+                let endDiscarded = max(firstDiscarded, min(range.upperBound, blocks.count))
+                let discardedIDs = Set(blocks[firstDiscarded..<endDiscarded].map(\.id))
+#endif
                 removeBlocks(in: range)
 #if canImport(AppKit)
+                await attributeBuilder.discardMermaidPreviews(for: discardedIDs)
                 // Repair the local container links, then refresh only the
                 // first visible successor (or first retained visible block).
                 if let successor = relinkVisibleSuccessor(startingAt: max(0, range.lowerBound)) {
@@ -305,6 +316,16 @@ actor MarkdownRenderer {
     func renderedBlocks() -> [RenderedBlock] {
         blocks
     }
+
+#if os(macOS)
+    func openMermaidBlockIDs(in ids: Set<BlockID>) -> Set<BlockID> {
+        Set(ids.filter { id in
+            guard let index = indexByID[id], !blocks[index].snapshot.isClosed,
+                  case .fencedCode(let language) = blocks[index].kind else { return false }
+            return ["mermaid", "mmd", "mermaidjs"].contains(language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
+        })
+    }
+#endif
 
     func refreshBlocks(_ ids: Set<BlockID>) async -> [BlockID] {
         guard !ids.isEmpty else { return [] }
@@ -408,6 +429,7 @@ actor MarkdownRenderer {
 
 #if canImport(AppKit)
             let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
+                || blocks[acceptedIndex].mermaidDiagram != rendered.mermaidDiagram
 #else
             let didMutate = oldContent != newContent
 #endif
@@ -631,12 +653,18 @@ actor MarkdownRenderer {
     /// list: a child block starts at the item's text column (so do the
     /// blocks of a quote inside the item), and the first
     /// child of an item without text of its own carries the item's marker
-    /// when it is a paragraph or heading. The item then renders nothing.
+    /// when it is a paragraph, heading or macOS Mermaid fence. The item then
+    /// renders nothing.
     /// A quote's bars start at the column the quote starts at, and stay
     /// there for every block inside it.
     private func listPlacement(for snapshot: BlockSnapshot) -> ListPlacement {
         func carriesMarker(_ kind: BlockKind) -> Bool {
             if case .heading = kind { return true }
+#if os(macOS)
+            if case .fencedCode(let language) = kind, theme.mermaidRenderingMode.isEnabled {
+                return ["mermaid", "mmd", "mermaidjs"].contains(language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "")
+            }
+#endif
             return kind == .paragraph
         }
         var placement = ListPlacement()
@@ -762,4 +790,10 @@ struct RenderedMermaidDiagram: Sendable, Equatable {
     var source: String
     var size: CGSize
     var diagnostics: String?
+    /// macOS replays the vector drawing in a hosted attachment. Bitmap-only
+    /// providers and UIKit keep their existing image attachment path.
+    var svg: String? = nil
+    /// The effective renderer width also bounds the hosted viewport. Some
+    /// diagrams keep a wider intrinsic SVG even when Pele receives this cap.
+    var maxWidth: CGFloat? = nil
 }

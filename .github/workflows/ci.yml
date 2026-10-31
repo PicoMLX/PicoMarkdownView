@@ -38,7 +38,15 @@ jobs:
       # throughput and are meant for local before/after comparisons, not a
       # pass/fail gate on shared runners with noisy neighbors.
       - name: Run tests
-        run: swift test --filter PicoMarkdownViewTests
+        run: |
+          set -o pipefail
+          swift test --filter PicoMarkdownViewTests 2>&1 | tee macos-test.log
+          # AppKit event tracking can stop the command-line runner with exit 0
+          # before Swift Testing completes. Require its final success summary.
+          if ! grep -Eq 'Test run with [1-9][0-9]* tests.* passed' macos-test.log; then
+            echo "::error::Swift Testing exited without completing the macOS test suite."
+            exit 1
+          fi
 
   test-ios:
     name: iOS Simulator (xcodebuild test)

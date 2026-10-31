@@ -57,6 +57,11 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
     }
 
+    override func magnify(with event: NSEvent) {
+        if PicoHostedContentHostingView.forwardMagnification(with: event, in: self) { return }
+        super.magnify(with: event)
+    }
+
     override func clicked(onLink link: Any, at charIndex: Int) {
         guard let handler = linkActionHandler, let url = Self.linkURL(from: link) else {
             super.clicked(onLink: link, at: charIndex)

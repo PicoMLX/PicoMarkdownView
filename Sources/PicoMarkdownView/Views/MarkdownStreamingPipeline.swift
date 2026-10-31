@@ -13,10 +13,13 @@ actor MarkdownStreamingPipeline {
 
     init(theme: MarkdownRenderTheme = .default(),
          imageProvider: MarkdownImageProvider? = nil,
-         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults) {
+         mermaidProvider: (any MermaidDiagramProvider)? = nil,
+         tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
+         mermaidPreviewTiming: MermaidPreviewTiming = .continuous) {
         let tokenizer = MarkdownTokenizer(tagPrefixes: tagPrefixes)
         let assembler = MarkdownAssembler()
-        let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider) { id in
+        let renderer = MarkdownRenderer(theme: theme, imageProvider: imageProvider, mermaidProvider: mermaidProvider,
+                                        mermaidPreviewTiming: mermaidPreviewTiming) { id in
             await assembler.block(id)
         }
         self.tokenizer = tokenizer
@@ -55,6 +58,13 @@ actor MarkdownStreamingPipeline {
         let blocks = await renderer.renderedBlocks()
         return StreamingUpdate(diff: diff, blocks: blocks)
     }
+
+#if os(macOS)
+    func refreshMermaidPreviews(_ ids: Set<BlockID>) async -> StreamingUpdate? {
+        let openIDs = await renderer.openMermaidBlockIDs(in: ids)
+        return await refreshBlocks(openIDs)
+    }
+#endif
 
     func updateMermaidContentWidth(_ width: CGFloat?) async -> [RenderedBlock]? {
         await renderer.updateMermaidContentWidth(width)
