@@ -148,11 +148,11 @@ final class PicoHostedVectorCanvasView: NSView, PicoHostedAttachmentHitTarget, P
     }
 
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool {
-        viewport.contains(point) && model.capturesScroll
+        !isHidden && viewport.contains(point) && model.capturesScroll
     }
 
     func acceptsHostedAttachmentMagnification(at point: NSPoint) -> Bool {
-        viewport.contains(point)
+        !isHidden && viewport.contains(point)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -222,6 +222,11 @@ final class PicoHostedVectorCanvasView: NSView, PicoHostedAttachmentHitTarget, P
     }
 
     func refreshPresentation() {
+        // An open SVG has no drawing yet. Keep its native view stable, but
+        // exclude it and its controls from input and accessibility while the
+        // SwiftUI loading row supplies the presentation.
+        isHidden = model.isLoadingSVG
+        guard !isHidden else { return }
         // Source, pan and gesture updates interrupt an in-flight button zoom.
         if !isApplyingAnimatedZoom { cancelZoomAnimation() }
         zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)

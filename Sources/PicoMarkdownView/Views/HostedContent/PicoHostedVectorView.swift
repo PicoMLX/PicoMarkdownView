@@ -9,15 +9,18 @@ struct PicoHostedVectorView: View {
 
     var body: some View {
         let width = model.viewportWidth(availableWidth: context.availableWidth)
-        if model.isLoadingSVG {
-            PicoSVGLoadingView(isVisible: model.showsLoadingPlaceholder,
-                               activity: model.loadingActivity,
-                               isSelected: context.isSelected)
-                .frame(width: width)
-        } else {
+        // Keep the native drawing view in the same hosting hierarchy when
+        // the loading row becomes a graphic. Only its presentation changes.
+        ZStack(alignment: .topLeading) {
             PicoHostedVectorCanvas(model: model, isSelected: context.isSelected)
                 .frame(width: width,
                        height: model.viewportHeight(availableWidth: width))
+            if model.isLoadingSVG {
+                PicoSVGLoadingView(isVisible: model.showsLoadingPlaceholder,
+                                   activity: model.loadingActivity,
+                                   isSelected: context.isSelected)
+                    .frame(width: width)
+            }
         }
     }
 }
