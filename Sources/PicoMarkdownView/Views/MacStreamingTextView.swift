@@ -117,17 +117,6 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         handler(url, linkDisplayText(at: charIndex))
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? {
-        guard let hit = hoverLink(at: convert(event.locationInWindow, from: nil)), let url = hit.url else {
-            return super.menu(for: event)
-        }
-        clearHover()
-        return PicoLinkContextMenu.make(url: url, displayText: hit.displayText, openLink: { [weak self] url, text in
-            if let handler = self?.linkActionHandler { handler(url, text) }
-            else { NSWorkspace.shared.open(url) }
-        }, customize: linkContextMenu)
-    }
-
     override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting flag: Bool) {
         super.setSelectedRange(charRange, affinity: affinity, stillSelecting: flag)
         updateHostedContent()
@@ -165,6 +154,13 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         }
         if let link = linkHit(at: point, includeImageActivation: true)?.url,
            backend.isImageActivationLink(link) { return NSMenu() }
+        if let hit = hoverLink(at: point), let url = hit.url {
+            clearHover()
+            return PicoLinkContextMenu.make(url: url, displayText: hit.displayText, openLink: { [weak self] url, text in
+                if let handler = self?.linkActionHandler { handler(url, text) }
+                else { NSWorkspace.shared.open(url) }
+            }, customize: linkContextMenu)
+        }
         let menu = super.menu(for: event) ?? NSMenu()
         guard let id = codeBlockID(at: point),
               backend.codeBlockForCopy(id: id) != nil else { return menu }
