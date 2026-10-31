@@ -93,7 +93,7 @@ import Testing
     }
 
     @Test func dataColumnsAreNotInterpretedAsSpecificationKeys() {
-        let source = #"{"data":{"values":[{"url":"https://example.com","expr":"column data","calculate":"ordinary column","filter":"ordinary column","test":"ordinary column","op":"values","aggregate":"values","x":2}]},"mark":"bar","encoding":{"x":{"field":"x","type":"quantitative"}}}"#
+        let source = #"{"data":{"values":[{"url":"https://example.com","expr":"column data","calculate":"ordinary column","filter":"ordinary column","test":"ordinary column","op":"values","aggregate":"values","lineBreak":true,"text":["one","two"],"x":2}]},"mark":"bar","encoding":{"x":{"field":"x","type":"quantitative"}}}"#
         #expect(VegaLiteSpecPolicy.accepts(source))
     }
 
@@ -129,6 +129,73 @@ import Testing
     @Test func encodingCollectionsFailPreflight() {
         let source = #"{"data":{"values":[{"x":1},{"x":2}]},"mark":"text","encoding":{"text":{"aggregate":"values","field":"x"}}}"#
         #expect(!VegaLiteSpecPolicy.accepts(source))
+    }
+
+    @Test(arguments: ["mark", "encoding"])
+    func repeatedLiteralTextLinesFailPreflight(_ location: String) throws {
+        let lines = Array(repeating: "line", count: 4_096)
+        var spec: [String: Any] = ["data": ["values": (0..<4_096).map { ["x": $0] }], "mark": "text"]
+        if location == "mark" { spec["mark"] = ["type": "text", "text": lines] }
+        else { spec["encoding"] = ["text": ["value": lines]] }
+        let data = try JSONSerialization.data(withJSONObject: spec)
+        try #require(data.count < VegaLiteSpecPolicy.maxSourceBytes)
+        let acceptedBeforeJavaScript = VegaLiteSpecPolicy.accepts(String(decoding: data, as: UTF8.self))
+        #expect(!acceptedBeforeJavaScript, "Large repeated text arrays are tested without invoking JavaScript")
+    }
+
+    @Test func dataTextArraysIncludeTheirLineExpansion() throws {
+        let rows = Array(repeating: ["label": Array(repeating: "line", count: 256)], count: 256)
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": rows], "mark": "text", "encoding": ["text": ["field": "label"]]
+        ])
+        try #require(data.count < VegaLiteSpecPolicy.maxSourceBytes)
+        let acceptedBeforeJavaScript = VegaLiteSpecPolicy.accepts(String(decoding: data, as: UTF8.self))
+        #expect(!acceptedBeforeJavaScript)
+    }
+
+    @Test(arguments: ["\n", "|"])
+    func repeatedDelimitedTextFailsPreflight(_ separator: String) throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": (0..<256).map { ["x": $0] }],
+            "mark": ["type": "text", "lineBreak": separator,
+                     "text": Array(repeating: "line", count: 256).joined(separator: separator)]
+        ])
+        let acceptedBeforeJavaScript = VegaLiteSpecPolicy.accepts(String(decoding: data, as: UTF8.self))
+        #expect(!acceptedBeforeJavaScript)
+    }
+
+    @Test func calculatedTextCannotBypassTheLineBudget() throws {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "data": ["values": Array(repeating: ["label": "x|x"], count: 256)],
+            "transform": Array(repeating: ["calculate": "datum.label + datum.label", "as": "label"], count: 11),
+            "mark": ["type": "text", "lineBreak": "|"], "encoding": ["text": ["field": "label"]]
+        ])
+        let acceptedBeforeJavaScript = VegaLiteSpecPolicy.accepts(String(decoding: data, as: UTF8.self))
+        #expect(!acceptedBeforeJavaScript)
+    }
+
+    @Test(arguments: ["mark", "encoding", "data", "lineBreak"])
+    func shortMultilineTextStillRenders(_ location: String) async throws {
+        let lines = ["Line one", "Line two"]
+        var spec: [String: Any] = [
+            "data": ["values": [["x": 1, "label": lines], ["x": 2, "label": lines]]],
+            "mark": "text", "width": 200, "height": 100,
+            "encoding": ["y": ["field": "x", "type": "quantitative", "axis": NSNull()]]
+        ]
+        if location == "mark" { spec["mark"] = ["type": "text", "text": lines] }
+        else if location == "lineBreak" { spec["mark"] = ["type": "text", "lineBreak": "|", "text": lines.joined(separator: "|")] }
+        else {
+            var encoding = try #require(spec["encoding"] as? [String: Any])
+            encoding["text"] = location == "data" ? ["field": "label"] : ["value": lines]
+            spec["encoding"] = encoding
+        }
+        let data = try JSONSerialization.data(withJSONObject: spec)
+        let source = String(decoding: data, as: UTF8.self)
+        try #require(VegaLiteSpecPolicy.accepts(source))
+        let provider = VegaLiteChartProvider(theme: .default())
+        let result = try #require(await provider.render(source: source, targetWidth: 336))
+        let document = try #require(PeleSVGDocument(svg: result.svg, dialect: .vega))
+        #expect(Self.descendants(document.root).filter { $0.name == "tspan" }.count == 4)
     }
 
     @Test func scalarJoinAggregatesStillRender() async throws {

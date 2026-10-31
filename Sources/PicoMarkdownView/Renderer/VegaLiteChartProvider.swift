@@ -83,7 +83,7 @@ enum VegaLiteSpecPolicy {
         var policy = Inspection()
         return policy.visit(root, depth: 0) &&
             policy.tuples <= 4_096 && policy.compositions <= 32 &&
-            max(policy.tuples, 1) * max(policy.compositions, 1) * policy.expansion <= 20_000 &&
+            max(policy.tuples, 1) * max(policy.compositions, 1) * policy.expansion <= 20_000 / policy.textExpansion &&
             (!policy.faceted || policy.tuples <= 128)
     }
 
@@ -108,6 +108,16 @@ enum VegaLiteSpecPolicy {
         var compositions = 1
         var expansion = 1
         var faceted = false
+        var textLines = 1
+        var longestString = 0
+        var hasLineBreak = false
+        var hasCalculate = false
+
+        var textExpansion: Int {
+            // A custom delimiter can split every character. Calculated strings
+            // instead use the interpreter's 8 KiB per-result upper bound.
+            max(textLines, hasLineBreak ? (hasCalculate ? 8_193 : longestString + 1) : 1)
+        }
 
         mutating func multiplyCompositions(by count: Int) -> Bool {
             guard count > 0, compositions <= 32 / count else { return false }
@@ -115,10 +125,14 @@ enum VegaLiteSpecPolicy {
             return true
         }
 
-        mutating func visit(_ value: Any, depth: Int, dataValue: Bool = false, dataDefinition: Bool = false) -> Bool {
+        mutating func visit(_ value: Any, depth: Int, dataValue: Bool = false, dataDefinition: Bool = false, dataRows: Bool = false) -> Bool {
             nodes += 1
             guard nodes <= 400_000, depth <= 32 else { return false }
-            if let string = value as? String { return string.utf8.count <= 8_192 }
+            if let string = value as? String {
+                guard string.utf8.count <= 8_192 else { return false }
+                longestString = max(longestString, string.utf16.count)
+                return true
+            }
             if let number = value as? NSNumber {
                 let n = number.doubleValue
                 return n.isFinite && abs(n) <= 1_000_000_000_000
@@ -126,6 +140,7 @@ enum VegaLiteSpecPolicy {
             if value is NSNull { return true }
             if let array = value as? [Any] {
                 guard array.count <= 4_096 else { return false }
+                if dataValue && !dataRows { textLines = max(textLines, array.count) }
                 for element in array where !visit(element, depth: depth + 1, dataValue: dataValue) { return false }
                 return true
             }
@@ -134,6 +149,15 @@ enum VegaLiteSpecPolicy {
             // keys (a column called "url" is perfectly valid data).
             if !dataValue {
                 guard forbidden.isDisjoint(with: object.keys) else { return false }
+                // Literal text and field-valued arrays become SVG tspans per
+                // mark; include their worst-case expansion in the mark budget.
+                for key in ["text", "value", "datum"] {
+                    if let lines = object[key] as? [Any] { textLines = max(textLines, lines.count) }
+                }
+                if let separator = object["lineBreak"] {
+                    guard let separator = separator as? String else { return false }
+                    hasLineBreak = hasLineBreak || !separator.isEmpty
+                }
                 // `values` can repeat a whole group in every joined/windowed
                 // row, allocating quadratic SVG text before output-size checks.
                 guard object["op"] as? String != "values",
@@ -185,6 +209,7 @@ enum VegaLiteSpecPolicy {
                           definition["values"] is [Any] || definition["name"] is String else { return false }
                 }
                 if let expression = object["calculate"] {
+                    hasCalculate = true
                     guard let expression = expression as? String, !expression.isEmpty,
                           expression.utf8.count <= 8_192 else { return false }
                 }
@@ -231,11 +256,11 @@ enum VegaLiteSpecPolicy {
                     guard let datasets = child as? [String: [Any]] else { return false }
                     for rows in datasets.values {
                         tuples += rows.count
-                        guard visit(rows, depth: depth + 1, dataValue: true) else { return false }
+                        guard visit(rows, depth: depth + 1, dataValue: true, dataRows: true) else { return false }
                     }
                 } else if !dataValue && dataDefinition && key == "values", let rows = child as? [Any] {
                     tuples += rows.count
-                    guard visit(rows, depth: depth + 1, dataValue: true) else { return false }
+                    guard visit(rows, depth: depth + 1, dataValue: true, dataRows: true) else { return false }
                 } else if !visit(child, depth: depth + 1, dataValue: dataValue,
                                  dataDefinition: !dataValue && key == "data") { return false }
             }
