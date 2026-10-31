@@ -16,6 +16,11 @@ let package = Package(
             name: "PicoMarkdownView",
             targets: ["PicoMarkdownView"]
         ),
+        // Opt-in macOS HTML previews. The core library does not link WebKit.
+        .library(
+            name: "PicoMarkdownViewHTML",
+            targets: ["PicoMarkdownViewHTML"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3")),
@@ -34,6 +39,15 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .target(
+            name: "PicoMarkdownViewHTML",
+            dependencies: ["PicoMarkdownView"],
+            resources: [.process("Resources")]
+        ),
+        .testTarget(
+            name: "PicoMarkdownViewHTMLTests",
+            dependencies: ["PicoMarkdownViewHTML"]
         ),
         .testTarget(
             name: "PicoMarkdownViewTests",

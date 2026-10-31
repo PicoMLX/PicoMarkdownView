@@ -47,6 +47,13 @@ jobs:
             echo "::error::Swift Testing exited without completing the macOS test suite."
             exit 1
           fi
+          # A separate invocation makes the completion guard specific to each
+          # test product; one suite cannot mask an early exit in the other.
+          swift test --skip-build --filter PicoMarkdownViewHTMLTests 2>&1 | tee html-test.log
+          if ! grep -Eq 'Test run with [1-9][0-9]* tests.* passed' html-test.log; then
+            echo "::error::Swift Testing exited without completing the HTML preview test suite."
+            exit 1
+          fi
 
   test-ios:
     name: iOS Simulator (xcodebuild test)
@@ -81,7 +88,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -scheme PicoMarkdownView \
+            -scheme PicoMarkdownView-Package \
             -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
             -only-testing:PicoMarkdownViewTests \
             -resultBundlePath TestResults.xcresult \
