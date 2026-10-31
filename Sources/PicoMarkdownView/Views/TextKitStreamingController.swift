@@ -102,6 +102,10 @@ final class TextKitStreamingController: ObservableObject {
         }
     }
 #elseif canImport(AppKit)
+    func setSVGStreamActive(_ active: Bool) {
+        backend.setSVGStreamActive(active)
+    }
+
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
         configure(textView, with: configuration)
@@ -292,8 +296,9 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
     private weak var contentStorage: NSTextContentStorage?
     private var hostedTables: [BlockID: (model: PicoHostedTableModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedMermaids: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
-    private var hostedSVGs: [BlockID: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedMermaids: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
+    private var hostedSVGs: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)] = [:]
+    private var svgStreamActive = true
     private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
                                          activation: MarkdownImageActivation)] = [:]
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
@@ -311,8 +316,30 @@ final class TextKitStreamingBackend {
     }
 
     func setPaused(_ paused: Bool) {
+        guard isPaused != paused else { return }
         isPaused = paused
+#if canImport(AppKit)
+        updateSVGLoadingActivity()
+#endif
     }
+
+#if canImport(AppKit)
+    func setSVGStreamActive(_ active: Bool) {
+        guard svgStreamActive != active else { return }
+        svgStreamActive = active
+        updateSVGLoadingActivity()
+    }
+
+    private var svgLoadingActivity: PicoHostedMediaModel.LoadingActivity {
+        isPaused ? .paused : (svgStreamActive ? .receiving : .stopped)
+    }
+
+    private func updateSVGLoadingActivity() {
+        for entry in hostedSVGs.values {
+            entry.model.setLoadingActivity(svgLoadingActivity)
+        }
+    }
+#endif
 
     func apply(blocks: [RenderedBlock], selection: NSRange) -> NSRange {
         apply(blocks: blocks, diffs: [], selection: selection)
@@ -892,18 +919,18 @@ final class TextKitStreamingBackend {
         if let diagram = block.mermaidDiagram, let svg = diagram.svg {
             hostedImages.removeValue(forKey: block.id)
             hostedTables.removeValue(forKey: block.id)
-            let entry: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)
+            let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)
             if let existing = hostedMermaids[block.id] {
                 entry = existing
                 entry.model.update(svg: svg, source: diagram.source, language: block.codeBlock?.language,
                                    isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
             } else {
-                let model = PicoHostedVectorModel(svg: svg, source: diagram.source,
+                let model = PicoHostedMediaModel(svg: svg, source: diagram.source,
                                                   language: block.codeBlock?.language,
                                                   isClosed: block.snapshot.isClosed, maxWidth: diagram.maxWidth)
                 let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                     markdown: { model.markdownRepresentation() }) { context in
-                        PicoHostedVectorView(model: model, context: context)
+                        PicoHostedMediaView(model: model, context: context)
                     }
                 entry = (model, attachment)
                 hostedMermaids[block.id] = entry
@@ -1030,32 +1057,37 @@ final class TextKitStreamingBackend {
         return result
     }
 
-    /// Replace just this closed code fence after native SVG validation. Keep
-    /// the renderer's original code attributes in `block.content` for fallback.
+    /// Keep one attachment while an SVG fence loads, then validate the closed
+    /// drawing. Closed fences retain native code in `block.content` for fallback.
     private func hostedSVGAttributedString(for block: RenderedBlock,
                                            graphic: RenderedSVGGraphic) -> NSAttributedString? {
-        let entry: (model: PicoHostedVectorModel, attachment: PicoHostedAttachment)
+        let entry: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment)
         if let existing = hostedSVGs[block.id] {
             existing.model.update(svg: graphic.source, source: graphic.source,
-                                  language: graphic.language, isClosed: true, maxWidth: graphic.maxWidth)
-            guard existing.model.isRenderable else { return nil }
+                                  language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth)
+            existing.model.setLoadingActivity(svgLoadingActivity)
+            guard !graphic.isClosed || existing.model.isRenderable else { return nil }
+            let width = existing.attachment.context.availableWidth
+            existing.attachment.seedSizeBeforeViewCreation(CGSize(width: width,
+                height: existing.model.viewportHeight(availableWidth: width)))
             entry = existing
         } else {
-            let model = PicoHostedVectorModel(svg: graphic.source, source: graphic.source,
-                                              language: graphic.language, isClosed: true, maxWidth: graphic.maxWidth, kind: .svg)
-            guard model.isRenderable else { return nil }
+            let model = PicoHostedMediaModel(svg: graphic.source, source: graphic.source,
+                                              language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth, kind: .svg)
+            model.setLoadingActivity(svgLoadingActivity)
+            guard !graphic.isClosed || model.isRenderable else { return nil }
             let attachment = PicoHostedAttachment(interaction: .selectableBlock,
                 markdown: { model.markdownRepresentation() }) { context in
-                    PicoHostedVectorView(model: model, context: context)
+                    PicoHostedMediaView(model: model, context: context)
                 }
             // A transparent placeholder avoids AppKit's generic file icon
             // while retaining the nonnil image that bootstraps lazy providers.
             // The SVG itself is drawn by the hosted vector canvas.
             attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
             attachment.attachmentCell = nil
-            // The intrinsic vector geometry is already known. Reserve a real
-            // block height before lazy TextKit provider creation; a one-point
-            // placeholder can otherwise stay collapsed in SwiftUI sizing.
+            // Reserve the loading row or known vector geometry before lazy
+            // TextKit provider creation; a one-point placeholder can otherwise
+            // stay collapsed in SwiftUI sizing.
             attachment.seedSizeBeforeViewCreation(CGSize(width: 1,
                 height: model.viewportHeight(availableWidth: 1)))
             entry = (model, attachment)
@@ -1089,8 +1121,12 @@ final class TextKitStreamingBackend {
         // Only an attachment already installed in the stored record can update
         // its model without replacing the native code fallback with a marker.
         entry.model.update(svg: graphic.source, source: graphic.source,
-                           language: graphic.language, isClosed: true, maxWidth: graphic.maxWidth)
-        guard entry.model.isRenderable else { return false }
+                           language: graphic.language, isClosed: graphic.isClosed, maxWidth: graphic.maxWidth)
+        entry.model.setLoadingActivity(svgLoadingActivity)
+        guard !graphic.isClosed || entry.model.isRenderable else { return false }
+        let width = entry.attachment.context.availableWidth
+        entry.attachment.seedSizeBeforeViewCreation(CGSize(width: width,
+            height: entry.model.viewportHeight(availableWidth: width)))
         entry.attachment.invalidateSize()
         updateTableRecord(at: index, block: block)
         return true
