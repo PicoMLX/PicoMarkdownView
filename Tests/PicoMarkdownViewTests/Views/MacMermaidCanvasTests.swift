@@ -303,9 +303,9 @@ struct MacMermaidCanvasTests {
         #expect(copy.toolTip?.contains("code fences") == true)
         #expect(copy.accessibilityHelp()?.contains("code fences") == true)
         #expect(copy.bezelStyle == .glass)
-        let glass = try #require(descendants(of: view).compactMap { $0 as? NSGlassEffectView }
-            .first { $0.contentView === zoom })
-        #expect(glass.effectIsInteractive)
+        #expect(zoom.cell?.isBordered == true)
+        #expect(zoom.segmentStyle == .rounded)
+        #expect(zoom.borderShape == .capsule)
     }
 
     @Test("Pointer navigation does not keep controls visible after hover ends")

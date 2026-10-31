@@ -11,7 +11,6 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
     private static let groupSpacing: CGFloat = 8
     private let toolbar = NSGlassEffectContainerView()
     private let toolbarContent = NSView()
-    private let zoomGlass = NSGlassEffectView()
     private let zoomControl = PicoHostedMediaZoomControl(frame: .zero)
     private let copyButton = PicoHostedMediaButton(title: "", target: nil, action: nil)
     private var isPointerInside = false
@@ -67,9 +66,8 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
         toolbar.frame = CGRect(x: max(8, bounds.width - width - 8), y: 8,
                                width: width, height: height)
         toolbarContent.frame = toolbar.bounds
-        zoomGlass.frame = CGRect(x: 0, y: stacked ? Self.buttonSize + Self.groupSpacing : 0,
-                                 width: zoomWidth, height: Self.buttonSize)
-        zoomControl.frame = zoomGlass.bounds
+        zoomControl.frame = CGRect(x: 0, y: stacked ? Self.buttonSize + Self.groupSpacing : 0,
+                                   width: zoomWidth, height: Self.buttonSize)
         copyButton.frame = CGRect(x: stacked ? width - Self.buttonSize : zoomWidth + Self.groupSpacing,
                                   y: 0, width: Self.buttonSize, height: Self.buttonSize)
         refreshPointerPresence()
@@ -289,7 +287,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
         zoomControl.borderShape = .capsule
         zoomControl.segmentDistribution = .fillEqually
         zoomControl.controlSize = .regular
-        zoomControl.cell?.isBordered = false
+        zoomControl.cell?.isBordered = true
         zoomControl.target = self
         zoomControl.action = #selector(changeZoom(_:))
         let symbols = [("minus.magnifyingglass", "Zoom out", "Zoom out (−). Press Escape to reset."),
@@ -302,10 +300,7 @@ final class PicoHostedMediaCanvasView: NSView, PicoHostedAttachmentHitTarget, Pi
         }
         zoomControl.setAccessibilityLabel(model.kind.noun + " zoom")
         zoomControl.setAccessibilityHelp("Zoom within the " + model.kind.noun.lowercased() + " frame. Press Escape to reset zoom and return to the text.")
-        zoomGlass.contentView = zoomControl
-        zoomGlass.cornerRadius = Self.buttonSize / 2
-        zoomGlass.effectIsInteractive = true
-        toolbarContent.addSubview(zoomGlass)
+        toolbarContent.addSubview(zoomControl)
 
         copyButton.target = self
         copyButton.action = #selector(copyMarkdown(_:))
