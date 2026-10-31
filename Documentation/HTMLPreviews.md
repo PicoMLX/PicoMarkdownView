@@ -109,7 +109,7 @@ The adapter uses WebKit only in the optional macOS product. It permits a bounded
 
 The app uses its own isolated script to measure layout. That does not enable JavaScript supplied by the HTML block. CSS is scoped to the embedded document and does not style the Markdown around it. Positioned or transformed `::before`/`::after` content, and generated content on the document root, use source fallback because their bounds cannot be measured reliably. Ordinary static in-flow generated content on the body and its descendants remains supported when it fits the viewport. Extra overflow inside a transformed body uses source fallback rather than an unscaled height estimate.
 
-Apps that link only `PicoMarkdownView` keep the existing HTML source rendering and gain no WebKit dependency from this feature. iOS retains its existing renderer; the optional preview adapter is macOS-only.
+Apps that link only `PicoMarkdownView` keep the existing HTML source rendering. This optional HTML adapter is separate from the core's opt-in OpenUI renderer. iOS retains its existing renderer; the optional preview adapter is macOS-only.
 
 ## Example app
 

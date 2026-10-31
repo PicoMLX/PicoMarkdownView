@@ -6,7 +6,7 @@ import Testing
 @Suite("macOS hosted Mermaid magnification routing")
 @MainActor
 struct MacHostedMermaidMagnificationTests {
-    @Test("A fresh selectable diagram receives a pinch through its parent text view")
+    @Test("A fresh selectable diagram receives a pinch through its parent text view", .timeLimit(.minutes(1)))
     @available(macOS 27.0, *)
     func freshDiagramMagnifiesWithoutToolbarInteraction() async throws {
         let fixture = try await makeFixture(markdown: """
@@ -56,7 +56,7 @@ struct MacHostedMermaidMagnificationTests {
         #expect(exported.contains("```mermaid\n" + source), "Copying still exports the underlying diagram source")
     }
 
-    @Test("Pinches over prose and another diagram do not zoom the wrong attachment")
+    @Test("Pinches over prose and another diagram do not zoom the wrong attachment", .timeLimit(.minutes(1)))
     @available(macOS 27.0, *)
     func magnificationStaysInsideItsDiagram() async throws {
         let fixture = try await makeFixture(markdown: """
@@ -117,6 +117,9 @@ struct MacHostedMermaidMagnificationTests {
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
+        var fixtureReady = false
+        defer { if !fixtureReady { window.close() } }
+        window.orderFront(nil)
         let base = MarkdownRenderTheme.default()
         let theme = MarkdownRenderTheme(bodyFont: base.bodyFont, codeFont: base.codeFont,
                                         blockquoteColor: base.blockquoteColor, linkColor: base.linkColor,
@@ -128,19 +131,50 @@ struct MacHostedMermaidMagnificationTests {
             controller.update(textView: view, blocks: update.blocks, diffs: [update.diff],
                               replaceToken: 1, configuration: .default())
         }
-        for _ in 0..<6 {
+        let storage = try #require(view.textStorage)
+        let attachments = hostedAttachments(in: storage)
+        try #require(!attachments.isEmpty)
+        var markerOffsets: [ObjectIdentifier: Int] = [:]
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+            if let attachment = value as? PicoHostedAttachment {
+                markerOffsets[ObjectIdentifier(attachment)] = range.location
+            }
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while true {
             if let manager = view.textLayoutManager, let content = manager.textContentManager {
                 manager.ensureLayout(for: content.documentRange)
                 manager.textViewportLayoutController.layoutViewport()
             }
             view.layoutSubtreeIfNeeded()
-            await Task.yield()
+            for attachment in attachments { attachment.hostingView?.layoutSubtreeIfNeeded() }
+            window.displayIfNeeded()
+            if attachments.allSatisfy({ attachment in
+                guard let host = attachment.hostingView, host.isDescendant(of: view),
+                      let canvas = self.findCanvas(in: host),
+                      abs(host.fittingSize.height - attachment.measuredSize.height) <= 1,
+                      abs(host.bounds.height - attachment.measuredSize.height) <= 1,
+                      let offset = markerOffsets[ObjectIdentifier(attachment)],
+                      let manager = view.textLayoutManager, let content = manager.textContentManager,
+                      let location = content.location(content.documentRange.location, offsetBy: offset),
+                      let fragment = manager.textLayoutFragment(for: location),
+                      fragment.layoutFragmentFrame.height >= attachment.measuredSize.height - 1 else { return false }
+                return canvas.window === window && canvas.bounds.width > 0 && canvas.bounds.height > 0
+            }) { break }
+            guard ContinuousClock.now < deadline else {
+                Issue.record("Timed out waiting for TextKit to mount the hosted Mermaid canvases")
+                throw FixtureTimeout()
+            }
+            // Canvas creation precedes deferred intrinsic-size publication.
+            // Wait until TextKit has also reserved the measured height, so the
+            // native prose and each diagram occupy their settled coordinates.
+            try await Task.sleep(for: .milliseconds(10))
         }
-        let storage = try #require(view.textStorage)
-        let attachments = hostedAttachments(in: storage)
-        try #require(!attachments.isEmpty)
+        fixtureReady = true
         return (window, view, attachments)
     }
+
+    private struct FixtureTimeout: Error {}
 
     private func hostedAttachments(in storage: NSTextStorage) -> [PicoHostedAttachment] {
         var result: [PicoHostedAttachment] = []

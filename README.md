@@ -79,6 +79,59 @@ noninteractive content that participates in the outer text selection, or
 This primitive does not change the parser's supported Markdown syntax. Hosted
 content must provide a finite intrinsic height at its proposed width.
 
+### OpenUI on macOS
+
+Opt in to the official OpenUI web renderer for `openui` fences on macOS 27:
+
+```swift
+let theme = MarkdownRenderTheme.default().withOpenUIRendering()
+
+PicoMarkdownView(stream: makeStream, theme: theme)
+    .onOpenUIAction { event in
+        // Original OpenUI action, including params.context and scoped formState.
+        // Your app decides whether to request a model response or open a URL.
+        handleAction(event)
+    }
+```
+
+The fence contains an OpenUI Lang program. For example:
+
+````markdown
+Before the interactive view.
+
+```openui
+root = Stack([card])
+card = Card([TextContent("Choose a next step"), Buttons([next], "row")])
+next = Button("Continue", @ToAssistant("Continue planning", {viewId: "planner"}), "primary")
+```
+
+Native Markdown continues here.
+````
+
+An open fence streams as native code. When its fence closes (or the stream
+finishes), that block becomes one interactive TextKit 2 child using the bundled
+React/OpenUI components. Other Markdown stays native. Later chunks, text sizing,
+width and light/dark changes retain the child and its form state; they do not
+reload its document. WebKit page zoom follows the theme body size and
+`markdownTextScale`/Dynamic Type without resubmitting the source. This first
+version does not progressively decode an open
+OpenUI program.
+
+Dragging a native text selection through the child selects the whole block.
+Copying exports its original fenced source, including in mixed selections; the
+error presentation also offers **Copy source**. Inputs and buttons remain interactive, and
+vertical wheel scrolling passes to the transcript. Parse/render failures show
+an error with source copying available. Actions are data callbacks only: the
+library does not make model requests, run tools or open URLs automatically.
+
+The web assets are bundled locally with pinned versions and no CDN dependency.
+Remote images/network requests are disabled in this initial renderer. WebViews
+are created lazily when TextKit materializes their child views and retained until
+their blocks are removed; a transcript with many visited OpenUI blocks therefore
+retains multiple WebViews. The runtime target and assets are macOS-only. iOS
+keeps native code rendering, and existing math rendering is unchanged.
+See [the runtime build notes](Web/OpenUI/README.md) for dependency updates.
+
 ### Configuration
 
 ```swift
@@ -299,7 +352,7 @@ import PicoMarkdownViewHTML
 PicoMarkdownView(stream: makeStream, embeddedBlockRenderers: [.htmlPreview])
 ```
 
-Recognized preview blocks hide raw source immediately and show a compact loading placeholder after 350 ms. The same attachment becomes a preview after closure and preparation, preserves source copying as a single selection unit, and reflows with the available width. Scripts, navigation, forms and network resources are disabled; images become alternative text. The core product remains WebKit-free, and iOS rendering is unchanged. See [HTML preview setup and behavior](Documentation/HTMLPreviews.md) for conditional dependencies, raw HTML boundaries, and examples. The macOS example app's **HTMLPreviews** document opts in separately from the other samples.
+Recognized preview blocks hide raw source immediately and show a compact loading placeholder after 350 ms. The same attachment becomes a preview after closure and preparation, preserves source copying as a single selection unit, and reflows with the available width. Scripts, navigation, forms and network resources are disabled; images become alternative text. The HTML preview adapter remains a separate optional product, and iOS rendering is unchanged. See [HTML preview setup and behavior](Documentation/HTMLPreviews.md) for conditional dependencies, raw HTML boundaries, and examples. The macOS example app's **HTMLPreviews** document opts in separately from the other samples.
 
 Opt-in [long-message performance](Documentation/HTMLPerformanceBenchmarks.md) and [viewport/lazy-chat benchmarks](Documentation/HTMLViewportBenchmarks.md) record streaming latency, readiness, page lifetime and host-process memory. They are not CI timing gates.
 

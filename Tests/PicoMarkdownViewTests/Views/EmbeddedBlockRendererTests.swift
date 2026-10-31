@@ -158,6 +158,45 @@ struct EmbeddedBlockRendererTests {
         #expect(!view.string.contains(source))
     }
 
+    @Test("An explicit OpenUI registration owns accepted content and declined native fallback", arguments: [false, true])
+    func explicitOpenUIRegistrationWins(accepts: Bool) async throws {
+        let recorder = Recorder()
+        let renderer = PicoEmbeddedBlockRenderer(selectors: [.fencedCode(language: "openui")]) { context in
+            recorder.contexts.append(context)
+            return accepts ? AnyView(Text("Custom OpenUI presentation").frame(height: 80)) : nil
+        }
+        let source = "root = Stack([body])\nbody = TextContent(\"Hello\")"
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withOpenUIRendering(), embeddedBlockRenderers: [renderer])
+        let open = try #require(await pipeline.feed("```openui\n" + source + "\n"))
+        #expect(open.blocks.allSatisfy { $0.embeddedBlock == nil && $0.openUI == nil })
+        #expect(recorder.contexts.isEmpty)
+        let closed = try #require(await pipeline.feed("```\n\n"))
+        let block = try #require(closed.blocks.first { $0.codeBlock?.language == "openui" })
+        #expect(block.embeddedBlock != nil)
+        #expect(block.openUI == nil, "The built-in interpreter must not replace the explicit registration's native fallback")
+        #expect(String(block.content.characters).contains(source))
+        let backend = TextKitStreamingBackend()
+        _ = backend.apply(blocks: closed.blocks, diffs: [closed.diff], selection: .init(location: 0, length: 0))
+        #expect(recorder.contexts.count == 1)
+        #expect(backend.hostedOpenUIModel(for: block.id) == nil)
+        let attributed = backend.snapshotAttributedString()
+        var hosted: PicoHostedAttachment?
+        attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, _, _ in
+            if let attachment = value as? PicoHostedAttachment { hosted = attachment }
+        }
+        if accepts {
+            let attachment = try #require(hosted)
+            #expect(attachment.markdownRepresentation() == "```openui\n" + source + "\n```")
+            #expect(!attributed.string.contains(source))
+        } else {
+            #expect(hosted == nil)
+            #expect(attributed.string.contains(source))
+            #expect(!attributed.string.contains("\u{FFFC}"))
+        }
+        _ = backend.apply(blocks: closed.blocks, selection: .init(location: 0, length: 0))
+        #expect(recorder.contexts.count == 1)
+    }
+
     @Test("A registered Mermaid fence stays native while open and when its factory declines")
     func declinedMermaidSkipsBuiltInInterpretation() async throws {
         let recorder = Recorder()

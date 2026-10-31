@@ -1,0 +1,37 @@
+[
+  {
+    "id": "trip-form",
+    "title": "Interactive travel form",
+    "source": "root = Stack([card])\ncard = Card([heading, intro, tripForm])\nheading = CardHeader(\"Plan a weekend\", \"An interactive form rendered by the official OpenUI web library\")\nintro = TextContent(\"Enter your details, then ask the assistant to plan a trip. These are the stock OpenUI components.\")\ntripForm = Form(\"trip\", buttons, [travelerField, emailField])\ntravelerField = FormControl(\"Traveler\", Input(\"traveler\", \"Your name\", \"text\", {required: true, minLength: 2}), \"Who is travelling?\")\nemailField = FormControl(\"Email\", Input(\"email\", \"you@example.com\", \"email\", {required: true, email: true}), \"Used only in the example's action data\")\nbuttons = Buttons([submit, docs], \"row\")\nsubmit = Button(\"Plan trip\", @ToAssistant(\"Plan my weekend\", {viewId: \"trip-form\", itineraryId: \"TRIP-042\", source: \"openui-proof\"}), \"primary\")\ndocs = Button(\"OpenUI docs\", @OpenUrl(\"https://www.openui.com/docs/openui-lang\"), \"secondary\")\n"
+  },
+  {
+    "id": "project-status",
+    "title": "Cards and data table",
+    "source": "root = Stack([summaryCard, detailsCard, followupCard], \"column\", \"l\")\nsummaryCard = Card([summaryHeading, summaryText, tags])\nsummaryHeading = CardHeader(\"Project overview\", \"A richer card layout with the official column-oriented table\")\nsummaryText = TextContent(\"The prototype keeps Markdown native and hosts this OpenUI tree as one child.\")\ntags = TagBlock([\"macOS\", \"TextKit 2\", \"OpenUI\"], \"md\")\ndetailsCard = Card([tableHeading, statusTable])\ntableHeading = CardHeader(\"Workstreams\", \"All values below come from the fixture source\")\nstatusTable = Table([Col(\"Workstream\", workstreams), Col(\"Owner\", owners), Col(\"Progress\", progress, \"number\")])\nworkstreams = [\"Native document\", \"Hosted child\", \"Action bridge\", \"Visual review\"]\nowners = [\"Pico\", \"OpenUI\", \"App\", \"Team\"]\nprogress = [100, 100, 85, 60]\nfollowupCard = Card([Callout(\"info\", \"Selection\", \"Copying the outer child should export this OpenUI program, not a screenshot.\"), Buttons([explain], \"row\")])\nexplain = Button(\"Explain status\", @ToAssistant(\"Explain the project status\", {viewId: \"status-card\", reportId: 42}), \"primary\")\n"
+  },
+  {
+    "id": "revenue-chart",
+    "title": "Chart and follow-up action",
+    "source": "root = Stack([chartCard])\nchartCard = Card([heading, description, revenue, Buttons([explain], \"row\")])\nheading = CardHeader(\"Q4 revenue\", \"Official OpenUI BarChart with two series\")\ndescription = TextContent(\"A vector chart, ordinary web controls and the same semantic action callback.\")\nrevenue = BarChart(labels, [productA, productB], \"grouped\", \"Month\", \"Revenue\", 260)\nlabels = [\"October\", \"November\", \"December\"]\nproductA = Series(\"Product A\", [120, 150, 180])\nproductB = Series(\"Product B\", [90, 110, 140])\nexplain = Button(\"Explain chart\", @ToAssistant(\"Explain this revenue chart\", {viewId: \"revenue-chart\", period: \"Q4\"}), \"primary\")\n"
+  },
+  {
+    "id": "date-picker",
+    "title": "Date picker portal",
+    "source": "root = Stack([TextContent(\"Choose a date\"), DatePicker(\"appointment\", \"single\")])\n"
+  },
+  {
+    "id": "math-content",
+    "title": "OpenUI math content",
+    "source": "root = TextContent(\"Inline $$x^2$$ and display:\\n\\n$$\\n\\\\frac{1}{2}\\n$$\")\n"
+  },
+  {
+    "id": "scrollable-modal",
+    "title": "Scrollable modal",
+    "source": "root = Stack([TextContent(\"Scroll example\"), Modal(\"Scrollable details\", true, [TextContent(\"Paragraph 1: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 2: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 3: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 4: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 5: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 6: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 7: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 8: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 9: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 10: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 11: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 12: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 13: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 14: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 15: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 16: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 17: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 18: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 19: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 20: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 21: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 22: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 23: The official modal keeps this long body inside its own scrollable region.\\n\\nParagraph 24: The official modal keeps this long body inside its own scrollable region.\\n\\n[Modal documentation](https://www.openui.com/docs/openui-lang)\")], \"sm\")])\n"
+  },
+  {
+    "id": "markdown-link",
+    "title": "Markdown link action",
+    "source": "root = TextContent(\"[Read documentation](https://www.openui.com/docs/openui-lang)\")\n"
+  }
+]
