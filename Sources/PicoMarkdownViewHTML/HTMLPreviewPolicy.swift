@@ -2,7 +2,7 @@
 import Foundation
 import libxml2
 
-struct HTMLPreviewStyle: Sendable, Equatable {
+nonisolated struct HTMLPreviewStyle: Sendable, Equatable {
     var fontSize: Double
     var fontFamily: String
     var foregroundCSS: String
@@ -13,12 +13,26 @@ struct HTMLPreviewStyle: Sendable, Equatable {
                                 foregroundCSS: "#000000", backgroundCSS: "transparent", isDark: false)
 }
 
-struct HTMLPreviewDocument: Sendable, Equatable {
+nonisolated struct HTMLPreviewDocument: Sendable, Equatable {
     let html: String
     let plainText: String
 }
 
-enum HTMLPreviewPolicyError: Error, Equatable {
+/// Sanitized, style-independent HTML. No parser or DOM object is retained or
+/// transferred across actors; appearance changes only compose a new shell.
+nonisolated struct HTMLPreparedContent: Sendable, Equatable {
+    fileprivate let bodyHTML: String
+    fileprivate let authorStylesHTML: String
+    fileprivate let bodyAttributesHTML: String
+    fileprivate let bodyStyleHTML: String
+    let plainText: String
+
+    func document(style: HTMLPreviewStyle = .default) -> HTMLPreviewDocument {
+        HTMLPreviewPolicy.document(content: self, style: style)
+    }
+}
+
+nonisolated enum HTMLPreviewPolicyError: Error, Equatable {
     case sourceTooLarge
     case unsupportedDeclaration
     case invalidHTML
@@ -30,7 +44,7 @@ enum HTMLPreviewPolicyError: Error, Equatable {
 /// for selection/copying and falls back to that source when preparation fails.
 /// WebKit's script, navigation and network restrictions remain independent
 /// defenses; this policy never forwards the author's document shell.
-enum HTMLPreviewPolicy {
+nonisolated enum HTMLPreviewPolicy {
     static let maximumSourceBytes = 128 * 1024
     static let maximumNodeCount = 4_096
     static let maximumDepth = 64
@@ -39,7 +53,7 @@ enum HTMLPreviewPolicy {
     static let contentElementID = "pico-html-content"
     static let contentSecurityPolicy = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"
 
-    static func prepare(source: String, style: HTMLPreviewStyle = .default) throws -> HTMLPreviewDocument {
+    static func prepare(source: String) throws -> HTMLPreparedContent {
         guard source.utf8.count <= maximumSourceBytes else { throw HTMLPreviewPolicyError.sourceTooLarge }
         // An HTML preview has no use for entity declarations. Reject them
         // before parsing so even internal expansion cannot amplify the input.
@@ -55,6 +69,29 @@ enum HTMLPreviewPolicy {
         guard !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw HTMLPreviewPolicyError.emptyContent
         }
+        let bodyAttributes = builder.bodyAttributes.filter { $0.0 != "style" }
+        let authorBodyStyle = builder.bodyAttributes.first { $0.0 == "style" }?.1 ?? ""
+        let bodyStyle = authorBodyStyle + ";margin:0!important;overflow:hidden!important"
+        return HTMLPreparedContent(
+            bodyHTML: body,
+            authorStylesHTML: builder.styles.map { "<style>" + escapeCSSRawText($0) + "</style>" }.joined(),
+            bodyAttributesHTML: attributesHTML(bodyAttributes),
+            bodyStyleHTML: escapeAttribute(bodyStyle),
+            plainText: String(builder.plainText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16_384))
+        )
+    }
+
+    @concurrent
+    static func prepareOffMainActor(source: String,
+                                    onPreparationStarted: (@Sendable () -> Void)? = nil) async throws -> HTMLPreparedContent {
+        try Task.checkCancellation()
+        onPreparationStarted?()
+        let content = try prepare(source: source)
+        try Task.checkCancellation()
+        return content
+    }
+
+    fileprivate static func document(content: HTMLPreparedContent, style: HTMLPreviewStyle) -> HTMLPreviewDocument {
         let fontSize = style.fontSize.isFinite ? min(96, max(8, style.fontSize)) : 15
         let family = safeFontFamily(style.fontFamily)
         let foreground = safeColor(style.foregroundCSS, fallback: style.isDark ? "#ffffff" : "#000000")
@@ -66,14 +103,10 @@ enum HTMLPreviewPolicy {
         """
         let staticCSS = "*, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }"
         let rootStyle = "display:flow-root!important;width:100%!important;box-sizing:border-box!important;min-width:0!important;position:relative!important;overflow-wrap:anywhere!important"
-        let bodyAttributes = builder.bodyAttributes.filter { $0.0 != "style" }
-        let authorBodyStyle = builder.bodyAttributes.first { $0.0 == "style" }?.1 ?? ""
-        let bodyStyle = authorBodyStyle + ";margin:0!important;overflow:hidden!important"
         let html = """
-        <!doctype html><html style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(builder.styles.map { "<style>" + escapeCSSRawText($0) + "</style>" }.joined())<style>\(staticCSS)</style></head><body\(attributesHTML(bodyAttributes)) style="\(escapeAttribute(bodyStyle))"><div id="\(contentElementID)" style="\(rootStyle)">\(body)</div></body></html>
+        <!doctype html><html style="margin:0!important;overflow:hidden!important"><head><meta http-equiv="Content-Security-Policy" content="\(escapeAttribute(contentSecurityPolicy))"><meta charset="utf-8"><title>HTML preview</title><style>\(baseCSS)</style>\(content.authorStylesHTML)<style>\(staticCSS)</style></head><body\(content.bodyAttributesHTML) style="\(content.bodyStyleHTML)"><div id="\(contentElementID)" style="\(rootStyle)">\(content.bodyHTML)</div></body></html>
         """
-        return HTMLPreviewDocument(html: html,
-                                   plainText: String(builder.plainText.trimmingCharacters(in: .whitespacesAndNewlines).prefix(16_384)))
+        return HTMLPreviewDocument(html: html, plainText: content.plainText)
     }
 
     private static func parseHTML(_ source: String) throws -> XMLDocument {

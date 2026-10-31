@@ -72,7 +72,9 @@ struct HTMLPreviewViewTests {
     }
 
     @Test func detachReleasesPageAndReattachRestoresPreview() async throws {
-        let (view, window) = makePreview(source: "<p>A stable source-backed preview.</p>", width: 400)
+        let counter = PreparationCounter()
+        let (view, window) = makePreview(source: "<p>A stable source-backed preview.</p>", width: 400,
+                                         prepare: counter.prepare)
         defer { tearDown(view, window) }
         try await waitUntilReady(view)
         weak var firstPage = view.page
@@ -88,10 +90,13 @@ struct HTMLPreviewViewTests {
         #expect(view.loadCount == 2)
         #expect(view.measuredHeight == height)
         #expect(!view.hasFailed)
+        #expect(await counter.count == 1)
     }
 
     @Test func appearanceFollowsTheMarkdownViewAndReloadsOnlyThePreview() async throws {
-        let (view, window) = makePreview(source: "<p>A themed preview.</p>", width: 400)
+        let counter = PreparationCounter()
+        let (view, window) = makePreview(source: "<p>A themed preview.</p>", width: 400,
+                                         prepare: counter.prepare)
         defer { tearDown(view, window) }
         try await waitUntilReady(view)
         let lightPage = try #require(view.page)
@@ -108,6 +113,7 @@ struct HTMLPreviewViewTests {
         #expect(dark == true)
         let scheme = try await darkPage.callJavaScript("return getComputedStyle(document.documentElement).colorScheme", contentWorld: .defaultClient) as? String
         #expect(scheme == "dark")
+        #expect(await counter.count == 1)
     }
 
     @Test(arguments: [
@@ -124,9 +130,12 @@ struct HTMLPreviewViewTests {
         #expect(view.measuredHeight == 1)
     }
 
-    private func makePreview(source: String, width: CGFloat) -> (HTMLPreviewContainer, NSWindow) {
+    private func makePreview(source: String, width: CGFloat,
+                             prepare: @escaping HTMLPreviewPreparation.Prepare = { source in
+                                 try await HTMLPreviewPolicy.prepareOffMainActor(source: source)
+                             }) -> (HTMLPreviewContainer, NSWindow) {
         _ = NSApplication.shared
-        let view = HTMLPreviewContainer()
+        let view = HTMLPreviewContainer(prepare: prepare)
         view.configure(source: source, style: .default)
         let window = NSWindow(contentRect: NSRect(x: 40, y: 40, width: width, height: 80), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -156,5 +165,14 @@ struct HTMLPreviewViewTests {
         window.contentView = nil
         window.close()
     }
+
+    private actor PreparationCounter {
+        var count = 0
+        func prepare(source: String) async throws -> HTMLPreparedContent {
+            count += 1
+            return try await HTMLPreviewPolicy.prepareOffMainActor(source: source)
+        }
+    }
+
 }
 #endif

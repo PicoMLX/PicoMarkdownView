@@ -1,4 +1,5 @@
 #if os(macOS)
+import Dispatch
 import Foundation
 import Testing
 @testable import PicoMarkdownViewHTML
@@ -7,7 +8,7 @@ import Testing
 struct HTMLPreviewPolicyTests {
     @Test("Static reports retain HTML5 containers, CSS, tables and Unicode")
     func preparesReport() throws {
-        let document = try HTMLPreviewPolicy.prepare(source: """
+        let document = try prepareDocument(source: """
         <!doctype html><html><head><meta charset="windows-1252">
         <style>.card { display: grid; gap: 12px; background: linear-gradient(red, blue); }</style>
         </head><body class="report"><section class="card"><h3>Résumé 🧭</h3>
@@ -29,7 +30,7 @@ struct HTMLPreviewPolicyTests {
 
     @Test("Author navigation, active elements and event attributes are removed")
     func removesActiveContent() throws {
-        let document = try HTMLPreviewPolicy.prepare(source: """
+        let document = try prepareDocument(source: """
         <html><head><meta http-equiv="refresh" content="0;url=https://example.invalid">
         <base href="https://example.invalid"><link rel="stylesheet" href="https://example.invalid/a.css"></head>
         <body onload="alert(1)"><div onclick="alert(2)" contenteditable="true" tabindex="0">Report
@@ -60,7 +61,7 @@ struct HTMLPreviewPolicyTests {
     ])
     func repairsOrRejectsAdversarialMarkup(source: String) throws {
         do {
-            let document = try HTMLPreviewPolicy.prepare(source: source)
+            let document = try prepareDocument(source: source)
             try expectInert(document)
         } catch let error as HTMLPreviewPolicyError {
             #expect(error == .invalidHTML || error == .emptyContent)
@@ -69,7 +70,7 @@ struct HTMLPreviewPolicyTests {
 
     @Test("The app owns the first CSP and the unique measurement root")
     func ownsDocumentShell() throws {
-        let document = try HTMLPreviewPolicy.prepare(source: """
+        let document = try prepareDocument(source: """
         <html><head><meta http-equiv="Content-Security-Policy" content="default-src *"></head>
         <body id="pico-html-content" style="margin:50px;overflow:auto"><div id="pico-html-content">Report</div></body></html>
         """)
@@ -87,7 +88,7 @@ struct HTMLPreviewPolicyTests {
 
     @Test("Images have a visible escaped alt fallback and never retain resources")
     func omitsImages() throws {
-        let document = try HTMLPreviewPolicy.prepare(source: """
+        let document = try prepareDocument(source: """
         <p>Report<img src="https://example.invalid/image.png" srcset="file:///secret 2x" alt="Chart &amp; totals">
         <img src="data:image/svg+xml,&lt;svg onload='alert(1)'&gt;"></p>
         """)
@@ -105,28 +106,28 @@ struct HTMLPreviewPolicyTests {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dtd")
         try "<!ENTITY leak '\(marker)'>".write(to: file, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: file) }
-        let document = try HTMLPreviewPolicy.prepare(source: "<!DOCTYPE html SYSTEM '\(file.absoluteString)'><html><body><p>Report &leak;</p></body></html>")
+        let document = try prepareDocument(source: "<!DOCTYPE html SYSTEM '\(file.absoluteString)'><html><body><p>Report &leak;</p></body></html>")
         #expect(!document.html.contains(marker))
         #expect(!document.html.contains(file.absoluteString))
         #expect(document.plainText.contains("Report"))
         #expect(throws: HTMLPreviewPolicyError.unsupportedDeclaration) {
-            try HTMLPreviewPolicy.prepare(source: "<!DOCTYPE html [<!ENTITY secret 'expanded'>]><p>&secret;</p>")
+            try prepareDocument(source: "<!DOCTYPE html [<!ENTITY secret 'expanded'>]><p>&secret;</p>")
         }
         #expect(throws: HTMLPreviewPolicyError.unsupportedDeclaration) {
-            try HTMLPreviewPolicy.prepare(source: "<p>Report\0</p>")
+            try prepareDocument(source: "<p>Report\0</p>")
         }
     }
 
     @Test("Source bytes, node count and nesting are bounded before presentation")
     func rejectsUnboundedDocuments() throws {
         #expect(throws: HTMLPreviewPolicyError.sourceTooLarge) {
-            try HTMLPreviewPolicy.prepare(source: String(repeating: "🧭", count: HTMLPreviewPolicy.maximumSourceBytes / 4 + 1))
+            try prepareDocument(source: String(repeating: "🧭", count: HTMLPreviewPolicy.maximumSourceBytes / 4 + 1))
         }
         #expect(throws: HTMLPreviewPolicyError.documentTooComplex) {
-            try HTMLPreviewPolicy.prepare(source: String(repeating: "<span>x</span>", count: HTMLPreviewPolicy.maximumNodeCount))
+            try prepareDocument(source: String(repeating: "<span>x</span>", count: HTMLPreviewPolicy.maximumNodeCount))
         }
         #expect(throws: HTMLPreviewPolicyError.documentTooComplex) {
-            try HTMLPreviewPolicy.prepare(source: String(repeating: "<div>", count: HTMLPreviewPolicy.maximumDepth + 1) + "Report" + String(repeating: "</div>", count: HTMLPreviewPolicy.maximumDepth + 1))
+            try prepareDocument(source: String(repeating: "<div>", count: HTMLPreviewPolicy.maximumDepth + 1) + "Report" + String(repeating: "</div>", count: HTMLPreviewPolicy.maximumDepth + 1))
         }
         #expect(HTMLPreviewPolicy.minimumHeight == 1)
         #expect(HTMLPreviewPolicy.maximumHeight == 4_096)
@@ -139,11 +140,71 @@ struct HTMLPreviewPolicyTests {
         style.foregroundCSS = "red;} </style><iframe src='https://example.invalid'>"
         style.backgroundCSS = "url(file:///secret)"
         style.fontSize = .nan
-        let document = try HTMLPreviewPolicy.prepare(source: "<p>Report</p>", style: style)
+        let document = try prepareDocument(source: "<p>Report</p>", style: style)
         try expectInert(document)
         #expect(!document.html.contains("example.invalid"))
         #expect(!document.html.contains("file:///secret"))
         #expect(!document.html.contains("nanpx"))
+    }
+
+    @Test("One sanitized value composes light and dark documents without mutation")
+    func preparedContentSupportsAppearanceChanges() throws {
+        let source = "<html><head><style>.card { display:grid; }</style></head><body><section class='card'><p>Résumé &amp; totals 🧭</p><img src='https://example.invalid' alt='Totals chart'></section></body></html>"
+        let prepared = try HTMLPreviewPolicy.prepare(source: source)
+        let light = prepared.document()
+        var style = HTMLPreviewStyle.default
+        style.isDark = true
+        style.foregroundCSS = "#f0f0f0"
+        style.fontSize = 24
+        let dark = prepared.document(style: style)
+        #expect(light != dark)
+        #expect(light.plainText == dark.plainText)
+        #expect(dark.html.contains("color-scheme: dark"))
+        #expect(dark.html.contains("font: 24.0px"))
+        for document in [light, dark] {
+            #expect(document.html.contains("<section class=\"card\">"))
+            #expect(document.html.contains("display:grid"))
+            #expect(document.plainText.contains("Résumé & totals 🧭"))
+            #expect(document.plainText.contains("[Image: Totals chart]"))
+            try expectInert(document)
+        }
+        #expect(prepared.document() == light, "Composing another appearance must not mutate sanitized content")
+    }
+
+    @Test("Production preparation leaves MainActor responsive while its worker is occupied", .timeLimit(.minutes(1)))
+    @MainActor
+    func preparationRunsOffMainActor() async throws {
+        let started = AsyncStream<Bool>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let releaseWorker = DispatchSemaphore(value: 0)
+        let source = "<section>" + String(repeating: "<p>Bounded report content 🧭.</p>", count: 600) + "</section>"
+        let preparation = Task {
+            try await HTMLPreviewPolicy.prepareOffMainActor(source: source) {
+                let isMain = Thread.isMainThread
+                started.continuation.yield(isMain)
+                started.continuation.finish()
+                // Only the test's worker is held. A regression onto MainActor
+                // reports that fact without blocking the UI actor or deadlocking.
+                if !isMain { releaseWorker.wait() }
+            }
+        }
+        defer {
+            releaseWorker.signal()
+            preparation.cancel()
+            started.continuation.finish()
+        }
+        var events = started.stream.makeAsyncIterator()
+        let isMain = try #require(await events.next() as Bool?)
+        #expect(!isMain)
+        let heartbeat = Task { @MainActor in true }
+        #expect(await heartbeat.value, "MainActor must run while preparation's worker remains occupied")
+        releaseWorker.signal()
+        let prepared = try await preparation.value
+        #expect(prepared.plainText.contains("Bounded report content 🧭."))
+        #expect(prepared.document().html.contains("<section>"))
+    }
+
+    private func prepareDocument(source: String, style: HTMLPreviewStyle = .default) throws -> HTMLPreviewDocument {
+        try HTMLPreviewPolicy.prepare(source: source).document(style: style)
     }
 
     private func expectInert(_ document: HTMLPreviewDocument) throws {

@@ -89,9 +89,9 @@ A native Markdown paragraph after the preview.
 
 ## Streaming, selection, and resizing
 
-Open blocks retain their normal source presentation. The HTML view is created after the block or fence closes; an incomplete HTML document is not repeatedly loaded during streaming. Subsequent Markdown continues through the incremental pipeline. Resizing updates the embedded document's available width and height without replacing the surrounding text.
+Open blocks retain their normal source presentation. The HTML view is created after the block or fence closes; an incomplete HTML document is not repeatedly loaded during streaming. HTML parsing and sanitization run once off the main actor when the closed block is first presented. The prepared result is reused for appearance/font changes and after window detachment; only the lightweight document shell is restyled. Source remains visible until the first preview layout is ready. Subsequent Markdown continues through the incremental pipeline. Resizing updates the embedded document's available width and height without replacing the surrounding text.
 
-Each preview is one selection unit in the native text document. A selection spanning the preview copies its underlying source, including the fence for a fenced block. Sanitization affects presentation only; it does not rewrite copied source. The first version provides no preview toolbar. Documents that exceed the source/complexity limits keep their native source presentation. A load failure, excessive rendered height, or viewport-fixed layout shows source in the attachment instead of clipping the preview.
+Each preview is one selection unit in the native text document. A selection spanning the preview copies its underlying source, including the fence for a fenced block. Sanitization affects presentation only; it does not rewrite copied source. The first version provides no preview toolbar. Empty or oversized source keeps its native source presentation. A preparation failure, load failure, excessive rendered height, or viewport-fixed layout shows source in the attachment instead of clipping the preview.
 
 ## Static content policy
 

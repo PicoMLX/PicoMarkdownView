@@ -10,9 +10,12 @@ extension PicoEmbeddedBlockRenderer {
     /// and opt in using `embeddedBlockRenderers: [.htmlPreview]`.
     public static var htmlPreview: PicoEmbeddedBlockRenderer {
         PicoEmbeddedBlockRenderer(selectors: [.htmlBlock, .fencedCode(language: "html-preview")]) { context in
-            // A rejected document keeps the core's native source presentation.
-            guard (try? HTMLPreviewPolicy.prepare(source: context.source)) != nil else { return nil }
-            return AnyView(HTMLPreview(context: context))
+            // Only a cheap size preflight runs in the attachment factory.
+            // Parsing/sanitization starts off the main actor when presented.
+            guard !context.source.isEmpty,
+                  context.source.utf8.count <= HTMLPreviewPolicy.maximumSourceBytes else { return nil }
+            let preparation = HTMLPreviewPreparation(source: context.source)
+            return AnyView(HTMLPreview(context: context, preparation: preparation))
         }
     }
 }
@@ -20,24 +23,35 @@ extension PicoEmbeddedBlockRenderer {
 @MainActor
 private struct HTMLPreview: View {
     let context: PicoEmbeddedBlockContext
+    let preparation: HTMLPreviewPreparation
     @Environment(\.colorScheme) private var colorScheme
     @State private var height: CGFloat = 1
     @State private var failed = false
+    @State private var isReady = false
+    @State private var hasMeasuredHeight = false
 
     var body: some View {
-        Group {
-            if failed {
+        ZStack(alignment: .topLeading) {
+            if !failed {
+                HTMLPreviewRepresentable(
+                    preparation: preparation,
+                    style: style,
+                    onHeight: { height = $0; hasMeasuredHeight = true },
+                    onReadinessChanged: { isReady = $0 },
+                    onFailure: { isReady = false; failed = true }
+                )
+                .frame(height: height)
+                .accessibilityHidden(!isReady)
+            }
+            if !isReady {
+                // Keep source visible while the asynchronous preparation and
+                // first browser layout finish, and on a rejected document.
                 Text(context.source)
                     .font(.system(size: context.bodyFontSize, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                HTMLPreviewRepresentable(
-                    source: context.source,
-                    style: style,
-                    onHeight: { height = $0 },
-                    onFailure: { failed = true }
-                )
-                .frame(height: height)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: hasMeasuredHeight && !failed ? height : nil, alignment: .topLeading)
+                    .clipped()
             }
         }
         .frame(width: context.availableWidth, alignment: .leading)
@@ -73,19 +87,21 @@ private struct HTMLPreview: View {
 
 @MainActor
 private struct HTMLPreviewRepresentable: NSViewRepresentable {
-    let source: String
+    let preparation: HTMLPreviewPreparation
     let style: HTMLPreviewStyle
     let onHeight: (CGFloat) -> Void
+    let onReadinessChanged: (Bool) -> Void
     let onFailure: () -> Void
 
     func makeNSView(context: Context) -> HTMLPreviewContainer {
-        HTMLPreviewContainer()
+        HTMLPreviewContainer(preparation: preparation)
     }
 
     func updateNSView(_ view: HTMLPreviewContainer, context: Context) {
         view.onHeight = onHeight
         view.onFailure = onFailure
-        view.configure(source: source, style: style)
+        view.onReadinessChanged = onReadinessChanged
+        view.configure(source: preparation.source, style: style)
     }
 
     static func dismantleNSView(_ view: HTMLPreviewContainer, coordinator: ()) {
@@ -100,6 +116,7 @@ final class HTMLPreviewContainer: NSView {
     var onHeight: ((CGFloat) -> Void)?
     var onFailure: (() -> Void)?
     var onReady: (() -> Void)?
+    var onReadinessChanged: ((Bool) -> Void)?
     private(set) var page: WebPage?
     private var pageHost: NSHostingView<AnyView>?
     private var userContentController: WKUserContentController?
@@ -111,14 +128,22 @@ final class HTMLPreviewContainer: NSView {
 
     private var source = ""
     private var style: HTMLPreviewStyle = .default
-    private var document: HTMLPreviewDocument?
+    private var preparation: HTMLPreviewPreparation?
+    private let prepare: HTMLPreviewPreparation.Prepare
     private var generation = UUID()
     private var loadTask: Task<Void, Never>?
+    var pendingPresentation: Task<Void, Never>? { loadTask }
+    private(set) var pendingFailureNotification: Task<Void, Never>?
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { false }
 
-    init() {
+    init(preparation: HTMLPreviewPreparation? = nil,
+         prepare: @escaping HTMLPreviewPreparation.Prepare = { source in
+             try await HTMLPreviewPolicy.prepareOffMainActor(source: source)
+         }) {
+        self.preparation = preparation
+        self.prepare = prepare
         super.init(frame: .zero)
         setAccessibilityRole(.group)
         setAccessibilityLabel(String(localized: "HTML preview", bundle: .module))
@@ -128,15 +153,13 @@ final class HTMLPreviewContainer: NSView {
     required init?(coder: NSCoder) { nil }
 
     func configure(source: String, style: HTMLPreviewStyle) {
-        guard self.source != source || self.style != style || document == nil else { return }
+        guard self.source != source || self.style != style || preparation == nil else { return }
+        if preparation?.source != source {
+            preparation = HTMLPreviewPreparation(source: source, prepare: prepare)
+            hasFailed = false
+        }
         self.source = source
         self.style = style
-        do {
-            document = try HTMLPreviewPolicy.prepare(source: source, style: style)
-        } catch {
-            fail()
-            return
-        }
         suspend()
         if window != nil { resume() }
     }
@@ -158,6 +181,13 @@ final class HTMLPreviewContainer: NSView {
         navigationTask?.cancel()
         navigationTask = nil
         isReady = false
+        let token = generation
+        // configure/dismantle can run during SwiftUI's update pass. Publish
+        // readiness later and discard notifications from an older generation.
+        Task { @MainActor [weak self] in
+            guard let self, self.generation == token else { return }
+            self.onReadinessChanged?(self.isReady)
+        }
         page?.stopLoading()
         userContentController?.removeScriptMessageHandler(forName: "picoHTMLHeight", contentWorld: .defaultClient)
         userContentController?.removeAllUserScripts()
@@ -168,13 +198,17 @@ final class HTMLPreviewContainer: NSView {
     }
 
     private func resume() {
-        guard page == nil, loadTask == nil, let document, !hasFailed else { return }
+        guard page == nil, loadTask == nil, let preparation, !hasFailed else { return }
         let token = generation
+        let style = style
+        let preparationTask = preparation.resultTask()
         loadTask = Task { [weak self] in
             do {
+                let content = try await preparationTask.value
+                guard !Task.isCancelled, self?.generation == token, self?.window != nil else { return }
                 let rules = try await HTMLPreviewContentRules.compiled.value
                 guard !Task.isCancelled, let self, self.generation == token, self.window != nil else { return }
-                self.install(document: document, rules: rules, token: token)
+                self.install(document: content.document(style: style), rules: rules, token: token)
                 self.loadTask = nil
             } catch {
                 guard !Task.isCancelled, let self, self.generation == token else { return }
@@ -249,15 +283,21 @@ final class HTMLPreviewContainer: NSView {
         pageHost?.isHidden = false
         if !isReady {
             isReady = true
+            onReadinessChanged?(true)
             onReady?()
         }
     }
 
-    private func fail() {
+    func fail() {
         suspend()
         hasFailed = true
-        // Defer SwiftUI state writes out of updateNSView/layout.
-        Task { @MainActor [weak self] in self?.onFailure?() }
+        // Defer SwiftUI state writes out of updateNSView/layout, without
+        // allowing a discarded source's failure to affect a replacement.
+        let token = generation
+        pendingFailureNotification = Task { @MainActor [weak self] in
+            guard let self, self.generation == token, self.hasFailed else { return }
+            self.onFailure?()
+        }
     }
 
     private static func measurementScript(token: UUID) -> String {
