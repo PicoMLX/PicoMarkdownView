@@ -144,12 +144,20 @@ private struct ImageLightboxControls: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Button("Zoom Out", systemImage: "minus.magnifyingglass") { perform(.zoomOut) }
-                    .keyboardShortcut("-", modifiers: .command)
+                ControlGroup {
+                    Button("Zoom Out", systemImage: "minus.magnifyingglass") { perform(.zoomOut) }
+                        .keyboardShortcut("-", modifiers: .command)
+                        .help("Zoom Out")
+                    Button("Zoom In", systemImage: "plus.magnifyingglass") { perform(.zoomIn) }
+                        .keyboardShortcut("=", modifiers: .command)
+                        .help("Zoom In")
+                }
+                .labelStyle(.iconOnly)
+                .controlGroupStyle(.automatic)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
                 Button("Fit", systemImage: "arrow.up.left.and.arrow.down.right") { perform(.fit) }
                     .keyboardShortcut("0", modifiers: .command)
-                Button("Zoom In", systemImage: "plus.magnifyingglass") { perform(.zoomIn) }
-                    .keyboardShortcut("=", modifiers: .command)
             }
             Text("Pinch to zoom. Drag or scroll to pan.")
                 .font(.caption)
