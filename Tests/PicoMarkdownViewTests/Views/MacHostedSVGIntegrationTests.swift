@@ -33,19 +33,34 @@ struct MacHostedSVGIntegrationTests {
         #expect(attachment.context.isSelected)
     }
 
-    @Test("Open SVG stays readable during streaming and only its fence changes on close")
+    @Test("Open SVG keeps one source-copyable loading attachment through closure")
     @available(macOS 27.0, *)
     func closingChangesOnlyFence() async throws {
         let (controller, view) = makeView()
         let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
         await feed("Before.\n\n```svg\n" + source + "\n", pipeline: pipeline, controller: controller, view: view)
         let storage = try #require(view.textStorage)
-        #expect(attachments(in: storage).isEmpty)
-        #expect(storage.string.contains("<svg"))
+        let loading = try #require(attachments(in: storage).first)
+        #expect(attachments(in: storage).count == 1)
+        #expect(!storage.string.contains("<svg"))
+        #expect(loading.measuredSize.height == 48)
+        #expect(loading.markdownRepresentation() == "```svg\n" + source + "\n```")
+        view.setSelectedRange(NSRange(location: 0, length: storage.length))
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        #expect(view.writeSelection(to: pasteboard, types: [.string]))
+        let copied = try #require(pasteboard.string(forType: .string))
+        #expect(copied.contains("Before."))
+        #expect(copied.contains(loading.markdownRepresentation()))
+        #expect(!copied.contains("\u{FFFC}"))
+        #expect(loading.context.isSelected)
         let before = (storage.string as NSString).range(of: "Before.")
         view.setSelectedRange(before)
         await feed("```\n\nAfter.\n\n", pipeline: pipeline, controller: controller, view: view)
         #expect(attachments(in: storage).count == 1)
+        #expect(attachments(in: storage).first === loading)
+        #expect(loading.markdownRepresentation() == "```svg\n" + source + "\n```")
+        #expect(loading.measuredSize.height >= 140)
         #expect(view.selectedRange() == before)
         #expect(storage.string.contains("Before."))
         #expect(storage.string.contains("After."))
@@ -66,7 +81,7 @@ struct MacHostedSVGIntegrationTests {
         #expect(view.textLayoutManager != nil)
     }
 
-    @Test("A full apply replaces identical open-fence fallback with its newly closed SVG attachment")
+    @Test("A full apply closes an existing loading attachment when source content is unchanged")
     @available(macOS 27.0, *)
     func fullApplyConvertsUnchangedCodeContent() async throws {
         let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering()
@@ -75,7 +90,7 @@ struct MacHostedSVGIntegrationTests {
         _ = await pipeline.finish()
         let closed = try #require(await pipeline.blocksSnapshot().first { $0.svgGraphic != nil })
         var open = closed
-        open.svgGraphic = nil
+        open.svgGraphic?.isClosed = false
         open.snapshot.isClosed = false
         // Closure can change only presentation metadata: the complete code
         // source and its native attributes already arrived in earlier chunks.
@@ -83,16 +98,70 @@ struct MacHostedSVGIntegrationTests {
         let backend = TextKitStreamingBackend()
         let selection = NSRange(location: 0, length: 0)
         _ = backend.apply(blocks: [open], selection: selection)
-        #expect(backend.snapshotAttributedString().string.contains("<svg"))
-        #expect(backend.hostedAttachment(for: closed.id) == nil)
+        #expect(backend.snapshotAttributedString().string == "\u{FFFC}\n")
+        let loading = try #require(backend.hostedAttachment(for: closed.id))
+        #expect(loading.measuredSize.height == 48)
+        #expect(loading.markdownRepresentation().contains(source))
 
         _ = backend.apply(blocks: [closed], selection: selection)
         let stored = backend.snapshotAttributedString()
         #expect(stored.string == "\u{FFFC}\n")
         let attachment = try #require(stored.attribute(.attachment, at: 0, effectiveRange: nil) as? PicoHostedAttachment)
         #expect(backend.hostedAttachment(for: closed.id) === attachment)
+        #expect(attachment === loading)
+        #expect(attachment.measuredSize.height >= 140)
         #expect(attachment.markdownRepresentation().contains(source))
         #expect(!backend.needsFullApply(for: [closed]))
+    }
+
+    @Test("An invalid SVG closes its loading attachment into native code fallback")
+    @available(macOS 27.0, *)
+    func invalidLoadingSourceFallsBackOnClosure() async throws {
+        let (controller, view) = makeView()
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
+        let raw = "<svg><rect"
+        await feed("Before.\n\n```svg\n" + raw + "\n", pipeline: pipeline, controller: controller, view: view)
+        let storage = try #require(view.textStorage)
+        let loading = try #require(attachments(in: storage).first)
+        #expect(loading.measuredSize.height == 48)
+        #expect(!storage.string.contains(raw))
+        #expect(loading.markdownRepresentation().contains(raw))
+        let before = (storage.string as NSString).range(of: "Before.")
+        view.setSelectedRange(before)
+        await feed("```\n\nAfter.\n\n", pipeline: pipeline, controller: controller, view: view)
+        #expect(attachments(in: storage).isEmpty)
+        #expect(storage.string.contains(raw))
+        #expect(storage.string.contains("After."))
+        #expect(view.selectedRange() == before)
+    }
+
+    @Test("Offscreen loading SVG remains compact and transparent across width changes")
+    @available(macOS 27.0, *)
+    func lazyLoadingGeometry() async throws {
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
+        _ = await pipeline.feed("```svg\n" + source + "\n")
+        let open = try #require(await pipeline.blocksSnapshot().first { $0.svgGraphic != nil })
+        let backend = TextKitStreamingBackend()
+        let selection = NSRange(location: 0, length: 0)
+        _ = backend.apply(blocks: [open], selection: selection)
+        let attachment = try #require(backend.hostedAttachment(for: open.id))
+        #expect(attachment.hostingView == nil)
+        #expect(attachment.attachmentCell == nil)
+        #expect(attachment.image?.size == NSSize(width: 1, height: 1))
+        for width: CGFloat in [640, 180, 700] {
+            backend.updateHostedAttachments(width: width, selection: [])
+            #expect(attachment.hostingView == nil)
+            #expect(attachment.measuredSize.width == width)
+            #expect(attachment.measuredSize.height == 48)
+        }
+        _ = await pipeline.feed("```\n\n")
+        let closed = try #require(await pipeline.blocksSnapshot().first { $0.svgGraphic != nil })
+        _ = backend.apply(blocks: [closed], selection: selection)
+        backend.updateHostedAttachments(width: 640, selection: [])
+        #expect(backend.hostedAttachment(for: open.id) === attachment)
+        #expect(attachment.hostingView == nil)
+        #expect(attachment.measuredSize.height == 320)
+        _ = await pipeline.finish()
     }
 
     @Test("Pause, invalid updates and document replacement retire SVG payloads correctly")
@@ -223,10 +292,17 @@ struct MacHostedSVGIntegrationTests {
     func nativeQuoteDecoration() async throws {
         let (controller, view) = makeView()
         let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
-        await feed("> ```svg\n> " + source + "\n> ```\n\n", pipeline: pipeline, controller: controller, view: view)
-        apply(await pipeline.finish(), controller: controller, view: view)
+        await feed("> ```svg\n> " + source + "\n", pipeline: pipeline, controller: controller, view: view)
         let storage = try #require(view.textStorage)
+        let loading = try #require(attachments(in: storage).first)
+        #expect(loading.measuredSize.height == 48)
+        let loadingMarker = (storage.string as NSString).range(of: "\u{FFFC}")
+        try #require(loadingMarker.location != NSNotFound)
+        #expect(storage.attribute(.picoBlockquoteLevel, at: loadingMarker.location, effectiveRange: nil) as? Int == 1)
+        await feed("> ```\n\n", pipeline: pipeline, controller: controller, view: view)
+        apply(await pipeline.finish(), controller: controller, view: view)
         #expect(attachments(in: storage).count == 1)
+        #expect(attachments(in: storage).first === loading)
         let marker = (storage.string as NSString).range(of: "\u{FFFC}")
         try #require(marker.location != NSNotFound)
         #expect(storage.attribute(.picoBlockquoteLevel, at: marker.location, effectiveRange: nil) as? Int == 1)
@@ -242,10 +318,15 @@ struct MacHostedSVGIntegrationTests {
     func firstChildListMarker() async throws {
         let (controller, view) = makeView()
         let pipeline = MarkdownStreamingPipeline(theme: .default().withSVGRendering())
-        await feed("1. ```svg\n   " + source + "\n   ```\n\n", pipeline: pipeline, controller: controller, view: view)
-        apply(await pipeline.finish(), controller: controller, view: view)
+        await feed("1. ```svg\n   " + source + "\n", pipeline: pipeline, controller: controller, view: view)
         let storage = try #require(view.textStorage)
+        let loading = try #require(attachments(in: storage).first)
+        #expect(loading.measuredSize.height == 48)
+        #expect(storage.string.contains("1. \u{FFFC}"))
+        await feed("   ```\n\n", pipeline: pipeline, controller: controller, view: view)
+        apply(await pipeline.finish(), controller: controller, view: view)
         #expect(attachments(in: storage).count == 1)
+        #expect(attachments(in: storage).first === loading)
         #expect(storage.string.contains("1. \u{FFFC}"))
         let marker = (storage.string as NSString).range(of: "\u{FFFC}")
         let paragraph = try #require(storage.attribute(.paragraphStyle, at: marker.location,

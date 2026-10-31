@@ -1,6 +1,6 @@
 # SVG graphics
 
-This page opts into native SVG rendering on macOS. Each graphic appears when its fenced source finishes streaming. The paragraphs around it remain selectable Markdown text. On iOS, these SVG fences remain code.
+This page opts into native SVG rendering on macOS. Raw SVG stays hidden while it streams; a subtle loading card appears after 350 ms if the fence is still open. Each completed graphic replaces that card when its fenced source finishes streaming. Pausing or canceling stops the spinner without completing the parser's open SVG. The paragraphs around it remain selectable Markdown text, and copying a loading card includes the SVG source received so far. On iOS, these SVG fences remain code.
 
 ## CSS and a color gradient
 
