@@ -120,6 +120,8 @@ enum VegaSVGCompatibility {
 
     /// Unlike Pele's user-space gradients, Vega serializes bounding-box
     /// coordinates as percentages and may give individual stops opacity.
+    /// Keep those coordinates in unit-box space so drawing transforms the
+    /// entire gradient coordinate system, including its color normals.
     static func gradients(in root: PeleSVGElement) -> [String: PeleSVGGradient] {
         var found: [String: PeleSVGGradient] = [:]
         func visit(_ element: PeleSVGElement) {

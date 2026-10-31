@@ -624,6 +624,46 @@ struct PeleSVGRasterizerTests {
         #expect(bitmap.pixel(97, 5).isOpaqueBlue)
     }
 
+    @Test("Vega diagonal bounding-box gradients retain their color planes on transformed wide and tall marks",
+          arguments: [(200, 40), (40, 200)], [false, true])
+    func vegaDiagonalBoundingBoxGradient(size: (Int, Int), strokesAsFills: Bool) throws {
+        let (width, height) = size
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="\(width * 2 + 40)" height="\(height * 3 + 40)">
+        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/>
+        </linearGradient></defs>
+        <g transform="translate(10,10) scale(2,3)">
+        <rect x="5" y="5" width="\(width)" height="\(height)" fill="url(#g)" stroke="#00ff00" stroke-width="2"/>
+        </g></svg>
+        """
+        let document = try #require(PeleSVGDocument(svg: svg, dialect: .vega))
+        let context = try #require(CGContext(data: nil, width: Int(document.width), height: Int(document.height),
+                                            bitsPerComponent: 8, bytesPerRow: 0, space: PeleSVGValue.colorSpace,
+                                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.translateBy(x: 0, y: document.height)
+        context.scaleBy(x: 1, y: -1)
+        document.draw(in: context, strokesAsFills: strokesAsFills)
+        let bitmap = try #require(Bitmap(context.makeImage()))
+        let originX = 20
+        let originY = 25
+        for (u, v) in [(0.1, 0.1), (0.9, 0.1), (0.1, 0.9), (0.9, 0.9)] {
+            let pixel = bitmap.pixel(originX + Int(u * Double(width * 2)),
+                                     originY + Int(v * Double(height * 3)))
+            // The diagonal's color is (u + v) / 2 in the unit bounding box,
+            // independent of its aspect ratio and the element's transform.
+            let blue = Int(((u + v) * 0.5 * 255).rounded())
+            #expect(abs(pixel.red - (255 - blue)) <= 4)
+            #expect(abs(pixel.blue - blue) <= 4)
+            #expect(pixel.green == 0 && pixel.alpha == 255)
+        }
+        #expect(bitmap.pixel(originX - 6, originY + height) == .transparent,
+                "The gradient remains clipped to the original shape")
+        let stroke = bitmap.pixel(originX + width, originY)
+        #expect(stroke.green > 240 && stroke.red < 10 && stroke.blue < 10,
+                "Bounding-box gradient coordinates must not alter the subsequent stroke")
+    }
+
     @Test("Vega display:none stays invisible and aria-hidden does not hide visible marks")
     func vegaVisibilityAndAccessibility() throws {
         let svg = """

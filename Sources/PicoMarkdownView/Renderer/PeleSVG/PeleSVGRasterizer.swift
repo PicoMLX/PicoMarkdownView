@@ -274,18 +274,32 @@ extension PeleSVGDocument {
                                           colors: colors as CFArray,
                                           locations: gradient.stops.map(\.offset)) else { return }
         context.saveGState()
+        defer { context.restoreGState() }
         context.addPath(path)
         context.clip()
         var start = gradient.start
         var end = gradient.end
         if !gradient.userSpace {
             let box = path.boundingBoxOfPath
-            start = CGPoint(x: box.minX + start.x * box.width, y: box.minY + start.y * box.height)
-            end = CGPoint(x: box.minX + end.x * box.width, y: box.minY + end.y * box.height)
+            #if os(macOS)
+            let usesUnitCoordinates = dialect == .vega
+            #else
+            let usesUnitCoordinates = false
+            #endif
+            if usesUnitCoordinates {
+                guard box.width > 0, box.height > 0, box.width.isFinite, box.height.isFinite else { return }
+                // Transform the whole unit-box gradient, including its color
+                // normals. Scaling only endpoints skews diagonal gradients in
+                // non-square shapes. The original path is already clipped.
+                context.translateBy(x: box.minX, y: box.minY)
+                context.scaleBy(x: box.width, y: box.height)
+            } else {
+                start = CGPoint(x: box.minX + start.x * box.width, y: box.minY + start.y * box.height)
+                end = CGPoint(x: box.minX + end.x * box.width, y: box.minY + end.y * box.height)
+            }
         }
         context.drawLinearGradient(cgGradient, start: start, end: end,
                                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        context.restoreGState()
     }
 
     // MARK: Text
