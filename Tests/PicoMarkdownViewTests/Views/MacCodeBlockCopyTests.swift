@@ -243,8 +243,8 @@ struct MacCodeBlockCopyTests {
         #expect(fixture.view.textLayoutManager != nil)
     }
 
-    @Test("Outer scroll notifications refresh controls before the text viewport catches up")
-    func outerScrollUpdatesControlsSynchronously() async throws {
+    @Test("Outer scroll notifications refresh controls with a stale text viewport")
+    func outerScrollNotificationsRefreshControls() async throws {
         let fixture = CodeCopyFixture()
         defer { fixture.close() }
         let filler = String(repeating: "Filler paragraph between distant code blocks.\n\n", count: 24)
@@ -274,6 +274,9 @@ struct MacCodeBlockCopyTests {
         let initialViewport = try #require(manager.textViewportLayoutController.viewportRange)
         scroll.contentView.scroll(to: CGPoint(x: 0, y: header.minY - 8))
         scroll.reflectScrolledClipView(scroll.contentView)
+        // NSClipView does not promise observer delivery before scroll(to:) returns.
+        // Post explicitly to test the registered handler against real, stale-viewport geometry.
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         #expect(fixture.view.visibleRect.contains(header.center))
         #expect(fixture.view.codeBlockCopyControls.buttons[blocks[1].id] != nil,
                 "The clip-bounds notification alone must install the newly visible Copy button")
@@ -290,6 +293,7 @@ struct MacCodeBlockCopyTests {
                      "The cached text viewport must now begin below the first code header")
         scroll.contentView.scroll(to: .zero)
         scroll.reflectScrolledClipView(scroll.contentView)
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         #expect(fixture.view.codeBlockCopyControls.buttons[blocks[0].id] != nil,
                 "Scrolling back must not enumerate from the stale lower text viewport")
         #expect(fixture.view.codeBlockCopyControls.buttons[blocks[1].id] == nil)
