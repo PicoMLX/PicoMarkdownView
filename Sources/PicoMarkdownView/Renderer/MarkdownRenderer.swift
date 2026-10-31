@@ -21,6 +21,8 @@ public struct MarkdownRenderTheme: Sendable {
     public let codeBlockTheme: CodeBlockTheme?
     public let codeHighlighter: AnyCodeSyntaxHighlighter?
     public let mermaidRenderingMode: MermaidRenderingMode
+    /// Render completed `svg` fences as hosted vectors on macOS. UIKit keeps code rendering.
+    public let svgRenderingEnabled: Bool
     /// Renders closed `vega-lite` fences as native vector charts on macOS.
     public let vegaLiteRenderingEnabled: Bool
 
@@ -33,6 +35,7 @@ public struct MarkdownRenderTheme: Sendable {
                 codeBlockTheme: CodeBlockTheme? = nil,
                 codeHighlighter: AnyCodeSyntaxHighlighter? = nil,
                 mermaidRenderingMode: MermaidRenderingMode = .onFenceClose,
+                svgRenderingEnabled: Bool = false,
                 vegaLiteRenderingEnabled: Bool = true) {
         self.bodyFont = bodyFont
         self.codeFont = codeFont
@@ -43,6 +46,7 @@ public struct MarkdownRenderTheme: Sendable {
         self.codeBlockTheme = codeBlockTheme
         self.codeHighlighter = codeHighlighter
         self.mermaidRenderingMode = mermaidRenderingMode
+        self.svgRenderingEnabled = svgRenderingEnabled
         self.vegaLiteRenderingEnabled = vegaLiteRenderingEnabled
     }
 
@@ -92,6 +96,7 @@ public struct MarkdownRenderTheme: Sendable {
                             codeBlockTheme: codeBlockTheme,
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
+                            svgRenderingEnabled: svgRenderingEnabled,
                             vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 
@@ -108,6 +113,7 @@ public struct MarkdownRenderTheme: Sendable {
                             codeBlockTheme: codeBlockTheme,
                             codeHighlighter: codeHighlighter,
                             mermaidRenderingMode: mermaidRenderingMode,
+                            svgRenderingEnabled: svgRenderingEnabled,
                             vegaLiteRenderingEnabled: enabled)
     }
 
@@ -135,6 +141,7 @@ public struct MarkdownRenderTheme: Sendable {
                                    codeBlockTheme: scaledCodeTheme,
                                    codeHighlighter: codeHighlighter,
                                    mermaidRenderingMode: mermaidRenderingMode,
+                                   svgRenderingEnabled: svgRenderingEnabled,
                                    vegaLiteRenderingEnabled: vegaLiteRenderingEnabled)
     }
 }
@@ -476,6 +483,7 @@ actor MarkdownRenderer {
 #if canImport(AppKit)
             let didMutate = oldContent != newContent || blocks[acceptedIndex].table != rendered.table
                 || blocks[acceptedIndex].mermaidDiagram != rendered.mermaidDiagram
+                || blocks[acceptedIndex].svgGraphic != rendered.svgGraphic
                 || blocks[acceptedIndex].vegaLiteChart != rendered.vegaLiteChart
 #else
             let didMutate = oldContent != newContent
@@ -686,6 +694,7 @@ actor MarkdownRenderer {
                              images: rendered.images,
                              codeBlock: rendered.codeBlock,
                              mermaidDiagram: rendered.mermaidDiagram,
+                             svgGraphic: rendered.svgGraphic,
                              vegaLiteChart: rendered.vegaLiteChart,
                              blockquoteLevel: quoteLevel,
                              listPlacement: placement)
@@ -717,6 +726,7 @@ actor MarkdownRenderer {
             if case .heading = kind { return true }
 #if os(macOS)
             if case .fencedCode(let language) = kind {
+                if theme.svgRenderingEnabled, SVGDiagramSupport.isSVGLanguage(language) { return true }
                 if theme.vegaLiteRenderingEnabled, isVegaLiteLanguage(language) { return true }
                 if theme.mermaidRenderingMode.isEnabled { return isMermaidLanguage(language) }
             }
@@ -765,6 +775,7 @@ struct RenderedBlock: Sendable, Identifiable, Equatable {
     var images: [RenderedImage] = []
     var codeBlock: RenderedCodeBlock?
     var mermaidDiagram: RenderedMermaidDiagram?
+    var svgGraphic: RenderedSVGGraphic? = nil
     var vegaLiteChart: RenderedVegaLiteChart? = nil
     /// Enclosing quote depth (0 outside any quote); drives the bars and
     /// indent children of a quote are drawn with.
@@ -795,6 +806,7 @@ extension RenderedBlock {
         images = rendered.images
         codeBlock = rendered.codeBlock
         mermaidDiagram = rendered.mermaidDiagram
+        svgGraphic = rendered.svgGraphic
         vegaLiteChart = rendered.vegaLiteChart
     }
 
@@ -810,6 +822,7 @@ extension RenderedBlock {
         lhs.images == rhs.images &&
         lhs.codeBlock == rhs.codeBlock &&
         lhs.mermaidDiagram == rhs.mermaidDiagram &&
+        lhs.svgGraphic == rhs.svgGraphic &&
         lhs.vegaLiteChart == rhs.vegaLiteChart
     }
 }

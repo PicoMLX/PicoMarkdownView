@@ -56,12 +56,15 @@ public final class PicoHostedAttachment: NSTextAttachment {
         }
     }
 
-    /// Reserve geometry before TextKit lazily creates an offscreen view.
-    /// Once hosted, the real intrinsic measurement owns its dimensions.
-    func estimateSize(_ size: CGSize) {
+    /// Seed known geometry before TextKit inserts a lazy hosted attachment.
+    /// An offscreen view need not be created just to reserve its block height.
+    func seedSizeBeforeViewCreation(_ size: CGSize) {
         guard hostedView == nil else { return }
         setMeasuredSize(size)
     }
+
+    /// Compatibility for the chart branch's original geometry helper.
+    func estimateSize(_ size: CGSize) { seedSizeBeforeViewCreation(size) }
 
     public func markdownRepresentation() -> String { markdown() }
 

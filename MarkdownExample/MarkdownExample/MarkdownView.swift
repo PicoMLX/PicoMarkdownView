@@ -23,6 +23,10 @@ struct MarkdownView: View {
     private let tagPrefixes: Set<TagPrefix>
     private let inputID: UUID
     private let isLargeFixture: Bool
+    private let svgRenderingEnabled: Bool
+#if os(macOS)
+    private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+#endif
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @State private var isAutoScrolling = true
     @State private var autoScrollSuppressionDeadline: ContinuousClock.Instant?
@@ -45,7 +49,16 @@ struct MarkdownView: View {
         self.tagPrefixes = example.tagPrefixes
         self.inputID = example.id
         self.isLargeFixture = example.isLargeFixture
+        self.svgRenderingEnabled = example.svgRenderingEnabled
     }
+
+#if os(macOS)
+    func onImageTap(_ handler: @escaping @MainActor (MarkdownImageActivation) -> Void) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
 
     var body: some View {
         Group {
@@ -86,11 +99,16 @@ struct MarkdownView: View {
                                                      inputID: inputID,
                                                      pacing: streamPacing,
                                                      tagPrefixes: tagPrefixes,
+                                                     svgRenderingEnabled: svgRenderingEnabled,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
                                                      onTagHover: { tagHoverReadout = $0 },
                                                      onLinkHover: { linkHoverReadout = $0 },
                                                      onContentSize: { handleContentSizeChange($0) })
+#if os(macOS)
+                                .onImageTap(imageTapHandler)
+#endif
+                                .equatable()
                         }
                         .scrollPosition($scrollPosition)
                         .onScrollGeometryChange(for: ScrollMetrics.self) { geometry in
@@ -265,29 +283,42 @@ private enum AutoScrollConfig {
 }
 
 /// Equatable subview with ZERO DynamicProperty (@Environment, @State, etc.).
-/// SwiftUI compares the stable input identity and skips body re-evaluation
-/// when the parent re-renders due to scroll-position changes,
-/// preventing the stream from restarting. The closures and `tagPrefixes` are
+/// SwiftUI compares the stable input identity and its SVG presentation option,
+/// skipping body re-evaluation when the parent re-renders due to scroll-position
+/// changes so the stream does not restart. The closures and `tagPrefixes` are
 /// excluded from `==` — they're stable for a given document.
 private struct StreamingMarkdownContent: View, Equatable {
     let markdown: String
     let inputID: UUID
     let pacing: ExampleStreamPacing
     let tagPrefixes: Set<TagPrefix>
+    let svgRenderingEnabled: Bool
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
     let onTagHover: (String?) -> Void
     let onLinkHover: (String?) -> Void
     let onContentSize: (CGSize) -> Void
+#if os(macOS)
+    var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
+
+    func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
+        var view = self
+        view.imageTapHandler = handler
+        return view
+    }
+#endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.inputID == rhs.inputID
+        lhs.inputID == rhs.inputID && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
     }
 
     var body: some View {
         PicoMarkdownView(stream: { [markdown, pacing] in
             wordStream(from: markdown, pacing: pacing)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes)
+#if os(macOS)
+            .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
+#endif
             .id(inputID)
             .textSelection(.enabled)
             .padding()
@@ -314,7 +345,9 @@ private struct StreamingMarkdownContent: View, Equatable {
 
     private var exampleTheme: MarkdownRenderTheme {
 #if os(macOS)
-        .default().withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+        .default()
+            .withMermaidRendering(.bestEffortDebounced(milliseconds: 200))
+            .withSVGRendering(svgRenderingEnabled)
 #else
         .default()
 #endif

@@ -20,18 +20,22 @@ struct MarkdownExample: Identifiable, Hashable {
     let tagPrefixes: Set<TagPrefix>
     /// Large offline fixtures load asynchronously and omit the extra diagnostic views.
     let isLargeFixture: Bool
+    /// Only the SVG demo opts into rendering SVG fences as native graphics.
+    let svgRenderingEnabled: Bool
 
     init(localFilename: String,
          webURL: String,
          displayName: String? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
-         isLargeFixture: Bool = false) {
+         isLargeFixture: Bool = false,
+         svgRenderingEnabled: Bool = false) {
         self.name = displayName ?? localFilename
         self.localPath = (Bundle.main.path(forResource: localFilename, ofType: "md")
             ?? Bundle.main.path(forResource: localFilename, ofType: "md.deflate"))!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
         self.isLargeFixture = isLargeFixture
+        self.svgRenderingEnabled = svgRenderingEnabled
     }
 
     func loadMarkdown() throws -> String {
@@ -85,6 +89,10 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "Charts",
             webURL: "https://vega.github.io/vega-lite/examples/"),
         MarkdownExample(
+            localFilename: "SVG",
+            webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
+            svgRenderingEnabled: true),
+        MarkdownExample(
             localFilename: "Blockquotes",
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
         ]
@@ -102,6 +110,9 @@ struct MarkdownExample: Identifiable, Hashable {
 struct ContentView: View {    
     
     @State var selectedExample: MarkdownExample?
+#if os(macOS)
+    @State private var selectedImage: ExampleImagePresentation?
+#endif
     
     var body: some View {
         NavigationSplitView {
@@ -114,6 +125,9 @@ struct ContentView: View {
         } detail: {
             if let selectedExample {
                 MarkdownView(selectedExample)
+#if os(macOS)
+                    .onImageTap { selectedImage = ExampleImagePresentation(image: $0) }
+#endif
                     .id(selectedExample.id)
             } else {
                 Text("Select an Example")
@@ -122,9 +136,31 @@ struct ContentView: View {
         .onAppear {
             selectedExample = MarkdownExample.examples.first
         }
+#if os(macOS)
+        // The app owns presentation above the entire split view, including
+        // the browser comparison pane. The Markdown renderer only reports
+        // activation and keeps its streaming view alive beneath the sheet.
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .sheet(item: $selectedImage) { presentation in
+                        ImageLightbox(image: presentation.image)
+                            .frame(width: max(320, geometry.size.width * 0.94),
+                                   height: max(280, geometry.size.height * 0.92))
+                    }
+            }
+        }
+#endif
     }
 }
 
 #Preview {
     ContentView()
 }
+
+#if os(macOS)
+private struct ExampleImagePresentation: Identifiable {
+    let id = UUID()
+    let image: MarkdownImageActivation
+}
+#endif

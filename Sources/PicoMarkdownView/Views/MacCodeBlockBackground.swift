@@ -26,7 +26,8 @@ enum MacCodeBlockBackground {
         guard width.isFinite, width > 0 else { return nil }
 
         let frame = fragment.layoutFragmentFrame
-        let top = first.typographicBounds.minY
+        let header = paragraph.attributedString.attribute(.picoCodeBlockToolbarHeight, at: 0, effectiveRange: nil) as? CGFloat ?? 0
+        let top = first.typographicBounds.minY - header
         // A fragment frame includes paragraph spacing. That margin separates
         // fences and must not be painted as part of either block.
         var bottom = last.typographicBounds.maxY

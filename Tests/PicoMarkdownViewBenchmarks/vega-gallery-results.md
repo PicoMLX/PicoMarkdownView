@@ -2,7 +2,7 @@
 
 ## Current provider classification — October 31, 2026
 
-The current bounded profile was measured against all 189 distinct official specifications at both **336 and 480 points**, using provider-only mode. It permits sources up to 2 MiB, at most 400,000 JSON nodes, bounded filter/calculate expressions, and standard repeat references. Both widths produced the same outcomes, with real SVG data marks, native parsing and CoreGraphics drawing for every successful result. No complete preview or full-corpus Markdown pipeline was run for this update.
+The current bounded profile was measured against all 189 distinct official specifications at both **336 and 480 points**, using provider-only mode. It permits sources up to 2 MiB, at most 400,000 JSON nodes, bounded filter/calculate/conditional-test expressions, and standard repeat references. Both widths produced the same outcomes, with real SVG data marks, native parsing and CoreGraphics drawing for every successful result. No complete preview or full-corpus Markdown pipeline was run for this update.
 
 | Outcome | Distinct examples | Gallery placements |
 | --- | ---: | ---: |
@@ -12,7 +12,7 @@ The current bounded profile was measured against all 189 distinct official speci
 | Expression/runtime or native SVG rejection after Swift preflight | 2 | 2 |
 | Total | 189 | 203 |
 
-All original 51 successful distinct examples remain, and 64 additional distinct examples now render. The regenerated preview retains all 203 headings and official links, **128 exact chart fence bodies and 75 notices**. It is 32,080,820 bytes uncompressed (30.59 MiB), stored in a 4,047,784-byte resource (3.86 MiB). Its normalized classification report preserves outcomes at both tested widths, the source byte limit, benchmark report digests and the original successful IDs. The complete 67,025,394-byte corpus and its original manifest remain byte-identical.
+All original 51 successful distinct examples remain, and 64 additional distinct examples now render. The regenerated preview retains all 203 headings and official links, **128 exact chart fence bodies and 75 notices**. It is 32,082,329 bytes uncompressed (30.60 MiB), stored in a 4,049,169-byte resource (3.86 MiB). Its normalized classification report preserves outcomes at both tested widths, the source byte limit, benchmark report digests and the original successful IDs. The complete 67,025,394-byte corpus and its original manifest remain byte-identical.
 
 The two remaining expression/runtime/SVG fallbacks are `isotype_bar_chart_emoji` and `point_offset_random`. Maps and interactive bindings remain outside the static profile. The preview is a measured compatibility inventory, not a claim of browser visual equivalence.
 
@@ -40,7 +40,7 @@ The separate barley geometry regression verifies 120 dispersed points and numeri
 
 These debug measurements include the shared JavaScriptCore runtime; the peak includes fixture loading and earlier operations in the same process. They do not measure TextKit layout, frame rate or on-screen streaming performance. Evidence: `/private/tmp/pico-vega-gallery-providers-336.json` and `/private/tmp/pico-vega-gallery-providers-480.json`, with sibling `.log` files. The two complete provider-only tests passed in 13.943 s and 14.784 s respectively.
 
-The example app's existing nominal 30-word/s stream is unchanged. Dense JSON also passes through that word stream: this larger preview contains 1,572,555 words and therefore about **14.56 hours of simulated delay**, before scheduling/rendering overhead. The first five chart fences close by approximately 31.5 s; `bar_grouped_repeated` alone contains 72,270 words and closes around 40.7 minutes from the start. Open fences intentionally remain code until closure. The immediate completed-fence regressions above establish rendering independently of that simulation delay; no long word-stream run was performed for this update.
+The example app defaults to a nominal 30-word/s stream. Its live **10×** toggle changes the producer to about 300 words/s without restarting the stream. Dense JSON also passes through that word stream: the current preview contains 1,572,849 words, corresponding to about **14.56 hours of simulated delay** at the default speed, before scheduling/rendering overhead. At that speed, the first five chart fences close by approximately 31.8 s; `bar_grouped_repeated` alone contains 72,270 words and closes around 40.7 minutes from the start. An open chart fence occupies one stable loading row; after 350 ms it shows a spinner and “Receiving chart…”. Compilation starts only after closure or normal stream completion. Paused or cancelled delivery shows a static status. The immediate completed-fence regressions above establish rendering independently of that simulation delay; no long word-stream run was performed for this update.
 
 Run the current bounded coverage and provider-only measurements without the heavy whole-document benchmark:
 

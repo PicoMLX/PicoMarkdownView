@@ -59,17 +59,30 @@ It retains every original gallery heading, description, link, and dataset note.
 Historical 128 KiB warnings are replaced with current source byte counts; kept
 charts explicitly note that their complete specification must arrive before
 rendering. The archived full corpus and its notes remain unchanged.
+The current preview contains **128 supported placements (115 distinct
+specifications) and 75 notices** across all 203 placements. Its decoded Markdown
+is 32,082,329 bytes; its compressed resource is 4,049,169 bytes. The SHA-256
+digests are:
+
+- Decoded: `635577c3a2354209587762ed9d8f26fd61bb8926237d87368d8ac6eb28c6b0ce`
+- Compressed: `aac046734a742de30974163beb011c3e2e51dc9cc9f7457f30849f20555101a5`
+
 Only chart fences measured as successful are included, byte-for-byte identical
 to the full corpus. Other fences become short, classified notices. This avoids
 laying out tens of megabytes of fallback source code in the native view while
 leaving the complete unmodified corpus available for export and benchmarks.
 
-The example streams at approximately 30 whitespace-delimited words per second.
+The example defaults to approximately 30 whitespace-delimited words per second.
+Its live **10×** toggle changes delivery to about 300 words per second without
+restarting the stream.
+
 `bar_grouped_repeated` alone retains 72,270 words of inline source (1,281,975
 UTF-8 bytes), taking about 40 minutes 9 seconds from its opening fence to its
-closing fence at that demonstration speed. Its following heading cannot arrive
+closing fence at the default 30-word/s speed. Its following heading cannot arrive
 before the closing fence. This is producer pacing: the renderer keeps one fixed
-loading attachment while open and compiles the exact chart only after closure.
+loading attachment while open, reveals “Receiving chart…” with a spinner after
+350 ms, and compiles the exact chart only after closure or normal end of stream.
+Paused or cancelled delivery shows a static loading status.
 
 Regenerate the preview from its saved classification report:
 
