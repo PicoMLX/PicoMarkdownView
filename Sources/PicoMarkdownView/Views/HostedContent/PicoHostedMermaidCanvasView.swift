@@ -4,7 +4,7 @@ import AppKit
 /// Replays the SVG paths and CoreText drawing into the current display context.
 /// Zoom changes drawing coordinates, never a previously rasterized image.
 @MainActor
-final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
+final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget, PicoHostedAttachmentMagnificationTarget {
     let model: PicoHostedMermaidModel
     var isSelected = false { didSet { needsDisplay = true } }
     private static let buttonSize: CGFloat = 32
@@ -149,6 +149,10 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
 
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool {
         viewport.contains(point) && model.capturesScroll
+    }
+
+    func acceptsHostedAttachmentMagnification(at point: NSPoint) -> Bool {
+        viewport.contains(point)
     }
 
     override func mouseDown(with event: NSEvent) {

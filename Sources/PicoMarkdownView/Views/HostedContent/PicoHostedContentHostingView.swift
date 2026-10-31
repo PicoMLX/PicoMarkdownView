@@ -7,6 +7,13 @@ protocol PicoHostedAttachmentHitTarget: AnyObject {
     func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool
 }
 
+/// Magnification can reach selectable content without capturing clicks or
+/// wheel scrolling that belong to the surrounding Markdown text view.
+@MainActor
+protocol PicoHostedAttachmentMagnificationTarget: AnyObject {
+    func acceptsHostedAttachmentMagnification(at point: NSPoint) -> Bool
+}
+
 @MainActor
 struct PicoMeasuredHostedContent: View {
     let context: PicoHostedAttachmentContext
@@ -37,6 +44,37 @@ final class PicoHostedContentHostingView: NSHostingView<PicoMeasuredHostedConten
 
     @MainActor required dynamic init?(coder: NSCoder) {
         fatalError("Use init(rootView:interaction:)")
+    }
+
+    /// Search only live, visible attachment views under the gesture point.
+    /// A selectable host deliberately returns nil from ordinary hit testing.
+    static func forwardMagnification(with event: NSEvent, in view: NSView) -> Bool {
+        let point = view.convert(event.locationInWindow, from: nil)
+        guard !view.isHidden, view.alphaValue > 0,
+              view.bounds.intersection(view.visibleRect).contains(point) else { return false }
+        if let host = view as? PicoHostedContentHostingView {
+            return host.forwardMagnification(with: event)
+        }
+        for child in view.subviews.reversed() {
+            if forwardMagnification(with: event, in: child) { return true }
+        }
+        return false
+    }
+
+    private func forwardMagnification(with event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        // Bypass this host's selection policy to locate an opt-in gesture
+        // target. Leave the normal click/drag hit-test path unchanged.
+        var candidate = super.hitTest(convert(point, to: superview))
+        while let view = candidate, view !== self {
+            if let target = view as? any PicoHostedAttachmentMagnificationTarget,
+               target.acceptsHostedAttachmentMagnification(at: view.convert(point, from: self)) {
+                view.magnify(with: event)
+                return true
+            }
+            candidate = view.superview
+        }
+        return false
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
