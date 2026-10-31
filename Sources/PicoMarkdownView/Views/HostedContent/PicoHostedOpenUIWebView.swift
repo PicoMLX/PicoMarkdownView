@@ -2,16 +2,35 @@
 import AppKit
 @preconcurrency import WebKit
 
-/// Keep vertical transcript scrolling native while allowing horizontal web tables.
+struct PicoHostedOpenUIScrollRegion: Sendable, Equatable {
+    let rect: CGRect
+    let canScrollUp: Bool
+    let canScrollDown: Bool
+}
+
+/// Give scrollable web controls their gesture before forwarding to the transcript.
 @MainActor
 final class PicoHostedOpenUIWebView: WKWebView {
     private enum WheelAxis { case horizontal, vertical }
+    private enum VerticalTarget { case web, transcript }
     private static var wheelMonitor: Any?
     private static var registeredViews = 0
     static var registeredScrollHostCount: Int { registeredViews }
     private var hasRegisteredMonitor = false
     private var forwardsScroll = true
     private var wheelAxis: WheelAxis?
+    private var verticalTarget: VerticalTarget?
+    private(set) var scrollRegions: [PicoHostedOpenUIScrollRegion] = []
+    private var scrollRegionScale: CGFloat = 1
+
+    func updateScrollRegions(_ regions: [PicoHostedOpenUIScrollRegion], pageZoom: CGFloat) {
+        guard pageZoom.isFinite, pageZoom > 0 else {
+            scrollRegions = []
+            return
+        }
+        scrollRegions = regions
+        scrollRegionScale = pageZoom
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -28,6 +47,8 @@ final class PicoHostedOpenUIWebView: WKWebView {
     func stopForwardingScroll() {
         forwardsScroll = false
         wheelAxis = nil
+        verticalTarget = nil
+        scrollRegions = []
         unregisterMonitor()
     }
 
@@ -35,6 +56,7 @@ final class PicoHostedOpenUIWebView: WKWebView {
         guard hasRegisteredMonitor else { return }
         hasRegisteredMonitor = false
         wheelAxis = nil
+        verticalTarget = nil
         Self.registeredViews -= 1
         if Self.registeredViews == 0, let monitor = Self.wheelMonitor {
             NSEvent.removeMonitor(monitor)
@@ -74,10 +96,14 @@ final class PicoHostedOpenUIWebView: WKWebView {
         let phase = event.phase
         let momentum = event.momentumPhase
         let isPhased = !phase.isEmpty || !momentum.isEmpty
-        if !isPhased || phase.contains(.began) || phase.contains(.mayBegin) { wheelAxis = nil }
+        if !isPhased || phase.contains(.began) || phase.contains(.mayBegin) {
+            wheelAxis = nil
+            verticalTarget = nil
+        }
         defer {
             if !isPhased || phase.contains(.cancelled) || momentum.contains(.ended) || momentum.contains(.cancelled) {
                 wheelAxis = nil
+                verticalTarget = nil
             }
         }
         if event.modifierFlags.contains(.shift) { wheelAxis = .horizontal }
@@ -87,6 +113,17 @@ final class PicoHostedOpenUIWebView: WKWebView {
         // Keep the established axis through zero-delta endings and the handoff
         // from the physical gesture to momentum. A new gesture resets it.
         guard wheelAxis == .vertical else { return false }
+        if verticalTarget == nil {
+            let nativeY = isFlipped ? point.y - bounds.minY : bounds.maxY - point.y
+            let cssPoint = CGPoint(x: (point.x - bounds.minX) / scrollRegionScale,
+                                   y: nativeY / scrollRegionScale)
+            let canScroll = scrollRegions.contains { region in
+                region.rect.contains(cssPoint) &&
+                    (event.scrollingDeltaY > 0 ? region.canScrollUp : region.canScrollDown)
+            }
+            verticalTarget = canScroll ? .web : .transcript
+        }
+        guard verticalTarget == .transcript else { return false }
         var ancestor = superview
         while let view = ancestor {
             if let scroll = view as? NSScrollView {

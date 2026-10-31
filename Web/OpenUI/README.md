@@ -38,6 +38,7 @@ Messages use window.webkit.messageHandlers.picoOpenUI.postMessage:
 ```js
 { kind: "ready", payload: { versions: { /* pinned packages */ } }, sourceID: null }
 { kind: "size", payload: { height: 480 }, sourceID: "..." }
+{ kind: "scrollRegions", payload: [{ x: 40, y: 60, width: 300, height: 200, canScrollUp: false, canScrollDown: true }], sourceID: "..." }
 { kind: "action", payload: { /* original OpenUI ActionEvent */ }, sourceID: "..." }
 { kind: "error", payload: [{ source, code, message }], sourceID: "..." }
 ```
@@ -46,7 +47,9 @@ Native code validates the source identity before accepting asynchronous messages
 
 Input is limited to 100000 JavaScript string code units. Reported heights are finite positive CSS pixels; the web page does not cap them before native text scaling is applied. The native host converts CSS pixels to points using pageZoom and enforces its 20000-point limit there (for example, 25000 CSS pixels at 0.5 zoom is 12500 points). Diagnostics are limited to 20 entries with bounded messages, deduplicated, and cleared with an empty array after valid rendering.
 
-Field edits remain inside the official renderer. There is no native per-keystroke state stream, inspection API, test helper, fixture chooser or diagnostic UI in the production page. Explicit actions emit the upstream event unchanged, including scoped form values and model-provided context. Native code owns model requests, navigation and app actions. No tool provider, OpenUI Gateway or model SDK is configured in the page.
+Scroll-region snapshots contain at most 64 visible overflow-y:auto/scroll controls with actual vertical overflow. Rectangles use CSS viewport coordinates, clipped to the viewport and clipping ancestors; directional flags use a one-CSS-pixel edge tolerance. Candidate elements are cached and rescanned on DOM/layout changes. Scroll events update cached geometry and edge flags without a DOM rescan. Reports are timer-coalesced and deduplicated; resize forces a fresh snapshot so native pageZoom cache invalidation can recover even if CSS rectangles are unchanged. Snapshots contain no field values. The native host retains a wheel gesture for a child control that can scroll in its direction and otherwise forwards it to the transcript.
+
+Field edits remain inside the official renderer. There is no native per-keystroke state stream, inspection API, test helper, fixture chooser or diagnostic UI in the production page. Explicit actions emit the upstream event unchanged, including scoped form values and model-provided context. Ordinary TextContent/Markdown anchors also prevent web navigation and emit one open_url ActionEvent with the original href in params.url and the link label in humanFriendlyMessage. Their optional form fields are omitted; existing semantic OpenUI actions retain their upstream payload and scoped form context. Native code owns model requests, navigation and app actions. No tool provider, OpenUI Gateway or model SDK is configured in the page.
 
 ## Content policy
 

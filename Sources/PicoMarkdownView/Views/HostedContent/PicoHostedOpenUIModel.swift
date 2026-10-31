@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import CoreFoundation
 import Foundation
 import Observation
 import PicoOpenUIRuntime
@@ -28,6 +29,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
     private(set) var renderCount = 0
     private(set) var sizeMessageCount = 0
     @ObservationIgnored private(set) var webView: WKWebView?
+    @ObservationIgnored private(set) var scrollRegions: [PicoHostedOpenUIScrollRegion] = []
     @ObservationIgnored var onAction: ((PicoOpenUIActionEvent) -> Void)?
     @ObservationIgnored var onHeightChanged: (() -> Void)?
     @ObservationIgnored var onError: ((String) -> Void)?
@@ -38,6 +40,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
     @ObservationIgnored private var heightScheduled = false
     @ObservationIgnored private var renderGeneration: UInt64 = 0
     @ObservationIgnored private var renderTask: Task<Void, Never>?
+    @ObservationIgnored private var scrollRegionRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var readyTimeout: Task<Void, Never>?
 
     init(source: String, language: String?) {
@@ -48,6 +51,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
 
     isolated deinit {
         renderTask?.cancel()
+        scrollRegionRefreshTask?.cancel()
         readyTimeout?.cancel()
         if let webView {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: "picoOpenUI")
@@ -88,6 +92,7 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
                                           configuration: configuration)
         view.navigationDelegate = self
         view.pageZoom = textScale
+        view.updateScrollRegions(scrollRegions, pageZoom: textScale)
         view.underPageBackgroundColor = .clear
         view.setAccessibilityLabel("Interactive OpenUI content")
         #if DEBUG
@@ -116,7 +121,9 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
     func updateTextScale(_ scale: CGFloat) {
         guard !isDisposed, scale.isFinite, scale > 0, textScale != scale else { return }
         textScale = scale
+        setScrollRegions([])
         webView?.pageZoom = scale
+        refreshScrollRegions()
         if let height = lastContentHeight { acceptContentHeight(height) }
     }
 
@@ -144,6 +151,8 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
             guard let value, value.isFinite, value > 0 else { return }
             sizeMessageCount += 1
             acceptContentHeight(value)
+        case "scrollRegions":
+            receiveScrollRegions(payload)
         case "action":
             guard let payload, JSONSerialization.isValidJSONObject(payload),
                   let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -161,6 +170,55 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
                 onError?(message)
             }
         default: break
+        }
+    }
+
+    private func receiveScrollRegions(_ payload: Any?) {
+        guard let records = payload as? [[String: Any]], records.count <= 64 else {
+            setScrollRegions([])
+            return
+        }
+        var regions: [PicoHostedOpenUIScrollRegion] = []
+        regions.reserveCapacity(records.count)
+        for record in records {
+            func number(_ key: String) -> Double? {
+                guard let value = record[key] as? NSNumber,
+                      CFGetTypeID(value) != CFBooleanGetTypeID(), value.doubleValue.isFinite else { return nil }
+                return value.doubleValue
+            }
+            func boolean(_ key: String) -> Bool? {
+                guard let value = record[key] as? NSNumber,
+                      CFGetTypeID(value) == CFBooleanGetTypeID() else { return nil }
+                return value.boolValue
+            }
+            guard let x = number("x"), let y = number("y"),
+                  let width = number("width"), let height = number("height"),
+                  x >= 0, y >= 0, width > 0, height > 0,
+                  x + width <= 1_000_000, y + height <= 1_000_000,
+                  let up = boolean("canScrollUp"), let down = boolean("canScrollDown") else {
+                setScrollRegions([])
+                return
+            }
+            regions.append(PicoHostedOpenUIScrollRegion(rect: CGRect(x: x, y: y, width: width, height: height),
+                                                       canScrollUp: up, canScrollDown: down))
+        }
+        setScrollRegions(regions)
+    }
+
+    private func setScrollRegions(_ regions: [PicoHostedOpenUIScrollRegion]) {
+        scrollRegions = regions
+        (webView as? PicoHostedOpenUIWebView)?.updateScrollRegions(regions, pageZoom: textScale)
+    }
+
+    private func refreshScrollRegions() {
+        scrollRegionRefreshTask?.cancel()
+        guard !isDisposed, isReady, let webView else { return }
+        let scale = textScale
+        scrollRegionRefreshTask = Task { @MainActor [weak self, weak webView] in
+            guard let self, let webView, !self.isDisposed, self.textScale == scale,
+                  !Task.isCancelled else { return }
+            _ = try? await webView.callAsyncJavaScript("window.dispatchEvent(new Event('resize')); return true;",
+                arguments: [:], in: nil, contentWorld: .page)
         }
     }
 
@@ -229,9 +287,12 @@ final class PicoHostedOpenUIModel: NSObject, WKNavigationDelegate {
     func dispose() {
         guard !isDisposed else { return }
         isDisposed = true
+        setScrollRegions([])
         renderGeneration &+= 1
         renderTask?.cancel()
         renderTask = nil
+        scrollRegionRefreshTask?.cancel()
+        scrollRegionRefreshTask = nil
         readyTimeout?.cancel()
         readyTimeout = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "picoOpenUI")

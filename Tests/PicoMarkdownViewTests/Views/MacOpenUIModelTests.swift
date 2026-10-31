@@ -247,6 +247,85 @@ struct MacOpenUIModelTests {
         #expect(model.webView == nil)
     }
 
+    @Test("Scroll regions accept only matching main-frame snapshots and are retired with the child")
+    func scrollRegionsAreSourceScoped() {
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        let record: [String: Any] = ["x": 10.0, "y": 20.0, "width": 200.0, "height": 100.0,
+                                     "canScrollUp": false, "canScrollDown": true]
+        let snapshot: [String: Any] = ["kind": "scrollRegions", "payload": [record], "sourceID": model.sourceID]
+        model.receive(snapshot, isMainFrame: false)
+        model.receive(["kind": "scrollRegions", "payload": [record], "sourceID": "another-source"])
+        model.receive(["kind": "scrollRegions", "payload": [record]])
+        #expect(model.scrollRegions.isEmpty)
+        model.receive(snapshot)
+        #expect(model.scrollRegions == [.init(rect: CGRect(x: 10, y: 20, width: 200, height: 100),
+                                             canScrollUp: false, canScrollDown: true)])
+        model.receive(["kind": "scrollRegions", "payload": [Any](), "sourceID": "another-source"])
+        #expect(model.scrollRegions.count == 1)
+        #expect(model.webView == nil)
+        model.dispose()
+        #expect(model.scrollRegions.isEmpty)
+        model.receive(snapshot)
+        #expect(model.scrollRegions.isEmpty)
+    }
+
+    @Test("Malformed or excessive scroll-region snapshots clear stale geometry")
+    func scrollRegionsRejectInvalidData() {
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        let record: [String: Any] = ["x": 10.0, "y": 20.0, "width": 200.0, "height": 100.0,
+                                     "canScrollUp": false, "canScrollDown": true]
+        func send(_ payload: Any) {
+            model.receive(["kind": "scrollRegions", "payload": payload, "sourceID": model.sourceID])
+        }
+        let invalidFields: [(String, Any)] = [("x", Double.nan), ("y", Double.infinity),
+                                               ("width", 0.0), ("height", -1.0), ("x", -1.0),
+                                               ("x", 1_000_000.0), ("y", true), ("width", "200"),
+                                               ("canScrollDown", 1)]
+        for (key, value) in invalidFields {
+            send([record])
+            #expect(model.scrollRegions.count == 1)
+            var invalid = record
+            invalid[key] = value
+            send([invalid])
+            #expect(model.scrollRegions.isEmpty, "Invalid scroll-region field: \(key)")
+        }
+        send(Array(repeating: record, count: 64))
+        #expect(model.scrollRegions.count == 64)
+        send(Array(repeating: record, count: 65))
+        #expect(model.scrollRegions.isEmpty)
+        send([record])
+        send("invalid snapshot")
+        #expect(model.scrollRegions.isEmpty)
+        #expect(model.error == nil)
+        #expect(model.webView == nil)
+    }
+
+    @Test("Native zoom invalidates scroll geometry without recreating or rendering the child")
+    func zoomInvalidatesScrollRegions() throws {
+        _ = NSApplication.shared
+        let model = PicoHostedOpenUIModel(source: source, language: "openui")
+        defer { model.dispose() }
+        let record: [String: Any] = ["x": 10.0, "y": 20.0, "width": 200.0, "height": 100.0,
+                                     "canScrollUp": false, "canScrollDown": true]
+        let snapshot: [String: Any] = ["kind": "scrollRegions", "payload": [record], "sourceID": model.sourceID]
+        model.receive(snapshot)
+        let browser = try #require(model.makeWebView() as? PicoHostedOpenUIWebView)
+        #expect(browser.scrollRegions == model.scrollRegions)
+        let sourceID = model.sourceID
+        model.updateTextScale(2)
+        #expect(model.scrollRegions.isEmpty && browser.scrollRegions.isEmpty)
+        #expect(browser.pageZoom == 2)
+        model.receive(snapshot)
+        #expect(model.scrollRegions.count == 1 && browser.scrollRegions == model.scrollRegions)
+        model.dispose()
+        #expect(browser.scrollRegions.isEmpty)
+        #expect(model.webView == nil)
+        #expect(model.sourceID == sourceID)
+        #expect(model.webViewCreationCount == 1)
+        #expect(model.renderCount == 0)
+    }
+
     @Test("Retired models ignore pending actions, errors, readiness and size messages")
     func disposalRejectsLateEvents() {
         let model = PicoHostedOpenUIModel(source: source, language: "openui")

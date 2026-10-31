@@ -21,7 +21,7 @@ for (const fixture of fixtures) {
 assert.ok(parser.parse('root = NoSuchComponent("test")').meta.errors.length > 0);
 
 const messages = [];
-const layout = { rootHeight: 480, portalTop: 520, portalHeight: 320 };
+const layout = { rootHeight: 480, portalTop: 520, portalHeight: 320, modalScrollHeight: 1000, modalClientHeight: 200 };
 const resizeObservers = new Set();
 const failures = [];
 const consoleBridge = new VirtualConsole();
@@ -40,11 +40,14 @@ const dom = await JSDOM.fromFile(path.join(assets, 'index.html'), {
       disconnect() { this.elements.clear(); }
     };
     window.HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList?.contains('openui-modal-body')) return { x: 40, y: 60, left: 40, top: 60, width: 300, height: layout.modalClientHeight, right: 340, bottom: 60 + layout.modalClientHeight };
       const portal = this.classList?.contains('openui-date-picker-renderer-floating-content');
       const top = portal ? layout.portalTop : 0;
       const height = portal ? layout.portalHeight : layout.rootHeight;
       return { x: 0, y: top, left: 0, top, width: 640, height, right: 640, bottom: top + height };
     };
+    Object.defineProperty(window.HTMLElement.prototype, 'clientHeight', { get() { return this.classList?.contains('openui-modal-body') ? layout.modalClientHeight : layout.rootHeight; } });
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollHeight', { get() { return this.classList?.contains('openui-modal-body') ? layout.modalScrollHeight : this.clientHeight; } });
     Object.defineProperty(window.HTMLElement.prototype, 'clientWidth', { get() { return 640; } });
     Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', { get() { return 640; } });
     Object.defineProperty(window.HTMLElement.prototype, 'offsetHeight', { get() { return 480; } });
@@ -75,7 +78,7 @@ const bridge = dom.window.picoOpenUI;
 assert.deepEqual(Object.keys(bridge), ['render'], 'production has no inspection/test helpers');
 async function render(fixture, sourceID = fixture.id, colorScheme = 'light') {
   assert.equal(bridge.render({ source: fixture.source, sourceID, colorScheme, isStreaming: false }), true);
-  const heading = { 'trip-form': 'Plan a weekend', 'project-status': 'Project overview', 'revenue-chart': 'Q4 revenue', 'date-picker': 'Choose a date', 'math-content': 'Inline' }[fixture.id];
+  const heading = { 'trip-form': 'Plan a weekend', 'project-status': 'Project overview', 'revenue-chart': 'Q4 revenue', 'date-picker': 'Choose a date', 'math-content': 'Inline', 'scrollable-modal': 'Scroll example', 'markdown-link': 'Read documentation' }[fixture.id];
   await waitFor(() => text().includes(heading), `render ${fixture.id}`);
   await sleep(120);
   assert.deepEqual(lastErrors(sourceID), [], `${fixture.id} renders without errors`);
@@ -101,6 +104,15 @@ assert.equal(action.payload.formName, 'trip');
 assert.equal(action.payload.formState.trip.traveler.value, 'Ada Lovelace');
 assert.equal(action.payload.formState.trip.email.value, 'ada@example.com');
 console.log('PASS DOM: native action bridge preserves the official form event');
+const semanticActionCount = messages.filter(message => message.kind === 'action').length;
+Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'OpenUI docs').click();
+await waitFor(() => messages.filter(message => message.kind === 'action').length === semanticActionCount + 1, 'semantic OpenUrl action');
+const semanticLink = messages.findLast(message => message.kind === 'action');
+assert.equal(semanticLink.payload.type, 'open_url');
+assert.equal(semanticLink.payload.params.url, 'https://www.openui.com/docs/openui-lang');
+assert.equal(semanticLink.payload.humanFriendlyMessage, '');
+assert.equal(semanticLink.payload.formName, 'trip', 'existing semantic actions retain upstream form context');
+console.log('PASS DOM: semantic OpenUrl actions keep the upstream event without duplicates');
 await render(fixtures[0], 'trip-form', 'dark');
 assert.equal(inputs()[0].value, 'Ada Lovelace');
 console.log('PASS DOM: theme changes preserve form values');
@@ -116,7 +128,7 @@ assert.ok(document.querySelectorAll('svg').length > 0);
 assert.ok(text().includes('Product A'));
 console.log('PASS DOM: official chart');
 assert.ok(messages.some(message => message.kind === 'size' && message.payload.height === 480));
-assert.ok(messages.every(message => ['ready', 'size', 'action', 'error'].includes(message.kind)));
+assert.ok(messages.every(message => ['ready', 'size', 'scrollRegions', 'action', 'error'].includes(message.kind)));
 console.log('PASS bridge: timer-based measurement works with suspended animation frames');
 await render(fixtures[0], 'css-height');
 layout.rootHeight = 25000;
@@ -183,6 +195,76 @@ const buildInfo = JSON.parse(await fs.readFile(path.join(assets, 'BuildInfo.json
 assert.equal(buildInfo.versions.katex, '0.16.47');
 assert.ok(buildInfo.files.some(file => file.name.endsWith('.woff2')), 'metadata accounts for local fonts');
 console.log('PASS assets: OpenUI math has KaTeX CSS, accessible MathML and local fonts');
+await render(fixtures.find(fixture => fixture.id === 'scrollable-modal'));
+const modalBody = document.querySelector('.openui-modal-body');
+const portalAnchor = modalBody.querySelector('a');
+assert.ok(portalAnchor && !document.getElementById('root').contains(portalAnchor), 'regression uses a link outside the React root DOM');
+const portalActionCount = messages.filter(message => message.kind === 'action').length;
+const portalClick = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+portalAnchor.dispatchEvent(portalClick);
+assert.equal(portalClick.defaultPrevented, true);
+assert.equal(messages.filter(message => message.kind === 'action').length, portalActionCount + 1);
+assert.equal(messages.findLast(message => message.kind === 'action').sourceID, 'scrollable-modal');
+assert.equal(messages.findLast(message => message.kind === 'action').payload.humanFriendlyMessage, 'Modal documentation');
+function lastRegions(sourceID = 'scrollable-modal') {
+  return messages.findLast(message => message.kind === 'scrollRegions' && message.sourceID === sourceID)?.payload;
+}
+await waitFor(() => lastRegions()?.length === 1, 'actual stock modal reports a scrollable region');
+assert.deepEqual(lastRegions(), [{ x: 40, y: 60, width: 300, height: 200, canScrollUp: false, canScrollDown: true }]);
+modalBody.scrollTop = 400;
+modalBody.dispatchEvent(new dom.window.Event('scroll'));
+await waitFor(() => lastRegions()?.[0]?.canScrollUp === true, 'scrolling updates cached edge flags');
+assert.equal(lastRegions()[0].canScrollDown, true);
+modalBody.scrollTop = 800;
+modalBody.dispatchEvent(new dom.window.Event('scroll'));
+await waitFor(() => lastRegions()?.[0]?.canScrollDown === false, 'bottom edge lets native transcript scrolling resume');
+const unchangedRegionCount = messages.filter(message => message.kind === 'scrollRegions').length;
+modalBody.dispatchEvent(new dom.window.Event('scroll'));
+await sleep(100);
+assert.equal(messages.filter(message => message.kind === 'scrollRegions').length, unchangedRegionCount, 'unchanged scroll maps are deduplicated');
+dom.window.dispatchEvent(new dom.window.Event('resize'));
+await waitFor(() => messages.filter(message => message.kind === 'scrollRegions').length === unchangedRegionCount + 1,
+  'resize refreshes native zoom caches even when CSS regions are unchanged');
+layout.modalScrollHeight = layout.modalClientHeight;
+modalBody.dispatchEvent(new dom.window.Event('scroll'));
+await waitFor(() => lastRegions()?.length === 0, 'non-overflowing controls do not retain wheel events');
+layout.modalScrollHeight = 1000;
+modalBody.scrollTop = 0;
+modalBody.dispatchEvent(new dom.window.Event('scroll'));
+await waitFor(() => lastRegions()?.length === 1, 'cached candidates resume reporting when overflow returns');
+modalBody.style.visibility = 'hidden';
+await waitFor(() => lastRegions()?.length === 0, 'hidden controls do not retain wheel events');
+modalBody.style.visibility = '';
+await waitFor(() => lastRegions()?.length === 1, 'visible scroll regions return after layout mutation');
+document.querySelector('.openui-modal-close').click();
+await waitFor(() => lastRegions()?.length === 0, 'closing modal clears regions');
+console.log('PASS bridge: stock scroll controls report visible geometry and directional edge state without field values');
+await render(fixtures.find(fixture => fixture.id === 'markdown-link'));
+await waitFor(() => Array.isArray(lastRegions('markdown-link')), 'new source gets a scoped scroll map');
+assert.deepEqual(lastRegions('markdown-link'), []);
+const anchor = document.querySelector('a');
+assert.equal(anchor.target, '_blank', 'regression uses the official TextContent anchor');
+const previousActions = messages.filter(message => message.kind === 'action').length;
+const anchorClick = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+anchor.dispatchEvent(anchorClick);
+assert.equal(anchorClick.defaultPrevented, true, 'ordinary anchors cannot navigate the web child or create another window');
+await waitFor(() => messages.filter(message => message.kind === 'action').length === previousActions + 1, 'ordinary anchor reaches the host action callback');
+assert.deepEqual(messages.findLast(message => message.kind === 'action'), {
+  kind: 'action', sourceID: 'markdown-link',
+  payload: { type: 'open_url', params: { url: 'https://www.openui.com/docs/openui-lang' }, humanFriendlyMessage: 'Read documentation' },
+});
+const keyboardActivation = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, detail: 0 });
+anchor.dispatchEvent(keyboardActivation);
+assert.equal(keyboardActivation.defaultPrevented, true);
+assert.equal(messages.filter(message => message.kind === 'action').length, previousActions + 2, 'keyboard link activation produces one event');
+const actionCountBeforeSourceChange = messages.filter(message => message.kind === 'action').length;
+bridge.render({ source: fixtures[0].source, sourceID: 'next-link-source', colorScheme: 'light', isStreaming: false });
+const staleClick = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+anchor.dispatchEvent(staleClick);
+assert.equal(staleClick.defaultPrevented, true, 'stale links still cannot navigate the web child');
+assert.equal(messages.filter(message => message.kind === 'action').length, actionCountBeforeSourceChange, 'stale rendered source cannot dispatch an action for the new identity');
+await render(fixtures[0], 'next-link-source');
+console.log('PASS DOM: root, portal and keyboard links use canonical host actions without navigation or stale-source dispatch');
 bridge.render({ source: 'root = NoSuchComponent("test")', sourceID: 'invalid', colorScheme: 'light', isStreaming: false });
 await waitFor(() => lastErrors('invalid').length > 0, 'invalid source diagnostics');
 await render(fixtures[0], 'recovered');

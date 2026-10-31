@@ -5,6 +5,7 @@ import { openuiLibrary, ThemeProvider } from '@openuidev/react-ui';
 import '@openuidev/react-ui/index.css';
 import 'katex/dist/katex.min.css';
 import { contentHeight, bodyPortals } from './contentSize.js';
+import { createScrollRegionReporter } from './scrollRegions.js';
 import './host.css';
 
 const rootElement = document.getElementById('root');
@@ -15,6 +16,10 @@ let activeRequest = null;
 let sizeTimer = 0;
 let lastSize = null;
 let lastDiagnostics = null;
+const scrollRegions = createScrollRegionReporter(document, () => {
+  const content = rootElement.querySelector('[data-source-id]');
+  return activeRequest && content?.dataset.sourceId === activeRequest.sourceID ? activeRequest.sourceID : null;
+}, (regions, sourceID) => emit('scrollRegions', regions, sourceID));
 
 function emit(kind, payload, sourceID = activeRequest?.sourceID ?? null) {
   window.webkit?.messageHandlers?.picoOpenUI?.postMessage({
@@ -82,7 +87,7 @@ function RenderedChild({ request }) {
     reportErrors(errors, sourceID);
     scheduleSize();
   }, [sourceID]);
-  useLayoutEffect(scheduleSize, [request]);
+  useLayoutEffect(() => { scheduleSize(); scrollRegions.schedule(true); }, [request]);
 
   return <div data-source-id={sourceID}>
     <ThemeProvider mode={request.colorScheme}>
@@ -130,9 +135,11 @@ window.picoOpenUI = {
     if (activeRequest?.sourceID !== next.sourceID) {
       lastSize = null;
       lastDiagnostics = null;
+      scrollRegions.schedule(true, true);
     } else if (activeRequest.source === next.source && activeRequest.colorScheme === next.colorScheme
                && activeRequest.isStreaming === next.isStreaming) {
       scheduleSize();
+      scrollRegions.schedule();
       return true;
     }
     activeRequest = next;
@@ -144,7 +151,7 @@ window.picoOpenUI = {
   },
 };
 
-const contentObserver = new ResizeObserver(scheduleSize);
+const contentObserver = new ResizeObserver(() => { scheduleSize(); scrollRegions.schedule(true); });
 contentObserver.observe(rootElement);
 let observedPortals = new Set();
 function observePortals() {
@@ -161,15 +168,37 @@ function observePortals() {
 // root. Observe only those siblings, so their open/close, placement and reflow
 // update the native frame without observing mutations in the ordinary UI tree.
 new MutationObserver(records => {
+  scrollRegions.schedule(true);
   const outsideRoot = records.some(record => record.target !== rootElement && !rootElement.contains(record.target));
   if (!outsideRoot) return;
   observePortals();
   scheduleSize();
 }).observe(document.body, {
-  childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'],
+  childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['style', 'class', 'hidden'],
 });
 observePortals();
-window.addEventListener('resize', scheduleSize);
+window.addEventListener('resize', () => {
+  scheduleSize();
+  // pageZoom can invalidate the native geometry cache without changing CSS
+  // rectangles; force a fresh source-scoped map even when it is identical.
+  scrollRegions.schedule(true, true);
+});
+function forwardAnchorAction(event) {
+  if (event.defaultPrevented || (event.type === 'click' ? event.button !== 0 : event.button !== 1)) return;
+  const anchor = event.target instanceof Element ? event.target.closest('a[href]') : null;
+  const content = rootElement.querySelector('[data-source-id]');
+  if (!anchor || (!rootElement.contains(anchor) && !bodyPortals(rootElement).some(portal => portal.contains(anchor)))) return;
+  // Host applications own every navigation, including target=_blank. Existing
+  // semantic OpenUI actions stay on the Renderer onAction path above.
+  event.preventDefault();
+  if (!activeRequest || content?.dataset.sourceId !== activeRequest.sourceID) return;
+  const url = anchor.getAttribute('href');
+  if (!url) return;
+  const label = anchor.textContent?.replace(/\s+/g, ' ').trim() || anchor.getAttribute('aria-label') || url;
+  emit('action', { type: 'open_url', params: { url }, humanFriendlyMessage: label });
+}
+document.addEventListener('click', forwardAnchorAction);
+document.addEventListener('auxclick', forwardAnchorAction);
 window.addEventListener('error', event => reportErrors([event.message]));
 window.addEventListener('unhandledrejection', event => reportErrors([event.reason]));
 document.fonts?.ready.then(scheduleSize);

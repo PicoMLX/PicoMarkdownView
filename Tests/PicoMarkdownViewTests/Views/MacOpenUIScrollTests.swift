@@ -42,6 +42,50 @@ struct MacOpenUIScrollTests {
         #expect(fixture.scroll.phases == [.began, .ended], "The next vertical gesture chooses its own axis")
     }
 
+    @Test("An inner web scroller owns its gesture through the edge and momentum")
+    func innerScrollerKeepsGesture() {
+        let fixture = OpenUIScrollFixture()
+        defer { fixture.close() }
+        let rect = CGRect(x: 0, y: 0, width: 500, height: 300)
+        fixture.browser.updateScrollRegions([.init(rect: rect, canScrollUp: false, canScrollDown: true)], pageZoom: 1)
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(y: -12, phase: .began)))
+        fixture.browser.updateScrollRegions([.init(rect: rect, canScrollUp: true, canScrollDown: false)], pageZoom: 1)
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(y: -8, phase: .changed)))
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(phase: .ended)))
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(momentum: .began)))
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(y: -4, momentum: .changed)))
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(momentum: .ended)))
+        #expect(fixture.scroll.phases.isEmpty)
+        fixture.browser.scrollWheel(with: fixture.event(y: -8, phase: .began))
+        fixture.browser.scrollWheel(with: fixture.event(phase: .ended))
+        #expect(fixture.scroll.phases == [.began, .ended], "A new gesture at the web scroll boundary moves the transcript")
+    }
+
+    @Test("Scrollable-region direction and CSS coordinates respect native page zoom")
+    func innerScrollerDirectionAndZoom() {
+        let fixture = OpenUIScrollFixture()
+        defer { fixture.close() }
+        fixture.browser.pageZoom = 2
+        fixture.browser.updateScrollRegions([
+            .init(rect: CGRect(x: 90, y: 90, width: 20, height: 20), canScrollUp: false, canScrollDown: true)
+        ], pageZoom: 2)
+        let inside = CGPoint(x: 100, y: 100)
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(y: -10, phase: .began, cssPoint: inside)))
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(phase: .ended, cssPoint: inside)))
+        fixture.browser.scrollWheel(with: fixture.event(y: 10, phase: .began, cssPoint: inside))
+        fixture.browser.scrollWheel(with: fixture.event(phase: .ended, cssPoint: inside))
+        #expect(fixture.scroll.phases == [.began, .ended], "The inner control cannot scroll upward from its top edge")
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(x: -10, phase: .began, cssPoint: inside)))
+        #expect(!fixture.browser.forwardVerticalWheel(fixture.event(phase: .ended, cssPoint: inside)))
+        fixture.browser.scrollWheel(with: fixture.event(y: -10, phase: .began, cssPoint: CGPoint(x: 200, y: 100)))
+        fixture.browser.scrollWheel(with: fixture.event(phase: .ended, cssPoint: CGPoint(x: 200, y: 100)))
+        #expect(fixture.scroll.phases.count == 4, "Ordinary non-scrollable web areas still move the transcript")
+        fixture.browser.updateScrollRegions([], pageZoom: 2)
+        fixture.browser.scrollWheel(with: fixture.event(y: -10, phase: .began, cssPoint: inside))
+        fixture.browser.scrollWheel(with: fixture.event(phase: .cancelled, cssPoint: inside))
+        #expect(fixture.scroll.phases.suffix(2) == [.began, .cancelled])
+    }
+
     @Test("Disposal stops forwarding and unregisters the visible browser")
     func stoppedBrowserUnregisters() {
         let initialCount = PicoHostedOpenUIWebView.registeredScrollHostCount
@@ -81,9 +125,16 @@ private final class OpenUIScrollFixture {
     }
 
     func event(x: CGFloat = 0, y: CGFloat = 0, phase: NSEvent.Phase = [],
-               momentum: NSEvent.Phase = [], modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
-        OpenUIScrollTestEvent(window: window, point: browser.convert(CGPoint(x: 100, y: 100), to: nil),
-                             x: x, y: y, phase: phase, momentum: momentum, modifiers: modifiers)
+               momentum: NSEvent.Phase = [], modifiers: NSEvent.ModifierFlags = [],
+               cssPoint: CGPoint? = nil) -> NSEvent {
+        let point: CGPoint
+        if let cssPoint {
+            let zoom = browser.pageZoom
+            point = CGPoint(x: browser.bounds.minX + cssPoint.x * zoom,
+                            y: browser.isFlipped ? browser.bounds.minY + cssPoint.y * zoom : browser.bounds.maxY - cssPoint.y * zoom)
+        } else { point = CGPoint(x: 100, y: 100) }
+        return OpenUIScrollTestEvent(window: window, point: browser.convert(point, to: nil),
+                                    x: x, y: y, phase: phase, momentum: momentum, modifiers: modifiers)
     }
 
     func close() {
