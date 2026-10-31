@@ -135,6 +135,45 @@ struct MermaidPreviewViewModelTests {
         await consumer.value
     }
 
+    @Test("A buffered partial fence retries a cancelled trailing preview", .timeLimit(.minutes(1)))
+    func bufferedFenceRetainsCancelledPreview() async throws {
+        _ = NSApplication.shared
+        let provider = DelayedPreviewVectorProvider(delayPreviewsAfterFirst: true)
+        let model = MarkdownStreamingViewModel(
+            theme: .default().withMermaidRendering(.bestEffortDebounced(milliseconds: 100)),
+            mermaidProvider: provider)
+        let (stream, continuation) = AsyncStream.makeStream(of: String.self)
+        let consumer = Task { await model.consume(.stream { stream }) }
+        defer { consumer.cancel(); continuation.finish() }
+
+        continuation.yield("```mermaid\n" + initialSource)
+        try await waitUntil { model.blocks.first?.mermaidDiagram?.svg != nil }
+        continuation.yield(nextLine)
+        _ = try await waitForRequest(provider, isPreview: true, after: 0)
+
+        // Only fence markers, with no newline: the tokenizer buffers this
+        // chunk and emits no diff. It still cancels the in-flight refresh.
+        continuation.yield("``")
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while await provider.previewRequestCount() < 3, clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(await provider.previewRequestCount() == 3,
+                     "The paused stream must retry its cancelled complete-line preview without another chunk")
+        await provider.releaseAll()
+        try await waitUntil {
+            model.blocks.first?.mermaidDiagram?.svg?.contains("preview:\((initialSource + nextLine).utf8.count)") == true
+        }
+        #expect(model.blocks.first?.snapshot.isClosed == false)
+        #expect(model.blocks.first?.mermaidDiagram?.source == initialSource + nextLine)
+        continuation.yield("`\n")
+        _ = try await waitForRequest(provider, isPreview: false)
+        await provider.releaseAll()
+        continuation.finish()
+        await consumer.value
+    }
+
     private func waitForRequest(_ provider: DelayedPreviewVectorProvider,
                                 isPreview: Bool, after index: Int = -1) async throws -> Int {
         var iterator = provider.started.makeAsyncIterator()
@@ -208,6 +247,7 @@ private actor DelayedPreviewVectorProvider: MermaidVectorDiagramProvider {
 
     func render(_ request: MermaidRenderRequest) async -> MermaidRenderResult? { nil }
     func finalRequestCount() -> Int { requests.filter { !$0.isPreview }.count }
+    func previewRequestCount() -> Int { requests.filter(\.isPreview).count }
     func recordedEvents() -> [String] { events }
 
     func releaseAll() {

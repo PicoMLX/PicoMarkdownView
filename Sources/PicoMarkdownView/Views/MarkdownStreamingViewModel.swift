@@ -353,9 +353,13 @@ final class MarkdownStreamingViewModel {
             catch { return }
             guard let self, !Task.isCancelled, self.pipelineGeneration == generation else { return }
             let ids = self.pendingMermaidPreviewIDs
-            self.pendingMermaidPreviewIDs.removeAll(keepingCapacity: true)
-            if let update = await currentPipeline.refreshMermaidPreviews(ids),
-               !Task.isCancelled, self.pipelineGeneration == generation {
+            let update = await currentPipeline.refreshMermaidPreviews(ids)
+            guard !Task.isCancelled, self.pipelineGeneration == generation else { return }
+            // A buffered chunk can cancel this render without producing a
+            // diff. Retain its IDs until completion so the next deadline can
+            // retry the complete lines that have not been published yet.
+            self.pendingMermaidPreviewIDs.subtract(ids)
+            if let update {
                 self.enqueueUpdate(blocks: update.blocks, diff: update.diff)
             }
         }
