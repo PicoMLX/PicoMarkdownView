@@ -8,11 +8,12 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     let model: PicoHostedMermaidModel
     var isSelected = false { didSet { needsDisplay = true } }
     private static let buttonSize: CGFloat = 32
-    private static let buttonSpacing: CGFloat = 6
+    private static let groupSpacing: CGFloat = 8
     private let toolbar = NSGlassEffectContainerView()
     private let toolbarContent = NSView()
-    private var toolbarButtons: [PicoHostedMermaidButton] = []
-    private var expandButton: PicoHostedMermaidButton?
+    private let zoomGlass = NSGlassEffectView()
+    private let zoomControl = PicoHostedMermaidZoomControl(frame: .zero)
+    private let copyButton = PicoHostedMermaidButton(title: "", target: nil, action: nil)
     private var isPointerInside = false
     private var hasControlFocus = false
     private var isTakingPointerFocus = false
@@ -20,7 +21,6 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     private var tracking: NSTrackingArea?
     private var dragPoint: CGPoint?
     private var accessibilitySource: String?
-    private var presentedExpansion: Bool?
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -37,9 +37,6 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         setAccessibilityCustomActions([
             NSAccessibilityCustomAction(name: "Zoom in") { [weak self] in self?.zoomIn(nil); return self != nil },
             NSAccessibilityCustomAction(name: "Zoom out") { [weak self] in self?.zoomOut(nil); return self != nil },
-            NSAccessibilityCustomAction(name: "Fit diagram") { [weak self] in self?.fitDiagram(nil); return self != nil },
-            NSAccessibilityCustomAction(name: "Fit width") { [weak self] in self?.fitWidth(nil); return self != nil },
-            NSAccessibilityCustomAction(name: "Expand or restore diagram") { [weak self] in self?.toggleExpanded(nil); return self != nil },
             NSAccessibilityCustomAction(name: "Copy Mermaid") { [weak model] in model?.copyMarkdown() ?? false },
             NSAccessibilityCustomAction(name: "Copy source") { [weak model] in model?.copySource() ?? false }
         ])
@@ -54,24 +51,20 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     override func layout() {
         super.layout()
         model.updateViewport(viewport.size)
-        // Balance short rows so narrow diagrams retain all six actions.
-        // Initial zero-width measurement still gets finite, clipped controls.
-        let count = max(1, toolbarButtons.count)
-        let step = Self.buttonSize + Self.buttonSpacing
-        let available = max(0, bounds.width - 16)
-        let capacity = max(1, min(count, Int((available + Self.buttonSpacing) / step)))
-        let rows = (count + capacity - 1) / capacity
-        let columns = (count + rows - 1) / rows
-        let width = CGFloat(columns) * step - Self.buttonSpacing
-        let height = CGFloat(rows) * step - Self.buttonSpacing
+        // Keep the zoom pair connected, including when Copy wraps below it.
+        let zoomWidth = Self.buttonSize * 2
+        let rowWidth = zoomWidth + Self.groupSpacing + Self.buttonSize
+        let stacked = bounds.width - 16 < rowWidth
+        let width = stacked ? zoomWidth : rowWidth
+        let height = stacked ? Self.buttonSize * 2 + Self.groupSpacing : Self.buttonSize
         toolbar.frame = CGRect(x: max(8, bounds.width - width - 8), y: 8,
                                width: width, height: height)
         toolbarContent.frame = toolbar.bounds
-        for (index, button) in toolbarButtons.enumerated() {
-            button.frame = CGRect(x: CGFloat(index % columns) * step,
-                                  y: CGFloat(rows - 1 - index / columns) * step,
-                                  width: Self.buttonSize, height: Self.buttonSize)
-        }
+        zoomGlass.frame = CGRect(x: 0, y: stacked ? Self.buttonSize + Self.groupSpacing : 0,
+                                 width: zoomWidth, height: Self.buttonSize)
+        zoomControl.frame = zoomGlass.bounds
+        copyButton.frame = CGRect(x: stacked ? width - Self.buttonSize : zoomWidth + Self.groupSpacing,
+                                  y: 0, width: Self.buttonSize, height: Self.buttonSize)
         refreshPointerPresence()
         needsDisplay = true
     }
@@ -181,7 +174,6 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         case "+", "=": zoomIn(nil)
         case "-": zoomOut(nil)
         case "0": fitDiagram(nil)
-        case "f": fitWidth(nil)
         case "\u{1b}": cancelOperation(nil)
         default: super.keyDown(with: event)
         }
@@ -209,14 +201,9 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
     }
 
     func refreshPresentation() {
-        if presentedExpansion != model.isExpanded {
-            presentedExpansion = model.isExpanded
-            let label = model.isExpanded ? "Restore diagram size" : "Expand diagram"
-            expandButton?.image = NSImage(systemSymbolName: model.isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                         accessibilityDescription: label)
-            expandButton?.setAccessibilityLabel(label)
-            expandButton?.toolTip = label
-        }
+        zoomControl.setEnabled(model.zoom > 0.25, forSegment: 0)
+        zoomControl.setEnabled(model.zoom < 8, forSegment: 1)
+        zoomControl.setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent")
         setAccessibilityValue("\(Int((model.zoom * 100).rounded())) percent zoom. \(model.isClosed ? "Complete" : "Streaming preview").")
         if accessibilitySource != model.source {
             accessibilitySource = model.source
@@ -231,34 +218,50 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         toolbar.spacing = 0
         toolbar.contentView = toolbarContent
         addSubview(toolbar)
-        addButton("minus.magnifyingglass", label: "Zoom out", action: #selector(zoomOut(_:)))
-        addButton("plus.magnifyingglass", label: "Zoom in", action: #selector(zoomIn(_:)))
-        addButton("arrow.down.right.and.arrow.up.left", label: "Fit diagram", action: #selector(fitDiagram(_:)))
-        addButton("arrow.left.and.right", label: "Fit width", action: #selector(fitWidth(_:)))
-        expandButton = addButton("arrow.up.left.and.arrow.down.right", label: "Expand diagram", action: #selector(toggleExpanded(_:)))
-        addButton("doc.on.doc", label: "Copy Mermaid", action: #selector(copyMarkdown(_:)))
-    }
 
-    @discardableResult
-    private func addButton(_ symbol: String, label: String, action: Selector) -> PicoHostedMermaidButton {
-        let button = PicoHostedMermaidButton(title: "", target: self, action: action)
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        button.setAccessibilityLabel(label) // [VERIFY] The labels describe the supplied toolbar actions.
-        button.toolTip = label
-        button.bezelStyle = .glass
-        button.borderShape = .circle
-        button.controlSize = .regular
-        button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        button.imagePosition = .imageOnly
-        button.onFocusChanged = { [weak self] focused in
+        zoomControl.segmentCount = 2
+        zoomControl.trackingMode = .momentary
+        zoomControl.segmentStyle = .rounded
+        zoomControl.borderShape = .capsule
+        zoomControl.segmentDistribution = .fillEqually
+        zoomControl.controlSize = .regular
+        zoomControl.cell?.isBordered = false
+        zoomControl.target = self
+        zoomControl.action = #selector(changeZoom(_:))
+        let symbols = [("minus.magnifyingglass", "Zoom out", "Zoom out (−). Press Escape to reset."),
+                       ("plus.magnifyingglass", "Zoom in", "Zoom in (+). Press Escape to reset.")]
+        for (index, item) in symbols.enumerated() {
+            let image = NSImage(systemSymbolName: item.0, accessibilityDescription: item.1)?
+                .withSymbolConfiguration(.init(pointSize: 13, weight: .medium))
+            zoomControl.setImage(image, forSegment: index)
+            zoomControl.setToolTip(item.2, forSegment: index)
+        }
+        zoomControl.setAccessibilityLabel("Diagram zoom")
+        zoomControl.setAccessibilityHelp("Zoom within the diagram frame. Press Escape to reset zoom and return to the text.")
+        zoomGlass.contentView = zoomControl
+        zoomGlass.cornerRadius = Self.buttonSize / 2
+        zoomGlass.effectIsInteractive = true
+        toolbarContent.addSubview(zoomGlass)
+
+        copyButton.target = self
+        copyButton.action = #selector(copyMarkdown(_:))
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy Mermaid")
+        copyButton.setAccessibilityLabel("Copy Mermaid")
+        copyButton.setAccessibilityHelp("Copies the diagram's Mermaid source as Markdown, including its code fences.")
+        copyButton.toolTip = "Copy Mermaid Markdown, including code fences."
+        copyButton.bezelStyle = .glass
+        copyButton.borderShape = .circle
+        copyButton.controlSize = .regular
+        copyButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        copyButton.imagePosition = .imageOnly
+        toolbarContent.addSubview(copyButton)
+
+        let focusChanged: (Bool) -> Void = { [weak self] focused in
             self?.hasControlFocus = focused
             self?.updateToolbarVisibility()
         }
-        button.frame = CGRect(x: CGFloat(toolbarButtons.count) * (Self.buttonSize + Self.buttonSpacing),
-                              y: 0, width: Self.buttonSize, height: Self.buttonSize)
-        toolbarContent.addSubview(button)
-        toolbarButtons.append(button)
-        return button
+        zoomControl.onFocusChanged = focusChanged
+        copyButton.onFocusChanged = focusChanged
     }
 
     private func updateToolbarVisibility() {
@@ -266,16 +269,55 @@ final class PicoHostedMermaidCanvasView: NSView, PicoHostedAttachmentHitTarget {
         guard shown != controlsAreVisible else { return }
         controlsAreVisible = shown
         toolbar.alphaValue = shown ? 1 : 0
-        for button in toolbarButtons { button.acceptsPointerHit = shown }
+        zoomControl.acceptsPointerHit = shown
+        copyButton.acceptsPointerHit = shown
+    }
+
+    @objc private func changeZoom(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment == 0 { zoomOut(sender) }
+        if sender.selectedSegment == 1 { zoomIn(sender) }
     }
 
     @objc private func zoomIn(_ sender: Any?) { model.zoom(by: 1.25) }
     @objc private func zoomOut(_ sender: Any?) { model.zoom(by: 1 / 1.25) }
     @objc private func fitDiagram(_ sender: Any?) { model.fitDiagram() }
-    @objc private func fitWidth(_ sender: Any?) { model.fitWidth() }
-    @objc private func toggleExpanded(_ sender: Any?) { model.toggleExpanded() }
     @objc private func copyMarkdown(_ sender: Any?) { model.copyMarkdown() }
     @objc private func copySource(_ sender: Any?) { model.copySource() }
+}
+
+@MainActor
+private final class PicoHostedMermaidZoomControl: NSSegmentedControl, PicoHostedAttachmentHitTarget {
+    var acceptsPointerHit = false
+    var onFocusChanged: ((Bool) -> Void)?
+    private var isTakingPointerFocus = false
+
+    func acceptsHostedAttachmentHit(at point: NSPoint) -> Bool { acceptsPointerHit && bounds.contains(point) }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChanged?(!isTakingPointerFocus) }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChanged?(false) }
+        return accepted
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        isTakingPointerFocus = true
+        onFocusChanged?(false)
+        defer { isTakingPointerFocus = false }
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        onFocusChanged?(true)
+        super.keyDown(with: event)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { acceptsPointerHit ? super.hitTest(point) : nil }
 }
 
 @MainActor

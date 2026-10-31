@@ -149,22 +149,20 @@ struct MacMermaidCanvasTests {
         }
         let canvas = try #require(descendants(of: hosting).compactMap { $0 as? PicoHostedMermaidCanvasView }.first)
         canvas.layoutSubtreeIfNeeded()
-        let buttons = descendants(of: canvas).compactMap { $0 as? NSButton }
-        #expect(buttons.count == 6)
-        for button in buttons {
-            let frame = button.convert(button.bounds, to: canvas)
+        let (zoom, copy) = try diagramControls(in: canvas)
+        for control in [zoom, copy] as [NSView] {
+            let frame = control.convert(control.bounds, to: canvas)
             #expect(frame.width > 0 && frame.height > 0)
             #expect(canvas.bounds.contains(frame), "Controls fit after the attachment receives its actual width")
         }
-        let zoomIn = try #require(buttons.first { $0.accessibilityLabel() == "Zoom in" })
-        zoomIn.performClick(nil)
+        try activateZoomSegment(1, in: zoom)
         #expect(model.zoom > 1, "Controls still act on the same model after startup sizing")
         #expect(canvas.model === model)
         #expect(model.parseCount == 1)
         #expect(attachment.markdownRepresentation() == model.markdownRepresentation())
     }
 
-    @Test("Narrow diagrams wrap every control into reachable balanced rows", arguments: [CGFloat(120), CGFloat(200)])
+    @Test("Narrow diagrams keep zoom connected and wrap Copy only when needed", arguments: [CGFloat(80), CGFloat(120), CGFloat(200)])
     @available(macOS 27.0, *)
     func controlsWrapAtNarrowWidths(width: CGFloat) throws {
         _ = NSApplication.shared
@@ -172,14 +170,27 @@ struct MacMermaidCanvasTests {
         let view = PicoHostedMermaidCanvasView(model: model)
         view.frame = CGRect(x: 0, y: 0, width: width, height: 140)
         view.layoutSubtreeIfNeeded()
-        let buttons = descendants(of: view).compactMap { $0 as? NSButton }
-        #expect(buttons.count == 6)
-        let frames = buttons.map { $0.convert($0.bounds, to: view) }
+        let (zoom, copy) = try diagramControls(in: view)
+        let controls = [zoom, copy] as [NSView]
+        let frames = controls.map { control in
+            let alignment = control.alignmentRect(forFrame: control.frame)
+            return control.superview?.convert(alignment, to: view) ?? .zero
+        }
+        for control in controls {
+            #expect(view.bounds.contains(control.convert(control.bounds, to: view)),
+                    "The complete native control remains inside a narrow diagram")
+        }
         for frame in frames {
             #expect(view.bounds.contains(frame), "Every action remains inside a narrow diagram")
             #expect(frame.width >= 32 && frame.height >= 32)
         }
-        #expect(Set(frames.map(\.minY)).count == (width == 200 ? 2 : 3))
+        #expect(frames[0].width == 64, "Zoom out and in remain one connected control")
+        #expect(frames[1].width == 32)
+        #expect(Set(frames.map(\.minY)).count == (width == 80 ? 2 : 1))
+        if width >= 120 {
+            #expect(frames[1].minX - frames[0].maxX == 8, "Copy remains a separate control")
+        }
+        #expect(controls.allSatisfy { !isControlVisible($0, in: view) })
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
                                                        modifierFlags: [], timestamp: 0,
                                                        windowNumber: 0, context: nil,
@@ -188,17 +199,55 @@ struct MacMermaidCanvasTests {
                                                       modifierFlags: [], timestamp: 0,
                                                       windowNumber: 0, context: nil,
                                                       eventNumber: 0, trackingNumber: 0, userData: nil))
-        let zoom = try #require(buttons.first { $0.accessibilityLabel() == "Zoom in" })
-        let fit = try #require(buttons.first { $0.accessibilityLabel() == "Fit diagram" })
         view.mouseEntered(with: enter)
-        #expect(buttons.allSatisfy { isControlVisible($0, in: view) })
-        zoom.performClick(nil)
+        #expect(controls.allSatisfy { isControlVisible($0, in: view) })
+        try activateZoomSegment(1, in: zoom)
         #expect(model.zoom > 1)
         #expect(isControlVisible(zoom, in: view))
-        fit.performClick(nil)
+        try activateZoomSegment(0, in: zoom)
         #expect(model.zoom == 1)
         view.mouseExited(with: exit)
-        #expect(buttons.allSatisfy { !isControlVisible($0, in: view) })
+        #expect(controls.allSatisfy { !isControlVisible($0, in: view) })
+        for control in controls {
+            #expect(control.hitTest(CGPoint(x: control.frame.midX, y: control.frame.midY)) == nil,
+                    "Hidden controls do not intercept pointer selection")
+        }
+    }
+
+    @Test("Zoom segments respect their limits and keyboard reset remains available")
+    @available(macOS 27.0, *)
+    func zoomLimitsAndKeyboardReset() throws {
+        _ = NSApplication.shared
+        let model = makeModel()
+        let view = PicoHostedMermaidCanvasView(model: model)
+        let (zoom, _) = try diagramControls(in: view)
+        model.zoom(by: 100)
+        #expect(model.zoom == 8)
+        #expect(zoom.isEnabled(forSegment: 0))
+        #expect(!zoom.isEnabled(forSegment: 1))
+        try activateZoomSegment(0, in: zoom)
+        #expect(model.zoom < 8)
+        #expect(zoom.isEnabled(forSegment: 1))
+        model.zoom(by: 0.001)
+        #expect(model.zoom == 0.25)
+        #expect(!zoom.isEnabled(forSegment: 0))
+        #expect(zoom.isEnabled(forSegment: 1))
+        try activateZoomSegment(1, in: zoom)
+        #expect(model.zoom > 0.25)
+        #expect(zoom.isEnabled(forSegment: 0))
+        let zero = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                timestamp: 0, windowNumber: 0, context: nil,
+                                                characters: "0", charactersIgnoringModifiers: "0",
+                                                isARepeat: false, keyCode: 29))
+        view.keyDown(with: zero)
+        #expect(model.zoom == 1)
+        try activateZoomSegment(1, in: zoom)
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                  timestamp: 0, windowNumber: 0, context: nil,
+                                                  characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                                  isARepeat: false, keyCode: 53))
+        view.keyDown(with: escape)
+        #expect(model.zoom == 1)
     }
 
     @Test("Wheel scroll passes to the transcript until zoomed, and chains at a pan boundary")
@@ -228,17 +277,35 @@ struct MacMermaidCanvasTests {
         #expect(model.zoom == 1)
     }
 
-    @Test("Diagram actions are discoverable without pointer hover")
+    @Test("Diagram controls expose labels, detailed tooltips and accessible actions without hover")
     @available(macOS 27.0, *)
-    func accessibilityActions() {
+    func accessibilityActions() throws {
         _ = NSApplication.shared
         let view = PicoHostedMermaidCanvasView(model: makeModel())
         let actions = view.accessibilityCustomActions()?.map(\.name) ?? []
-        #expect(actions.contains("Zoom in"))
-        #expect(actions.contains("Zoom out"))
-        #expect(actions.contains("Fit width"))
-        #expect(actions.contains("Copy source"))
+        #expect(Set(actions) == Set(["Zoom in", "Zoom out", "Copy Mermaid", "Copy source"]),
+                "Fit, fit-width and expand actions are no longer exposed")
         #expect(view.accessibilityLabel() == "Mermaid diagram")
+        let (zoom, copy) = try diagramControls(in: view)
+        #expect(zoom.segmentCount == 2)
+        #expect(zoom.trackingMode == .momentary)
+        #expect(zoom.image(forSegment: 0)?.accessibilityDescription == "Zoom out")
+        #expect(zoom.image(forSegment: 1)?.accessibilityDescription == "Zoom in")
+        #expect(zoom.toolTip(forSegment: 0)?.contains("Zoom out") == true)
+        #expect(zoom.toolTip(forSegment: 1)?.contains("Zoom in") == true)
+        for segment in 0..<2 {
+            #expect(zoom.toolTip(forSegment: segment)?.contains("Escape") == true)
+        }
+        #expect(zoom.accessibilityLabel() == "Diagram zoom")
+        #expect(zoom.accessibilityHelp()?.contains("diagram frame") == true)
+        #expect(copy.accessibilityLabel() == "Copy Mermaid")
+        #expect(copy.image?.accessibilityDescription == "Copy Mermaid")
+        #expect(copy.toolTip?.contains("code fences") == true)
+        #expect(copy.accessibilityHelp()?.contains("code fences") == true)
+        #expect(copy.bezelStyle == .glass)
+        let glass = try #require(descendants(of: view).compactMap { $0 as? NSGlassEffectView }
+            .first { $0.contentView === zoom })
+        #expect(glass.effectIsInteractive)
     }
 
     @Test("Pointer navigation does not keep controls visible after hover ends")
@@ -253,8 +320,7 @@ struct MacMermaidCanvasTests {
         let view = PicoHostedMermaidCanvasView(model: model)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
-        let zoom = try #require(descendants(of: view).compactMap { $0 as? NSButton }
-            .first { $0.accessibilityLabel() == "Zoom in" })
+        let (zoom, copy) = try diagramControls(in: view)
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
                                                        modifierFlags: [], timestamp: 0,
                                                        windowNumber: window.windowNumber, context: nil,
@@ -284,6 +350,15 @@ struct MacMermaidCanvasTests {
         #expect(model.zoom > 1)
         #expect(window.makeFirstResponder(nil))
         #expect(!isControlVisible(zoom, in: view))
+        #expect(window.makeFirstResponder(zoom), "Keyboard focus can reach the connected zoom control")
+        #expect(isControlVisible(zoom, in: view) && isControlVisible(copy, in: view))
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                  timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                  characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                                  isARepeat: false, keyCode: 53))
+        zoom.keyDown(with: escape)
+        #expect(model.zoom == 1, "Escape resets zoom even while a zoom segment has keyboard focus")
+        #expect(!isControlVisible(zoom, in: view) && !isControlVisible(copy, in: view))
         #expect(view.accessibilityCustomActions()?.contains { $0.name == "Copy source" } == true)
     }
 
@@ -297,16 +372,42 @@ struct MacMermaidCanvasTests {
         defer { window.close() }
         let view = PicoHostedMermaidCanvasView(model: makeModel())
         window.contentView = view
-        let button = try #require(descendants(of: view).compactMap { $0 as? NSButton }.first)
+        let (zoom, copy) = try diagramControls(in: view)
+        let controls = [zoom, copy] as [NSView]
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero,
                                                        modifierFlags: [], timestamp: 0,
                                                        windowNumber: window.windowNumber, context: nil,
                                                        eventNumber: 0, trackingNumber: 0, userData: nil))
         view.mouseEntered(with: enter)
-        #expect(isControlVisible(button, in: view))
+        #expect(controls.allSatisfy { isControlVisible($0, in: view) })
         window.contentView = nil
-        #expect(!isControlVisible(button, in: view))
-        #expect(button.hitTest(CGPoint(x: button.frame.midX, y: button.frame.midY)) == nil)
+        for control in controls {
+            #expect(!isControlVisible(control, in: view))
+            #expect(control.hitTest(CGPoint(x: control.frame.midX, y: control.frame.midY)) == nil)
+        }
+    }
+
+    private func diagramControls(in view: NSView) throws -> (NSSegmentedControl, NSButton) {
+        let views = descendants(of: view)
+        let zoom = views.compactMap { $0 as? NSSegmentedControl }
+        let copy = views.compactMap { $0 as? NSButton }
+        #expect(zoom.count == 1)
+        #expect(copy.count == 1, "Only Copy remains a standalone button")
+        return try (#require(zoom.first), #require(copy.first))
+    }
+
+    private func activateZoomSegment(_ segment: Int, in control: NSSegmentedControl) throws {
+        let label = try #require(control.image(forSegment: segment)?.accessibilityDescription)
+        let action = try #require(accessibilityDescendants(of: control).first {
+            $0.accessibilityRole() == .button && $0.accessibilityLabel() == label
+        })
+        // Momentary controls expose their selection only during native tracking.
+        _ = action.accessibilityPerformPress()
+    }
+
+    private func accessibilityDescendants(of element: NSAccessibilityProtocol) -> [NSAccessibilityProtocol] {
+        [element] + (element.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityProtocol }
+            .flatMap { accessibilityDescendants(of: $0) }
     }
 
     private func isControlVisible(_ control: NSView, in canvas: NSView) -> Bool {
