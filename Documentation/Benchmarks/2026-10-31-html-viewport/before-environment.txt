@@ -1,0 +1,15 @@
+2026-10-31T17:37:07Z
+Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)
+Target: arm64-apple-macosx27.0.0
+Xcode 27.2
+Build version 27B52
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+Mac17,14
+18
+137438953472
+source=/private/tmp/pico-html-viewport-before.hbtLwp
+revision=949f2f00fdca72d3f405e548f9e1a12363a8a1b8+common-mac-remount-fix
+cards=80 iterations=3 kind=both build=release chunks=512 viewport=800x640
+46e23ae8bc68b28e2e185b607848a85bdac2c45011d372f51dcff23bbe5d277b  /private/tmp/pico-html-viewport-before.hbtLwp/Sources/PicoMarkdownView/Views/TextKitStreamingController.swift

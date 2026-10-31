@@ -31,12 +31,7 @@ struct HTMLTranscriptBenchmark {
             passes.append(try await run(chunks: chunks, html: mode == "html", iteration: iteration))
             print("HTML_BENCH pass=\(iteration) mode=\(mode) cards=\(count) ui_p95_ms=\(passes.last!.uiApply.p95) heartbeat_max_ms=\(passes.last!.streamHeartbeat.max)")
         }
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let files = ["Sources/PicoMarkdownViewHTML/HTMLPreview.swift", "Sources/PicoMarkdownViewHTML/HTMLPreviewPolicy.swift", "Sources/PicoMarkdownViewHTML/HTMLPreviewPreparation.swift", "Tests/PicoMarkdownViewHTMLBenchmarks/HTMLTranscriptBenchmark.swift"]
-        let hashes = try Dictionary(uniqueKeysWithValues: files.map { path in
-            let url = root.appendingPathComponent(path)
-            return (path, FileManager.default.fileExists(atPath: url.path) ? Self.hash(try Data(contentsOf: url)) : "absent")
-        })
+        let hashes = try Self.sourceHashes()
         let result = ResultFile(revision: environment["PICO_HTML_BENCH_REVISION"] ?? "unspecified", scenario: mode,
                                 os: ProcessInfo.processInfo.operatingSystemVersionString,
                                 processors: ProcessInfo.processInfo.processorCount,
@@ -116,6 +111,8 @@ struct HTMLTranscriptBenchmark {
             }
             if observer.readyContainers == 0 { readinessTimeouts += 1 }
         }
+        let copyBefore = html ? session!.selectFirstAttachmentAndCopy() : nil
+        let selectedBefore = session!.view?.selectedRange()
         let streamEnd = Self.now
         let streamTicks = heartbeat.drain()
         let streamGaps = streamTicks.map(\.milliseconds)
@@ -138,11 +135,29 @@ struct HTMLTranscriptBenchmark {
                 observer.observe(session!.view!)
                 try await Task.sleep(for: .milliseconds(10))
             }
+            if html, position >= 0 {
+                let deadline = Self.now + 5_000_000_000
+                while !session!.isAttachmentReady(at: position) && Self.now < deadline {
+                    session!.layout()
+                    observer.observe(session!.view!)
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                if !session!.isAttachmentReady(at: position) {
+                    print("HTML_LONG_FIXTURE unreachable=\(position) state=\(session!.attachmentDiagnostics(at: position))")
+                    throw LongFixtureError.unreachableAttachment(position)
+                }
+            }
             session!.layout()
             observer.observe(session!.view!)
             memory.append(Self.memory("scroll", observer: observer))
         }
         let scrollGaps = heartbeat.drain().map(\.milliseconds)
+        let settledOffset = session!.scrollOffset
+        try await Task.sleep(for: .milliseconds(500))
+        session!.layout()
+        observer.observe(session!.view!)
+        memory.append(Self.memory("settledAfterVisits", observer: observer))
+        let settledOffsetDrift = abs(session!.scrollOffset - settledOffset)
         for width in [CGFloat(480), 800] {
             let start = Self.now
             session!.resize(width: width)
@@ -152,6 +167,8 @@ struct HTMLTranscriptBenchmark {
             observer.observe(session!.view!)
         }
         memory.append(Self.memory("afterScrollAndResize", observer: observer))
+        let copyAfter = html ? session!.copySelection() : nil
+        let selectionPreserved = html ? session!.view?.selectedRange() == selectedBefore : nil
         session!.detach()
         try await Task.sleep(for: .milliseconds(250))
         memory.append(Self.memory("detachedWindow", observer: observer))
@@ -167,10 +184,15 @@ struct HTMLTranscriptBenchmark {
                     streamWallMS: Self.ms(begin, streamEnd), firstPreviewReadyMS: firstReadyMS,
                     closedHTMLBlocks: closedHTMLBlocks, readinessTimeouts: readinessTimeouts,
                     observedContainers: observer.containers.count, observedPages: observer.pages.count,
+                    selectionPreserved: selectionPreserved,
+                    selectedSourceCopyPreserved: html ? copyBefore == copyAfter && copyBefore?.contains("```html-preview") == true : nil,
+                    settledScrollOffsetDriftPoints: settledOffsetDrift,
                     memory: memory)
     }
 
-    private static func transcript(cards: Int) -> String {
+    static func transcript(cards: Int) -> String { messages(cards: cards).joined(separator: "\n") }
+
+    static func messages(cards: Int) -> [String] {
         (0..<cards).map { index in
             let rows = (0..<12).map { row in
                 "<tr><td>Line \(row)</td><td>Stable detail for item \(index), with text and <strong>emphasis</strong>.</td><td>\(index * 12 + row)</td></tr>"
@@ -193,13 +215,27 @@ struct HTMLTranscriptBenchmark {
             Native paragraph after item \(index). Streaming continues incrementally in the same document.
 
             """
-        }.joined(separator: "\n")
+        }
     }
 
-    private static var now: UInt64 { DispatchTime.now().uptimeNanoseconds }
-    private static func ms(_ from: UInt64, _ to: UInt64) -> Double { Double(to - from) / 1_000_000 }
-    private static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-    private static var buildConfiguration: String {
+    static func sourceHashes() throws -> [String: String] {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let directories = ["Sources/PicoMarkdownViewHTML", "Tests/PicoMarkdownViewHTMLBenchmarks"]
+        let core = "Sources/PicoMarkdownView/Views/TextKitStreamingController.swift"
+        var hashes: [String: String] = [core: hash(try Data(contentsOf: root.appendingPathComponent(core)))]
+        for directory in directories {
+            let url = root.appendingPathComponent(directory)
+            for file in try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) where file.pathExtension == "swift" {
+                hashes[directory + "/" + file.lastPathComponent] = hash(try Data(contentsOf: file))
+            }
+        }
+        return hashes
+    }
+
+    static var now: UInt64 { DispatchTime.now().uptimeNanoseconds }
+    static func ms(_ from: UInt64, _ to: UInt64) -> Double { Double(to - from) / 1_000_000 }
+    static func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    static var buildConfiguration: String {
 #if DEBUG
         "debug"
 #else
@@ -207,7 +243,7 @@ struct HTMLTranscriptBenchmark {
 #endif
     }
 
-    private static func memory(_ phase: String, observer: Observer) -> MemorySample {
+    static func memory(_ phase: String, observer: Observer) -> MemorySample {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
         let status = withUnsafeMutablePointer(to: &info) { pointer in
@@ -219,9 +255,13 @@ struct HTMLTranscriptBenchmark {
                             hostResidentBytes: status == KERN_SUCCESS ? info.resident_size : nil,
                             observedRetainedContainers: observer.retainedContainers, observedLivePages: observer.livePages,
                             attachedPages: observer.attachedPages, readyContainers: observer.readyContainers,
-                            failedContainers: observer.failedContainers, mountedContainers: observer.mountedContainers)
+                            failedContainers: observer.failedContainers, mountedContainers: observer.mountedContainers,
+                            visibleContainers: observer.visibleContainers, visiblePages: observer.visiblePages,
+                            observedPageLoads: observer.observedPageLoads)
     }
 }
+
+private enum LongFixtureError: Error { case unreachableAttachment(Int) }
 
 @MainActor
 private final class Session {
@@ -293,6 +333,32 @@ private final class Session {
         layout()
     }
 
+    func attachmentDiagnostics(at location: Int) -> String {
+        guard let view, let attachment = view.textStorage?.attribute(.attachment, at: location, effectiveRange: nil) as? PicoHostedAttachment else { return "no-attachment" }
+        guard let host = attachment.hostingView else { return "no-host measured=\(attachment.measuredSize)" }
+        let values = Observer.previewContainers(in: host).map { "bounds=\($0.bounds) measured=\($0.measuredHeight) window=\($0.window != nil) ready=\($0.isReady) failed=\($0.hasFailed) page=\($0.page != nil)" }
+        return "attachment=\(attachment.measuredSize) host=\(host.frame) containers=\(values)"
+    }
+
+    func isAttachmentReady(at location: Int) -> Bool {
+        guard let view, let attachment = view.textStorage?.attribute(.attachment, at: location, effectiveRange: nil) as? PicoHostedAttachment,
+              let host = attachment.hostingView else { return false }
+        return Observer.previewContainers(in: host).contains { container in
+            container.isReady && container.page != nil && abs(container.bounds.height - container.measuredHeight) <= 2
+                && abs(attachment.measuredSize.height - container.measuredHeight) <= 2
+        }
+    }
+
+    var scrollOffset: CGFloat { scroll?.contentView.bounds.origin.y ?? 0 }
+
+    func selectFirstAttachmentAndCopy() -> String? {
+        guard let location = attachmentPositions.first, let view else { return nil }
+        view.setSelectedRange(NSRange(location: location, length: 1))
+        return view.markdownForSelection()
+    }
+
+    func copySelection() -> String? { view?.markdownForSelection() }
+
     func detach() {
         window?.orderOut(nil)
         window?.contentView = nil
@@ -306,19 +372,47 @@ private final class Session {
 }
 
 @MainActor
-private final class Observer {
+final class Observer {
     final class WeakContainer { weak var value: HTMLPreviewContainer?; init(_ value: HTMLPreviewContainer) { self.value = value } }
     final class WeakPage { weak var value: WebPage?; init(_ value: WebPage) { self.value = value } }
     var containers: [ObjectIdentifier: WeakContainer] = [:]
     var pages: [ObjectIdentifier: WeakPage] = [:]
+    private var lastLoads: [ObjectIdentifier: Int] = [:]
+    private(set) var observedPageLoads = 0
     var attachedPages: Int { containers.values.filter { $0.value?.page != nil && $0.value?.window != nil }.count }
-    var readyContainers: Int { containers.values.filter { $0.value?.isReady == true && $0.value?.window != nil }.count }
+    var readyContainers: Int { containers.values.filter {
+        guard let view = $0.value else { return false }
+        return view.isReady && view.page != nil && view.window != nil && abs(view.bounds.height - view.measuredHeight) <= 2
+    }.count }
     var retainedContainers: Int { containers.values.filter { $0.value != nil }.count }
     var livePages: Int { pages.values.filter { $0.value != nil }.count }
     var failedContainers: Int { containers.values.filter { $0.value?.hasFailed == true }.count }
     var mountedContainers: Int { containers.values.filter { $0.value?.window != nil }.count }
+    var visibleContainers: Int { containers.values.filter { Self.isVisible($0.value) }.count }
+    var visiblePages: Int { containers.values.filter { Self.isVisible($0.value) && $0.value?.page != nil }.count }
 
-    func observe(_ view: NSTextView) {
+    static func isVisible(_ view: NSView?) -> Bool {
+        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return false }
+        let visible = view.bounds.intersection(view.visibleRect)
+        return !visible.isNull && visible.width > 0 && visible.height > 0
+    }
+
+    static func textViews(in root: NSView) -> [StreamingTextKit2View] {
+        if let view = root as? StreamingTextKit2View { return [view] }
+        return root.subviews.flatMap { textViews(in: $0) }
+    }
+
+    func observeTree(_ root: NSView) {
+        for view in Self.textViews(in: root) { observe(view) }
+    }
+
+    static func previewContainers(in root: NSView) -> [HTMLPreviewContainer] {
+        if let container = root as? HTMLPreviewContainer { return [container] }
+        return root.subviews.flatMap { previewContainers(in: $0) }
+    }
+
+    @discardableResult
+    func observe(_ view: NSTextView) -> [HTMLPreviewContainer] {
         var visited: Set<ObjectIdentifier> = []
         var found: [HTMLPreviewContainer] = []
         func visit(_ view: NSView) {
@@ -333,14 +427,19 @@ private final class Observer {
             }
         }
         for container in found {
-            containers[ObjectIdentifier(container)] = WeakContainer(container)
+            let id = ObjectIdentifier(container)
+            if containers[id]?.value !== container { lastLoads[id] = 0 }
+            observedPageLoads += max(0, container.loadCount - (lastLoads[id] ?? 0))
+            lastLoads[id] = container.loadCount
+            containers[id] = WeakContainer(container)
             if let page = container.page { pages[ObjectIdentifier(page)] = WeakPage(page) }
         }
+        return found
     }
 }
 
 @MainActor
-private final class Heartbeat {
+final class Heartbeat {
     private var task: Task<Void, Never>?
     struct Sample {
         let start: UInt64
@@ -363,7 +462,7 @@ private final class Heartbeat {
     func stop() async { task?.cancel(); await task?.value; task = nil }
 }
 
-private struct Distribution: Codable {
+struct Distribution: Codable {
     let count: Int
     let p50: Double
     let p95: Double
@@ -375,7 +474,7 @@ private struct Distribution: Codable {
         p50 = percentile(0.50); p95 = percentile(0.95); max = values.last ?? 0
     }
 }
-private struct MemorySample: Codable {
+struct MemorySample: Codable {
     let phase: String
     let hostFootprintBytes: UInt64?
     let hostResidentBytes: UInt64?
@@ -385,6 +484,9 @@ private struct MemorySample: Codable {
     let readyContainers: Int
     let failedContainers: Int
     let mountedContainers: Int
+    let visibleContainers: Int
+    let visiblePages: Int
+    let observedPageLoads: Int
 }
 private struct Pass: Codable {
     let iteration: Int
@@ -403,6 +505,9 @@ private struct Pass: Codable {
     let readinessTimeouts: Int
     let observedContainers: Int
     let observedPages: Int
+    let selectionPreserved: Bool?
+    let selectedSourceCopyPreserved: Bool?
+    let settledScrollOffsetDriftPoints: CGFloat
     let memory: [MemorySample]
 }
 private struct ResultFile: Codable {

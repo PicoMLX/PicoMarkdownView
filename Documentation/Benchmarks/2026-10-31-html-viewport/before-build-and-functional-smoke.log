@@ -1,0 +1,18 @@
+Building for production...
+[Computing dependencies]
+[1 / 4]
+[2 / 6] PicoMarkdownViewHTMLBenchmarks-product
+[4 / 7] PicoMarkdownViewHTMLBenchmarks-product
+[8 / 12] PicoMarkdownViewHTMLBenchmarks-product
+[10 / 12] PicoMarkdownViewHTMLBenchmarks-product
+Build complete! (4.58 sec)
+􀟈  Test run started.
+􀄵  Testing Library Version: 2403
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite HTMLTranscriptBenchmark started.
+􀟈  Test longTranscript() started.
+HTML_BENCH pass=0 mode=html cards=6 ui_p95_ms=7.552041 heartbeat_max_ms=126.7935
+HTML_BENCH wrote /private/tmp/pico-html-viewport-bench-results/baseline-smoke-long-html.json
+􁁛  Test longTranscript() passed after 3.612 seconds.
+􁁛  Suite HTMLTranscriptBenchmark passed after 3.612 seconds.
+􁁛  Test run with 1 test in 1 suite passed after 3.612 seconds.

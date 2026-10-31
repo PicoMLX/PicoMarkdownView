@@ -244,7 +244,7 @@ PicoMarkdownView(stream: makeStream, embeddedBlockRenderers: [.htmlPreview])
 
 Previews appear after the block closes, preserve source copying as a single selection unit, and reflow with the available width. Scripts, navigation, forms and network resources are disabled; images become alternative text. The core product remains WebKit-free, and iOS rendering is unchanged. See [HTML preview setup and behavior](Documentation/HTMLPreviews.md) for conditional dependencies, raw HTML boundaries, and examples. The macOS example app's **HTMLPreviews** document opts in separately from the other samples.
 
-An opt-in [real-window performance benchmark](Documentation/HTMLPerformanceBenchmarks.md) records streaming latency, readiness and host-process memory for long messages. It is not a CI timing gate.
+Opt-in [long-message performance](Documentation/HTMLPerformanceBenchmarks.md) and [viewport/lazy-chat benchmarks](Documentation/HTMLViewportBenchmarks.md) record streaming latency, readiness, page lifetime and host-process memory. They are not CI timing gates.
 
 ### Resetting Content
 

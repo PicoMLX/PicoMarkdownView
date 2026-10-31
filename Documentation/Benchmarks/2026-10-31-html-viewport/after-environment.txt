@@ -1,0 +1,15 @@
+2026-10-31T17:38:34Z
+Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)
+Target: arm64-apple-macosx27.0.0
+Xcode 27.2
+Build version 27B52
+ProductName:		macOS
+ProductVersion:		27.0.1
+BuildVersion:		26A434
+Mac17,14
+18
+137438953472
+source=/Users/ronaldmannak/Developer/Projects/Pico/PicoMarkdownView-HTML
+revision=34f37c7431e161c0d64b1c955c6714e3f0f198e1+working-tree
+cards=80 iterations=3 kind=both build=release chunks=512 viewport=800x640
+46e23ae8bc68b28e2e185b607848a85bdac2c45011d372f51dcff23bbe5d277b  /Users/ronaldmannak/Developer/Projects/Pico/PicoMarkdownView-HTML/Sources/PicoMarkdownView/Views/TextKitStreamingController.swift
