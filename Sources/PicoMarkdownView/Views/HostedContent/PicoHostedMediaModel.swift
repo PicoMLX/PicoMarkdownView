@@ -7,26 +7,25 @@ import Observation
 @Observable
 final class PicoHostedMediaModel {
     enum Fit: Equatable { case diagram, width }
-    enum LoadingActivity: Equatable { case receiving, paused, stopped }
-    static let svgLoadingDelay: Duration = .milliseconds(350)
-    static let svgLoadingHeight: CGFloat = 48
-    enum Kind {
-        case mermaid, svg, image
+    enum Kind: Equatable {
+        case mermaid, svg, image, vegaLite
 
         var defaultLanguage: String {
-            switch self { case .mermaid: "mermaid"; case .svg: "svg"; case .image: "" }
+            switch self { case .mermaid: "mermaid"; case .svg: "svg"; case .image: ""; case .vegaLite: "vega-lite" }
         }
         var accessibilityLabel: String {
-            switch self { case .mermaid: "Mermaid diagram"; case .svg: "SVG graphic"; case .image: "Image" }
+            switch self { case .mermaid: "Mermaid diagram"; case .svg: "SVG graphic"; case .image: "Image"; case .vegaLite: "Vega-Lite chart" }
         }
+        var noun: String { self == .vegaLite ? "Chart" : "Diagram" }
         var copyTitle: String {
-            switch self { case .mermaid: "Copy Mermaid"; case .svg: "Copy SVG"; case .image: "Copy Image Markdown" }
+            switch self { case .mermaid: "Copy Mermaid"; case .svg: "Copy SVG"; case .image: "Copy Image Markdown"; case .vegaLite: "Copy Vega-Lite" }
         }
         var copyHelp: String {
             switch self {
             case .mermaid: "Copies the diagram's Mermaid source as Markdown, including its code fences."
             case .svg: "Copies the graphic's SVG source as Markdown, including its code fences."
             case .image: "Copies the image's Markdown, including its source, alternative text and title."
+            case .vegaLite: "Copies the original Vega-Lite source as Markdown, including its code fences."
             }
         }
         var copyToolTip: String {
@@ -34,11 +33,18 @@ final class PicoHostedMediaModel {
             case .mermaid: "Copy Mermaid Markdown, including code fences."
             case .svg: "Copy SVG Markdown, including code fences."
             case .image: "Copy Image Markdown."
+            case .vegaLite: "Copy Vega-Lite Markdown, including code fences."
             }
         }
     }
 
-    let kind: Kind
+    enum LoadingActivity: Equatable { case receiving, paused, stopped }
+    static let loadingDelay: Duration = .milliseconds(350)
+    static let loadingHeight: CGFloat = 48
+    static let svgLoadingDelay = loadingDelay
+    static let svgLoadingHeight = loadingHeight
+
+    private(set) var kind: Kind
     private(set) var altText = ""
     private(set) var title: String?
     /// Optional activation belongs to the app; images remain static otherwise.
@@ -63,20 +69,20 @@ final class PicoHostedMediaModel {
 
     @ObservationIgnored private(set) var document: PicoHostedVectorDocument?
     @ObservationIgnored private var svg: String
-    @ObservationIgnored private var loadingTask: Task<Void, Never>?
     @ObservationIgnored private var image: NSImage?
+    @ObservationIgnored private var loadingTask: Task<Void, Never>?
     @ObservationIgnored private var viewport = CGSize(width: 1, height: 1)
     @ObservationIgnored var onPresentationChanged: (@MainActor () -> Void)?
 
     init(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil,
-         kind: Kind = .mermaid, loadingTiming: SVGLoadingTiming = .continuous) {
+         kind: Kind = .mermaid, loadingTiming: HostedLoadingTiming = .continuous) {
         self.kind = kind
         self.svg = svg
         self.source = source
         self.language = language
         self.isClosed = isClosed
         self.maxWidth = Self.normalizedMaxWidth(maxWidth)
-        if isLoadingSVG {
+        if isLoading {
             scheduleLoadingReveal(using: loadingTiming)
         } else {
             parse(svg)
@@ -114,34 +120,67 @@ final class PicoHostedMediaModel {
         changed()
     }
 
-    func update(svg: String, source: String, language: String?, isClosed: Bool, maxWidth: CGFloat? = nil) {
+    func update(svg: String, source: String, language: String?, isClosed: Bool,
+                maxWidth: CGFloat? = nil, kind: Kind? = nil) {
+        let kind = kind ?? self.kind
         let maxWidth = Self.normalizedMaxWidth(maxWidth)
         guard self.svg != svg || self.source != source || self.language != language || self.isClosed != isClosed
-                || self.maxWidth != maxWidth else { return }
-        let shouldParse = kind == .svg
-            ? isClosed && (self.svg != svg || !self.isClosed)
-            : self.svg != svg
+                || self.maxWidth != maxWidth || self.kind != kind else { return }
+        let shouldParse = kind == .vegaLite || kind == .svg
+            ? isClosed && (self.svg != svg || self.kind != kind || !self.isClosed)
+            : self.svg != svg || self.kind != kind
+        self.kind = kind
         self.svg = svg
-        if shouldParse { parse(svg) }
-        if kind == .svg, isClosed {
-            loadingTask?.cancel()
-            loadingTask = nil
-            showsLoadingPlaceholder = false
-        }
         self.source = source
         self.language = language
         self.isClosed = isClosed
         self.maxWidth = maxWidth
+        if shouldParse { parse(svg) }
+        if !isLoading {
+            loadingTask?.cancel()
+            loadingTask = nil
+            showsLoadingPlaceholder = false
+        }
         pan = clamped(pan)
         changed()
     }
 
     var isImage: Bool { kind == .image }
     var isRenderable: Bool { isImage ? image != nil : document != nil }
+    var isLoading: Bool { (kind == .vegaLite || kind == .svg) && !isClosed }
     var isLoadingSVG: Bool { kind == .svg && !isClosed }
 
+    /// The native hosting root exposes this status while SwiftUI supplies the chrome.
+    var loadingAccessibilityLabel: String? {
+        guard isLoading, showsLoadingPlaceholder else { return nil }
+        if kind == .svg {
+            switch loadingActivity {
+            case .receiving:
+                return String(localized: "Preparing graphic…", table: "SVGLoading", bundle: .module,
+                              comment: "Status shown while an SVG graphic's source is still arriving.")
+            case .paused:
+                return String(localized: "Graphic paused", table: "SVGLoading", bundle: .module,
+                              comment: "Status shown when displaying new SVG source is paused.")
+            case .stopped:
+                return String(localized: "Graphic incomplete", table: "SVGLoading", bundle: .module,
+                              comment: "Status shown when an SVG stream stops before its graphic is complete.")
+            }
+        }
+        switch loadingActivity {
+        case .receiving:
+            return String(localized: "Receiving chart…", table: "HostedLoading", bundle: .module,
+                          comment: "Status while a chart's source is still arriving, before compilation begins.")
+        case .paused:
+            return String(localized: "Chart paused", table: "HostedLoading", bundle: .module,
+                          comment: "Status when displaying new chart source is paused.")
+        case .stopped:
+            return String(localized: "Chart incomplete", table: "HostedLoading", bundle: .module,
+                          comment: "Status when a chart stream stops before completion.")
+        }
+    }
+
     func setLoadingActivity(_ activity: LoadingActivity) {
-        guard isLoadingSVG, loadingActivity != activity else { return }
+        guard isLoading, loadingActivity != activity else { return }
         loadingActivity = activity
         if activity == .stopped {
             loadingTask?.cancel()
@@ -151,17 +190,32 @@ final class PicoHostedMediaModel {
         changed()
     }
 
-    /// Wait for the scheduled reveal, without depending on wall-clock polling.
-    func waitForSVGLoadingDelay() async {
+    /// Retired attachments must not reveal a delayed indicator or keep animating.
+    func finishLoading() {
+        guard kind == .vegaLite || kind == .svg else { return }
+        loadingTask?.cancel()
+        loadingTask = nil
+        let didChange = showsLoadingPlaceholder || loadingActivity != .stopped
+        showsLoadingPlaceholder = false
+        loadingActivity = .stopped
+        if didChange { changed() }
+    }
+
+    func waitForLoadingDelay() async {
         await loadingTask?.value
     }
 
-    private func scheduleLoadingReveal(using timing: SVGLoadingTiming) {
+    /// Compatibility for SVG's original deterministic loading seam.
+    func waitForSVGLoadingDelay() async {
+        await waitForLoadingDelay()
+    }
+
+    private func scheduleLoadingReveal(using timing: HostedLoadingTiming) {
         let sleep = timing.sleep
         loadingTask = Task { [weak self] in
-            do { try await sleep(Self.svgLoadingDelay) }
+            do { try await sleep(Self.loadingDelay) }
             catch { return }
-            guard !Task.isCancelled, let self, self.isLoadingSVG else { return }
+            guard !Task.isCancelled, let self, self.isLoading else { return }
             self.showsLoadingPlaceholder = true
             self.loadingTask = nil
             self.changed()
@@ -216,7 +270,7 @@ final class PicoHostedMediaModel {
     }
 
     func viewportHeight(availableWidth: CGFloat) -> CGFloat {
-        if isLoadingSVG { return Self.svgLoadingHeight }
+        if isLoading { return Self.loadingHeight }
         if !isImage && isExpanded { return 600 }
         let width = viewportWidth(availableWidth: availableWidth)
         let height = intrinsicSize.height * width / max(1, intrinsicSize.width)
@@ -334,6 +388,9 @@ final class PicoHostedMediaModel {
             // A streaming Mermaid preview keeps its last successful drawing.
             guard let parsed = PeleSVGDocument(svg: svg) else { return }
             document = .pele(parsed)
+        case .vegaLite:
+            // Only the completed bundled Vega output enters its strict dialect.
+            document = PeleSVGDocument(svg: svg, dialect: .vega).map(PicoHostedVectorDocument.pele)
         case .svg:
             // User-supplied SVG must fall back to source if a later update is invalid.
             document = NativeSVGDocument(svg: svg).map(PicoHostedVectorDocument.svg)
@@ -387,6 +444,10 @@ enum PicoHostedVectorDocument {
     }
     var height: CGFloat {
         switch self { case .pele(let document): document.height; case .svg(let document): document.height }
+    }
+    var accessibilitySummary: String? {
+        if case .pele(let document) = self { return document.accessibilitySummary }
+        return nil
     }
     var accessibilityDescription: String? {
         if case .svg(let document) = self { return document.accessibilityDescription }

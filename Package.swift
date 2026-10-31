@@ -16,7 +16,7 @@ let package = Package(
             name: "PicoMarkdownView",
             targets: ["PicoMarkdownView"]
         ),
-        // Opt-in macOS HTML previews. The core library does not link WebKit.
+        // Separate, opt-in macOS HTML preview adapter.
         .library(
             name: "PicoMarkdownViewHTML",
             targets: ["PicoMarkdownViewHTML"]
@@ -84,7 +84,8 @@ let package = Package(
             name: "PicoMarkdownViewBenchmarks",
             dependencies: ["PicoMarkdownView"],
             exclude: [
-                "benchmark-results.md"
+                "benchmark-results.md",
+                "vega-gallery-results.md"
             ],
             resources: [
                 .process("Benchmarks/sample1.md")

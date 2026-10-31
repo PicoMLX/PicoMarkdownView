@@ -20,6 +20,18 @@ struct PicoHostedMediaView: View {
                                    activity: model.loadingActivity,
                                    isSelected: context.isSelected)
                     .frame(width: width)
+            } else if model.isLoading {
+                Group {
+                    if model.showsLoadingPlaceholder {
+                        PicoHostedLoadingView(activity: model.loadingActivity,
+                                              isSelected: context.isSelected) {
+                            Text(model.loadingAccessibilityLabel ?? "")
+                        }
+                    } else {
+                        Color.clear.accessibilityHidden(true)
+                    }
+                }
+                .frame(width: width, height: PicoHostedMediaModel.loadingHeight)
             }
         }
     }

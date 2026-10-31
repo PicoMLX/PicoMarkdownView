@@ -17,6 +17,7 @@ struct RenderedContentResult {
     var mermaidDiagram: RenderedMermaidDiagram? = nil
     var embeddedBlock: RenderedEmbeddedBlock? = nil
     var svgGraphic: RenderedSVGGraphic? = nil
+    var vegaLiteChart: RenderedVegaLiteChart? = nil
     var openUI: RenderedOpenUIContent? = nil
     var paragraphSpacingAfter: CGFloat? = nil
 }
@@ -34,6 +35,9 @@ actor MarkdownAttributeBuilder {
     private let theme: MarkdownRenderTheme
     private let imageProvider: MarkdownImageProvider?
     private let mermaidProvider: (any MermaidDiagramProvider)?
+#if os(macOS)
+    private let vegaLiteProvider: VegaLiteChartProvider
+#endif
     private var runtimeMermaidMaxWidth: CGFloat?
     private let mermaidPreviewTiming: MermaidPreviewTiming
     private let embeddedBlockRenderers: [PicoEmbeddedBlockRenderer]
@@ -103,6 +107,9 @@ actor MarkdownAttributeBuilder {
         self.theme = theme
         self.imageProvider = imageProvider
         self.mermaidProvider = mermaidProvider
+#if os(macOS)
+        self.vegaLiteProvider = VegaLiteChartProvider(theme: theme)
+#endif
         self.mermaidPreviewTiming = mermaidPreviewTiming
         self.embeddedBlockRenderers = embeddedBlockRenderers
         self.runtimeMermaidMaxWidth = runtimeMermaidMaxWidth.flatMap { $0 > 0 ? $0 : nil }
@@ -299,6 +306,9 @@ actor MarkdownAttributeBuilder {
                                           level: max(1, blockquoteLevel))
         case .fencedCode(let language):
 #if os(macOS)
+            if let chart = await renderVegaLiteFenceIfAvailable(snapshot: snapshot, previousBlockKind: previousBlockKind) {
+                return chart
+            }
             // Interpret only a completed, explicitly opted-in payload. The
             // tokenizer and open-fence streaming continue using native code.
             if !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }),
@@ -878,6 +888,53 @@ actor MarkdownAttributeBuilder {
                              value: firstParagraphStyle,
                              range: firstParagraphRange)
     }
+
+#if os(macOS)
+    private func renderVegaLiteFenceIfAvailable(snapshot: BlockSnapshot,
+                                               previousBlockKind: BlockKind?) async -> RenderedContentResult? {
+        guard !embeddedBlockRenderers.contains(where: { $0.matches(snapshot.kind) }),
+              theme.vegaLiteRenderingEnabled,
+              case let .fencedCode(language) = snapshot.kind, isVegaLiteLanguage(language) else { return nil }
+        let source = snapshot.codeText ?? ""
+        if !snapshot.isClosed {
+            // Append-only source remains in metadata. The native document keeps
+            // one marker instead of highlighting and laying out JSON prefixes.
+            return vegaLiteMarker(snapshot: snapshot, source: source, language: language,
+                                  svg: "", size: .zero, width: effectiveAttachmentMaxWidth(),
+                                  previousBlockKind: previousBlockKind)
+        }
+        guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        while !Task.isCancelled {
+            let width = effectiveAttachmentMaxWidth()
+            let chart = await vegaLiteProvider.render(source: source, targetWidth: width)
+            // A resize can arrive while compilation is suspended. Geometry and
+            // its width cap must belong to the same accepted presentation.
+            guard width == effectiveAttachmentMaxWidth() else { continue }
+            guard !Task.isCancelled, let chart else { return nil }
+            return vegaLiteMarker(snapshot: snapshot, source: source, language: language,
+                                  svg: chart.svg, size: chart.intrinsicSize, width: width,
+                                  previousBlockKind: previousBlockKind)
+        }
+        return nil
+    }
+
+    private func vegaLiteMarker(snapshot: BlockSnapshot, source: String, language: String?,
+                                svg: String, size: CGSize, width: CGFloat?,
+                                previousBlockKind: BlockKind?) -> RenderedContentResult {
+        let result = NSMutableAttributedString(string: "\u{FFFC}\n", attributes: [
+            .font: bodyFont,
+            .paragraphStyle: makeParagraphStyle(collapsedSpacing(for: snapshot.kind,
+                                                                previousKind: previousBlockKind))
+        ])
+        return RenderedContentResult(attributed: .picoConverted(from: result),
+                                     table: nil, listItem: nil, blockquote: nil, math: nil, images: [],
+                                     codeBlock: RenderedCodeBlock(code: source, language: language),
+                                     vegaLiteChart: RenderedVegaLiteChart(source: source, language: language,
+                                                                        svg: svg, intrinsicSize: size, maxWidth: width))
+    }
+
+#endif
 
     private func renderMermaidFenceIfAvailable(snapshot: BlockSnapshot,
                                                previousBlockKind: BlockKind?) async -> RenderedContentResult? {

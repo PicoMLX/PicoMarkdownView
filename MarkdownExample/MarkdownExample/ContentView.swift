@@ -19,20 +19,35 @@ struct MarkdownExample: Identifiable, Hashable {
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
     let htmlPreviewsEnabled: Bool
+    /// Large offline fixtures load asynchronously and omit the extra diagnostic views.
+    let isLargeFixture: Bool
     /// Only the SVG demo opts into rendering SVG fences as native graphics.
     let svgRenderingEnabled: Bool
 
     init(localFilename: String,
          webURL: String,
+         displayName: String? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
          htmlPreviewsEnabled: Bool = false,
+         isLargeFixture: Bool = false,
          svgRenderingEnabled: Bool = false) {
-        self.name = localFilename
-        self.localPath = Bundle.main.path(forResource: localFilename, ofType: "md")!
+        self.name = displayName ?? localFilename
+        self.localPath = (Bundle.main.path(forResource: localFilename, ofType: "md")
+            ?? Bundle.main.path(forResource: localFilename, ofType: "md.deflate"))!
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
         self.htmlPreviewsEnabled = htmlPreviewsEnabled
+        self.isLargeFixture = isLargeFixture
         self.svgRenderingEnabled = svgRenderingEnabled
+    }
+
+    func loadMarkdown() throws -> String {
+        let data = try Data(contentsOf: URL(fileURLWithPath: localPath))
+        if localPath.hasSuffix(".deflate") {
+            let decoded = try (data as NSData).decompressed(using: .zlib) as Data
+            return String(decoding: decoded, as: UTF8.self)
+        }
+        return String(decoding: data, as: UTF8.self)
     }
 
     func hash(into hasher: inout Hasher) {
@@ -41,57 +56,64 @@ struct MarkdownExample: Identifiable, Hashable {
     }
 
     static let examples: [MarkdownExample] = {
-        let examples = [
-            MarkdownExample(
-                localFilename: "Tags",
-                webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Tags.md",
-                tagPrefixes: [.mention, .hashtag, .ticker, .paired(open: "[[", close: "]]")]),
-            MarkdownExample(
-                localFilename: "TEST",
-                webURL: "https://github.com/mxstbr/markdown-test-file/blob/master/TEST.md"),
-            MarkdownExample(
-                localFilename: "markdown-it",
-                webURL: "https://markdown-it.github.io"),
-            MarkdownExample(
-                localFilename: "KaTeX-tests",
-                webURL: "https://github.com/just-the-docs/just-the-docs-tests/blob/main/collections/_components/math/katex/tests.md"),
-            MarkdownExample(
-                localFilename: "KaTeX-streaming",
-                webURL: "https://www.nyan.cat"),
-            MarkdownExample(
-                localFilename: "tables",
-                webURL: "https://github.com/gonzalezreal/swift-markdown-ui/blob/main/Examples/Demo/Demo/TablesView.swift"),
-            MarkdownExample(
-                localFilename: "RemoteImages",
-                webURL: "https://httpbin.org/#/Images"),
-            MarkdownExample(
-                localFilename: "CodeBlocks",
-                webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/CodeBlocks.md"),
-            MarkdownExample(
-                localFilename: "StackEdit",
-                webURL: "https://stackedit.io/app#"),
-            MarkdownExample(
-                localFilename: "Diagrams",
-                webURL: "https://pele.run/examples"),
-            MarkdownExample(
-                localFilename: "SVG",
-                webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
-                svgRenderingEnabled: true),
-            MarkdownExample(
-                localFilename: "OpenUI",
-                webURL: "https://www.openui.com/docs/openui-lang"),
-            MarkdownExample(
-                localFilename: "Blockquotes",
-                webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
+        var examples = [
+        MarkdownExample(
+            localFilename: "Tags",
+            webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/Tags.md",
+            tagPrefixes: [.mention, .hashtag, .ticker, .paired(open: "[[", close: "]]")]),
+        MarkdownExample(
+            localFilename: "TEST",
+            webURL: "https://github.com/mxstbr/markdown-test-file/blob/master/TEST.md"),
+        MarkdownExample(
+            localFilename: "markdown-it",
+            webURL: "https://markdown-it.github.io"),
+        MarkdownExample(
+            localFilename: "KaTeX-tests",
+            webURL: "https://github.com/just-the-docs/just-the-docs-tests/blob/main/collections/_components/math/katex/tests.md"),
+        MarkdownExample(
+            localFilename: "KaTeX-streaming",
+            webURL: "https://www.nyan.cat"),
+        MarkdownExample(
+            localFilename: "tables",
+            webURL: "https://github.com/gonzalezreal/swift-markdown-ui/blob/main/Examples/Demo/Demo/TablesView.swift"),
+        MarkdownExample(
+            localFilename: "RemoteImages",
+            webURL: "https://httpbin.org/#/Images"),
+        MarkdownExample(
+            localFilename: "CodeBlocks",
+            webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/CodeBlocks.md"),
+        MarkdownExample(
+            localFilename: "StackEdit",
+            webURL: "https://stackedit.io/app#"),
+        MarkdownExample(
+            localFilename: "Diagrams",
+            webURL: "https://pele.run/examples"),
+        MarkdownExample(
+            localFilename: "Charts",
+            webURL: "https://vega.github.io/vega-lite/examples/"),
+        MarkdownExample(
+            localFilename: "SVG",
+            webURL: "https://developer.mozilla.org/en-US/docs/Web/SVG/Tutorials/SVG_from_scratch",
+            svgRenderingEnabled: true),
+        MarkdownExample(
+            localFilename: "OpenUI",
+            webURL: "https://www.openui.com/docs/openui-lang"),
+        MarkdownExample(
+            localFilename: "Blockquotes",
+            webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
         ]
-#if os(macOS)
-        return examples + [MarkdownExample(
+        #if os(macOS)
+        let charts = examples.firstIndex { $0.name == "Charts" }!
+        examples.insert(MarkdownExample(localFilename: "Charts-Gallery-Preview",
+                                        webURL: "https://vega.github.io/vega-lite/examples/",
+                                        displayName: "Charts-Gallery",
+                                        isLargeFixture: true), at: charts + 1)
+        examples.append(MarkdownExample(
             localFilename: "HTMLPreviews",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/HTMLPreviews.md",
-            htmlPreviewsEnabled: true)]
-#else
+            htmlPreviewsEnabled: true))
+        #endif
         return examples
-#endif
     }()
 }
 
@@ -116,6 +138,7 @@ struct ContentView: View {
 #if os(macOS)
                     .onImageTap { selectedImage = ExampleImagePresentation(image: $0) }
 #endif
+                    .id(selectedExample.id)
             } else {
                 Text("Select an Example")
             }

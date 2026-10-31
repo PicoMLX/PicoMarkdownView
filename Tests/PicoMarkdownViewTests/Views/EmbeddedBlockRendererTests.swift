@@ -197,6 +197,50 @@ struct EmbeddedBlockRendererTests {
         #expect(recorder.contexts.count == 1)
     }
 
+    @Test("An explicit chart registration owns open source, accepted content and declined fallback", arguments: [false, true])
+    func explicitChartRegistrationWins(accepts: Bool) async throws {
+        let recorder = Recorder()
+        let renderer = PicoEmbeddedBlockRenderer(selectors: [.fencedCode(language: "vega-lite")]) { context in
+            recorder.contexts.append(context)
+            return accepts ? AnyView(Text("Custom chart presentation").frame(height: 80)) : nil
+        }
+        let source = VegaLiteRenderingFixture.source
+        let pipeline = MarkdownStreamingPipeline(theme: .default().withVegaLiteRendering(true), embeddedBlockRenderers: [renderer])
+        let open = try #require(await pipeline.feed("```vega-lite\n" + source))
+        let openBlock = try #require(open.blocks.first { $0.codeBlock?.language == "vega-lite" })
+        #expect(openBlock.embeddedBlock == nil)
+        #expect(openBlock.vegaLiteChart == nil)
+        #expect(String(openBlock.content.characters).contains(source))
+        #expect(recorder.contexts.isEmpty)
+        let backend = TextKitStreamingBackend()
+        _ = backend.apply(blocks: open.blocks, diffs: [open.diff], selection: .init(location: 0, length: 0))
+        #expect(backend.hostedAttachment(for: openBlock.id) == nil)
+        #expect(backend.hostedVectorModel(for: openBlock.id) == nil)
+        #expect(backend.snapshotAttributedString().string.contains(source))
+
+        let closed = try #require(await pipeline.feed("```\n\n"))
+        let block = try #require(closed.blocks.first { $0.id == openBlock.id })
+        #expect(block.embeddedBlock != nil)
+        #expect(block.vegaLiteChart == nil, "The built-in chart compiler must not consume a registered fence")
+        #expect(String(block.content.characters).contains(source))
+        _ = backend.apply(blocks: closed.blocks, diffs: [closed.diff], selection: .init(location: 0, length: 0))
+        #expect(recorder.contexts.count == 1)
+        #expect(backend.hostedVectorModel(for: block.id) == nil)
+        let attributed = backend.snapshotAttributedString()
+        if accepts {
+            let attachment = try #require(backend.hostedAttachment(for: block.id))
+            #expect(attachment.markdownRepresentation() == "```vega-lite\n" + source + "```")
+            #expect(!attributed.string.contains(source))
+        } else {
+            #expect(backend.hostedAttachment(for: block.id) == nil)
+            #expect(attributed.string.contains(source))
+            #expect(!attributed.string.contains("\u{FFFC}"))
+            #expect(backend.codeBlockForCopy(id: block.id)?.code == source)
+        }
+        _ = backend.apply(blocks: closed.blocks, selection: .init(location: 0, length: 0))
+        #expect(recorder.contexts.count == 1)
+    }
+
     @Test("A registered Mermaid fence stays native while open and when its factory declines")
     func declinedMermaidSkipsBuiltInInterpretation() async throws {
         let recorder = Recorder()

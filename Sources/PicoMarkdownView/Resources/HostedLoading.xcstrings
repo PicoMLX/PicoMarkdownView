@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Chart incomplete" : {
+      "comment" : "Status when a chart stream stops before completion.",
+      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Chart incomplete" } } }
+    },
+    "Chart paused" : {
+      "comment" : "Status when displaying new chart source is paused.",
+      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Chart paused" } } }
+    },
+    "Receiving chart…" : {
+      "comment" : "Status while a chart's source is still arriving, before compilation begins.",
+      "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Receiving chart…" } } }
+    }
+  },
+  "version" : "1.0"
+}
