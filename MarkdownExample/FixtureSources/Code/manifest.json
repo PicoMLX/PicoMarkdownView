@@ -14,7 +14,8 @@
       "source_lines": [
         1,
         4
-      ]
+      ],
+      "container": "blockquote"
     },
     {
       "title": "Python",
@@ -26,7 +27,8 @@
       "source_lines": [
         1,
         3
-      ]
+      ],
+      "container": "list"
     },
     {
       "title": "TypeScript",
@@ -52,5 +54,11 @@
         null
       ]
     }
+  ],
+  "authored_examples": "authored-examples.json",
+  "adaptations": [
+    "Select source snippets before Prism token expectations; retain the pinned four snippets as a compact reference section.",
+    "Wrap the Swift reference fence in a blockquote and the Python reference fence in a list item to exercise nested code composition. Practical examples in authored-examples.json are PicoMarkdownView additions.",
+    "Expand tabs to four spaces in the list-nested Python reference fence; the vendored source input is unchanged."
   ]
 }

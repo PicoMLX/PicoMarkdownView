@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the compact Markdown showcase from pinned, offline spec examples."""
+"""Generate a realistic Markdown showcase plus pinned, offline spec examples."""
 
 import argparse
 import hashlib
@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ROOT / "MarkdownExample/FixtureSources/Markdown"
 OUTPUT = ROOT / "MarkdownExample/MarkdownExample/markdown files/Markdown.md"
 MANIFEST = SOURCES / "manifest.json"
+AUTHORED = SOURCES / "authored-showcase.md"
 COMMONMARK = ROOT / "Conformance/Fixtures/commonmark-spec-0.31.2.json"
 EXTENSIONS = SOURCES / "cmark-gfm-extensions-0.29.0.gfm.13.txt"
 COMMONMARK_SHA = "e626f48c945674ee1f6da2b0675f9d60d6f14930a4cf15d849a4a094297b165b"
@@ -23,17 +24,15 @@ GFM_URL = f"https://github.com/github/cmark-gfm/blob/{GFM_COMMIT}/test/extension
 # reference labels. Blank lines and section headings separate their contexts.
 # Arbitrary conformance cases must not be concatenated this way.
 CM_SECTIONS = [
-    ("Headings", [62]),
-    ("Emphasis", [350, 378, 410]),
+    ("Emphasis", [410]),
     ("Inline code", [329]),
-    ("Lists", [326]),
-    ("Ordered lists", [302]),
-    ("Blockquotes", [228, 251]),
+    ("Nested lists", [326]),
+    ("Blockquotes", [244]),
     ("Links", [501]),
-    ("Horizontal rule", [51]),
+    ("Thematic rule", [51]),
 ]
 GFM_SECTIONS = [
-    ("Tables", [1, 6]),
+    ("Tables", [6]),
     ("Strikethrough", [17]),
     ("Task lists", [28]),
     ("Footnotes", [24]),
@@ -56,14 +55,17 @@ def generate():
     if len(extension_cases) != 30:
         raise SystemExit("Unexpected cmark-gfm extensions corpus structure")
 
+    authored = AUTHORED.read_text()
     parts = [
-        "# Markdown",
-        "A compact selection from CommonMark 0.31.2 and the cmark-gfm extension tests. "
-        "Explore text formatting here; dedicated examples cover code, math, and rich content.",
+        authored.rstrip("\n"),
+        "## Specification examples",
+        "These small cases come from CommonMark 0.31.2 and the cmark-gfm extension tests. "
+        "Their original placeholder text is retained so the source cases remain recognizable; "
+        "the release report above is an authored composition.",
     ]
     records = []
     for heading, numbers in CM_SECTIONS:
-        parts.append(f"## {heading}")
+        parts.append(f"### {heading}")
         for number in numbers:
             case = commonmark[number]
             parts.append(case["markdown"].rstrip("\n"))
@@ -76,7 +78,7 @@ def generate():
                 "changes": [],
             })
     for heading, numbers in GFM_SECTIONS:
-        parts.append(f"## {heading}")
+        parts.append(f"### {heading}")
         for number in numbers:
             match = extension_cases[number - 1]
             markdown = match.group(2)
@@ -110,13 +112,23 @@ def generate():
         "## Sources",
         f"Selected examples by John MacFarlane ([CommonMark 0.31.2]({CM_URL})) and "
         f"Yuki Izumi and contributors ([cmark-gfm 0.29.0.gfm.13]({GFM_URL})). "
-        "Selection, section headings, and table/strikethrough syntax adaptations by PicoMarkdownView contributors. "
+        "The fictional Harbor Notes report, selection, section headings, and table/strikethrough "
+        "syntax adaptations are by PicoMarkdownView contributors. "
         "This example is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).",
     ])
     markdown = "\n\n".join(parts) + "\n"
     manifest = {
         "output": str(OUTPUT.relative_to(ROOT)),
         "license": "CC-BY-SA-4.0",
+        "authoredCompositions": [{
+            "title": "Harbor Notes: release review",
+            "input": str(AUTHORED.relative_to(ROOT)),
+            "author": "PicoMarkdownView contributors",
+            "license": "CC-BY-SA-4.0",
+            "sha256": hashlib.sha256(authored.encode()).hexdigest(),
+            "purpose": "Fictional project report combining paragraphs, mixed inline styles, nested lists, tables, blockquotes, inline links and footnotes.",
+            "fictionalData": True,
+        }],
         "commonmark": {
             "version": "0.31.2", "url": CM_URL,
             "input": str(COMMONMARK.relative_to(ROOT)), "sha256": COMMONMARK_SHA,

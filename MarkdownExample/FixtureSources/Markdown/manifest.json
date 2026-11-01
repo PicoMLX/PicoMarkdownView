@@ -1,6 +1,17 @@
 {
   "output": "MarkdownExample/MarkdownExample/markdown files/Markdown.md",
   "license": "CC-BY-SA-4.0",
+  "authoredCompositions": [
+    {
+      "title": "Harbor Notes: release review",
+      "input": "MarkdownExample/FixtureSources/Markdown/authored-showcase.md",
+      "author": "PicoMarkdownView contributors",
+      "license": "CC-BY-SA-4.0",
+      "sha256": "5f7f150fb6e67f525527eb8fe62562222b5ef7cce795d2f178a60fb1309adfe6",
+      "purpose": "Fictional project report combining paragraphs, mixed inline styles, nested lists, tables, blockquotes, inline links and footnotes.",
+      "fictionalData": true
+    }
+  ],
   "commonmark": {
     "version": "0.31.2",
     "url": "https://spec.commonmark.org/0.31.2/",
@@ -15,30 +26,6 @@
     "sha256": "a2a45e98be9fca95f564f927265a0f63beea6cae5369d1cf4bde44caa51b2a3a"
   },
   "cases": [
-    {
-      "section": "Headings",
-      "source": "commonmark",
-      "case": 62,
-      "sourceSection": "ATX headings",
-      "url": "https://spec.commonmark.org/0.31.2/#example-62",
-      "changes": []
-    },
-    {
-      "section": "Emphasis",
-      "source": "commonmark",
-      "case": 350,
-      "sourceSection": "Emphasis and strong emphasis",
-      "url": "https://spec.commonmark.org/0.31.2/#example-350",
-      "changes": []
-    },
-    {
-      "section": "Emphasis",
-      "source": "commonmark",
-      "case": 378,
-      "sourceSection": "Emphasis and strong emphasis",
-      "url": "https://spec.commonmark.org/0.31.2/#example-378",
-      "changes": []
-    },
     {
       "section": "Emphasis",
       "source": "commonmark",
@@ -56,7 +43,7 @@
       "changes": []
     },
     {
-      "section": "Lists",
+      "section": "Nested lists",
       "source": "commonmark",
       "case": 326,
       "sourceSection": "Lists",
@@ -64,27 +51,11 @@
       "changes": []
     },
     {
-      "section": "Ordered lists",
-      "source": "commonmark",
-      "case": 302,
-      "sourceSection": "Lists",
-      "url": "https://spec.commonmark.org/0.31.2/#example-302",
-      "changes": []
-    },
-    {
       "section": "Blockquotes",
       "source": "commonmark",
-      "case": 228,
+      "case": 244,
       "sourceSection": "Block quotes",
-      "url": "https://spec.commonmark.org/0.31.2/#example-228",
-      "changes": []
-    },
-    {
-      "section": "Blockquotes",
-      "source": "commonmark",
-      "case": 251,
-      "sourceSection": "Block quotes",
-      "url": "https://spec.commonmark.org/0.31.2/#example-251",
+      "url": "https://spec.commonmark.org/0.31.2/#example-244",
       "changes": []
     },
     {
@@ -96,19 +67,11 @@
       "changes": []
     },
     {
-      "section": "Horizontal rule",
+      "section": "Thematic rule",
       "source": "commonmark",
       "case": 51,
       "sourceSection": "Thematic breaks",
       "url": "https://spec.commonmark.org/0.31.2/#example-51",
-      "changes": []
-    },
-    {
-      "section": "Tables",
-      "source": "cmark-gfm",
-      "case": 1,
-      "sourceLine": 13,
-      "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt#L13",
       "changes": []
     },
     {
@@ -149,5 +112,5 @@
       "changes": []
     }
   ],
-  "outputSHA256": "02ffb7ff453317162ba09585e3a71a4462a73a31a39dc28db514ce68143b79e6"
+  "outputSHA256": "5e83edb8dd89134722c188d27ee88c9f59f7a2afa5e6e84a2cb9ca7a409bdb68"
 }

@@ -20,7 +20,7 @@ struct ExamplePage: Identifiable, Hashable {
         ]),
         ExamplePage(name: "Images & SVG", examples: [
             MarkdownExample("Images", reference: "https://github.com/pnggroup/libpng/tree/v1.6.51/contrib/pngsuite",
-                            usesBundledImages: true),
+                            svgRenderingEnabled: true, usesBundledImages: true),
             MarkdownExample("SVG", reference: "https://www.w3.org/Graphics/SVG/", svgRenderingEnabled: true),
             MarkdownExample("RemoteImages", name: "Network Images", reference: "https://httpbin.org/#/Images")
         ]),

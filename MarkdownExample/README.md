@@ -5,13 +5,13 @@ or iOS Simulator. The sidebar has nine feature destinations:
 
 | Destination | Samples |
 | --- | --- |
-| Markdown | Selected CommonMark/GFM cases; nested-block regression example |
-| Code | Selected Prism 1.29.0 language tests |
-| Math | Selected SwiftMath 1.7.3 expressions |
-| Images & SVG | Offline PngSuite images; native SVG; explicit network image test |
-| Charts | Compact inline-data examples; full offline gallery on macOS |
-| Diagrams | Four published Pele examples; full published gallery |
-| OpenUI | Interactive components; optional HTML previews on macOS |
+| Markdown | Composed release review and pinned CommonMark/GFM cases; nested-block regression example |
+| Code | Seven practical language examples and pinned Prism 1.29.0 tests |
+| Math | Twenty SwiftMath 1.7.3 expressions with prose, tables and lists |
+| Images & SVG | Combined offline PngSuite/SVG showcase; focused SVG and network image samples |
+| Charts | Eleven inline-data chart placements and data tables; full offline gallery on macOS |
+| Diagrams | Twelve published Pele examples; full published gallery |
+| OpenUI | Forms, calendar and summary cards; optional HTML previews on macOS |
 | Tags & Mentions | Tag syntax, callbacks, and fictional user/bot profile previews |
 | Link Context Menus | Inert file/web mock menus on macOS |
 
@@ -34,12 +34,13 @@ fallbacks. Profile previews can also be opened with keyboard or touch.
 
 ## Fixture sources
 
-Small upstream selections are pinned, attributed, and regenerated offline:
+Authored compositions and upstream selections are pinned, attributed, and regenerated offline:
 
 ```sh
 python3 Scripts/export-markdown-example.py --check
 python3 Scripts/export-code-math-examples.py --check
 python3 Scripts/export-media-examples.py --check
+python3 Scripts/export-chart-examples.py --check
 ```
 
 These checks also run in CI. Run them from the repository root. Omit `--check` to regenerate the curated

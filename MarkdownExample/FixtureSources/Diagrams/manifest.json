@@ -7,21 +7,65 @@
   "selection": [
     {
       "section": "Flowchart",
-      "example": 2
+      "example": 2,
+      "sourceSHA256": "80b86f15a9c2e222a8366525c34dafb71e4ed8f6cdb146c66a55c3981a79d62b"
     },
     {
       "section": "Sequence",
-      "example": 1
+      "example": 1,
+      "sourceSHA256": "d3a60a7a57394be905c10ef180d1de456f29370583b7cc61a6e102556dfc9e2f"
     },
     {
       "section": "Class",
-      "example": 1
+      "example": 1,
+      "sourceSHA256": "be113905a27fe612280d190b8bf317efc58ba9f00675e0acee67cd42ed46cb0f"
+    },
+    {
+      "section": "Entity relationship",
+      "example": 2,
+      "sourceSHA256": "fc39dc2a89974e1c79f1c7755f86d9d90d000863a46aed5350dde202da4b7fde"
     },
     {
       "section": "State",
-      "example": 1
+      "example": 1,
+      "sourceSHA256": "9921022022234a8bff70a7f75782e71c99b48760d5e8e50d13e97439eaadbbbd"
+    },
+    {
+      "section": "Gantt",
+      "example": 2,
+      "sourceSHA256": "caed15f5cf495e6437ceac69632d051af954f4b22f542e84a303b4c8773e8199"
+    },
+    {
+      "section": "Git graph",
+      "example": 1,
+      "sourceSHA256": "1e4751fdc7cf19be97f4622875db54c290f904ec07ba68e4f0b12bd88c6d8fa7"
+    },
+    {
+      "section": "Mindmap",
+      "example": 1,
+      "sourceSHA256": "c7e65154315ddffe4bf952129b710b55e5884be2fc765f3e8cecfb210b671c3d"
+    },
+    {
+      "section": "Timeline",
+      "example": 1,
+      "sourceSHA256": "66c69b29e13b8450709fdc633255689f80e056d6db2ef0e144e187a9d64d2c2d"
+    },
+    {
+      "section": "User journey",
+      "example": 1,
+      "sourceSHA256": "e978837ae6de4a8b5c7831489dc68a9f8fe20d5d9b7514016207af832f687bdd"
+    },
+    {
+      "section": "Sankey",
+      "example": 1,
+      "sourceSHA256": "b2407cbd8da61671bd67cb8b0869365740669673d52605e9ba2444ec6a7595c8"
+    },
+    {
+      "section": "Radar",
+      "example": 1,
+      "sourceSHA256": "39b48990c83837bf53d286d8c38928f35bf4864f902b2acbc90350f4177d99c0"
     }
   ],
-  "adaptations": "Mermaid fence bodies unchanged; page title, introduction and section order adapted for a short showcase.",
+  "adaptations": "Twelve Mermaid fence bodies unchanged; page title, explanations and section order adapted for the feature showcase.",
   "licenseSource": "https://raw.githubusercontent.com/obsidianmd/pele/3a2f075ee0c3d914f0fad3545fc0f193693975ac/LICENSE"
 }

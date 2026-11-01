@@ -8,30 +8,108 @@
   "examples": [
     {
       "title": "Square of sums",
-      "presentation": "inline"
+      "presentation": "inline_parentheses",
+      "description": "An inline expression stays in the surrounding paragraph while keeping its own subscripts and superscripts."
     },
     {
       "title": "Quadratic Formula",
-      "presentation": "display"
+      "presentation": "display_dollar",
+      "description": "A displayed fraction gives the numerator, square root, and denominator room to align."
     },
     {
       "title": "Standard Deviation",
-      "presentation": "display"
+      "presentation": "display_parentheses",
+      "description": "Nested fractions, a summation, and a radical combine in one expression."
+    },
+    {
+      "title": "De Morgan's laws",
+      "presentation": "inline_dollar",
+      "description": "Logical operators can appear inline alongside ordinary explanatory text."
+    },
+    {
+      "title": "Log Change of Base",
+      "presentation": "inline_dollar",
+      "description": "An inline fraction is useful when discussing a short identity within a sentence."
+    },
+    {
+      "title": "Cosine addition",
+      "presentation": "display_dollar",
+      "description": "Greek letters, function names, and parentheses share one baseline."
+    },
+    {
+      "title": "Limit e^k",
+      "presentation": "display_parentheses",
+      "description": "A limit annotation sits below the operator in display style, with automatically sized delimiters."
+    },
+    {
+      "title": "Calculus",
+      "presentation": "display_dollar",
+      "description": "An integral combines infinite bounds, an accented function, a complex exponential, and upright differential notation."
+    },
+    {
+      "title": "Stirling Numbers of the Second Kind",
+      "presentation": "display_parentheses",
+      "description": "A combinatorial identity mixes a brace construction, a factorial, a sum, and a binomial coefficient."
     },
     {
       "title": "Gaussian Integral",
-      "presentation": "display"
+      "presentation": "display_dollar",
+      "description": "Spacing commands keep the integral and its exponential integrand readable."
+    },
+    {
+      "title": "Arithmetic mean, geometric mean inequality",
+      "presentation": "display_parentheses",
+      "description": "An indexed root and a product compare two different kinds of mean."
+    },
+    {
+      "title": "Cauchy-Schwarz inequality",
+      "presentation": "display_dollar",
+      "description": "Large parentheses contain sums on both sides of an inequality."
+    },
+    {
+      "title": "Cauchy integral formula",
+      "presentation": "display_parentheses",
+      "description": "A contour integral uses a closed integral sign, subscripts, derivatives, and a complex denominator."
+    },
+    {
+      "title": "Schroedinger's Equation",
+      "presentation": "display_dollar",
+      "description": "The time-dependent wave equation combines differential operators, vector notation, and a potential term."
+    },
+    {
+      "title": "Lorentz Equations",
+      "presentation": "display_parentheses",
+      "description": "A gathered environment centers a short system of equations on separate lines."
+    },
+    {
+      "title": "Cross product",
+      "presentation": "display_dollar",
+      "description": "A determinant lays out unit vectors and partial derivatives in aligned columns."
+    },
+    {
+      "title": "Maxwell's Equations",
+      "presentation": "display_parentheses",
+      "description": "An aligned environment lines up a system of vector equations at their equals signs."
     },
     {
       "title": "Matrix multiplication",
-      "presentation": "display"
+      "presentation": "display_dollar",
+      "description": "Multiple parenthesized matrices show both layout and multiplication in a single display."
     },
     {
       "title": "Cases",
-      "presentation": "display"
+      "presentation": "display_parentheses",
+      "description": "A cases environment groups a piecewise definition behind one brace."
+    },
+    {
+      "title": "Splitting long equations",
+      "presentation": "display_dollar",
+      "description": "An explicit line break and indentation continue an expression across lines."
     }
   ],
   "adaptations": [
-    "Trim trailing whitespace on TeX lines; wrap in Markdown math delimiters; omit reference images."
+    "Trim trailing whitespace on TeX lines; wrap in Markdown inline/display delimiters; omit upstream reference images.",
+    "Remove a stray double quote after + xy in the upstream Lorentz Equations sample. The vendored input remains unchanged.",
+    "Page introductions, mathematical prose, notation table, list and quote are authored PicoMarkdownView additions; all named equation bodies are extracted from the pinned SwiftMath EXAMPLES.md."
   ]
 }

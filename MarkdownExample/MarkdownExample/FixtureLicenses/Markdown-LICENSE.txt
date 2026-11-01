@@ -1,7 +1,11 @@
 Markdown example fixture
 ========================
 
-The generated Markdown.md example contains selected examples from:
+The generated Markdown.md example contains an original fictional Harbor Notes
+release review by PicoMarkdownView contributors, licensed under CC BY-SA 4.0.
+Its project names, counts and timings were composed for the example and are not
+performance measurements. A separate Specification examples section contains
+selected examples from:
 
 1. CommonMark Spec 0.31.2 by John MacFarlane.
    https://spec.commonmark.org/0.31.2/
@@ -17,8 +21,9 @@ https://creativecommons.org/licenses/by-sa/4.0/
 https://creativecommons.org/licenses/by-sa/4.0/legalcode
 
 The generated Markdown.md adaptation is distributed under that same license.
-Changes by PicoMarkdownView contributors: selected self-contained examples,
-added introductory text and section headings, changed single-tilde strikethrough
+Changes by PicoMarkdownView contributors: composed the fictional release review,
+selected self-contained specification examples, added introductory text and
+section headings, changed single-tilde strikethrough
 to double tildes, expanded the aligned table's delimiter cells to at least
 three hyphens each, and added leading and trailing pipes to its three rows.
 Cell text and alignment are unchanged. These adaptations match the renderer’s

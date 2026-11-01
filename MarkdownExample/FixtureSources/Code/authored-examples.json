@@ -1,0 +1,48 @@
+{
+  "author": "PicoMarkdownView contributors",
+  "description": "Practical showcase examples authored for this app; separate from the pinned upstream Prism grammar cases.",
+  "examples": [
+    {
+      "title": "Swift: decode and transform structured data",
+      "language": "swift",
+      "description": "Decode a small payload, filter its values, and format the results. The same document can contain code, explanatory prose, and selectable output.",
+      "source": "import Foundation\n\nstruct Reading: Decodable {\n    let station: String\n    let celsius: Double\n}\n\nlet payload = #\"\"\"\n[\n  {\"station\": \"Harbor\", \"celsius\": 18.4},\n  {\"station\": \"Hilltop\", \"celsius\": 21.0},\n  {\"station\": \"Forest\", \"celsius\": 16.8}\n]\n\"\"\"#\nlet readings = try JSONDecoder().decode([Reading].self, from: Data(payload.utf8))\nlet warmest = readings.filter { $0.celsius >= 18 }.sorted { $0.celsius > $1.celsius }\n\nfor reading in warmest {\n    print(\"\\(reading.station): \\(reading.celsius) °C\")\n}"
+    },
+    {
+      "title": "Python: summarize a data pipeline",
+      "language": "python",
+      "description": "Group readings by station, discard missing values, and calculate a rounded average with the standard library.",
+      "source": "from collections import defaultdict\nfrom statistics import mean\n\nrows = [(\"Harbor\", 18.4), (\"Hilltop\", 21.0), (\"Harbor\", 19.2),\n        (\"Forest\", None), (\"Hilltop\", 20.6)]\n\ndef summarize(readings):\n    groups = defaultdict(list)\n    for station, temperature in readings:\n        if temperature is not None:\n            groups[station].append(temperature)\n    return {station: round(mean(values), 1)\n            for station, values in sorted(groups.items())}\n\nfor station, average in summarize(rows).items():\n    print(f\"{station:8} {average:4.1f} °C\")"
+    },
+    {
+      "title": "TypeScript: reusable generic grouping",
+      "language": "typescript",
+      "description": "Keep the item type and key type while grouping structured records into a map.",
+      "source": "type Reading = { station: string; celsius: number };\n\nfunction groupBy<T, K>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {\n  const groups = new Map<K, T[]>();\n  for (const item of items) {\n    const bucket = groups.get(key(item)) ?? [];\n    bucket.push(item);\n    groups.set(key(item), bucket);\n  }\n  return groups;\n}\n\nconst readings: Reading[] = [\n  { station: \"Harbor\", celsius: 18.4 },\n  { station: \"Hilltop\", celsius: 21.0 },\n  { station: \"Harbor\", celsius: 19.2 },\n];\nfor (const [station, values] of groupBy(readings, item => item.station)) {\n  console.log(`${station}: ${values.length} readings`);\n}"
+    },
+    {
+      "title": "Rust: handle valid and invalid input",
+      "language": "rust",
+      "description": "A Result carries either the converted temperature or the original parse error; a match handles both outcomes.",
+      "source": "use std::num::ParseFloatError;\n\nfn fahrenheit(input: &str) -> Result<f64, ParseFloatError> {\n    let celsius: f64 = input.trim().parse()?;\n    Ok(celsius * 9.0 / 5.0 + 32.0)\n}\n\nfn main() {\n    for input in [\"18.4\", \"21.0\", \"offline\"] {\n        match fahrenheit(input) {\n            Ok(value) => println!(\"{input} °C = {value:.1} °F\"),\n            Err(error) => eprintln!(\"Cannot convert {input:?}: {error}\"),\n        }\n    }\n}"
+    },
+    {
+      "title": "JSON: a nested configuration",
+      "language": "json",
+      "description": "Strings, numbers, arrays, booleans, and null values share one highlighted block.",
+      "source": "{\n  \"workspace\": \"Field Notes\",\n  \"refreshSeconds\": 30,\n  \"units\": { \"temperature\": \"celsius\", \"distance\": \"meters\" },\n  \"stations\": [\n    { \"id\": \"harbor\", \"enabled\": true, \"tags\": [\"coastal\", \"outdoor\"] },\n    { \"id\": \"hilltop\", \"enabled\": true, \"tags\": [\"outdoor\"] }\n  ],\n  \"alert\": { \"above\": 28.5, \"notify\": [\"dashboard\", \"email\"] },\n  \"lastSync\": null\n}"
+    },
+    {
+      "title": "SQL: aggregate the same readings",
+      "language": "sql",
+      "description": "Create a small in-memory dataset, then group and filter it with a common table expression.",
+      "source": "CREATE TABLE readings (station TEXT, celsius REAL);\nINSERT INTO readings VALUES\n  ('Harbor', 18.4), ('Harbor', 19.2),\n  ('Hilltop', 21.0), ('Hilltop', 20.6);\n\nWITH summary AS (\n  SELECT station, COUNT(*) AS samples, ROUND(AVG(celsius), 1) AS average\n  FROM readings\n  GROUP BY station\n)\nSELECT station, samples, average\nFROM summary WHERE average >= 19\nORDER BY average DESC;"
+    },
+    {
+      "title": "Shell: write and summarize a local file",
+      "language": "bash",
+      "description": "A temporary file keeps this example self-contained. Quoted variables and a cleanup trap make the flow easy to follow.",
+      "source": "#!/usr/bin/env bash\nset -euo pipefail\nworkspace=\"$(mktemp -d)\"\ntrap 'rm -rf \"$workspace\"' EXIT\ncat > \"$workspace/readings.csv\" <<'CSV'\nstation,celsius\nHarbor,18.4\nHilltop,21.0\nForest,16.8\nCSV\n\nawk -F, 'NR > 1 { printf \"%-8s %4.1f °C\\n\", $1, $2 }' \"$workspace/readings.csv\""
+    }
+  ]
+}
