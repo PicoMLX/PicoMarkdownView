@@ -1,9 +1,39 @@
-# Inline Tags
+# Tags & Mentions
 
 PicoMarkdownView recognises lightweight inline tags so a host app can attach
 custom interactions without forking the parser. Tap any tag below — the panel
 above the text shows the last tag you tapped, and on macOS hovering a tag or
 link updates the **hover** readout.
+
+## Profile previews
+
+Hover over @[Maya Chen](maya) or @[Pico Bot](pico-bot) to see a profile preview.
+Click a mention to keep it open, or activate it with a keyboard or touch.
+These are fictional demo profiles. Close or Escape dismisses the card.
+
+## A project conversation
+
+@[Maya Chen](maya) is reviewing the #navigation changes for [[Harbor Notes]].
+The next step is to ask @[Pico Bot](pico-bot) for a summary of [[Release Checklist]].
+These named mentions use stable identifiers even though their visible names contain spaces.
+
+> @[Maya Chen](maya): The reading layout is ready. Please keep the #accessibility checks beside the design notes.
+>
+> @[Pico Bot](pico-bot): I can help summarize the open items. Start with [[Release Checklist]] and the #review topic.
+
+### Owners and follow-up
+
+| Work item | Owner | Topic |
+| --- | --- | --- |
+| Reading layout | @[Maya Chen](maya) | #navigation |
+| Release summary | @[Pico Bot](pico-bot) | #review |
+| Final checks | **@[Maya Chen](maya)** | #accessibility |
+
+- [ ] Ask @[Maya Chen](maya) to review the #layout notes.
+- [x] Link the discussion to [[Release Checklist]].
+- [ ] Ask @[Pico Bot](pico-bot) for a short #summary.
+
+Try the profiles in ordinary text, inside the quote, and in the table. Other tags below exercise the callback readout without opening a profile card.
 
 ## Mentions (`@`)
 
@@ -50,7 +80,7 @@ left-boundary rule, so glued text like see[[Home Page]] still matches.
 
 ## Tickers (`$`) — opt-in (collides with math)
 
-`$` is **off by default** because it collides with TeX/KaTeX inline math
+`$` is **off by default** because it collides with TeX inline math
 (`$x = mc^2$`). This document enables it, so $AAPL and $MSFT route as tickers.
 Keep it disabled in documents that contain math.
 

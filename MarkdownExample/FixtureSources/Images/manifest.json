@@ -1,0 +1,58 @@
+{
+  "upstream": "https://github.com/pnggroup/libpng",
+  "release": "v1.6.51",
+  "revision": "49363adcfaf098748d7a4c8c624ad8c45a8c3a86",
+  "license": "PngSuite permissive image permission",
+  "licenseSource": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/README",
+  "files": [
+    {
+      "filename": "basn2c08.png",
+      "description": "8-bit RGB",
+      "width": 32,
+      "height": 32,
+      "sha256": "ecea1ef4a001a999ce9b82d18abf47401eb92998708b306b6c9a8ac3a6a9a2c8",
+      "sourceURL": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/basn2c08.png"
+    },
+    {
+      "filename": "basn3p08.png",
+      "description": "8-bit palette",
+      "width": 32,
+      "height": 32,
+      "sha256": "eca1db90338a8481e4d3f2469befa06d7564534e9323b6a8040ed0cdd281d952",
+      "sourceURL": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/basn3p08.png"
+    },
+    {
+      "filename": "basn6a08.png",
+      "description": "8-bit RGBA",
+      "width": 32,
+      "height": 32,
+      "sha256": "756a03364c02e3c9f85d6f4029eb3cef2488c081dc537d46e102bebcb9e02732",
+      "sourceURL": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/basn6a08.png"
+    }
+  ],
+  "svg": {
+    "upstream": "PicoMarkdownView project-authored SVG examples (not an external SVG conformance suite)",
+    "sourceCorpus": "MarkdownExample/MarkdownExample/markdown files/SVG.md",
+    "sourceCorpusCommit": "ef367257e543713f60ead6b8f9722e8a7dff7d43",
+    "sourceCorpusSHA256": "c334d4b69ce4e79dd128a340e5ff9e44c0d1fae6fe03ca9d7febb668b2f28be4",
+    "license": "MIT (PicoMarkdownView LICENSE)",
+    "adaptations": "Three SVG fences retained verbatim, including the wave fence blockquote prefix. Surrounding prose and page composition adapted; no SVG geometry modified.",
+    "selection": [
+      {
+        "section": "CSS and a color gradient",
+        "example": 1,
+        "sourceSHA256": "1e39dcc94470951340a35e3f12f6ca7aa09c0cebbe3657ae67ff826dc2aaa56b"
+      },
+      {
+        "section": "Clipping and internal references",
+        "example": 1,
+        "sourceSHA256": "152b29287ba35a08a8aaeb975b93a82e9d106d8b3def1613d1c8d8fce2aba670"
+      },
+      {
+        "section": "A gradient mask inside a quote",
+        "example": 1,
+        "sourceSHA256": "47fd2c25f404c5c252a04f288822d19b5c5098b10bbcf8d36c46339e69496134"
+      }
+    ]
+  }
+}
