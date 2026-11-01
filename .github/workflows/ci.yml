@@ -17,6 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify curated example fixtures
+        run: |
+          python3 Scripts/export-markdown-example.py --check
+          python3 Scripts/export-code-math-examples.py --check
+          python3 Scripts/export-media-examples.py --check
+
       # Hosted attachments require the macOS 27 runtime and Xcode 27 SDK.
       - name: Select latest Xcode 27
         run: |

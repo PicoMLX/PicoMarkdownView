@@ -42,7 +42,7 @@ python3 Scripts/export-code-math-examples.py --check
 python3 Scripts/export-media-examples.py --check
 ```
 
-Run these from the repository root. Omit `--check` to regenerate the curated
+These checks also run in CI. Run them from the repository root. Omit `--check` to regenerate the curated
 Markdown files and notices. `FixtureSources/` records immutable revisions,
 original inputs, selection IDs, hashes, and adaptations. The app ships the
 corresponding notices in `MarkdownExample/FixtureLicenses/`.
