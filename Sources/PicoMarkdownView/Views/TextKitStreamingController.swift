@@ -331,6 +331,8 @@ final class TextKitStreamingBackend {
     private var hostedStreamActive = true
     private var hostedOpenUIs: [BlockID: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
+    private var pendingHostedLayoutIDs: Set<BlockID> = []
+    private var hostedLayoutScheduled = false
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -399,6 +401,7 @@ final class TextKitStreamingBackend {
 
     func apply(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
 #if canImport(AppKit)
+        defer { scheduleHostedLayout() }
         if let contentStorage {
             var result = selection
             contentStorage.performEditingTransaction {
@@ -410,6 +413,26 @@ final class TextKitStreamingBackend {
         return applyToStorage(blocks: blocks, diffs: diffs, selection: selection)
     }
 
+#if canImport(AppKit)
+    private func scheduleHostedLayout() {
+        guard !pendingHostedLayoutIDs.isEmpty, !hostedLayoutScheduled else { return }
+        hostedLayoutScheduled = true
+        Task { @MainActor [weak self] in
+            // Invalidation inside updateNSView can be absorbed by its current
+            // layout pass. Publish changed attachments after that update ends.
+            await Task.yield()
+            guard let self else { return }
+            self.hostedLayoutScheduled = false
+            let ids = self.pendingHostedLayoutIDs
+            self.pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
+            for id in ids {
+                guard let index = self.indexByID[id] else { continue }
+                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+            }
+        }
+    }
+#endif
+
     private func applyToStorage(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
         if isPaused {
             deferred = DeferredUpdate(blocks: blocks, diffs: diffs)
@@ -418,6 +441,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         let selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
         if shouldResetDocument {
+            pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
             documentGeneration &+= 1
             onDocumentReset?()
             shouldResetDocument = false
@@ -958,6 +982,7 @@ final class TextKitStreamingBackend {
 
     private func updateHostedRecord(at index: Int, block: RenderedBlock) {
 #if canImport(AppKit)
+        let previous = Set(records[index].hostedAttachments.map { $0.attachment.hostedContentID })
         records[index].table = block.table
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
@@ -983,6 +1008,9 @@ final class TextKitStreamingBackend {
             }
         }
         records[index].hostedAttachments = hosted
+        if previous != Set(hosted.map { $0.attachment.hostedContentID }) {
+            pendingHostedLayoutIDs.insert(block.id)
+        }
 #endif
     }
 
@@ -1237,6 +1265,8 @@ final class TextKitStreamingBackend {
                 markdown: { model.markdownRepresentation() }) { context in
                     PicoHostedMediaView(model: model, context: context)
                 }
+            // Reserve the known image height so a delayed load can mount its lazy view.
+            attachment.seedSizeBeforeViewCreation(size)
             entry = (model, attachment, activation)
         }
         hostedImages[block.id] = entry
