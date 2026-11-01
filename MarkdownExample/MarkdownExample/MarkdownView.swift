@@ -357,20 +357,14 @@ private struct StreamingMarkdownContent: View, Equatable {
 #endif
             .id(inputID)
             .textSelection(.enabled)
+            .modifier(MentionPreviewPresenter(inputID: inputID,
+                                               onTagTap: onTagTap,
+                                               onTagHover: onTagHover))
             .padding()
             .onOpenLink { [onOpenURL] url in
                 guard !MockLinkContextMenus.isDemoURL(url) else { return .handled }
                 onOpenURL(url)
                 return .handled
-            }
-            .onTagTap { [onTagTap] tag in
-                onTagTap(tag)
-            }
-            .onTagHover { [onTagHover] tag, _ in
-                onTagHover(tag.map { tag in
-                    let displayTag = "\(tag.prefix)\(tag.identifier)"
-                    return String(localized: "Tag: \(displayTag)")
-                })
             }
             .onLinkHover { [onLinkHover] url, _ in
                 onLinkHover(url.map { String(localized: "Link: \($0.absoluteString)") })
