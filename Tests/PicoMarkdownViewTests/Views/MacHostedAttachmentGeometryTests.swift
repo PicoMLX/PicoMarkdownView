@@ -7,6 +7,33 @@ import Testing
 @Suite("Hosted attachment geometry recovery")
 @MainActor
 struct MacHostedAttachmentGeometryTests {
+    @Test("An unloaded hosted attachment never paints AppKit's file fallback at wide or tall bounds",
+          arguments: [CGSize(width: 400, height: 48), CGSize(width: 100, height: 300)])
+    func transparentFallbackBeforeHosting(size: CGSize) throws {
+        _ = NSApplication.shared
+        let source = "```swift\nlet answer = 42\n```\n"
+        let attachment = PicoHostedAttachment(markdown: { source }) { _ in Text("Hosted content") }
+        attachment.seedSizeBeforeViewCreation(size)
+        let view = NSTextView(usingTextLayoutManager: true)
+        let storage = try #require(view.textStorage)
+        storage.setAttributedString(NSAttributedString(attachment: attachment))
+        let content = try #require(view.textLayoutManager?.textContentManager)
+        let attributes = storage.attributes(at: 0, effectiveRange: nil)
+        let legacyImage = try #require(attachment.image(forBounds: attachment.bounds,
+            textContainer: view.textContainer, characterIndex: 0))
+        let modernImage = try #require(attachment.image(for: attachment.bounds, attributes: attributes,
+            location: content.documentRange.location, textContainer: view.textContainer))
+
+        for (getter, image) in [("legacy", legacyImage), ("TextKit 2", modernImage)] {
+            #expect(try paintsNoPixels(image), "The \(getter) fallback must stay transparent at \(size)")
+        }
+        #expect(attachment.hostingView == nil, "Fallback lookup must not create the hosted content")
+        #expect(attachment.attachmentCell == nil)
+        #expect(attachment.measuredSize == size)
+        #expect(attachment.bounds.size == size)
+        #expect(attachment.markdownRepresentation() == source)
+    }
+
     @Test("Reusing a provider restores a host reset to zero without changing its cached measurement",
           .timeLimit(.minutes(1)), arguments: ["update", "load", "resetAfterLoad"])
     func restoresResetHost(lifecycle: String) async throws {
@@ -96,6 +123,22 @@ struct MacHostedAttachmentGeometryTests {
         #expect(pasteboard.string(forType: .string) == originalMarkdown)
         #expect(model.copySource(to: pasteboard))
         #expect(pasteboard.string(forType: .string) == source)
+    }
+
+    private func paintsNoPixels(_ image: NSImage) throws -> Bool {
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 32, pixelsHigh: 32,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = context
+        let bounds = NSRect(x: 0, y: 0, width: 32, height: 32)
+        context.cgContext.clear(bounds)
+        image.draw(in: bounds, from: .zero, operation: .copy, fraction: 1)
+        return (0..<32).allSatisfy { y in
+            (0..<32).allSatisfy { x in bitmap.colorAt(x: x, y: y)?.alphaComponent == 0 }
+        }
     }
 
     private func settle(_ host: NSView) async throws {

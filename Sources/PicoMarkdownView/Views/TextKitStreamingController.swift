@@ -1030,8 +1030,6 @@ final class TextKitStreamingBackend {
                         markdown: { model.markdown }) { context in
                             PicoHostedOpenUIView(model: model, context: context)
                         }
-                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    attachment.attachmentCell = nil
                     attachment.seedSizeBeforeViewCreation(CGSize(width: 1, height: model.measuredHeight))
                     model.onHeightChanged = { [weak attachment] in attachment?.invalidateSize() }
                     entry = (model, attachment)
@@ -1072,12 +1070,6 @@ final class TextKitStreamingBackend {
                         PicoHostedMediaView(model: model, context: context)
                     }
                 attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
-                if vector.kind == .vegaLite {
-                    // A nonnil transparent image bootstraps AppKit's lazy view
-                    // provider even before a chart has a vector document.
-                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    attachment.attachmentCell = nil
-                }
                 entry = (model, attachment)
                 hostedVectors[block.id] = entry
             }
@@ -1169,8 +1161,6 @@ final class TextKitStreamingBackend {
                         PicoHostedEmbeddedBlockView(model: model, context: context)
                     }
                 if model.loadingState != nil {
-                    hosted.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    hosted.attachmentCell = nil
                     hosted.seedSizeBeforeViewCreation(CGSize(width: 1, height: PicoEmbeddedLoadingState.height))
                 }
                 attachment = hosted
@@ -1283,11 +1273,6 @@ final class TextKitStreamingBackend {
                     PicoHostedMediaView(model: model, context: context)
                 }
             attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
-            // A transparent placeholder avoids AppKit's generic file icon
-            // while retaining the nonnil image that bootstraps lazy providers.
-            // The SVG itself is drawn by the hosted vector canvas.
-            attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-            attachment.attachmentCell = nil
             // Reserve the loading row or known vector geometry before lazy
             // TextKit provider creation; a one-point placeholder can otherwise
             // stay collapsed in SwiftUI sizing.
