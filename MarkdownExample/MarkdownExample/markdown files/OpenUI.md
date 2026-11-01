@@ -1,6 +1,6 @@
 # Interactive OpenUI
 
-This paragraph streams as native Markdown. The form appears when its OpenUI fence completes. Enter your name and choose **Plan trip** to see the action above the document.
+This paragraph is native Markdown. Choose Stream and Replay to watch the form arrive. The form appears when its OpenUI fence completes. Enter your name and choose **Plan trip** to see the action above the document.
 
 ```openui
 root = Stack([card])

@@ -1,0 +1,30 @@
+Markdown example fixture
+========================
+
+The generated Markdown.md example contains selected examples from:
+
+1. CommonMark Spec 0.31.2 by John MacFarlane.
+   https://spec.commonmark.org/0.31.2/
+   Vendored input: Conformance/Fixtures/commonmark-spec-0.31.2.json.
+
+2. Extensions test by Yuki Izumi and cmark-gfm contributors.
+   https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt
+   Release 0.29.0.gfm.13, version 0.1, dated 2016-08-31.
+
+Both sources are licensed under Creative Commons Attribution-ShareAlike 4.0
+International (CC BY-SA 4.0):
+https://creativecommons.org/licenses/by-sa/4.0/
+https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+The generated Markdown.md adaptation is distributed under that same license.
+Changes by PicoMarkdownView contributors: selected self-contained examples,
+added introductory text and section headings, changed single-tilde strikethrough
+to double tildes, expanded the aligned table's delimiter cells to at least
+three hyphens each, and added leading and trailing pipes to its three rows.
+Cell text and alignment are unchanged. These adaptations match the renderer’s
+current supported subset. All other selected inputs and the pinned
+source snapshots are unchanged. The source manifest records
+case IDs, source lines, revisions, and hashes. There is no implied endorsement.
+
+This license applies to the adapted Markdown fixture, not to PicoMarkdownView's
+Swift implementation or other independent example fixtures.

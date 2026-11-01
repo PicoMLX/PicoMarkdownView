@@ -1,0 +1,33 @@
+{
+  "upstream": "https://github.com/pnggroup/libpng",
+  "release": "v1.6.51",
+  "revision": "49363adcfaf098748d7a4c8c624ad8c45a8c3a86",
+  "license": "PngSuite permissive image permission",
+  "licenseSource": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/README",
+  "files": [
+    {
+      "filename": "basn2c08.png",
+      "description": "8-bit RGB",
+      "width": 32,
+      "height": 32,
+      "sha256": "ecea1ef4a001a999ce9b82d18abf47401eb92998708b306b6c9a8ac3a6a9a2c8",
+      "sourceURL": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/basn2c08.png"
+    },
+    {
+      "filename": "basn3p08.png",
+      "description": "8-bit palette",
+      "width": 32,
+      "height": 32,
+      "sha256": "eca1db90338a8481e4d3f2469befa06d7564534e9323b6a8040ed0cdd281d952",
+      "sourceURL": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/basn3p08.png"
+    },
+    {
+      "filename": "basn6a08.png",
+      "description": "8-bit RGBA",
+      "width": 32,
+      "height": 32,
+      "sha256": "756a03364c02e3c9f85d6f4029eb3cef2488c081dc537d46e102bebcb9e02732",
+      "sourceURL": "https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/basn6a08.png"
+    }
+  ]
+}

@@ -1,11 +1,5 @@
 # Link context menus
 
-## Mention previews
-
-Hover over @[Maya Chen](maya) or @[Pico Bot](pico-bot) to see a profile preview.
-Click a mention to keep the profile open, or open it with a keyboard or touch.
-These are fictional demo profiles.
-
 ## Mock link menus
 
 On macOS, right-click or Control-click either link to preview its menu.

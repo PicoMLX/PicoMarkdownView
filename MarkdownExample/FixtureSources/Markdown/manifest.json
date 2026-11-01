@@ -1,0 +1,153 @@
+{
+  "output": "MarkdownExample/MarkdownExample/markdown files/Markdown.md",
+  "license": "CC-BY-SA-4.0",
+  "commonmark": {
+    "version": "0.31.2",
+    "url": "https://spec.commonmark.org/0.31.2/",
+    "input": "Conformance/Fixtures/commonmark-spec-0.31.2.json",
+    "sha256": "e626f48c945674ee1f6da2b0675f9d60d6f14930a4cf15d849a4a094297b165b"
+  },
+  "cmark-gfm": {
+    "version": "0.29.0.gfm.13",
+    "commit": "587a12bb54d95ac37241377e6ddc93ea0e45439b",
+    "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt",
+    "input": "MarkdownExample/FixtureSources/Markdown/cmark-gfm-extensions-0.29.0.gfm.13.txt",
+    "sha256": "a2a45e98be9fca95f564f927265a0f63beea6cae5369d1cf4bde44caa51b2a3a"
+  },
+  "cases": [
+    {
+      "section": "Headings",
+      "source": "commonmark",
+      "case": 62,
+      "sourceSection": "ATX headings",
+      "url": "https://spec.commonmark.org/0.31.2/#example-62",
+      "changes": []
+    },
+    {
+      "section": "Emphasis",
+      "source": "commonmark",
+      "case": 350,
+      "sourceSection": "Emphasis and strong emphasis",
+      "url": "https://spec.commonmark.org/0.31.2/#example-350",
+      "changes": []
+    },
+    {
+      "section": "Emphasis",
+      "source": "commonmark",
+      "case": 378,
+      "sourceSection": "Emphasis and strong emphasis",
+      "url": "https://spec.commonmark.org/0.31.2/#example-378",
+      "changes": []
+    },
+    {
+      "section": "Emphasis",
+      "source": "commonmark",
+      "case": 410,
+      "sourceSection": "Emphasis and strong emphasis",
+      "url": "https://spec.commonmark.org/0.31.2/#example-410",
+      "changes": []
+    },
+    {
+      "section": "Inline code",
+      "source": "commonmark",
+      "case": 329,
+      "sourceSection": "Code spans",
+      "url": "https://spec.commonmark.org/0.31.2/#example-329",
+      "changes": []
+    },
+    {
+      "section": "Lists",
+      "source": "commonmark",
+      "case": 326,
+      "sourceSection": "Lists",
+      "url": "https://spec.commonmark.org/0.31.2/#example-326",
+      "changes": []
+    },
+    {
+      "section": "Ordered lists",
+      "source": "commonmark",
+      "case": 302,
+      "sourceSection": "Lists",
+      "url": "https://spec.commonmark.org/0.31.2/#example-302",
+      "changes": []
+    },
+    {
+      "section": "Blockquotes",
+      "source": "commonmark",
+      "case": 228,
+      "sourceSection": "Block quotes",
+      "url": "https://spec.commonmark.org/0.31.2/#example-228",
+      "changes": []
+    },
+    {
+      "section": "Blockquotes",
+      "source": "commonmark",
+      "case": 251,
+      "sourceSection": "Block quotes",
+      "url": "https://spec.commonmark.org/0.31.2/#example-251",
+      "changes": []
+    },
+    {
+      "section": "Links",
+      "source": "commonmark",
+      "case": 501,
+      "sourceSection": "Links",
+      "url": "https://spec.commonmark.org/0.31.2/#example-501",
+      "changes": []
+    },
+    {
+      "section": "Horizontal rule",
+      "source": "commonmark",
+      "case": 51,
+      "sourceSection": "Thematic breaks",
+      "url": "https://spec.commonmark.org/0.31.2/#example-51",
+      "changes": []
+    },
+    {
+      "section": "Tables",
+      "source": "cmark-gfm",
+      "case": 1,
+      "sourceLine": 13,
+      "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt#L13",
+      "changes": []
+    },
+    {
+      "section": "Tables",
+      "source": "cmark-gfm",
+      "case": 6,
+      "sourceLine": 182,
+      "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt#L182",
+      "changes": [
+        "Expanded each table delimiter cell to at least three hyphens; retained alignment.",
+        "Added leading and trailing pipes to all three table rows; retained cell text and alignment."
+      ]
+    },
+    {
+      "section": "Strikethrough",
+      "source": "cmark-gfm",
+      "case": 17,
+      "sourceLine": 506,
+      "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt#L506",
+      "changes": [
+        "Changed single-tilde delimiters to double tildes."
+      ]
+    },
+    {
+      "section": "Task lists",
+      "source": "cmark-gfm",
+      "case": 28,
+      "sourceLine": 837,
+      "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt#L837",
+      "changes": []
+    },
+    {
+      "section": "Footnotes",
+      "source": "cmark-gfm",
+      "case": 24,
+      "sourceLine": 764,
+      "url": "https://github.com/github/cmark-gfm/blob/587a12bb54d95ac37241377e6ddc93ea0e45439b/test/extensions.txt#L764",
+      "changes": []
+    }
+  ],
+  "outputSHA256": "02ffb7ff453317162ba09585e3a71a4462a73a31a39dc28db514ce68143b79e6"
+}

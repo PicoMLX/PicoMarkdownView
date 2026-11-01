@@ -1,9 +1,15 @@
-# Inline Tags
+# Tags & Mentions
 
 PicoMarkdownView recognises lightweight inline tags so a host app can attach
 custom interactions without forking the parser. Tap any tag below — the panel
 above the text shows the last tag you tapped, and on macOS hovering a tag or
 link updates the **hover** readout.
+
+## Profile previews
+
+Hover over @[Maya Chen](maya) or @[Pico Bot](pico-bot) to see a profile preview.
+Click a mention to keep it open, or activate it with a keyboard or touch.
+These are fictional demo profiles. Close or Escape dismisses the card.
 
 ## Mentions (`@`)
 
@@ -50,7 +56,7 @@ left-boundary rule, so glued text like see[[Home Page]] still matches.
 
 ## Tickers (`$`) — opt-in (collides with math)
 
-`$` is **off by default** because it collides with TeX/KaTeX inline math
+`$` is **off by default** because it collides with TeX inline math
 (`$x = mc^2$`). This document enables it, so $AAPL and $MSFT route as tickers.
 Keep it disabled in documents that contain math.
 

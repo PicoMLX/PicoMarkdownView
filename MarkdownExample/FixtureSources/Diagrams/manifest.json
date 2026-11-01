@@ -1,0 +1,27 @@
+{
+  "upstream": "https://pele.run/examples",
+  "renderer": "Pele 1.9.1 (as identified by the existing bundled renderer)",
+  "sourceCorpus": "MarkdownExample/MarkdownExample/markdown files/Diagrams.md",
+  "sourceCorpusCommit": "178cfbbed06b5fa890eed4b49be7dc66f9d6c33a",
+  "sourceCorpusSHA256": "2f2bf24d93e9167c4a2809915f5b5c9e918644aadc3b2fb830d534af988679b0",
+  "selection": [
+    {
+      "section": "Flowchart",
+      "example": 2
+    },
+    {
+      "section": "Sequence",
+      "example": 1
+    },
+    {
+      "section": "Class",
+      "example": 1
+    },
+    {
+      "section": "State",
+      "example": 1
+    }
+  ],
+  "adaptations": "Mermaid fence bodies unchanged; page title, introduction and section order adapted for a short showcase.",
+  "licenseSource": "https://raw.githubusercontent.com/obsidianmd/pele/3a2f075ee0c3d914f0fad3545fc0f193693975ac/LICENSE"
+}

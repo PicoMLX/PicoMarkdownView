@@ -1,0 +1,37 @@
+{
+  "repository": "https://github.com/mgriebling/SwiftMath",
+  "version": "1.7.3",
+  "revision": "fa8244ed032f4a1ade4cb0571bf87d2f1a9fd2d7",
+  "license": "MIT",
+  "upstream_path": "EXAMPLES.md",
+  "sha256": "28aa19b427d60383e83de7271aee31069644e347a211f9483ecc7aaa42c94fb2",
+  "examples": [
+    {
+      "title": "Square of sums",
+      "presentation": "inline"
+    },
+    {
+      "title": "Quadratic Formula",
+      "presentation": "display"
+    },
+    {
+      "title": "Standard Deviation",
+      "presentation": "display"
+    },
+    {
+      "title": "Gaussian Integral",
+      "presentation": "display"
+    },
+    {
+      "title": "Matrix multiplication",
+      "presentation": "display"
+    },
+    {
+      "title": "Cases",
+      "presentation": "display"
+    }
+  ],
+  "adaptations": [
+    "Trim trailing whitespace on TeX lines; wrap in Markdown math delimiters; omit reference images."
+  ]
+}
