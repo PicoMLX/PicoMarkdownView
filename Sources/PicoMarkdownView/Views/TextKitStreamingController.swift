@@ -17,6 +17,10 @@ final class TextKitStreamingController: ObservableObject {
     private var lastAppliedReplaceToken: UInt64 = 0
 #if canImport(AppKit)
     private var lastAppliedDocumentIdentity: UInt64?
+    private weak var imagePreviewTextView: NSTextView?
+    private var imagePreviewAppliedIdentity: UInt64?
+    private var pendingImagePreviewIdentity: UInt64?
+    private var pendingImagePreviews: [URL: MarkdownImagePreview] = [:]
 #endif
 
 #if canImport(UIKit)
@@ -122,8 +126,31 @@ final class TextKitStreamingController: ObservableObject {
 
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
+        imagePreviewTextView = textView
         configure(textView, with: configuration)
         return textView
+    }
+
+    func receiveImagePreview(url: URL, preview: MarkdownImagePreview?, documentIdentity: UInt64) {
+        guard documentIdentity == imagePreviewAppliedIdentity else {
+            if let current = imagePreviewAppliedIdentity, documentIdentity < current { return }
+            if let pending = pendingImagePreviewIdentity, documentIdentity < pending { return }
+            if pendingImagePreviewIdentity != documentIdentity {
+                pendingImagePreviewIdentity = documentIdentity
+                pendingImagePreviews.removeAll(keepingCapacity: true)
+            }
+            pendingImagePreviews[url] = preview
+            return
+        }
+        backend.setImagePreview(preview, for: url)
+        flushImagePreviews()
+    }
+
+    private func flushImagePreviews() {
+        guard let view = imagePreviewTextView else { return }
+        let selection = view.selectedRange()
+        let updated = backend.flushImagePreviews(selection: selection)
+        if updated != selection { view.setSelectedRange(updated) }
     }
 
     func update(textView: NSTextView,
@@ -132,6 +159,17 @@ final class TextKitStreamingController: ObservableObject {
                 replaceToken: UInt64,
                 configuration: PicoTextKitConfiguration,
                 documentIdentity: UInt64? = nil) {
+        imagePreviewTextView = textView
+        defer {
+            if !configuration.isPaused { imagePreviewAppliedIdentity = documentIdentity }
+            if !configuration.isPaused, let identity = documentIdentity, pendingImagePreviewIdentity == identity {
+                let previews = pendingImagePreviews
+                pendingImagePreviews.removeAll(keepingCapacity: true)
+                pendingImagePreviewIdentity = nil
+                for (url, preview) in previews { backend.setImagePreview(preview, for: url) }
+            }
+            flushImagePreviews()
+        }
         Self.logger.debug("Updating text view: blocks=\(blocks.count), replacementToken=\(replaceToken), appliedReplacementToken=\(self.lastAppliedReplaceToken), storageLength=\(self.backend.length)")
         configure(textView, with: configuration)
         let currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
@@ -295,6 +333,7 @@ final class TextKitStreamingBackend {
         var embeddedBlock: RenderedEmbeddedBlock? = nil
         var imageRuns: [InlineRun]? = nil
         var imageIsClosed = false
+        var standaloneImageBlock: RenderedBlock? = nil
         var svgGraphic: RenderedSVGGraphic? = nil
         var openUI: RenderedOpenUIContent? = nil
         var hostedAttachments: [HostedRecord] = []
@@ -327,6 +366,9 @@ final class TextKitStreamingBackend {
     private var hostedEmbeddedBlocks: [BlockID: EmbeddedEntry] = [:]
     private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
                                          activation: MarkdownImageActivation)] = [:]
+    private var imagePreviews: [URL: MarkdownImagePreview] = [:]
+    private var imagePreviewDependencies: [URL: Set<BlockID>] = [:]
+    private var pendingImagePreviewURLs: Set<URL> = []
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
     private var hostedStreamActive = true
     private var hostedOpenUIs: [BlockID: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)] = [:]
@@ -346,6 +388,64 @@ final class TextKitStreamingBackend {
     var length: Int {
         storage.length
     }
+
+#if canImport(AppKit)
+    func setImagePreview(_ preview: MarkdownImagePreview?, for url: URL) {
+        guard imagePreviews[url]?.revision != preview?.revision else { return }
+        imagePreviews[url] = preview
+        pendingImagePreviewURLs.insert(url)
+    }
+
+    /// Quality updates paint the retained canvas. Only first appearance or
+    /// withdrawal changes the native text, and only for dependent image blocks.
+    func flushImagePreviews(selection: NSRange) -> NSRange {
+        guard !isPaused, !pendingImagePreviewURLs.isEmpty else { return selection }
+        let urls = pendingImagePreviewURLs
+        pendingImagePreviewURLs.removeAll(keepingCapacity: true)
+        let ids = Set(urls.flatMap { imagePreviewDependencies[$0] ?? [] })
+        var replacements: [(Int, RenderedBlock)] = []
+        for id in ids {
+            guard let index = indexByID[id], let block = records[index].standaloneImageBlock,
+                  let url = block.images.first?.url else { continue }
+            if let preview = imagePreviews[url], var entry = hostedImages[id] {
+                let size = preview.isFinal ? (preview.result.size ?? preview.result.image.size) : entry.model.intrinsicSize
+                let previousSize = entry.model.intrinsicSize
+                entry.model.update(image: preview.result.image, size: size,
+                    markdown: entry.model.markdownRepresentation(), altText: entry.activation.altText,
+                    title: entry.activation.title, maxWidth: preview.isFinal ? size.width : entry.model.maxWidth)
+                entry.activation = MarkdownImageActivation(image: preview.result.image,
+                    sourceURL: entry.activation.sourceURL, altText: entry.activation.altText,
+                    title: entry.activation.title, preferredSize: size, markdown: entry.activation.markdown)
+                hostedImages[id] = entry
+                configureImageActivation(for: id)
+                if previousSize != size { entry.attachment.invalidateSize() }
+            } else {
+                replacements.append((index, block))
+            }
+        }
+        guard !replacements.isEmpty else { return selection }
+        var updated = selection
+        let edit = {
+            self.storage.beginEditing()
+            defer { self.storage.endEditing() }
+            for (index, block) in replacements {
+                let attributed = self.attributedString(for: block)
+                guard !attributed.isEqual(to: self.records[index].nsAttributed) else { continue }
+                let range = self.rangeForRecord(at: index)
+                self.storage.replaceCharacters(in: range, with: attributed)
+                updated = self.adjust(selection: updated, editedRange: range, replacementLength: attributed.length)
+                let delta = attributed.length - self.records[index].length
+                self.records[index].length = attributed.length
+                self.records[index].nsAttributed = attributed
+                self.updateHostedRecord(at: index, block: block)
+                if delta != 0 { self.updateOffsetsAfter(index: index, delta: delta) }
+            }
+        }
+        if let contentStorage { contentStorage.performEditingTransaction(edit) } else { edit() }
+        scheduleHostedLayout()
+        return updated.clamped(maxLength: storage.length)
+    }
+#endif
 
     func setPaused(_ paused: Bool) {
 #if canImport(AppKit)
@@ -442,6 +542,9 @@ final class TextKitStreamingBackend {
         let selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
         if shouldResetDocument {
             pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
+            imagePreviews.removeAll(keepingCapacity: true)
+            imagePreviewDependencies.removeAll(keepingCapacity: true)
+            pendingImagePreviewURLs.removeAll(keepingCapacity: true)
             documentGeneration &+= 1
             onDocumentReset?()
             shouldResetDocument = false
@@ -489,6 +592,7 @@ final class TextKitStreamingBackend {
                 blockOffsets = [0]
                 indexByID = [:]
 #if canImport(AppKit)
+                imagePreviewDependencies.removeAll(keepingCapacity: true)
                 hostedTables.removeAll()
                 removeAllHostedVectors()
                 hostedEmbeddedBlocks.removeAll()
@@ -505,6 +609,7 @@ final class TextKitStreamingBackend {
             blockOffsets = [0]
             indexByID = [:]
 #if canImport(AppKit)
+            imagePreviewDependencies.removeAll(keepingCapacity: true)
             hostedTables.removeAll()
             removeAllHostedVectors()
             hostedEmbeddedBlocks.removeAll()
@@ -751,6 +856,10 @@ final class TextKitStreamingBackend {
         for record in removed {
             indexByID[record.id] = nil
 #if canImport(AppKit)
+            if let url = record.standaloneImageBlock?.images.first?.url {
+                imagePreviewDependencies[url]?.remove(record.id)
+                if imagePreviewDependencies[url]?.isEmpty == true { imagePreviewDependencies[url] = nil }
+            }
             hostedTables.removeValue(forKey: record.id)
             removeHostedVector(for: record.id)
             hostedEmbeddedBlocks.removeValue(forKey: record.id)
@@ -797,6 +906,9 @@ final class TextKitStreamingBackend {
     }
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
+#if canImport(AppKit)
+        imagePreviewDependencies.removeAll(keepingCapacity: true)
+#endif
         records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
         for index in records.indices { updateHostedRecord(at: index, block: blockData[index].block) }
         indexByID = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
@@ -983,6 +1095,17 @@ final class TextKitStreamingBackend {
     private func updateHostedRecord(at index: Int, block: RenderedBlock) {
 #if canImport(AppKit)
         let previous = Set(records[index].hostedAttachments.map { $0.attachment.hostedContentID })
+        let oldURL = records[index].standaloneImageBlock?.images.first?.url
+        let standalone = standaloneImageRun(for: block) == nil ? nil : block
+        let newURL = standalone?.images.first?.url
+        if oldURL != newURL {
+            if let oldURL {
+                imagePreviewDependencies[oldURL]?.remove(block.id)
+                if imagePreviewDependencies[oldURL]?.isEmpty == true { imagePreviewDependencies[oldURL] = nil }
+            }
+            if let newURL { imagePreviewDependencies[newURL, default: []].insert(block.id) }
+        }
+        records[index].standaloneImageBlock = standalone
         records[index].table = block.table
         records[index].tableSnapshot = block.snapshot.table
         records[index].mermaidDiagram = block.mermaidDiagram
@@ -1224,33 +1347,30 @@ final class TextKitStreamingBackend {
     /// this an inline image. Reuse the renderer's loaded image and preserve
     /// native list markers, quote bars, paragraph spacing and indentation.
     private func hostedImage(for block: RenderedBlock, attributed: NSAttributedString) -> NSAttributedString? {
-        switch block.kind {
-        case .paragraph, .listItem, .blockquote: break
-        default: return nil
-        }
-        guard block.snapshot.isClosed, block.images.count == 1,
-              let runs = block.snapshot.inlineRuns else { return nil }
-        var imageRun: InlineRun?
-        for run in runs {
-            if run.image != nil {
-                guard imageRun == nil else { return nil }
-                imageRun = run
-            } else if !run.style.isEmpty || run.linkURL != nil || run.math != nil || run.tag != nil
-                        || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return nil
-            }
-        }
-        guard let run = imageRun else { return nil }
+        guard let run = standaloneImageRun(for: block),
+              let source = run.image?.source, let sourceURL = URL(string: source) else { return nil }
+        var attributed = attributed
         var loaded: (attachment: NSTextAttachment, range: NSRange)?
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
             if let attachment = value as? NSTextAttachment, attachment.image != nil {
                 loaded = (attachment, range)
             }
         }
+        if loaded == nil, let preview = imagePreviews[sourceURL] {
+            let attributes = attributed.length > 0 ? attributed.attributes(at: 0, effectiveRange: nil) : [:]
+            let prefix = (block.listItem?.bullet ?? block.listPlacement.marker).map { $0 + " " } ?? ""
+            let result = NSMutableAttributedString(string: prefix + "\u{FFFC}\n", attributes: attributes)
+            let attachment = NSTextAttachment()
+            attachment.image = preview.result.image
+            attachment.bounds.size = preview.result.size ?? preview.result.image.size
+            let range = NSRange(location: prefix.utf16.count, length: 1)
+            result.addAttribute(.attachment, value: attachment, range: range)
+            attributed = result
+            loaded = (attachment, range)
+        }
         guard let loaded, let image = loaded.attachment.image, loaded.range.length == 1 else { return nil }
         let size = loaded.attachment.bounds.size
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
-        guard let source = run.image?.source, let sourceURL = URL(string: source) else { return nil }
         let markdown = PicoHostedTableMarkdown.inline([run])
         let activation = MarkdownImageActivation(image: image, sourceURL: sourceURL, altText: run.text,
                                                   title: run.image?.title, preferredSize: size, markdown: markdown)
@@ -1280,6 +1400,26 @@ final class TextKitStreamingBackend {
             result.addAttributes([.link: link, .toolTip: "Open image"], range: loaded.range)
         }
         return result
+    }
+
+    private func standaloneImageRun(for block: RenderedBlock) -> InlineRun? {
+        switch block.kind {
+        case .paragraph, .listItem, .blockquote: break
+        default: return nil
+        }
+        guard block.snapshot.isClosed, block.images.count == 1,
+              let runs = block.snapshot.inlineRuns else { return nil }
+        var imageRun: InlineRun?
+        for run in runs {
+            if run.image != nil {
+                guard imageRun == nil else { return nil }
+                imageRun = run
+            } else if !run.style.isEmpty || run.linkURL != nil || run.math != nil || run.tag != nil
+                        || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        return imageRun
     }
 
     /// Keep one attachment while an SVG fence loads, then validate the closed
@@ -1531,6 +1671,10 @@ final class TextKitStreamingBackend {
                     hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
                         height: openUI.model.measuredHeight))
                 }
+                if let image = hostedImages[records[index].id], imagePreviews[image.activation.sourceURL] != nil {
+                    hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
+                        height: image.model.viewportHeight(availableWidth: availableWidth)))
+                }
                 hosted.attachment.update(availableWidth: availableWidth, isSelected: selected)
             }
         }
@@ -1571,6 +1715,9 @@ final class TextKitStreamingBackend {
     /// Returns true when the given blocks differ from the backend's current records
     /// (different count, different IDs, or different content).
     func needsFullApply(for blocks: [RenderedBlock]) -> Bool {
+#if canImport(AppKit)
+        if shouldResetDocument { return true }
+#endif
         guard blocks.count == records.count else { return true }
         for i in blocks.indices {
             if blocks[i].id != records[i].id || !recordMatches(records[i], block: blocks[i]) {
