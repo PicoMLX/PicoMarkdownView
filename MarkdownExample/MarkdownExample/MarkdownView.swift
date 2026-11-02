@@ -320,6 +320,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onContentSize: (CGSize) -> Void
     let onOpenUIAction: (PicoOpenUIActionEvent) -> Void
 #if os(macOS)
+    private static let progressiveImageProvider = URLSessionMarkdownImageProvider(progressiveJPEGPreviews: true)
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
 
     func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
@@ -339,7 +340,7 @@ private struct StreamingMarkdownContent: View, Equatable {
 #if os(macOS)
         PicoMarkdownView(stream: { [markdown, pacing] in
             wordStream(from: markdown, pacing: pacing)
-        }, theme: exampleTheme, tagPrefixes: tagPrefixes,
+        }, theme: exampleTheme, imageProvider: Self.progressiveImageProvider, tagPrefixes: tagPrefixes,
            embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
             .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
 #else

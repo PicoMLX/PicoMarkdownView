@@ -273,6 +273,17 @@ Images mixed with prose, multiple images in one paragraph, heading images, and t
 
 The macOS example owns a lightbox over its whole window content, with zoom, pan, Copy Image, Save and Escape dismissal. Mermaid, SVG and Vega-Lite retain their inline controls.
 
+On macOS, progressive JPEG previews are an explicit provider opt-in:
+
+```swift
+let images = URLSessionMarkdownImageProvider(progressiveJPEGPreviews: true)
+PicoMarkdownView(markdown, imageProvider: images)
+```
+
+Closed, standalone image blocks can display intermediate JPEG quality while the download continues. The decoder works on a background utility queue, makes at most eight attempts at geometric byte checkpoints, and caps preview snapshots at 1024 pixels per dimension. Later quality updates repaint the existing canvas without changing Markdown or its text layout. Original source, alternative text, title and copying are preserved. The normal completed-image decoder and cache still supply the final image.
+
+The default provider remains final-only. Inline, table-cell and heading images, other image formats, and iOS retain their existing rendering. A progressive JPEG may finish before an intermediate snapshot is useful; previews are best effort. A failed download returns to the normal alternative-text fallback. The macOS example enables the option. See [implementation limits and local benchmark results](Documentation/ProgressiveImages.md).
+
 ### Diagrams (Mermaid)
 
 Fenced ```` ```mermaid ```` blocks are drawn as diagrams, **on by default**. Layout is done by a bundled build of [Pele](https://pele.run) — the Mermaid-compatible renderer written for Obsidian — running in JavaScriptCore like the Prism bundle. On macOS 27, a TextKit 2 hosted attachment draws the SVG paths and text directly with CoreGraphics; zoom redraws vectors at the new scale. iOS keeps its existing native bitmap attachments. Neither path uses a WebView or an SVG library. Every diagram type of Mermaid 12.1 is supported: flowcharts, sequence, class, state, ER, gantt, pie, git graphs, mindmaps, timelines, sankey, XY charts, quadrants, C4, block, and more.
