@@ -20,6 +20,8 @@ struct MacOpenUIWebRuntimeTests {
         scroll.documentView = textView
         let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        // The test later switches to dark; start independently of the host Mac's appearance.
+        window.appearance = NSAppearance(named: .aqua)
         window.contentView = scroll
         window.orderFront(nil)
         defer { window.close() }
