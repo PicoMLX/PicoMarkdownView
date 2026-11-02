@@ -51,14 +51,12 @@ struct HTMLFactoryViewportIntegrationTests {
         fixture.layout()
         let native = try #require(fixture.textView)
         let attachment = try #require(Self.attachment(in: native))
-        let sizes = AsyncStream.makeStream(of: CGSize.self)
-        let previousSizeChanged = attachment.onSizeChanged
-        attachment.onSizeChanged = { size in previousSizeChanged?(size); sizes.continuation.yield(size) }
-        defer { attachment.onSizeChanged = previousSizeChanged; sizes.continuation.finish() }
         attachment.invalidateSize()
-        var sizeIterator = sizes.stream.makeAsyncIterator()
-        while abs(attachment.measuredSize.height - container.measuredHeight) > 1 {
-            try #require(await sizeIterator.next() != nil)
+        // The cached measurement can already be correct while AppKit is
+        // reconciling its native host. Observe both sides of that async handoff.
+        while abs(attachment.measuredSize.height - container.measuredHeight) > 1
+            || abs((attachment.hostingView?.bounds.height ?? 0) - container.measuredHeight) > 1 {
+            try await Task.sleep(for: .milliseconds(1))
         }
         #expect(abs(attachment.measuredSize.height - container.measuredHeight) <= 1)
         #expect(abs((attachment.hostingView?.bounds.height ?? 0) - container.measuredHeight) <= 1)
