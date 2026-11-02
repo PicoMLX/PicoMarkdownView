@@ -7,6 +7,41 @@ import Testing
 @Suite("Hosted attachment geometry recovery")
 @MainActor
 struct MacHostedAttachmentGeometryTests {
+    @Test("Size changes defer and coalesce native layout invalidation", .timeLimit(.minutes(1)))
+    func sizeChangesDeferNativeInvalidation() async throws {
+        let pipeline = MarkdownStreamingPipeline()
+        _ = await pipeline.feed("| Header |\n| --- |\n| Cell |\n\n")
+        _ = await pipeline.finish()
+        let backend = TextKitStreamingBackend()
+        let textView = StreamingTextKit2View(backend: backend)
+        let (events, continuation) = AsyncStream<NSRange>.makeStream()
+        defer { continuation.finish() }
+        var changingSize = false
+        var notifications = 0
+        backend.onHostedContentSizeChanged = { range in
+            #expect(!changingSize, "A size callback must not invalidate TextKit from inside its current layout pass")
+            notifications += 1
+            continuation.yield(range)
+        }
+        _ = backend.apply(blocks: await pipeline.blocksSnapshot(), selection: NSRange(location: 0, length: 0))
+        var iterator = events.makeAsyncIterator()
+        let originalRange = try #require(await iterator.next())
+        let storage = try #require(textView.textStorage)
+        let attachment = try #require(storage.attribute(.attachment, at: 0, effectiveRange: nil) as? PicoHostedAttachment)
+        #expect(attachment.hostingView == nil)
+
+        changingSize = true
+        attachment.seedSizeBeforeViewCreation(CGSize(width: 240, height: 80))
+        attachment.seedSizeBeforeViewCreation(CGSize(width: 240, height: 100))
+        #expect(notifications == 1, "Repeated measurements must wait until the current native layout finishes")
+        changingSize = false
+
+        #expect(try #require(await iterator.next()) == originalRange)
+        #expect(notifications == 2, "The latest size needs one block-local deferred invalidation")
+        #expect(attachment.measuredSize == CGSize(width: 240, height: 100))
+        #expect(attachment.hostingView == nil, "Measuring an offscreen attachment must not create its view")
+    }
+
     @Test("An unloaded hosted attachment never paints AppKit's file fallback at wide or tall bounds",
           arguments: [CGSize(width: 400, height: 48), CGSize(width: 100, height: 300)])
     func transparentFallbackBeforeHosting(size: CGSize) throws {

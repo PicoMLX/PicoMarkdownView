@@ -1003,8 +1003,11 @@ final class TextKitStreamingBackend {
             hosted.append(HostedRecord(attachment: attachment, offset: range.location, indent: indent))
             let id = block.id
             attachment.onLayoutInvalidated = { [weak self] _ in
-                guard let self, let index = self.indexByID[id] else { return }
-                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+                guard let self, self.indexByID[id] != nil else { return }
+                // Measurement can change an attachment during its parent's
+                // layout pass, where an immediate invalidation can be absorbed.
+                self.pendingHostedLayoutIDs.insert(id)
+                self.scheduleHostedLayout()
             }
         }
         records[index].hostedAttachments = hosted
