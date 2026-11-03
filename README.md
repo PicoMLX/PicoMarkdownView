@@ -304,7 +304,49 @@ The Pele bundle is regenerated with `Scripts/bundle-pele.sh` (pins the Pele vers
 
 #### Teaching your model to draw
 
-Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax. Copy the folder into your app's skills directory (PicoCore discovers it and injects the one-line description into the system prompt), into `.claude/skills/` for Claude Code, or feed `SKILL.md` into any system prompt. Every example in it is rendered through the bundled Pele by the test suite, so the skill cannot drift from the renderer.
+Models already write standard Mermaid, but they do not know that diagrams render in your app, which newer types exist (swimlane, architecture, kanban, radar, treemap, venn, wardley, railroad, …), or which Mermaid features the native renderer leaves out. `Skills/pele-diagrams` is an optional [agent skill](https://agentskills.io) that covers exactly that: a short `SKILL.md` with trigger conditions, fence rules and a type picker, plus `references/diagram-types.md` with one verified example per type, loaded only when the model needs syntax.
+
+The same product also ships focused guidance for the other embedded formats:
+
+| Skill | Use it for |
+| --- | --- |
+| `pele-diagrams` | Mermaid diagrams and Pele-specific syntax |
+| `svg-graphics` | Static vector illustrations with controlled geometry |
+| `vega-lite-charts` | Quantitative charts using the supported inline-data profile |
+| `openui-interfaces` | Enabled OpenUI Lang interfaces and host-handled actions |
+| `html-previews` | Enabled static HTML/CSS previews |
+
+Each skill describes the actual renderer profile, opt-in requirements, streaming
+behavior, and iOS fallback. Example regressions use the bundled renderers; resource
+parity tests ensure every canonical skill and supporting file ships unchanged.
+Native Markdown and math keep their existing paths. File cards, interactive maps,
+and MCP Apps are not advertised as implemented fence languages.
+
+For apps that consume this package, the optional **`PicoMarkdownSkills`** product
+exposes the canonical skill folders and their supporting references:
+
+```swift
+import PicoMarkdownSkills
+
+let skillRoot = PicoMarkdownSkills.directoryURL
+// Pass this read-only directory to your app's skill loader.
+```
+
+The skills product uses Foundation and resources only; it does not link the
+renderer, TextKit, SwiftMath or OpenUI. It retains the package's macOS 27 / iOS 18
+deployment minimums. Updating the package dependency and rebuilding ships the
+guidance for that renderer revision, without downloading instructions at runtime.
+
+**PicoCore/PicoServer consume synchronized bundled copies instead.** They keep
+this repo as the canonical source and use PicoCore's `scripts/sync-renderer-skills.py`
+to record the source commit and file hashes. This avoids a renderer dependency and
+preserves PicoCore's earlier deployment target. PicoCore's existing `SkillManager`
+loads its bundled snapshot offline; user overrides remain effective.
+
+Every example in the shipped skills is exercised by the bundled renderer tests.
+Resource parity tests detect missing or stale packaged files. Coding agents and
+other loaders can also read the canonical `Skills/` tree directly from a checkout;
+a running installed app uses its packaged snapshot, not GitHub `main`.
 
 ### Charts (Vega-Lite, macOS 27)
 

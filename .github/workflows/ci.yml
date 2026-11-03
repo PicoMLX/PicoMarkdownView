@@ -10,6 +10,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-openui:
+    name: OpenUI runtime and skill examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Web/OpenUI/package-lock.json
+      - name: Install pinned runtime test dependencies
+        run: npm ci --prefix Web/OpenUI
+      - name: Validate OpenUI runtime and canonical skill examples
+        run: npm test --prefix Web/OpenUI
+
   test-macos:
     name: macOS (swift test)
     runs-on: xcode-27

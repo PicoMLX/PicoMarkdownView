@@ -8,7 +8,17 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const assets = path.resolve(root, '../../Sources/PicoOpenUIRuntime/Resources/OpenUI');
-const fixtures = JSON.parse(await fs.readFile(path.join(root, 'tests/fixtures.json'), 'utf8'));
+const skill = await fs.readFile(path.resolve(root, '../../Skills/openui-interfaces/SKILL.md'), 'utf8');
+const skillSources = [...skill.matchAll(/^```openui\r?\n([\s\S]*?)^```\s*$/gm)].map(match => match[1]);
+assert.equal(skillSources.length, 2, 'the skill provides a follow-up card and a scoped form');
+const skillFixtures = skillSources.map((source, index) => ({
+  id: `skill-example-${index + 1}`, source,
+  expectedText: ['Compare options', 'Plan a trip'][index],
+}));
+const fixtures = [
+  ...JSON.parse(await fs.readFile(path.join(root, 'tests/fixtures.json'), 'utf8')),
+  ...skillFixtures,
+];
 const parser = createParser(openuiLibrary.toJSONSchema(), openuiLibrary.root);
 for (const fixture of fixtures) {
   const result = parser.parse(fixture.source);
@@ -78,7 +88,7 @@ const bridge = dom.window.picoOpenUI;
 assert.deepEqual(Object.keys(bridge), ['render'], 'production has no inspection/test helpers');
 async function render(fixture, sourceID = fixture.id, colorScheme = 'light') {
   assert.equal(bridge.render({ source: fixture.source, sourceID, colorScheme, isStreaming: false }), true);
-  const heading = { 'trip-form': 'Plan a weekend', 'project-status': 'Project overview', 'revenue-chart': 'Q4 revenue', 'date-picker': 'Choose a date', 'math-content': 'Inline', 'scrollable-modal': 'Scroll example', 'markdown-link': 'Read documentation' }[fixture.id];
+  const heading = { 'trip-form': 'Plan a weekend', 'project-status': 'Project overview', 'revenue-chart': 'Q4 revenue', 'date-picker': 'Choose a date', 'math-content': 'Inline', 'scrollable-modal': 'Scroll example', 'markdown-link': 'Read documentation' }[fixture.id] ?? fixture.expectedText;
   await waitFor(() => text().includes(heading), `render ${fixture.id}`);
   await sleep(120);
   assert.deepEqual(lastErrors(sourceID), [], `${fixture.id} renders without errors`);
@@ -270,6 +280,36 @@ await waitFor(() => lastErrors('invalid').length > 0, 'invalid source diagnostic
 await render(fixtures[0], 'recovered');
 assert.ok(messages.some(message => message.kind === 'error' && message.sourceID === 'recovered' && message.payload.length === 0));
 console.log('PASS bridge: diagnostics clear after a valid source');
+// Load the model-facing examples from the canonical skill, then exercise the
+// shipped runtime rather than maintaining another copy of their programs.
+await render(skillFixtures[0]);
+const cardActionCount = messages.filter(message => message.kind === 'action').length;
+Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Compare costs').click();
+await waitFor(() => messages.filter(message => message.kind === 'action').length === cardActionCount + 1, 'skill follow-up action');
+const skillCardAction = messages.findLast(message => message.kind === 'action');
+assert.equal(skillCardAction.sourceID, 'skill-example-1');
+assert.equal(skillCardAction.payload.type, 'continue_conversation');
+assert.equal(skillCardAction.payload.humanFriendlyMessage, 'Compare the costs of these options');
+assert.deepEqual(skillCardAction.payload.params.context, { topic: 'costs' });
+console.log('PASS skill: follow-up card renders and emits its structured action');
+await render(skillFixtures[1]);
+const destination = document.querySelector('input[name="destination"]');
+assert.ok(destination, 'skill form renders its destination field');
+Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(destination, 'Kyoto');
+destination.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+destination.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+await sleep(40);
+const formActionCount = messages.filter(message => message.kind === 'action').length;
+Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Plan trip').click();
+await waitFor(() => messages.filter(message => message.kind === 'action').length === formActionCount + 1, 'skill form submission');
+const skillFormAction = messages.findLast(message => message.kind === 'action');
+assert.equal(skillFormAction.sourceID, 'skill-example-2');
+assert.equal(skillFormAction.payload.type, 'continue_conversation');
+assert.equal(skillFormAction.payload.humanFriendlyMessage, 'Plan a trip using these details');
+assert.deepEqual(skillFormAction.payload.params.context, { task: 'trip-planning' });
+assert.equal(skillFormAction.payload.formName, 'trip');
+assert.equal(skillFormAction.payload.formState.trip.destination.value, 'Kyoto');
+console.log('PASS skill: scoped form renders and emits entered data with its context');
 assert.equal(failures.length, 0, failures.join('\n'));
 const html = await fs.readFile(path.join(assets, 'index.html'), 'utf8');
 assert.ok(html.includes("connect-src 'none'") && html.includes("frame-src 'none'"));
