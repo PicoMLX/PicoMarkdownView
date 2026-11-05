@@ -106,6 +106,7 @@ struct MarkdownExample: Identifiable, Hashable {
             webURL: "https://spec.commonmark.org/0.31.2/#block-quotes"),
         ]
         #if os(macOS)
+        examples.append(MarkdownExample(localFilename: "FileCards", webURL: "about:blank"))
         let charts = examples.firstIndex { $0.name == "Charts" }!
         examples.insert(MarkdownExample(localFilename: "Charts-Gallery-Preview",
                                         webURL: "https://vega.github.io/vega-lite/examples/",

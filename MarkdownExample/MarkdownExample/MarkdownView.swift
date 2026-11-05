@@ -10,6 +10,7 @@ import Observation
 import PicoMarkdownView
 #if os(macOS)
 import PicoMarkdownViewHTML
+import QuickLook
 #endif
 import WebKit
 
@@ -29,6 +30,11 @@ struct MarkdownView: View {
     private let isLargeFixture: Bool
     private let svgRenderingEnabled: Bool
 #if os(macOS)
+    @State private var fileCardExample = FileCardExample()
+    @State private var filePreviewURL: URL?
+    @State private var fileActionError: String?
+    @State private var fileCreationRequest = 0
+    private let isFileCardExample: Bool
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
 #endif
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
@@ -56,6 +62,9 @@ struct MarkdownView: View {
         self.inputID = example.id
         self.isLargeFixture = example.isLargeFixture
         self.svgRenderingEnabled = example.svgRenderingEnabled
+#if os(macOS)
+        self.isFileCardExample = example.name == "FileCards"
+#endif
     }
 
 #if os(macOS)
@@ -89,6 +98,23 @@ struct MarkdownView: View {
                 loadError = error.localizedDescription
             }
         }
+#if os(macOS)
+        .task(id: fileCreationRequest) {
+            guard isFileCardExample else { return }
+            do { try await fileCardExample.createFile() }
+            catch is CancellationError { return }
+            catch { fileActionError = error.localizedDescription }
+        }
+        .quickLookPreview($filePreviewURL)
+        .alert(Text("File action failed", tableName: "FileCardExample"), isPresented: Binding(
+            get: { fileActionError != nil },
+            set: { if !$0 { fileActionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { fileActionError = nil }
+        } message: {
+            Text(verbatim: fileActionError ?? "")
+        }
+#endif
     }
 
     private func loadedContent(_ markdown: String) -> some View {
@@ -115,6 +141,10 @@ struct MarkdownView: View {
                                                      onOpenUIAction: { lastOpenUIAction = $0.humanFriendlyMessage })
 #if os(macOS)
                                 .onImageTap(imageTapHandler)
+                                .withFileCard(isFileCardExample ? fileCardExample.file : nil) { action in
+                                    fileCardExample.perform(action, preview: { filePreviewURL = $0 },
+                                                            onError: { fileActionError = $0 })
+                                }
 #endif
                                 .equatable()
                         }
@@ -176,6 +206,15 @@ struct MarkdownView: View {
             }
 
 #if os(macOS)
+            if isFileCardExample {
+                Button {
+                    fileCreationRequest += 1
+                } label: {
+                    Text("Create again", tableName: "FileCardExample")
+                }
+                .disabled(fileCardExample.file.state == .creating)
+                .help(Text("Create the report again.", tableName: "FileCardExample"))
+            }
             if let lastOpenUIAction {
                 Label {
                     Text(verbatim: lastOpenUIAction)
@@ -321,6 +360,16 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onOpenUIAction: (PicoOpenUIActionEvent) -> Void
 #if os(macOS)
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
+    var fileCard: PicoFileAttachment?
+    var fileActionHandler: (@MainActor (PicoFileCardAction) -> Void)?
+
+    func withFileCard(_ file: PicoFileAttachment?,
+                      onAction: @escaping @MainActor (PicoFileCardAction) -> Void) -> Self {
+        var view = self
+        view.fileCard = file
+        view.fileActionHandler = onAction
+        return view
+    }
 
     func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
         var view = self
@@ -342,6 +391,8 @@ private struct StreamingMarkdownContent: View, Equatable {
         }, theme: exampleTheme, tagPrefixes: tagPrefixes,
            embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
             .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
+            .fileCards(fileCard.map { [$0] } ?? [])
+            .onFileCardAction { [fileActionHandler] action in fileActionHandler?(action) }
 #else
         PicoMarkdownView(stream: { [markdown, pacing] in
             wordStream(from: markdown, pacing: pacing)

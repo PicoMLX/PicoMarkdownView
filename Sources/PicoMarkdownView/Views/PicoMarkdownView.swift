@@ -6,6 +6,8 @@ public struct PicoMarkdownView: View {
     private let configuration: PicoTextKitConfiguration
 #if os(macOS)
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
+    private var fileAttachments: [PicoFileAttachment] = []
+    private var fileCardActionHandler: (@MainActor (PicoFileCardAction) -> Void)?
 #endif
 
     @State private var viewModel: MarkdownStreamingViewModel
@@ -51,6 +53,22 @@ public struct PicoMarkdownView: View {
     }
 
 #if os(macOS)
+    /// Presents registered files as cards when their link is the only content
+    /// in a closed paragraph. This live configuration does not restart a stream.
+    public func fileCards(_ files: [PicoFileAttachment]) -> Self {
+        var view = self
+        view.fileAttachments = files
+        return view
+    }
+
+    /// Handles explicit Preview and Download actions. The host app resolves
+    /// the file reference and performs the action; nil disables the controls.
+    public func onFileCardAction(_ handler: (@MainActor (PicoFileCardAction) -> Void)?) -> Self {
+        var view = self
+        view.fileCardActionHandler = handler
+        return view
+    }
+
     /// Activates loaded standalone images without adding inline controls.
     /// The app can present the captured image in its own window or sheet.
     /// Apply this modifier before generic View modifiers such as `padding()`.
@@ -183,6 +201,7 @@ public struct PicoMarkdownView: View {
             .withLinkContextMenu(linkContextMenu)
             .withHostedStreamActive(viewModel.isHostedStreamActive)
             .withImageTapHandler(imageTapHandler)
+            .withFileCards(fileAttachments, actionHandler: fileCardActionHandler)
             .withOpenUIAction(onOpenUIAction)
 #endif
             .task(id: consumeTaskID) {
@@ -327,6 +346,16 @@ private struct TextKit2Container: NSViewRepresentable {
     var isHostedStreamActive = false
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
+    var fileAttachments: [PicoFileAttachment] = []
+    var fileCardActionHandler: (@MainActor (PicoFileCardAction) -> Void)?
+
+    func withFileCards(_ files: [PicoFileAttachment],
+                       actionHandler: (@MainActor (PicoFileCardAction) -> Void)?) -> Self {
+        var container = self
+        container.fileAttachments = files
+        container.fileCardActionHandler = actionHandler
+        return container
+    }
 
     func withHostedStreamActive(_ active: Bool) -> Self {
         var container = self
@@ -362,6 +391,7 @@ private struct TextKit2Container: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextView {
         controller.installOpenUIActionHandler(onOpenUIAction)
+        controller.setFileCards(fileAttachments, actionHandler: fileCardActionHandler)
         let view = controller.makeTextKit2View(configuration: configuration)
         controller.installMermaidWidthObserver(on: view, onMeasuredContentWidth)
         controller.installContentSizeObserver(on: view, onContentSize)
@@ -374,6 +404,7 @@ private struct TextKit2Container: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSTextView, context: Context) {
         controller.installOpenUIActionHandler(onOpenUIAction)
+        controller.setFileCards(fileAttachments, actionHandler: fileCardActionHandler)
         // Cancellation changes loading presentation without a block diff.
         controller.setHostedStreamActive(isHostedStreamActive)
         controller.update(textView: nsView, blocks: blocks, diffs: diffs, replaceToken: replaceToken, configuration: configuration, documentIdentity: documentIdentity)
