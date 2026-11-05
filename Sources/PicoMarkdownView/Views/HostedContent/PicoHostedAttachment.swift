@@ -19,6 +19,8 @@ public final class PicoHostedAttachment: NSTextAttachment {
     public var onSizeChanged: (@MainActor (CGSize) -> Void)?
     var onLayoutInvalidated: (@MainActor (CGSize) -> Void)?
     var accessibilityStatus: (@MainActor () -> String?)?
+    /// Standalone link cards need blank lines when copied beside native prose.
+    var requiresParagraphBreaksForCopy = false
     public var hostingView: NSView? { hostedView }
 
     private let markdown: @MainActor () -> String

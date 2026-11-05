@@ -223,12 +223,24 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
             let range = NSIntersectionRange(value.rangeValue, NSRange(location: 0, length: storage.length))
             let selected = storage.attributedSubstring(from: range)
             var result = ""
+            var previousNeedsParagraphBreak = false
             selected.enumerateAttributes(in: NSRange(location: 0, length: selected.length)) { attributes, run, _ in
+                let text: String
+                let needsParagraphBreak: Bool
                 if let attachment = attributes[.attachment] as? PicoHostedAttachment {
-                    result += attachment.markdownRepresentation()
+                    text = attachment.markdownRepresentation()
+                    needsParagraphBreak = attachment.requiresParagraphBreaksForCopy
                 } else {
-                    result += (selected.string as NSString).substring(with: run)
+                    text = (selected.string as NSString).substring(with: run)
+                    needsParagraphBreak = false
                 }
+                if !result.isEmpty, !text.isEmpty, previousNeedsParagraphBreak || needsParagraphBreak {
+                    let present = result.reversed().prefix { $0 == "\n" }.count
+                        + text.prefix { $0 == "\n" }.count
+                    result += String(repeating: "\n", count: max(0, 2 - present))
+                }
+                result += text
+                previousNeedsParagraphBreak = needsParagraphBreak
             }
             return result
         }.joined(separator: "\n")
@@ -272,6 +284,10 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         let buttons = codeBlockCopyControls.buttons.values.sorted { $0.frame.minY < $1.frame.minY }
         for button in buttons where !children.contains(where: { ($0 as? NSView) === button }) {
             children.append(button)
+        }
+        for child in PicoFileCardAccessibility.children(in: self)
+            where !children.contains(where: { ($0 as? NSView) === child }) {
+            children.append(child)
         }
         return children
     }
