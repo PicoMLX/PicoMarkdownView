@@ -98,9 +98,19 @@ struct MacOpenUIWebRuntimeTests {
         try await waitUntil("Scaled WebKit height reaches its native attachment", whileWaiting: layout) {
             abs(attachment.measuredSize.height - model.measuredHeight) <= 2
         }
-        model.updateAppearance(dark: true)
+        let pageColorScheme = try await webView.callAsyncJavaScript(
+            "return document.documentElement.style.colorScheme;",
+            arguments: [:], in: nil, contentWorld: .page) as? String
+        let initialColorScheme = try #require(pageColorScheme)
+        try #require(initialColorScheme == "light" || initialColorScheme == "dark")
+        let updatedColorScheme = initialColorScheme == "dark" ? "light" : "dark"
+        model.updateAppearance(dark: updatedColorScheme == "dark")
         try await waitUntil("Appearance update reaches the retained child", whileWaiting: layout) {
-            model.renderCount > initialRenderCount
+            guard model.renderCount > initialRenderCount else { return false }
+            let appliedColorScheme = try await webView.callAsyncJavaScript(
+                "return document.documentElement.style.colorScheme;",
+                arguments: [:], in: nil, contentWorld: .page) as? String
+            return appliedColorScheme == updatedColorScheme
         }
         let values = try await webView.callAsyncJavaScript("""
             return {traveler:document.querySelector('input[name="traveler"]').value,
@@ -180,9 +190,9 @@ struct MacOpenUIWebRuntimeTests {
     }
 
     private func waitUntil(_ description: String, whileWaiting layout: () -> Void,
-                           condition: () -> Bool) async throws {
+                           condition: () async throws -> Bool) async throws {
         let deadline = ContinuousClock.now.advanced(by: .seconds(15))
-        while !condition() {
+        while try await !condition() {
             layout()
             if ContinuousClock.now >= deadline {
                 Issue.record("Timed out: \(description)")
