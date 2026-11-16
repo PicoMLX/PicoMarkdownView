@@ -1,0 +1,64 @@
+{
+  "repository": "https://github.com/PrismJS/prism",
+  "version": "1.29.0",
+  "revision": "59e5a3471377057de1f401ba38337aca27b80e03",
+  "license": "MIT",
+  "fixtures": [
+    {
+      "title": "Swift",
+      "language": "swift",
+      "path": "upstream/swift/function_feature.test",
+      "upstream_path": "tests/languages/swift/function_feature.test",
+      "url": "https://raw.githubusercontent.com/PrismJS/prism/59e5a3471377057de1f401ba38337aca27b80e03/tests/languages/swift/function_feature.test",
+      "sha256": "1546da3cb1fdf1170c8be2a7b4df3e79bf74e144ff66b5db64b68c0865c51cc9",
+      "source_lines": [
+        1,
+        4
+      ],
+      "container": "blockquote"
+    },
+    {
+      "title": "Python",
+      "language": "python",
+      "path": "upstream/python/decorator_feature.test",
+      "upstream_path": "tests/languages/python/decorator_feature.test",
+      "url": "https://raw.githubusercontent.com/PrismJS/prism/59e5a3471377057de1f401ba38337aca27b80e03/tests/languages/python/decorator_feature.test",
+      "sha256": "878f1fb58359d2f2401407dc95b0d2d8794fe2ddae4d8f014c08ef4a91e242f3",
+      "source_lines": [
+        1,
+        3
+      ],
+      "container": "list"
+    },
+    {
+      "title": "TypeScript",
+      "language": "typescript",
+      "path": "upstream/typescript/function_feature.test",
+      "upstream_path": "tests/languages/typescript/function_feature.test",
+      "url": "https://raw.githubusercontent.com/PrismJS/prism/59e5a3471377057de1f401ba38337aca27b80e03/tests/languages/typescript/function_feature.test",
+      "sha256": "a7de3c4ebd55f0568f0deceb9fd66a548a2e1f2f2364d7fd6bdbe6302352c19f",
+      "source_lines": [
+        1,
+        null
+      ]
+    },
+    {
+      "title": "Rust",
+      "language": "rust",
+      "path": "upstream/rust/macro_example.test",
+      "upstream_path": "tests/languages/rust/macro_example.test",
+      "url": "https://raw.githubusercontent.com/PrismJS/prism/59e5a3471377057de1f401ba38337aca27b80e03/tests/languages/rust/macro_example.test",
+      "sha256": "75fce29bee2ea36b61069fc75b9b65e467ccce3654ff90d2d774df3bf6e7a94b",
+      "source_lines": [
+        1,
+        null
+      ]
+    }
+  ],
+  "authored_examples": "authored-examples.json",
+  "adaptations": [
+    "Select source snippets before Prism token expectations; retain the pinned four snippets as a compact reference section.",
+    "Wrap the Swift reference fence in a blockquote and the Python reference fence in a list item to exercise nested code composition. Practical examples in authored-examples.json are PicoMarkdownView additions.",
+    "Expand tabs to four spaces in the list-nested Python reference fence; the vendored source input is unchanged."
+  ]
+}

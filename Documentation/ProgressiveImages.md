@@ -1,6 +1,6 @@
 # Progressive image previews
 
-The first progressive image implementation is deliberately limited to macOS standalone image blocks and progressive JPEG downloads. Apps opt in by supplying `URLSessionMarkdownImageProvider(progressiveJPEGPreviews: true)`. The default provider remains final-only; the macOS example opts in.
+The first progressive image implementation is deliberately limited to macOS standalone image blocks and progressive JPEG downloads. Apps opt in by supplying `URLSessionMarkdownImageProvider(progressiveJPEGPreviews: true)`. The default provider remains final-only. The macOS example opts in for network images and uses its bundled provider for the offline PNG samples.
 
 ## Delivery and rendering
 

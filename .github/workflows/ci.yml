@@ -10,12 +10,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-openui:
+    name: OpenUI runtime and skill examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Web/OpenUI/package-lock.json
+      - name: Install pinned runtime test dependencies
+        run: npm ci --prefix Web/OpenUI
+      - name: Validate OpenUI runtime and canonical skill examples
+        run: npm test --prefix Web/OpenUI
+
   test-macos:
     name: macOS (swift test)
     runs-on: xcode-27
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify curated example fixtures
+        run: |
+          python3 Scripts/export-markdown-example.py --check
+          python3 Scripts/export-code-math-examples.py --check
+          python3 Scripts/export-media-examples.py --check
+          python3 Scripts/export-chart-examples.py --check
 
       # Hosted attachments require the macOS 27 runtime and Xcode 27 SDK.
       - name: Select latest Xcode 27

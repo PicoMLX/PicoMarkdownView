@@ -11,6 +11,11 @@ let package = Package(
         .iOS(.v18)
     ],
     products: [
+        // Renderer guidance without linking TextKit, SwiftMath or OpenUI.
+        .library(
+            name: "PicoMarkdownSkills",
+            targets: ["PicoMarkdownSkills"]
+        ),
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "PicoMarkdownView",
@@ -29,6 +34,18 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-markdown.git", branch: "release/6.2")
     ],
     targets: [
+        .target(
+            name: "PicoMarkdownSkills",
+            path: "Skills",
+            sources: ["PicoMarkdownSkills.swift"],
+            resources: [
+                .copy("pele-diagrams"),
+                .copy("svg-graphics"),
+                .copy("vega-lite-charts"),
+                .copy("openui-interfaces"),
+                .copy("html-previews")
+            ]
+        ),
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
@@ -48,7 +65,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PicoMarkdownViewHTMLTests",
-            dependencies: ["PicoMarkdownViewHTML"]
+            dependencies: ["PicoMarkdownViewHTML", "PicoMarkdownSkills"]
         ),
         // Explicitly opt-in real-window latency/memory experiments; excluded from CI.
         .testTarget(
@@ -61,7 +78,7 @@ let package = Package(
         ),
         .testTarget(
             name: "PicoMarkdownViewTests",
-            dependencies: ["PicoMarkdownView"]
+            dependencies: ["PicoMarkdownView", "PicoMarkdownSkills"]
         ),
         // CommonMark conformance: every spec example parsed by PicoMarkdownView
         // and by cmark-gfm (swift-markdown), compared as block structure, with

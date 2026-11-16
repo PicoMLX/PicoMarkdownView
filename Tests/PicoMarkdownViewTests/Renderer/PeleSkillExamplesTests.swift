@@ -1,5 +1,6 @@
 #if canImport(JavaScriptCore)
 import Foundation
+import PicoMarkdownSkills
 import Testing
 @testable import PicoMarkdownView
 
@@ -14,15 +15,8 @@ struct PeleSkillExamplesTests {
         var testDescription: String { "\(file):\(line)" }
     }
 
-    private static let skillDirectory: URL = {
-        // Tests/PicoMarkdownViewTests/Renderer/<this file> → repository root.
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Skills/pele-diagrams", isDirectory: true)
-    }()
+    private static let skillDirectory = PicoMarkdownSkills.directoryURL
+        .appendingPathComponent("pele-diagrams", isDirectory: true)
 
     private static func examples() throws -> [Example] {
         let files = ["SKILL.md", "references/diagram-types.md"]
