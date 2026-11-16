@@ -1,6 +1,9 @@
 import Foundation
 import Observation
 import os
+#if os(macOS)
+import Synchronization
+#endif
 
 @MainActor
 @Observable
@@ -62,6 +65,11 @@ final class MarkdownStreamingViewModel {
     private var imagePrefetchTasks: [URL: Task<Void, Never>] = [:]
     private var imagePrefetchGeneration: UInt64 = 0
 #if os(macOS)
+    // Pixel updates bypass SwiftUI body evaluation and the Markdown pipeline.
+    @ObservationIgnored private(set) var imagePreviews: [URL: MarkdownImagePreview] = [:]
+    @ObservationIgnored var onImagePreview: ((URL, MarkdownImagePreview?, UInt64) -> Void)?
+    @ObservationIgnored private var finishedImagePreviewURLs: Set<URL> = []
+    @ObservationIgnored private var imagePreviewSequences: [URL: UInt64] = [:]
     private var mermaidPreviewTask: Task<Void, Never>?
     private var pendingMermaidPreviewIDs: Set<BlockID> = []
 #endif
@@ -501,6 +509,12 @@ final class MarkdownStreamingViewModel {
     }
 
     private func resetImagePrefetchState() {
+#if os(macOS)
+        for url in imagePreviews.keys { onImagePreview?(url, nil, pipelineGeneration) }
+        imagePreviews.removeAll(keepingCapacity: true)
+        finishedImagePreviewURLs.removeAll(keepingCapacity: true)
+        imagePreviewSequences.removeAll(keepingCapacity: true)
+#endif
         imagePrefetchGeneration &+= 1
         for task in imagePrefetchTasks.values {
             task.cancel()
@@ -527,6 +541,12 @@ final class MarkdownStreamingViewModel {
         }
 
         let validURLs = Set(dependencies.keys)
+#if os(macOS)
+        for url in imagePreviews.keys where !validURLs.contains(url) {
+            imagePreviews[url] = nil
+            onImagePreview?(url, nil, pipelineGeneration)
+        }
+#endif
         for (url, task) in imagePrefetchTasks where !validURLs.contains(url) {
             task.cancel()
             imagePrefetchTasks[url] = nil
@@ -548,6 +568,13 @@ final class MarkdownStreamingViewModel {
         for url in pendingURLs.sorted(by: { $0.absoluteString < $1.absoluteString }) {
             guard requestedRemoteImageURLs.insert(url).inserted else { continue }
             let generation = imagePrefetchGeneration
+#if os(macOS)
+            if let progressive = prefetcher as? any MarkdownProgressiveImagePrefetchingProvider,
+               progressive.progressiveJPEGPreviewsEnabled {
+                scheduleProgressiveImagePrefetch(url, provider: progressive, generation: generation)
+                continue
+            }
+#endif
             imagePrefetchTasks[url] = Task { [weak self] in
                 guard let self else { return }
                 let result = await prefetcher.prefetch(url)
@@ -570,6 +597,52 @@ final class MarkdownStreamingViewModel {
             }
         }
     }
+
+#if os(macOS)
+    private func scheduleProgressiveImagePrefetch(_ url: URL,
+        provider: any MarkdownProgressiveImagePrefetchingProvider, generation: UInt64) {
+        let sequence = Mutex<UInt64>(0)
+        imagePrefetchTasks[url] = Task { [weak self] in
+            let result = await provider.prefetch(url) { [weak self] result in
+                let revision = sequence.withLock { value in value &+= 1; return value }
+                Task { @MainActor [weak self] in
+                    self?.receiveImagePreview(result, url: url, generation: generation, sequence: revision)
+                }
+            }
+            guard let self, !Task.isCancelled, generation == self.imagePrefetchGeneration else { return }
+            if let result {
+                if self.imagePreviews[url] != nil {
+                    self.receiveImagePreview(result, url: url, generation: generation, isFinal: true)
+                }
+                self.finishedImagePreviewURLs.insert(url)
+                self.handleImagePrefetchCompletion(url: url, generation: generation)
+            } else {
+                self.finishedImagePreviewURLs.insert(url)
+                self.imagePrefetchTasks[url] = nil
+                self.imagePreviews[url] = nil
+                self.onImagePreview?(url, nil, self.pipelineGeneration)
+            }
+        }
+    }
+
+    private func receiveImagePreview(_ result: MarkdownImageResult, url: URL,
+                                     generation: UInt64, isFinal: Bool = false, sequence: UInt64 = 0) {
+        guard generation == imagePrefetchGeneration,
+              imageBlockDependencies[url]?.isEmpty == false,
+              isFinal || (!finishedImagePreviewURLs.contains(url) &&
+                          sequence > imagePreviewSequences[url, default: 0]) else { return }
+        if !isFinal { imagePreviewSequences[url] = sequence }
+        var result = result
+        let size = result.size ?? result.image.size
+        guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return }
+        if let width = theme.imageMaxWidth, width.isFinite, width > 0, size.width > width {
+            result.size = CGSize(width: width, height: size.height * width / size.width)
+        }
+        let preview = MarkdownImagePreview(result: result, isFinal: isFinal)
+        imagePreviews[url] = preview
+        onImagePreview?(url, preview, pipelineGeneration)
+    }
+#endif
 
     private func handleImagePrefetchCompletion(url: URL, generation: UInt64) {
         guard generation == imagePrefetchGeneration else {

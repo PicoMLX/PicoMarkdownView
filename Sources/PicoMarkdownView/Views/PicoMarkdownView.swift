@@ -186,6 +186,11 @@ public struct PicoMarkdownView: View {
             .withOpenUIAction(onOpenUIAction)
 #endif
             .task(id: consumeTaskID) {
+#if os(macOS)
+                viewModel.onImagePreview = { [weak controller] url, preview, identity in
+                    controller?.receiveImagePreview(url: url, preview: preview, documentIdentity: identity)
+                }
+#endif
                 await viewModel.consume(input)
             }
             .task(id: textScaleTaskID) {
