@@ -13,7 +13,7 @@ extension PicoEmbeddedBlockRenderer {
         makeJSONRender(onAction: nil)
     }
 
-    /// Also accepts `sendMessage` buttons. The application decides what to do
+    /// Enables `sendMessage` buttons. The application decides what to do
     /// with the message when the user activates one.
     public static func jsonRender(
         onAction: @escaping @MainActor @Sendable (PicoJSONRenderAction) -> Void
@@ -35,15 +35,18 @@ extension PicoEmbeddedBlockRenderer {
                     await onAction(.sendMessage(message))
                 }
             }
-            var components = NativeCatalog.components.filter { PicoJSONRenderSpec.supportsComponent($0.key) }
             // The upstream switch draws its label separately from an untitled
             // Toggle. Use a native control with its own accessible label.
-            components["Switch"] = ComponentDefinition { AnyView(PicoJSONRenderSwitch(context: $0)) }
-            return AnyView(PicoJSONRenderPreview(
-                context: context,
-                spec: spec,
-                registry: RendererRegistry(components: components, actions: actions)
-            ))
+            let toggle = ComponentDefinition { AnyView(PicoJSONRenderSwitch(context: $0)) }
+            let registry = NativeCatalog.registry(
+                extraComponents: [
+                    "Switch": toggle,
+                    "Image": ComponentDefinition { AnyView(PicoJSONRenderImage(props: $0.props, context: context)) }
+                ],
+                actions: actions,
+                animatesAppearance: false
+            )
+            return AnyView(PicoJSONRenderPreview(context: context, spec: spec, registry: registry))
         }
     }
 }
@@ -81,27 +84,32 @@ private struct PicoJSONRenderPreview: View {
 private struct PicoJSONRenderSwitch: View {
     let context: ComponentRenderContext<AnyView>
     @Environment(\.jsonRenderTextScale) private var textScale
+    @State private var localValue: Bool?
 
     var body: some View {
-        if let path = context.binding("checked"), let label = context.props.string("label") {
-            let isOn = Binding {
-                context.stateValue(at: path)?.boolValue ?? false
-            } set: { value in
+        let path = context.binding("checked")
+        let isOn = Binding {
+            if let path { return context.stateValue(at: path)?.boolValue ?? false }
+            return localValue ?? context.props.bool("checked") ?? false
+        } set: { value in
+            if let path {
                 context.setState(at: path, to: .bool(value))
+            } else {
+                localValue = value
             }
-            Toggle(isOn: isOn) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: label)
-                        .font(.system(size: 13 * textScale))
-                    if let description = context.props.string("description") {
-                        Text(verbatim: description)
-                            .font(.system(size: 11 * textScale))
-                            .foregroundStyle(.secondary)
-                    }
+        }
+        Toggle(isOn: isOn) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(verbatim: context.props.string("label") ?? "")
+                    .font(.system(size: 13 * textScale))
+                if let description = context.props.string("description") {
+                    Text(verbatim: description)
+                        .font(.system(size: 11 * textScale))
+                        .foregroundStyle(.secondary)
                 }
             }
-            .toggleStyle(.switch)
         }
+        .toggleStyle(.switch)
     }
 }
 #endif

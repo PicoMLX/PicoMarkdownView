@@ -31,15 +31,24 @@ public final class PicoEmbeddedBlockContext {
 
 #if os(macOS)
     package let loadingState: PicoEmbeddedLoadingState?
+    private let imageProvider: (any MarkdownImageProvider)?
 
     init(source: String, kind: PicoEmbeddedBlockSelector, bodyFontSize: CGFloat,
-         loadingState: PicoEmbeddedLoadingState? = nil) {
+         loadingState: PicoEmbeddedLoadingState? = nil, imageProvider: (any MarkdownImageProvider)? = nil) {
         self.loadingState = loadingState
+        self.imageProvider = imageProvider
         self.source = source
         self.kind = kind
         if case let .fencedCode(language) = kind { self.language = language }
         else { self.language = nil }
         self.bodyFontSize = bodyFontSize
+    }
+
+    package func image(for url: URL) async -> MarkdownImageResult? {
+        if let prefetcher = imageProvider as? any MarkdownImagePrefetchingProvider {
+            return await prefetcher.prefetch(url)
+        }
+        return await imageProvider?.image(for: url)
     }
 #else
     init(source: String, kind: PicoEmbeddedBlockSelector, bodyFontSize: CGFloat) {
@@ -106,6 +115,10 @@ struct RenderedEmbeddedBlock: Sendable, Equatable {
     let kind: PicoEmbeddedBlockSelector
     let bodyFontSize: CGFloat
     var isClosed = true
+#if os(macOS)
+    // Like the renderer, this is fixed for the lifetime of the document model.
+    var imageProvider: (any MarkdownImageProvider)? = nil
+#endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.renderer.identity == rhs.renderer.identity && lhs.source == rhs.source

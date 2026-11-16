@@ -63,7 +63,7 @@ struct ExamplePage: Identifiable, Hashable {
             MarkdownExample("HTMLPreviews", name: "HTML Previews", htmlPreviewsEnabled: true),
             MarkdownExample("JSONRender", name: "JSON Render",
                             reference: "https://github.com/vercel-labs/json-render/blob/v0.23.1/swift/JSONRender/README.md",
-                            jsonRenderEnabled: true)
+                            jsonRenderEnabled: true, usesBundledImages: true)
         ])
         #else
         return ExamplePage(name: "OpenUI", examples: [openUI])

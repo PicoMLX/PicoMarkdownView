@@ -6,7 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-/// The offline Images sample resolves only its three bundled PngSuite assets.
+/// Resolves only the example app's three bundled PngSuite assets.
 nonisolated struct ExampleImageProvider: MarkdownImageProvider {
     func image(for url: URL) async -> MarkdownImageResult? {
         guard url.scheme == "example-image", url.host?.isEmpty != false,

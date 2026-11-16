@@ -81,7 +81,8 @@ let package = Package(
             name: "PicoMarkdownViewJSONRenderTests",
             dependencies: [
                 "PicoMarkdownView", "PicoMarkdownViewJSONRender",
-                .product(name: "JSONRenderCore", package: "json-render", condition: .when(platforms: [.macOS]))
+                .product(name: "JSONRenderCore", package: "json-render", condition: .when(platforms: [.macOS])),
+                .product(name: "JSONRenderCatalog", package: "json-render", condition: .when(platforms: [.macOS]))
             ]
         ),
         .testTarget(
