@@ -1095,6 +1095,13 @@ final class TextKitStreamingBackend {
     private func updateHostedRecord(at index: Int, block: RenderedBlock) {
 #if canImport(AppKit)
         let previous = Set(records[index].hostedAttachments.map { $0.attachment.hostedContentID })
+        records[index].table = block.table
+        records[index].tableSnapshot = block.snapshot.table
+        records[index].mermaidDiagram = block.mermaidDiagram
+        records[index].vegaLiteChart = block.vegaLiteChart
+        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil && block.vegaLiteChart == nil && block.openUI == nil ? block.codeBlock : nil
+        records[index].vectorIsClosed = block.snapshot.isClosed
+        records[index].embeddedBlock = block.embeddedBlock
         let oldURL = records[index].standaloneImageBlock?.images.first?.url
         let standalone = standaloneImageRun(for: block) == nil ? nil : block
         let newURL = standalone?.images.first?.url
@@ -1106,13 +1113,6 @@ final class TextKitStreamingBackend {
             if let newURL { imagePreviewDependencies[newURL, default: []].insert(block.id) }
         }
         records[index].standaloneImageBlock = standalone
-        records[index].table = block.table
-        records[index].tableSnapshot = block.snapshot.table
-        records[index].mermaidDiagram = block.mermaidDiagram
-        records[index].vegaLiteChart = block.vegaLiteChart
-        records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil && block.vegaLiteChart == nil && block.openUI == nil ? block.codeBlock : nil
-        records[index].vectorIsClosed = block.snapshot.isClosed
-        records[index].embeddedBlock = block.embeddedBlock
         records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
         records[index].imageIsClosed = block.snapshot.isClosed
         records[index].svgGraphic = block.svgGraphic
