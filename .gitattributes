@@ -2,3 +2,7 @@
 Sources/PicoMarkdownView/Resources/VegaLite/vega*.js linguist-vendored=true
 # Generated web assets preserve upstream notices and JavaScript string whitespace.
 Sources/PicoOpenUIRuntime/Resources/OpenUI/** linguist-generated=true -whitespace
+# Byte-exact, pinned fixture inputs retain upstream line endings and whitespace.
+MarkdownExample/FixtureSources/Code/upstream/** linguist-vendored=true -text -whitespace
+MarkdownExample/FixtureSources/Markdown/cmark-gfm-extensions-0.29.0.gfm.13.txt linguist-vendored=true -text -whitespace
+MarkdownExample/FixtureSources/Math/EXAMPLES.md linguist-vendored=true -text -whitespace

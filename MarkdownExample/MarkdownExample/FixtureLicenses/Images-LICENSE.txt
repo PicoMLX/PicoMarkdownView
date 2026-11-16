@@ -1,0 +1,10 @@
+PngSuite images from libpng v1.6.51
+Source: https://raw.githubusercontent.com/pnggroup/libpng/49363adcfaf098748d7a4c8c624ad8c45a8c3a86/contrib/pngsuite/README
+
+pngsuite
+--------
+Copyright (c) Willem van Schaik, 1999, 2011, 2012
+Two images (ftbbn0g01.png and ftbbn0g02.png) are by Glenn Randers-Pehrson, 2012
+
+Permission to use, copy, modify, and distribute these images for any
+purpose and without fee is hereby granted.
