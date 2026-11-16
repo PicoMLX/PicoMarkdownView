@@ -10,6 +10,7 @@ enum PicoJSONRenderSpec {
     static let maximumDepth = 8
     static let maximumMessageBytes = 512
     private static let maximumChartRows = 16
+    private static let maximumChartTextBytes = 128
     // Keep the per-fence allocation budget from the original chart catalog.
     private static let maximumPropSlots = maximumElements * (10 + 5 * maximumChartRows)
     static let sendMessageAction = "sendMessage"
@@ -119,6 +120,9 @@ enum PicoJSONRenderSpec {
             let label = props["label"]?.stringValue ?? (type == "Button" ? props["text"]?.stringValue : nil)
             return label?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         }
+        if type == "Metric" {
+            return (props["value"]?.displayString.utf8.count ?? 0) <= 64
+        }
         guard type == "BarChart" || type == "LineChart" else { return true }
         if let height = props["height"]?.doubleValue, !(100...320).contains(height) { return false }
         guard let rows = props["data"]?.arrayValue else { return true }
@@ -128,11 +132,13 @@ enum PicoJSONRenderSpec {
         let yKey = props["yKey"]?.stringValue ?? "y"
         return rows.allSatisfy { row in
             guard let values = row.objectValue else { return true }
-            if let label = values[xKey], label.displayString.utf8.count > 128 { return false }
+            if let label = values[xKey], label.displayString.utf8.count > maximumChartTextBytes { return false }
+            let numericText = values[yKey]?.stringValue
+            if let numericText, numericText.utf8.count > maximumChartTextBytes { return false }
             // Validate the numeric strings Swift Charts receives through the
             // pinned catalog as well as ordinary JSON numbers.
             let value = values[yKey]?.doubleValue
-                ?? values[yKey]?.stringValue.flatMap { Double($0.filter { "0123456789.-".contains($0) }) }
+                ?? numericText.flatMap { Double($0.filter { "0123456789.-".contains($0) }) }
             return value.map { (-1e12...1e12).contains($0) } ?? true
         }
     }

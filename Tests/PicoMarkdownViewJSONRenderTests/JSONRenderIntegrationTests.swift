@@ -155,6 +155,26 @@ struct JSONRenderIntegrationTests {
         }
     }
 
+    @Test("Chart number strings from state are bounded before filtering", arguments: ["BarChart", "LineChart"])
+    func limitsChartNumberStringsFromState(component: String) throws {
+        let chart = UIElement(type: component, props: ["data": [["x": "April", "y": ["$state": "/value"]]]])
+        var spec = Spec(root: "chart", elements: ["chart": chart], state: ["value": "5%"])
+        #expect(PicoJSONRenderSpec.decode(try encode(spec)) != nil)
+
+        spec.state?["value"] = .string(String(repeating: "x", count: 128) + "5")
+        #expect(PicoJSONRenderSpec.decode(try encode(spec)) == nil)
+    }
+
+    @Test("The metric display limit also covers structured values from state")
+    func limitsMetricDisplayFromState() throws {
+        let metric = UIElement(type: "Metric", props: ["label": "Value", "value": ["$state": "/value"]])
+        var spec = Spec(root: "metric", elements: ["metric": metric], state: ["value": [42]])
+        #expect(PicoJSONRenderSpec.decode(try encode(spec)) != nil)
+
+        spec.state?["value"] = [.string(String(repeating: "x", count: 64))]
+        #expect(PicoJSONRenderSpec.decode(try encode(spec)) == nil)
+    }
+
     @Test("Native images inherit the Markdown image provider", arguments: [false, true])
     func inheritsImageProvider(hasProvider: Bool) async throws {
         let url = try #require(URL(string: "https://example.com/image.png"))
