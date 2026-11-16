@@ -401,8 +401,10 @@ private struct StreamingMarkdownContent: View, Equatable {
     private var embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] {
         var renderers: [PicoEmbeddedBlockRenderer] = htmlPreviewsEnabled ? [.htmlPreview] : []
         if jsonRenderEnabled {
-            if let jsonRenderActionHandler {
-                renderers.append(.jsonRender(onAction: jsonRenderActionHandler))
+            if jsonRenderActionHandler != nil {
+                renderers.append(.jsonRender { [jsonRenderActionHandler] action in
+                    jsonRenderActionHandler?(action)
+                })
             } else {
                 renderers.append(.jsonRender)
             }
