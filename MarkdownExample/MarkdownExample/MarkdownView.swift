@@ -10,6 +10,7 @@ import Observation
 import PicoMarkdownView
 #if os(macOS)
 import PicoMarkdownViewHTML
+import PicoMarkdownViewJSONRender
 #endif
 import WebKit
 
@@ -25,6 +26,7 @@ struct MarkdownView: View {
     private let localPath: String
     private let tagPrefixes: Set<TagPrefix>
     private let htmlPreviewsEnabled: Bool
+    private let jsonRenderEnabled: Bool
     private let inputID: UUID
     private let isLargeFixture: Bool
     private let svgRenderingEnabled: Bool
@@ -44,6 +46,9 @@ struct MarkdownView: View {
     @State private var linkHoverReadout: String?
     @State private var contentSize: CGSize?
     @State private var lastOpenUIAction: String?
+#if os(macOS)
+    @State private var lastJSONRenderAction: String?
+#endif
 
     private let autoScrollClock = ContinuousClock()
 
@@ -53,6 +58,7 @@ struct MarkdownView: View {
         self._markdown = State(initialValue: example.isLargeFixture ? nil : try! example.loadMarkdown())
         self.tagPrefixes = example.tagPrefixes
         self.htmlPreviewsEnabled = example.htmlPreviewsEnabled
+        self.jsonRenderEnabled = example.jsonRenderEnabled
         self.inputID = example.id
         self.isLargeFixture = example.isLargeFixture
         self.svgRenderingEnabled = example.svgRenderingEnabled
@@ -106,6 +112,7 @@ struct MarkdownView: View {
                                                      pacing: streamPacing,
                                                      tagPrefixes: tagPrefixes,
                                                      htmlPreviewsEnabled: htmlPreviewsEnabled,
+                                                     jsonRenderEnabled: jsonRenderEnabled,
                                                      svgRenderingEnabled: svgRenderingEnabled,
                                                      onOpenURL: { openURL($0) },
                                                      onTagTap: { lastTappedTag = $0 },
@@ -115,6 +122,10 @@ struct MarkdownView: View {
                                                      onOpenUIAction: { lastOpenUIAction = $0.humanFriendlyMessage })
 #if os(macOS)
                                 .onImageTap(imageTapHandler)
+                                .onJSONRenderAction { action in
+                                    lastJSONRenderAction = action.message
+                                    AccessibilityNotification.Announcement(action.message).post()
+                                }
 #endif
                                 .equatable()
                         }
@@ -176,6 +187,10 @@ struct MarkdownView: View {
             }
 
 #if os(macOS)
+            if let lastJSONRenderAction {
+                Label("JSON Render action: \(lastJSONRenderAction)", systemImage: "rectangle.and.hand.point.up.left")
+                    .font(.callout)
+            }
             if let lastOpenUIAction {
                 Label {
                     Text(verbatim: lastOpenUIAction)
@@ -312,6 +327,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     let pacing: ExampleStreamPacing
     let tagPrefixes: Set<TagPrefix>
     let htmlPreviewsEnabled: Bool
+    let jsonRenderEnabled: Bool
     let svgRenderingEnabled: Bool
     let onOpenURL: (URL) -> Void
     let onTagTap: (TagReference) -> Void
@@ -321,17 +337,39 @@ private struct StreamingMarkdownContent: View, Equatable {
     let onOpenUIAction: (PicoOpenUIActionEvent) -> Void
 #if os(macOS)
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
+    var jsonRenderActionHandler: (@MainActor @Sendable (PicoJSONRenderAction) -> Void)? = nil
 
     func onImageTap(_ handler: (@MainActor (MarkdownImageActivation) -> Void)?) -> Self {
         var view = self
         view.imageTapHandler = handler
         return view
     }
+
+    func onJSONRenderAction(_ handler: @escaping @MainActor @Sendable (PicoJSONRenderAction) -> Void) -> Self {
+        var view = self
+        view.jsonRenderActionHandler = handler
+        return view
+    }
+
+    private var embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] {
+        var renderers: [PicoEmbeddedBlockRenderer] = htmlPreviewsEnabled ? [.htmlPreview] : []
+        if jsonRenderEnabled {
+            if jsonRenderActionHandler != nil {
+                renderers.append(.jsonRender { [jsonRenderActionHandler] action in
+                    jsonRenderActionHandler?(action)
+                })
+            } else {
+                renderers.append(.jsonRender)
+            }
+        }
+        return renderers
+    }
 #endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.inputID == rhs.inputID
             && lhs.htmlPreviewsEnabled == rhs.htmlPreviewsEnabled
+            && lhs.jsonRenderEnabled == rhs.jsonRenderEnabled
             && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
     }
 
@@ -340,7 +378,7 @@ private struct StreamingMarkdownContent: View, Equatable {
         PicoMarkdownView(stream: { [markdown, pacing] in
             wordStream(from: markdown, pacing: pacing)
         }, theme: exampleTheme, tagPrefixes: tagPrefixes,
-           embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
+           embeddedBlockRenderers: embeddedBlockRenderers)
             .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
 #else
         PicoMarkdownView(stream: { [markdown, pacing] in
@@ -353,6 +391,7 @@ private struct StreamingMarkdownContent: View, Equatable {
         streamingMarkdownView
 #if os(macOS)
             .id(htmlPreviewsEnabled)
+            .id(jsonRenderEnabled)
             .id(svgRenderingEnabled)
 #endif
             .id(inputID)

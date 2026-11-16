@@ -19,6 +19,7 @@ struct MarkdownExample: Identifiable, Hashable {
     /// `$` ticker and `[[ ]]` wiki paired delimiter too.
     let tagPrefixes: Set<TagPrefix>
     let htmlPreviewsEnabled: Bool
+    let jsonRenderEnabled: Bool
     /// Large offline fixtures load asynchronously and omit the extra diagnostic views.
     let isLargeFixture: Bool
     /// Only the SVG demo opts into rendering SVG fences as native graphics.
@@ -29,6 +30,7 @@ struct MarkdownExample: Identifiable, Hashable {
          displayName: String? = nil,
          tagPrefixes: Set<TagPrefix> = TagPrefix.defaults,
          htmlPreviewsEnabled: Bool = false,
+         jsonRenderEnabled: Bool = false,
          isLargeFixture: Bool = false,
          svgRenderingEnabled: Bool = false) {
         self.name = displayName ?? localFilename
@@ -37,6 +39,7 @@ struct MarkdownExample: Identifiable, Hashable {
         self.webURL = URL(string: webURL)!
         self.tagPrefixes = tagPrefixes
         self.htmlPreviewsEnabled = htmlPreviewsEnabled
+        self.jsonRenderEnabled = jsonRenderEnabled
         self.isLargeFixture = isLargeFixture
         self.svgRenderingEnabled = svgRenderingEnabled
     }
@@ -115,6 +118,11 @@ struct MarkdownExample: Identifiable, Hashable {
             localFilename: "HTMLPreviews",
             webURL: "https://github.com/PicoMLX/PicoMarkdownView/blob/main/MarkdownExample/MarkdownExample/markdown%20files/HTMLPreviews.md",
             htmlPreviewsEnabled: true))
+        examples.append(MarkdownExample(
+            localFilename: "JSONRender",
+            webURL: "https://github.com/vercel-labs/json-render/blob/v0.23.1/swift/JSONRender/README.md",
+            displayName: "JSON Render",
+            jsonRenderEnabled: true))
         #endif
         return examples
     }()
