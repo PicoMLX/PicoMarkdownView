@@ -359,6 +359,8 @@ final class TextKitStreamingBackend {
     private var hostedStreamActive = true
     private var hostedOpenUIs: [BlockID: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
+    private var pendingHostedLayoutIDs: Set<BlockID> = []
+    private var hostedLayoutScheduled = false
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -420,6 +422,7 @@ final class TextKitStreamingBackend {
     /// also runs when SwiftUI has no new Markdown diff to deliver.
     func applyPendingFileCardUpdates(selection: NSRange) -> NSRange {
         guard !isPaused, !pendingFileCardIDs.isEmpty else { return selection }
+        defer { scheduleHostedLayout() }
         if let contentStorage {
             var updated = selection
             contentStorage.performEditingTransaction {
@@ -497,6 +500,7 @@ final class TextKitStreamingBackend {
 
     func apply(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
 #if canImport(AppKit)
+        defer { scheduleHostedLayout() }
         if let contentStorage {
             var result = selection
             contentStorage.performEditingTransaction {
@@ -508,6 +512,26 @@ final class TextKitStreamingBackend {
         return applyToStorage(blocks: blocks, diffs: diffs, selection: selection)
     }
 
+#if canImport(AppKit)
+    private func scheduleHostedLayout() {
+        guard !pendingHostedLayoutIDs.isEmpty, !hostedLayoutScheduled else { return }
+        hostedLayoutScheduled = true
+        Task { @MainActor [weak self] in
+            // Invalidation inside updateNSView can be absorbed by its current
+            // layout pass. Publish changed attachments after that update ends.
+            await Task.yield()
+            guard let self else { return }
+            self.hostedLayoutScheduled = false
+            let ids = self.pendingHostedLayoutIDs
+            self.pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
+            for id in ids {
+                guard let index = self.indexByID[id] else { continue }
+                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+            }
+        }
+    }
+#endif
+
     private func applyToStorage(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
         if isPaused {
             deferred = DeferredUpdate(blocks: blocks, diffs: diffs)
@@ -516,6 +540,7 @@ final class TextKitStreamingBackend {
 #if canImport(AppKit)
         var selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
         if shouldResetDocument {
+            pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
             documentGeneration &+= 1
             onDocumentReset?()
             shouldResetDocument = false
@@ -1103,6 +1128,8 @@ final class TextKitStreamingBackend {
 
 #if canImport(AppKit)
     private func updateHostedAttachmentRecords(at index: Int) {
+        let id = records[index].id
+        let previous = Set(records[index].hostedAttachments.map { $0.attachment.hostedContentID })
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
@@ -1110,13 +1137,18 @@ final class TextKitStreamingBackend {
             let paragraph = attributed.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
             let indent = max(paragraph?.headIndent ?? 0, paragraph?.firstLineHeadIndent ?? 0)
             hosted.append(HostedRecord(attachment: attachment, offset: range.location, indent: indent))
-            let id = records[index].id
             attachment.onLayoutInvalidated = { [weak self] _ in
-                guard let self, let index = self.indexByID[id] else { return }
-                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+                guard let self, self.indexByID[id] != nil else { return }
+                // Measurement can change an attachment during its parent's
+                // layout pass, where an immediate invalidation can be absorbed.
+                self.pendingHostedLayoutIDs.insert(id)
+                self.scheduleHostedLayout()
             }
         }
         records[index].hostedAttachments = hosted
+        if previous != Set(hosted.map { $0.attachment.hostedContentID }) {
+            pendingHostedLayoutIDs.insert(id)
+        }
     }
 #endif
 
@@ -1164,8 +1196,6 @@ final class TextKitStreamingBackend {
                         markdown: { model.markdown }) { context in
                             PicoHostedOpenUIView(model: model, context: context)
                         }
-                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    attachment.attachmentCell = nil
                     attachment.seedSizeBeforeViewCreation(CGSize(width: 1, height: model.measuredHeight))
                     model.onHeightChanged = { [weak attachment] in attachment?.invalidateSize() }
                     entry = (model, attachment)
@@ -1206,12 +1236,6 @@ final class TextKitStreamingBackend {
                         PicoHostedMediaView(model: model, context: context)
                     }
                 attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
-                if vector.kind == .vegaLite {
-                    // A nonnil transparent image bootstraps AppKit's lazy view
-                    // provider even before a chart has a vector document.
-                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    attachment.attachmentCell = nil
-                }
                 entry = (model, attachment)
                 hostedVectors[block.id] = entry
             }
@@ -1335,8 +1359,6 @@ final class TextKitStreamingBackend {
                 PicoHostedFileCardView(model: model, context: context)
             }
             attachment.requiresParagraphBreaksForCopy = true
-            attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-            attachment.attachmentCell = nil
             attachment.seedSizeBeforeViewCreation(CGSize(width: 1, height: max(72, ceil(candidate.bodyFontSize * 4))))
             entry = FileCardEntry(referenceURL: candidate.link.referenceURL, model: model, attachment: attachment)
             hostedFiles[id] = entry
@@ -1397,8 +1419,6 @@ final class TextKitStreamingBackend {
                         PicoHostedEmbeddedBlockView(model: model, context: context)
                     }
                 if model.loadingState != nil {
-                    hosted.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    hosted.attachmentCell = nil
                     hosted.seedSizeBeforeViewCreation(CGSize(width: 1, height: PicoEmbeddedLoadingState.height))
                 }
                 attachment = hosted
@@ -1475,6 +1495,8 @@ final class TextKitStreamingBackend {
                 markdown: { model.markdownRepresentation() }) { context in
                     PicoHostedMediaView(model: model, context: context)
                 }
+            // Reserve the known image height so a delayed load can mount its lazy view.
+            attachment.seedSizeBeforeViewCreation(size)
             entry = (model, attachment, activation)
         }
         hostedImages[block.id] = entry
@@ -1511,11 +1533,6 @@ final class TextKitStreamingBackend {
                     PicoHostedMediaView(model: model, context: context)
                 }
             attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
-            // A transparent placeholder avoids AppKit's generic file icon
-            // while retaining the nonnil image that bootstraps lazy providers.
-            // The SVG itself is drawn by the hosted vector canvas.
-            attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-            attachment.attachmentCell = nil
             // Reserve the loading row or known vector geometry before lazy
             // TextKit provider creation; a one-point placeholder can otherwise
             // stay collapsed in SwiftUI sizing.

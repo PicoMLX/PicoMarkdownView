@@ -1,0 +1,47 @@
+{
+  "output": "MarkdownExample/MarkdownExample/markdown files/Charts.md",
+  "version": "6.5.0",
+  "revision": "e415f441845e198629f2049b46849ddcfdbf6596",
+  "input": "Tests/Fixtures/VegaLiteGallery/preview-manifest.json",
+  "entries": [
+    {
+      "id": "bar_grouped",
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_grouped.vl.json",
+      "sourceSHA256": "3afcc515517e17e65c074426e9358ff2526a15d32ee0be918fe1d375ed116e5d",
+      "changes": []
+    },
+    {
+      "id": "bar_negative",
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_negative.vl.json",
+      "sourceSHA256": "f2a15109f87d8e9c5f7d32050cd47ba107874c6d675295eecac144c7e00a2ea4",
+      "changes": []
+    },
+    {
+      "id": "histogram_log",
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/histogram_log.vl.json",
+      "sourceSHA256": "9e5d57f526e28750d12e2aa71774d8032c8955d2f9ce2f88e00364f396842754",
+      "changes": []
+    },
+    {
+      "id": "bar_gantt",
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/bar_gantt.vl.json",
+      "sourceSHA256": "259b43ed01c84cbfd3ab0d8d13bdbf1fac6512b9d8278073fc3130b8a526c4ee",
+      "changes": []
+    },
+    {
+      "id": "layer_bar_annotations",
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/layer_bar_annotations.vl.json",
+      "sourceSHA256": "3c7eb76172777a42aa28ca83675b606861769434c9f0e2a426e93bf29a9b82e4",
+      "changes": []
+    },
+    {
+      "id": "trellis_anscombe",
+      "sourceURL": "https://github.com/vega/vega-lite/blob/e415f441845e198629f2049b46849ddcfdbf6596/examples/specs/trellis_anscombe.vl.json",
+      "sourceSHA256": "ad1d7a1c06b35180758c677b74c0cb7bf8eb2a9e3041f1d37ebdb60d5b5476d1",
+      "changes": []
+    }
+  ],
+  "authoredComposition": "MarkdownExample/FixtureSources/Charts/composition.md",
+  "outputSHA256": "9ee7164422ee16125b528280f6d883e458c67975fd66584b9993a343ead1ca9a",
+  "notices": "Charts-Gallery-LICENSE.txt and Charts-Gallery-data-credits.json (already bundled)"
+}
