@@ -477,6 +477,47 @@ Recognized preview blocks hide raw source immediately and show a compact loading
 
 Opt-in [long-message performance](Documentation/HTMLPerformanceBenchmarks.md) and [viewport/lazy-chat benchmarks](Documentation/HTMLViewportBenchmarks.md) record streaming latency, readiness, page lifetime and host-process memory. They are not CI timing gates.
 
+### json-render (macOS, opt-in)
+
+Add the `PicoMarkdownViewJSONRender` product to your macOS target to render `json-render` fences as native SwiftUI views inside the TextKit 2 document.
+
+```swift
+import PicoMarkdownView
+import PicoMarkdownViewJSONRender
+
+PicoMarkdownView(markdown, embeddedBlockRenderers: [.jsonRender])
+```
+
+````markdown
+```json-render
+{
+  "root": "summary",
+  "elements": {
+    "summary": { "type": "Card", "props": { "title": "Build complete" }, "children": ["details"] },
+    "details": { "type": "Text", "props": { "text": "All checks passed." } }
+  }
+}
+```
+````
+
+An open fence displays its source as it streams. At closure, the adapter validates the completed JSON and presents it as one attachment. Unsupported or malformed specs remain code. Selecting across the attachment copies the fenced JSON with the surrounding Markdown. A `json-render` fence also displays as code on iOS or in a view without a registration.
+
+The catalog includes `Card`, `Stack`, `Text`, `Metric`, `BarChart`, and `Switch`. A switch binds to a top-level Boolean in `state`, for example with `"checked": {"$bindState":"/showNotes"}`. To show a child only when that switch is on, give the child `"visible": {"$state":"/showNotes","eq":true}`.
+
+Register a callback to enable `Button` elements whose `on.press` binding is `{"action":"sendMessage","params":{"message":"Review requested"}}`. Your app decides what to do with the supplied text.
+
+```swift
+PicoMarkdownView(markdown, embeddedBlockRenderers: [
+    .jsonRender { action in
+        handleSuggestedMessage(action.message)
+    }
+])
+```
+
+The **JSON Render** page in the macOS example shows a switch, a button callback, and source fallback.
+
+Each fence takes one JSON object of at most 32 KiB, with a tree of at most 64 components and eight levels. The SwiftPM manifest pins Vercel’s Swift package, and the adapter is the only product that links it. [Vercel’s SwiftUI renderer](https://github.com/vercel-labs/json-render/blob/v0.23.1/swift/JSONRender/README.md)
+
 ### Resetting Content
 
 To replace content, pass a new string/chunks/stream so the view creates a fresh input:

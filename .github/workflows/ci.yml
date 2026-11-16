@@ -70,6 +70,11 @@ jobs:
             echo "::error::Swift Testing exited without completing the HTML preview test suite."
             exit 1
           fi
+          swift test --skip-build --filter PicoMarkdownViewJSONRenderTests 2>&1 | tee json-render-test.log
+          if ! grep -Eq 'Test run with [1-9][0-9]* tests.* passed' json-render-test.log; then
+            echo "::error::Swift Testing exited without completing the json-render adapter test suite."
+            exit 1
+          fi
 
   test-ios:
     name: iOS Simulator (xcodebuild test)
