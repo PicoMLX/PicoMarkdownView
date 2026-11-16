@@ -16,7 +16,9 @@ struct MacHostedMermaidIntegrationTests {
         let original = try #require(hostedAttachments(in: storage).first)
         let originalLength = storage.length
         #expect(markerCount(in: storage) == 1)
-        #expect(original.image == nil, "the hosted diagram must not be a raster attachment")
+        #expect(original.image?.size == CGSize(width: 1, height: 1),
+                "The image is only a transparent bootstrap; the hosted canvas draws the diagram")
+        #expect(original.attachmentCell == nil)
         #expect(await pipeline.blocksSnapshot().contains { $0.mermaidDiagram?.svg != nil })
         view.setSelectedRange(NSRange(location: 0, length: originalLength))
         let originalSelection = view.selectedRange()
@@ -308,7 +310,7 @@ struct MacHostedMermaidIntegrationTests {
         let hosted = all.compactMap { $0 as? PicoHostedAttachment }
         let raster = all.filter { !($0 is PicoHostedAttachment) }
         #expect(hosted.count == 1)
-        #expect(hosted.allSatisfy { $0.image == nil })
+        #expect(hosted.allSatisfy { $0.image?.size == CGSize(width: 1, height: 1) && $0.attachmentCell == nil })
         #expect(raster.count >= 2)
         #expect(raster.allSatisfy { $0.image != nil && $0.bounds.width > 0 && $0.bounds.height > 0 })
         #expect(view.textLayoutManager != nil)
