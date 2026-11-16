@@ -60,6 +60,7 @@ struct EmbeddedBlockRendererTests {
         controller.update(textView: view, blocks: update.blocks, diffs: [update.diff], replaceToken: 1, configuration: .default())
         view.layout()
         let attachment = try #require(attachments(in: view).first)
+        #expect(attachment.interaction == .selectableBlock)
         let context = try #require(recorder.contexts.first)
         #expect(recorder.contexts.count == 1)
         #expect(context.source == "<div>card</div>\n")
@@ -87,6 +88,28 @@ struct EmbeddedBlockRendererTests {
         #expect(context.bodyFontSize == baseSize * 1.5)
         #expect(recorder.contexts.count == 1)
         #expect(view.textLayoutManager != nil)
+    }
+
+    @Test("Interactive registrations use native input routing and keep fenced source copying")
+    func interactiveHostedPresentation() async throws {
+        let renderer = PicoEmbeddedBlockRenderer(selectors: [.fencedCode(language: "widget")],
+                                                 interaction: .interactive) { _ in
+            AnyView(Button("Run") {})
+        }
+        let fencedSource = "```widget\nbutton\n```"
+        let pipeline = MarkdownStreamingPipeline(embeddedBlockRenderers: [renderer])
+        let update = try #require(await pipeline.feed("Before.\n\n" + fencedSource + "\n\nAfter.\n\n"))
+        let (controller, view) = makeView()
+        controller.update(textView: view, blocks: update.blocks, diffs: [update.diff], replaceToken: 1, configuration: .default())
+
+        let attachment = try #require(attachments(in: view).first)
+        #expect(attachment.interaction == .interactive)
+        view.setSelectedRange(NSRange(location: 0, length: view.textStorage?.length ?? 0))
+        let copied = view.markdownForSelection()
+        #expect(copied.contains("Before."))
+        #expect(copied.contains(fencedSource))
+        #expect(copied.contains("After."))
+        #expect(!copied.contains("\u{FFFC}"))
     }
 
     @Test("A declined first registration preserves native HTML/code and does not try later factories")
