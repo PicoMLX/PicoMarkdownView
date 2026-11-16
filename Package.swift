@@ -26,9 +26,14 @@ let package = Package(
             name: "PicoMarkdownViewHTML",
             targets: ["PicoMarkdownViewHTML"]
         ),
+        .library(
+            name: "PicoMarkdownViewJSONRender",
+            targets: ["PicoMarkdownViewJSONRender"]
+        ),
     ],
     dependencies: [
         .package(url: "https://github.com/mgriebling/SwiftMath.git", .upToNextMajor(from: "1.7.3")),
+        .package(url: "https://github.com/vercel-labs/json-render.git", exact: "0.23.1"),
         // Test-only: cmark-gfm through Apple's wrapper, the reference parser
         // the conformance suite compares against. Not linked by the library.
         .package(url: "https://github.com/swiftlang/swift-markdown.git", branch: "release/6.2")
@@ -62,6 +67,23 @@ let package = Package(
             name: "PicoMarkdownViewHTML",
             dependencies: ["PicoMarkdownView"],
             resources: [.process("Resources")]
+        ),
+        .target(
+            name: "PicoMarkdownViewJSONRender",
+            dependencies: [
+                "PicoMarkdownView",
+                .product(name: "JSONRenderCore", package: "json-render", condition: .when(platforms: [.macOS])),
+                .product(name: "JSONRenderSwiftUI", package: "json-render", condition: .when(platforms: [.macOS])),
+                .product(name: "JSONRenderCatalog", package: "json-render", condition: .when(platforms: [.macOS]))
+            ]
+        ),
+        .testTarget(
+            name: "PicoMarkdownViewJSONRenderTests",
+            dependencies: [
+                "PicoMarkdownView", "PicoMarkdownViewJSONRender",
+                .product(name: "JSONRenderCore", package: "json-render", condition: .when(platforms: [.macOS])),
+                .product(name: "JSONRenderCatalog", package: "json-render", condition: .when(platforms: [.macOS]))
+            ]
         ),
         .testTarget(
             name: "PicoMarkdownViewHTMLTests",

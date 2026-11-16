@@ -9,6 +9,7 @@ nonisolated struct MarkdownExample: Identifiable, Hashable, Sendable {
     let referenceURL: URL?
     let tagPrefixes: Set<TagPrefix>
     let htmlPreviewsEnabled: Bool
+    let jsonRenderEnabled: Bool
     let isLargeFixture: Bool
     let svgRenderingEnabled: Bool
     let usesBundledImages: Bool
@@ -18,6 +19,7 @@ nonisolated struct MarkdownExample: Identifiable, Hashable, Sendable {
          reference: String? = nil,
          tagPrefixes: Set<TagPrefix> = [],
          htmlPreviewsEnabled: Bool = false,
+         jsonRenderEnabled: Bool = false,
          isLargeFixture: Bool = false,
          svgRenderingEnabled: Bool = false,
          usesBundledImages: Bool = false) {
@@ -26,6 +28,7 @@ nonisolated struct MarkdownExample: Identifiable, Hashable, Sendable {
         self.referenceURL = reference.flatMap(URL.init(string:))
         self.tagPrefixes = tagPrefixes
         self.htmlPreviewsEnabled = htmlPreviewsEnabled
+        self.jsonRenderEnabled = jsonRenderEnabled
         self.isLargeFixture = isLargeFixture
         self.svgRenderingEnabled = svgRenderingEnabled
         self.usesBundledImages = usesBundledImages

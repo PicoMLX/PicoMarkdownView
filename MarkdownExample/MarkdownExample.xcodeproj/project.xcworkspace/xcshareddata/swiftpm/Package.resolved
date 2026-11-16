@@ -1,6 +1,15 @@
 {
-  "originHash" : "5a27e4c5fc6190af3033244bc82d412f31c3c625b738e385752c20673c3961e0",
+  "originHash" : "88c94e3885e3ddb68e4c577ad9ba0e1793c6f9012f158e5161e6aa82c3be8059",
   "pins" : [
+    {
+      "identity" : "json-render",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vercel-labs/json-render.git",
+      "state" : {
+        "revision" : "5e99a387536a1528d8113eb929ab4b7e611701ae",
+        "version" : "0.23.1"
+      }
+    },
     {
       "identity" : "meshingkit",
       "kind" : "remoteSourceControl",

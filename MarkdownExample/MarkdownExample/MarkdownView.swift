@@ -10,6 +10,7 @@ import Observation
 import PicoMarkdownView
 #if os(macOS)
 import PicoMarkdownViewHTML
+import PicoMarkdownViewJSONRender
 import QuickLook
 #endif
 
@@ -46,7 +47,7 @@ struct MarkdownView: View {
     @State private var lastTappedTag: TagReference?
     @State private var tagHoverReadout: String?
     @State private var linkHoverReadout: String?
-    @State private var lastOpenUIAction: String?
+    @State private var lastEmbeddedViewAction: String?
 
     private let autoScrollClock = ContinuousClock()
 
@@ -128,6 +129,7 @@ struct MarkdownView: View {
                                                      pacing: streamPacing,
                                                      tagPrefixes: tagPrefixes,
                                                      htmlPreviewsEnabled: htmlPreviewsEnabled,
+                                                     jsonRenderEnabled: example.jsonRenderEnabled,
                                                      svgRenderingEnabled: svgRenderingEnabled,
                                                      usesBundledImages: example.usesBundledImages,
                                                      onOpenURL: { openURL($0) },
@@ -135,9 +137,13 @@ struct MarkdownView: View {
                                                      onTagHover: { tagHoverReadout = $0 },
                                                      onLinkHover: { linkHoverReadout = $0 },
                                                      onContentSize: { handleContentSizeChange($0) },
-                                                     onOpenUIAction: { lastOpenUIAction = $0.humanFriendlyMessage })
+                                                     onOpenUIAction: { lastEmbeddedViewAction = $0.humanFriendlyMessage })
 #if os(macOS)
                                 .onImageTap(imageTapHandler)
+                                .onJSONRenderAction { action in
+                                    lastEmbeddedViewAction = action.message
+                                    AccessibilityNotification.Announcement(action.message).post()
+                                }
                                 .withFileCard(isFileCardExample ? fileCardExample.file : nil) { action in
                                     fileCardExample.perform(action, preview: { filePreviewURL = $0 },
                                                             onError: { fileActionError = $0 })
@@ -200,8 +206,8 @@ struct MarkdownView: View {
                 .disabled(fileCardExample.file.state == .creating)
                 .help(Text("Create the report again.", tableName: "FileCardExample"))
             }
-            if let lastOpenUIAction {
-                Label(lastOpenUIAction, systemImage: "rectangle.and.hand.point.up.left")
+            if let lastEmbeddedViewAction {
+                Label(lastEmbeddedViewAction, systemImage: "rectangle.and.hand.point.up.left")
                     .font(.callout)
             }
             if !tagPrefixes.isEmpty || example.localFilename == "LinkMenus" {
@@ -255,7 +261,7 @@ struct MarkdownView: View {
         lastTappedTag = nil
         tagHoverReadout = nil
         linkHoverReadout = nil
-        lastOpenUIAction = nil
+        lastEmbeddedViewAction = nil
         isAutoScrolling = true
         autoScrollSuppressionDeadline = nil
     }
@@ -356,6 +362,7 @@ private struct StreamingMarkdownContent: View, Equatable {
     let pacing: ExampleStreamPacing
     let tagPrefixes: Set<TagPrefix>
     let htmlPreviewsEnabled: Bool
+    let jsonRenderEnabled: Bool
     let svgRenderingEnabled: Bool
     let usesBundledImages: Bool
     let onOpenURL: (URL) -> Void
@@ -367,6 +374,7 @@ private struct StreamingMarkdownContent: View, Equatable {
 #if os(macOS)
     private static let progressiveImageProvider = URLSessionMarkdownImageProvider(progressiveJPEGPreviews: true)
     var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)? = nil
+    var jsonRenderActionHandler: (@MainActor @Sendable (PicoJSONRenderAction) -> Void)?
     var fileCard: PicoFileAttachment?
     var fileActionHandler: (@MainActor (PicoFileCardAction) -> Void)?
 
@@ -383,11 +391,32 @@ private struct StreamingMarkdownContent: View, Equatable {
         view.imageTapHandler = handler
         return view
     }
+
+    func onJSONRenderAction(_ handler: @escaping @MainActor @Sendable (PicoJSONRenderAction) -> Void) -> Self {
+        var view = self
+        view.jsonRenderActionHandler = handler
+        return view
+    }
+
+    private var embeddedBlockRenderers: [PicoEmbeddedBlockRenderer] {
+        var renderers: [PicoEmbeddedBlockRenderer] = htmlPreviewsEnabled ? [.htmlPreview] : []
+        if jsonRenderEnabled {
+            if jsonRenderActionHandler != nil {
+                renderers.append(.jsonRender { [jsonRenderActionHandler] action in
+                    jsonRenderActionHandler?(action)
+                })
+            } else {
+                renderers.append(.jsonRender)
+            }
+        }
+        return renderers
+    }
 #endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.inputID == rhs.inputID
             && lhs.htmlPreviewsEnabled == rhs.htmlPreviewsEnabled
+            && lhs.jsonRenderEnabled == rhs.jsonRenderEnabled
             && lhs.svgRenderingEnabled == rhs.svgRenderingEnabled
     }
 
@@ -397,7 +426,7 @@ private struct StreamingMarkdownContent: View, Equatable {
             wordStream(from: markdown, pacing: pacing)
         }, theme: exampleTheme, imageProvider: usesBundledImages ? ExampleImageProvider() : Self.progressiveImageProvider,
            tagPrefixes: tagPrefixes,
-           embeddedBlockRenderers: htmlPreviewsEnabled ? [.htmlPreview] : [])
+           embeddedBlockRenderers: embeddedBlockRenderers)
             .onImageTap { [imageTapHandler] image in imageTapHandler?(image) }
             .fileCards(fileCard.map { [$0] } ?? [])
             .onFileCardAction { [fileActionHandler] action in fileActionHandler?(action) }
@@ -413,6 +442,7 @@ private struct StreamingMarkdownContent: View, Equatable {
         streamingMarkdownView
 #if os(macOS)
             .id(htmlPreviewsEnabled)
+            .id(jsonRenderEnabled)
             .id(svgRenderingEnabled)
 #endif
             .id(inputID)

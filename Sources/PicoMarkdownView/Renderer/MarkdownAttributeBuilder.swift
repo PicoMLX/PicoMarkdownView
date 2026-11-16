@@ -177,7 +177,8 @@ actor MarkdownAttributeBuilder {
             default: kind = .htmlBlock // Selectors never match Markdown or math blocks.
             }
             result.embeddedBlock = RenderedEmbeddedBlock(renderer: renderer, source: snapshot.codeText ?? "",
-                                                        kind: kind, bodyFontSize: bodyFont.pointSize, isClosed: snapshot.isClosed)
+                                                        kind: kind, bodyFontSize: bodyFont.pointSize,
+                                                        isClosed: snapshot.isClosed, imageProvider: imageProvider)
         }
         if let spacingContext {
             let spaced = applySpacing(spacingContext, to: result.attributed, previousKind: previousBlockKind)
