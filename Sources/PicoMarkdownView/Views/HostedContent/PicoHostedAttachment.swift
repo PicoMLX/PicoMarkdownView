@@ -19,6 +19,8 @@ public final class PicoHostedAttachment: NSTextAttachment {
     public var onSizeChanged: (@MainActor (CGSize) -> Void)?
     var onLayoutInvalidated: (@MainActor (CGSize) -> Void)?
     var accessibilityStatus: (@MainActor () -> String?)?
+    /// Standalone link cards need blank lines when copied beside native prose.
+    var requiresParagraphBreaksForCopy = false
     public var hostingView: NSView? { hostedView }
 
     private let markdown: @MainActor () -> String
@@ -35,6 +37,10 @@ public final class PicoHostedAttachment: NSTextAttachment {
         self.markdown = markdown
         self.content = { AnyView(content($0)) }
         super.init(data: Data([1]), ofType: "com.picomarkdown.hosted-content")
+        // A nonnil image bootstraps AppKit's lazy view provider. Keep that
+        // fallback transparent instead of stretching its generic file icon.
+        image = NSImage(size: CGSize(width: 1, height: 1), flipped: false) { _ in true }
+        attachmentCell = nil
         allowsTextAttachmentView = true
         bounds = CGRect(origin: .zero, size: measuredSize)
         Self.attachments[hostedContentID] = WeakAttachment(value: self)

@@ -79,6 +79,72 @@ noninteractive content that participates in the outer text selection, or
 This primitive does not change the parser's supported Markdown syntax. Hosted
 content must provide a finite intrinsic height at its proposed width.
 
+### File cards (macOS 27, opt-in)
+
+Register app-owned file metadata to display a top-level standalone Markdown file
+link as one hosted card. Links inside lists or blockquotes remain native text.
+The link paragraph must close before it becomes a card; a link followed by prose
+stays ordinary text.
+
+```swift
+@State private var report = PicoFileAttachment(
+    id: "report",
+    referenceURL: URL(string: "sandbox:/mnt/data/Report.md")!,
+    filename: "Report.md",
+    typeDescription: "Markdown"
+)
+
+var body: some View {
+    PicoMarkdownView(stream: makeStream, streamID: messageID)
+        .fileCards([report])
+        .onFileCardAction { event in
+            switch event.kind {
+            case .preview:
+                previewArtifact(id: event.file.id)
+            case .download:
+                saveArtifact(id: event.file.id)
+            }
+        }
+}
+```
+
+The matching source is an ordinary link on its own between paragraphs:
+
+```markdown
+The report is being prepared.
+
+[Report.md](sandbox:/mnt/data/Report.md)
+
+The explanation continues here.
+```
+
+The URL is an opaque artifact reference matched against the registered metadata;
+the library does not read it as a local path or fetch it. If a reference URL
+is registered more than once, its first registration is used. The host resolves
+the artifact and handles Preview/Download. Controls are disabled while Creating or
+when no action handler is installed.
+
+Retain the metadata object while the document streams. Once the host has created
+the real file, update that same object:
+
+```swift
+report.byteCount = generatedData.count
+report.state = .ready
+```
+
+Creating/Ready and metadata updates refresh the hosted view directly, preserving
+its attachment, the text storage, and the user's native selection. They do not
+feed or reparse Markdown, replace the document, or restart the stream. Only the
+explicit buttons capture clicks; dragging through the card still selects it as
+one unit. Copying exports the canonical escaped Markdown link, with paragraph
+boundaries preserved in mixed selections, rather than status labels or a local
+preview path. Multiple occurrences of a file have their own attachment identity.
+
+This first card presentation is macOS-only. iOS continues to display ordinary
+Markdown links. The example app's **FileCards** page creates a real Markdown file,
+changes its card from Creating to Ready while the trailing paragraph streams,
+and provides Quick Look preview and a user-selected save destination.
+
 ### OpenUI on macOS
 
 Opt in to the official OpenUI web renderer for `openui` fences on macOS 27:
@@ -272,6 +338,17 @@ The callback is available on `PicoMarkdownView` on macOS. Apply it before genera
 Images mixed with prose, multiple images in one paragraph, heading images, and table-cell images keep their existing rendering and do not invoke this callback. An open image paragraph keeps its native attachment until closure, since more streamed prose may still follow. Existing asynchronous image loading and block-local refreshes are reused. iOS image rendering is unchanged.
 
 The macOS example owns a lightbox over its whole window content, with zoom, pan, Copy Image, Save and Escape dismissal. Mermaid, SVG and Vega-Lite retain their inline controls.
+
+On macOS, progressive JPEG previews are an explicit provider opt-in:
+
+```swift
+let images = URLSessionMarkdownImageProvider(progressiveJPEGPreviews: true)
+PicoMarkdownView(markdown, imageProvider: images)
+```
+
+Closed, standalone image blocks can display intermediate JPEG quality while the download continues. The decoder works on a background utility queue, makes at most eight attempts at geometric byte checkpoints, and caps preview snapshots at 1024 pixels per dimension. Later quality updates repaint the existing canvas without changing Markdown or its text layout. Original source, alternative text, title and copying are preserved. The normal completed-image decoder and cache still supply the final image.
+
+The default provider remains final-only. Inline, table-cell and heading images, other image formats, and iOS retain their existing rendering. A progressive JPEG may finish before an intermediate snapshot is useful; previews are best effort. A failed download returns to the normal alternative-text fallback. The macOS example enables the option for network images. See [implementation limits and local benchmark results](Documentation/ProgressiveImages.md).
 
 ### Diagrams (Mermaid)
 

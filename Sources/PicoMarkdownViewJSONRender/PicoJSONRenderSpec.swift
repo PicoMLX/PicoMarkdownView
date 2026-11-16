@@ -8,12 +8,16 @@ enum PicoJSONRenderSpec {
     static let maximumElements = 64
     static let maximumDepth = 8
     static let maximumMessageBytes = 512
+    private static let maximumChartRows = 16
+    // The resolver charges two slots per object entry and one per array
+    // entry. A chart has up to five props and two object entries per row.
+    private static let maximumPropSlots = maximumElements * (2 * 5 + (1 + 2 * 2) * maximumChartRows)
     static let sendMessageAction = "sendMessage"
     static let renderLimits = RenderTreeLimits(
         maxDepth: maximumDepth,
         maxRenderedNodes: maximumElements,
         maxWork: maximumElements,
-        maxResolvedPropBytes: maximumSourceBytes * 2,
+        maxResolvedPropBytes: maximumPropSlots * MemoryLayout<JSONValue>.stride,
         maxChildIDBytes: maximumElements * 64
     )
 
@@ -160,7 +164,7 @@ enum PicoJSONRenderSpec {
               props.optionalText("title", upTo: 128),
               props.optionalText("xKey", upTo: 32), props.optionalText("yKey", upTo: 32),
               props.optionalNumber("height", in: 100...320),
-              let rows = props["data"]?.arrayValue, (1...16).contains(rows.count) else { return false }
+              let rows = props["data"]?.arrayValue, (1...maximumChartRows).contains(rows.count) else { return false }
 
         let xKey = props["xKey"]?.stringValue ?? "x"
         let yKey = props["yKey"]?.stringValue ?? "y"

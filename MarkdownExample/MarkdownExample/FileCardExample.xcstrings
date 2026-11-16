@@ -1,0 +1,50 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "File action failed": {
+      "comment": "Alert title if creating, previewing or saving the example file fails.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File action failed"
+          }
+        }
+      }
+    },
+    "The example file is not ready.": {
+      "comment": "Error when a file-card action is requested before the example artifact exists.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The example file is not ready."
+          }
+        }
+      }
+    },
+    "Create again": {
+      "comment": "Recreates the example report while keeping the same file card.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create again"
+          }
+        }
+      }
+    },
+    "Create the report again.": {
+      "comment": "Help for the example report recreation button.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create the report again."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -253,11 +253,13 @@ import Testing
         #expect(result.svg.utf8.count < 100_000)
     }
 
-    @Test func allFiveExampleFencesProduceFiniteDataMarks() async throws {
+    @Test func allShowcaseFencesProduceFiniteDataMarks() async throws {
         let provider = VegaLiteChartProvider(theme: .default())
-        let minimumMarks = [3, 5, 5, 2, 1]
+        // Five composed examples, followed by six pinned upstream examples.
+        // The histogram aggregates its observations into bins rather than one mark per row.
+        let minimumMarks = [3, 5, 5, 2, 1, 9, 9, 1, 3, 16, 44]
         let sources = try Self.exampleSources()
-        try #require(sources.count == 5)
+        try #require(sources.count == minimumMarks.count)
         for (index, source) in sources.enumerated() {
             let result = try #require(await provider.render(source: source, targetWidth: 480), "Example \(index + 1)")
             let document = try #require(PeleSVGDocument(svg: result.svg, dialect: .vega))
@@ -265,7 +267,7 @@ import Testing
             #expect(!result.svg.contains("Infinity"))
             let marks = Self.descendants(document.root).filter {
                 $0.name == "path" && $0.attributes["role"] == "graphics-symbol" &&
-                    ["bar", "point", "line mark"].contains($0.attributes["aria-roledescription"] ?? "") &&
+                    ["bar", "point", "circle", "line mark"].contains($0.attributes["aria-roledescription"] ?? "") &&
                     !($0.attributes["d"] ?? "").isEmpty
             }
             #expect(marks.count >= minimumMarks[index], "Example \(index + 1) must contain real data marks")

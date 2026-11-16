@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import JSONRenderCore
 import Testing
 @testable import PicoMarkdownView
 @testable import PicoMarkdownViewJSONRender
@@ -79,6 +80,25 @@ struct JSONRenderIntegrationTests {
 
         let repeated = #"{"root":"stack","elements":{"stack":{"type":"Stack","props":{},"children":["item","item"]},"item":{"type":"Text","props":{"text":"Repeated"}}}}"#
         #expect(PicoJSONRenderSpec.decode(repeated) == nil)
+    }
+
+    @Test("A dense valid chart card fits the renderer's resolved prop budget")
+    func denseSpecRenders() throws {
+        let chartIDs = (0..<(PicoJSONRenderSpec.maximumElements - 1)).map { "chart\($0)" }
+        let rows = (0..<16).map { ["x": "Item \($0)", "y": $0] as [String: Any] }
+        var elements: [String: Any] = ["root": ["type": "Stack", "children": chartIDs]]
+        for id in chartIDs {
+            elements[id] = ["type": "BarChart", "props": ["data": rows]]
+        }
+        let json = try JSONSerialization.data(withJSONObject: ["root": "root", "elements": elements])
+        let spec = try #require(PicoJSONRenderSpec.decode(String(decoding: json, as: UTF8.self)))
+        let registry = RendererRegistry(components: [
+            "Stack": ComponentDefinition { _ in "Stack" },
+            "BarChart": ComponentDefinition { _ in "BarChart" }
+        ])
+        let tree = try #require(buildRenderTree(spec: spec, registry: registry, store: StateStore([:]),
+                                                limits: PicoJSONRenderSpec.renderLimits))
+        #expect(tree.children.count == chartIDs.count)
     }
 
     private static let buttonSpec = #"{"root":"button","elements":{"button":{"type":"Button","props":{"label":"Continue"},"on":{"press":{"action":"sendMessage","params":{"message":"Continue planning"}}}}}}"#

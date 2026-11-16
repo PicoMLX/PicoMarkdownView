@@ -17,6 +17,10 @@ final class TextKitStreamingController: ObservableObject {
     private var lastAppliedReplaceToken: UInt64 = 0
 #if canImport(AppKit)
     private var lastAppliedDocumentIdentity: UInt64?
+    private weak var imagePreviewTextView: NSTextView?
+    private var imagePreviewAppliedIdentity: UInt64?
+    private var pendingImagePreviewIdentity: UInt64?
+    private var pendingImagePreviews: [URL: MarkdownImagePreview] = [:]
 #endif
 
 #if canImport(UIKit)
@@ -106,6 +110,11 @@ final class TextKitStreamingController: ObservableObject {
         backend.onOpenUIAction = handler
     }
 
+    func setFileCards(_ cards: [PicoFileAttachment],
+                      actionHandler: (@MainActor (PicoFileCardAction) -> Void)? = nil) {
+        backend.setFileCards(cards, actionHandler: actionHandler)
+    }
+
     func setHostedStreamActive(_ active: Bool) {
         backend.setHostedStreamActive(active)
     }
@@ -122,8 +131,31 @@ final class TextKitStreamingController: ObservableObject {
 
     func makeTextKit2View(configuration: PicoTextKitConfiguration) -> NSTextView {
         let textView = StreamingTextKit2View(backend: backend)
+        imagePreviewTextView = textView
         configure(textView, with: configuration)
         return textView
+    }
+
+    func receiveImagePreview(url: URL, preview: MarkdownImagePreview?, documentIdentity: UInt64) {
+        guard documentIdentity == imagePreviewAppliedIdentity else {
+            if let current = imagePreviewAppliedIdentity, documentIdentity < current { return }
+            if let pending = pendingImagePreviewIdentity, documentIdentity < pending { return }
+            if pendingImagePreviewIdentity != documentIdentity {
+                pendingImagePreviewIdentity = documentIdentity
+                pendingImagePreviews.removeAll(keepingCapacity: true)
+            }
+            pendingImagePreviews[url] = preview
+            return
+        }
+        backend.setImagePreview(preview, for: url)
+        flushImagePreviews()
+    }
+
+    private func flushImagePreviews() {
+        guard let view = imagePreviewTextView else { return }
+        let selection = view.selectedRange()
+        let updated = backend.flushImagePreviews(selection: selection)
+        if updated != selection { view.setSelectedRange(updated) }
     }
 
     func update(textView: NSTextView,
@@ -132,9 +164,20 @@ final class TextKitStreamingController: ObservableObject {
                 replaceToken: UInt64,
                 configuration: PicoTextKitConfiguration,
                 documentIdentity: UInt64? = nil) {
+        imagePreviewTextView = textView
+        defer {
+            if !configuration.isPaused { imagePreviewAppliedIdentity = documentIdentity }
+            if !configuration.isPaused, let identity = documentIdentity, pendingImagePreviewIdentity == identity {
+                let previews = pendingImagePreviews
+                pendingImagePreviews.removeAll(keepingCapacity: true)
+                pendingImagePreviewIdentity = nil
+                for (url, preview) in previews { backend.setImagePreview(preview, for: url) }
+            }
+            flushImagePreviews()
+        }
         Self.logger.debug("Updating text view: blocks=\(blocks.count), replacementToken=\(replaceToken), appliedReplacementToken=\(self.lastAppliedReplaceToken), storageLength=\(self.backend.length)")
         configure(textView, with: configuration)
-        let currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
+        var currentSelection = configuration.isSelectable ? textView.selectedRange() : NSRange(location: backend.length, length: 0)
         backend.setPaused(configuration.isPaused)
         let documentChanged = documentIdentity != nil && documentIdentity != lastAppliedDocumentIdentity
         if documentChanged {
@@ -153,6 +196,11 @@ final class TextKitStreamingController: ObservableObject {
             textView.invalidateIntrinsicContentSize()
             return
         }
+        let refreshedSelection = backend.applyPendingFileCardUpdates(selection: currentSelection)
+        if configuration.isSelectable, refreshedSelection != currentSelection {
+            textView.setSelectedRange(refreshedSelection.clamped(maxLength: backend.length))
+        }
+        currentSelection = refreshedSelection
         let eligible = eligibleDiffs(from: diffs)
         if eligible.diffs.isEmpty {
             // Safety net: if the blocks have changed but all diffs were already
@@ -293,8 +341,11 @@ final class TextKitStreamingBackend {
         var codeBlockForCopy: RenderedCodeBlock? = nil
         var vectorIsClosed = true
         var embeddedBlock: RenderedEmbeddedBlock? = nil
+        var mayHostFileCard = false
+        var fileLinkIsClosed = false
         var imageRuns: [InlineRun]? = nil
         var imageIsClosed = false
+        var standaloneImageBlock: RenderedBlock? = nil
         var svgGraphic: RenderedSVGGraphic? = nil
         var openUI: RenderedOpenUIContent? = nil
         var hostedAttachments: [HostedRecord] = []
@@ -333,12 +384,33 @@ final class TextKitStreamingBackend {
             return view
         }.sorted { $0.convert($0.bounds, to: nil).midY > $1.convert($1.bounds, to: nil).midY }
     }
+    private struct FileCardCandidate {
+        let link: StandaloneFileLink
+        let prefix: String
+        let bodyFontSize: CGFloat
+    }
+    private struct FileCardEntry {
+        let referenceURL: URL
+        let model: PicoHostedFileCardModel
+        let attachment: PicoHostedAttachment
+    }
+    private var fileCardsByURL: [URL: PicoFileAttachment] = [:]
+    private var fileCardActionHandler: (@MainActor (PicoFileCardAction) -> Void)?
+    private var fileCardCandidates: [BlockID: FileCardCandidate] = [:]
+    private var fileCardBlockIDsByURL: [URL: Set<BlockID>] = [:]
+    private var pendingFileCardIDs: Set<BlockID> = []
+    private var hostedFiles: [BlockID: FileCardEntry] = [:]
     private var hostedImages: [BlockID: (model: PicoHostedMediaModel, attachment: PicoHostedAttachment,
                                          activation: MarkdownImageActivation)] = [:]
+    private var imagePreviews: [URL: MarkdownImagePreview] = [:]
+    private var imagePreviewDependencies: [URL: Set<BlockID>] = [:]
+    private var pendingImagePreviewURLs: Set<URL> = []
     private var imageTapHandler: (@MainActor (MarkdownImageActivation) -> Void)?
     private var hostedStreamActive = true
     private var hostedOpenUIs: [BlockID: (model: PicoHostedOpenUIModel, attachment: PicoHostedAttachment)] = [:]
     private var hostedRefreshIDs: Set<BlockID> = []
+    private var pendingHostedLayoutIDs: Set<BlockID> = []
+    private var hostedLayoutScheduled = false
     var onOpenUIAction: ((PicoOpenUIActionEvent) -> Void)?
     private var shouldResetDocument = false
     var onHostedHover: ((URL?, String, CGRect?) -> Void)?
@@ -353,6 +425,64 @@ final class TextKitStreamingBackend {
         storage.length
     }
 
+#if canImport(AppKit)
+    func setImagePreview(_ preview: MarkdownImagePreview?, for url: URL) {
+        guard imagePreviews[url]?.revision != preview?.revision else { return }
+        imagePreviews[url] = preview
+        pendingImagePreviewURLs.insert(url)
+    }
+
+    /// Quality updates paint the retained canvas. Only first appearance or
+    /// withdrawal changes the native text, and only for dependent image blocks.
+    func flushImagePreviews(selection: NSRange) -> NSRange {
+        guard !isPaused, !pendingImagePreviewURLs.isEmpty else { return selection }
+        let urls = pendingImagePreviewURLs
+        pendingImagePreviewURLs.removeAll(keepingCapacity: true)
+        let ids = Set(urls.flatMap { imagePreviewDependencies[$0] ?? [] })
+        var replacements: [(Int, RenderedBlock)] = []
+        for id in ids {
+            guard let index = indexByID[id], let block = records[index].standaloneImageBlock,
+                  let url = block.images.first?.url else { continue }
+            if let preview = imagePreviews[url], var entry = hostedImages[id] {
+                let size = preview.isFinal ? (preview.result.size ?? preview.result.image.size) : entry.model.intrinsicSize
+                let previousSize = entry.model.intrinsicSize
+                entry.model.update(image: preview.result.image, size: size,
+                    markdown: entry.model.markdownRepresentation(), altText: entry.activation.altText,
+                    title: entry.activation.title, maxWidth: preview.isFinal ? size.width : entry.model.maxWidth)
+                entry.activation = MarkdownImageActivation(image: preview.result.image,
+                    sourceURL: entry.activation.sourceURL, altText: entry.activation.altText,
+                    title: entry.activation.title, preferredSize: size, markdown: entry.activation.markdown)
+                hostedImages[id] = entry
+                configureImageActivation(for: id)
+                if previousSize != size { entry.attachment.invalidateSize() }
+            } else {
+                replacements.append((index, block))
+            }
+        }
+        guard !replacements.isEmpty else { return selection }
+        var updated = selection
+        let edit = {
+            self.storage.beginEditing()
+            defer { self.storage.endEditing() }
+            for (index, block) in replacements {
+                let attributed = self.attributedString(for: block)
+                guard !attributed.isEqual(to: self.records[index].nsAttributed) else { continue }
+                let range = self.rangeForRecord(at: index)
+                self.storage.replaceCharacters(in: range, with: attributed)
+                updated = self.adjust(selection: updated, editedRange: range, replacementLength: attributed.length)
+                let delta = attributed.length - self.records[index].length
+                self.records[index].length = attributed.length
+                self.records[index].nsAttributed = attributed
+                self.updateHostedRecord(at: index, block: block)
+                if delta != 0 { self.updateOffsetsAfter(index: index, delta: delta) }
+            }
+        }
+        if let contentStorage { contentStorage.performEditingTransaction(edit) } else { edit() }
+        scheduleHostedLayout()
+        return updated.clamped(maxLength: storage.length)
+    }
+#endif
+
     func setPaused(_ paused: Bool) {
 #if canImport(AppKit)
         guard isPaused != paused else { return }
@@ -364,6 +494,77 @@ final class TextKitStreamingBackend {
     }
 
 #if canImport(AppKit)
+    /// File membership is live configuration. Existing observed file values
+    /// update their controls directly; only promotion/removal needs text edits.
+    func setFileCards(_ cards: [PicoFileAttachment],
+                      actionHandler: (@MainActor (PicoFileCardAction) -> Void)? = nil) {
+        let hadHandler = fileCardActionHandler != nil
+        fileCardActionHandler = actionHandler
+        if hadHandler != (actionHandler != nil) {
+            for (id, entry) in hostedFiles { configureFileCardAction(for: id, entry: entry) }
+        }
+
+        var registered: [URL: PicoFileAttachment] = [:]
+        for card in cards where registered[card.referenceURL] == nil {
+            registered[card.referenceURL] = card
+        }
+        let changedURLs = Set(fileCardsByURL.keys).union(registered.keys).filter { url in
+            fileCardsByURL[url] !== registered[url]
+        }
+        guard !changedURLs.isEmpty else { return }
+        fileCardsByURL = registered
+        for url in changedURLs {
+            for id in fileCardBlockIDsByURL[url] ?? [] {
+                if let file = registered[url], let entry = hostedFiles[id],
+                   let candidate = fileCardCandidates[id] {
+                    entry.model.update(file: file, markdown: candidate.link.markdown, bodyFontSize: candidate.bodyFontSize)
+                    entry.attachment.invalidateSize()
+                } else {
+                    pendingFileCardIDs.insert(id)
+                }
+            }
+        }
+    }
+
+    /// Reconcile only link occurrences affected by catalog membership. This
+    /// also runs when SwiftUI has no new Markdown diff to deliver.
+    func applyPendingFileCardUpdates(selection: NSRange) -> NSRange {
+        guard !isPaused, !pendingFileCardIDs.isEmpty else { return selection }
+        defer { scheduleHostedLayout() }
+        if let contentStorage {
+            var updated = selection
+            contentStorage.performEditingTransaction {
+                updated = applyPendingFileCardUpdatesToStorage(selection: selection)
+            }
+            return updated
+        }
+        return applyPendingFileCardUpdatesToStorage(selection: selection)
+    }
+
+    private func applyPendingFileCardUpdatesToStorage(selection: NSRange) -> NSRange {
+        guard !isPaused, !pendingFileCardIDs.isEmpty else { return selection }
+        let ids = pendingFileCardIDs.sorted { (indexByID[$0] ?? Int.max) < (indexByID[$1] ?? Int.max) }
+        pendingFileCardIDs.removeAll(keepingCapacity: true)
+        var updated = selection
+        storage.beginEditing()
+        defer { storage.endEditing() }
+        for id in ids {
+            guard let index = indexByID[id], let candidate = fileCardCandidates[id] else { continue }
+            let native = NSAttributedString.picoConverted(from: records[index].content)
+            let attributed = fileCardAttributedString(for: id, candidate: candidate, native: native) ?? native
+            guard !records[index].nsAttributed.isEqual(to: attributed) else { continue }
+            let range = rangeForRecord(at: index)
+            let oldLength = records[index].length
+            storage.replaceCharacters(in: range, with: attributed)
+            updated = adjust(selection: updated, editedRange: range, replacementLength: attributed.length)
+            records[index].nsAttributed = attributed
+            records[index].length = attributed.length
+            updateHostedAttachmentRecords(at: index)
+            if attributed.length != oldLength { updateOffsetsAfter(index: index, delta: attributed.length - oldLength) }
+        }
+        return updated.clamped(maxLength: storage.length)
+    }
+
     func setHostedStreamActive(_ active: Bool) {
         guard hostedStreamActive != active else { return }
         hostedStreamActive = active
@@ -407,6 +608,7 @@ final class TextKitStreamingBackend {
 
     func apply(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
 #if canImport(AppKit)
+        defer { scheduleHostedLayout() }
         if let contentStorage {
             var result = selection
             contentStorage.performEditingTransaction {
@@ -418,14 +620,38 @@ final class TextKitStreamingBackend {
         return applyToStorage(blocks: blocks, diffs: diffs, selection: selection)
     }
 
+#if canImport(AppKit)
+    private func scheduleHostedLayout() {
+        guard !pendingHostedLayoutIDs.isEmpty, !hostedLayoutScheduled else { return }
+        hostedLayoutScheduled = true
+        Task { @MainActor [weak self] in
+            // Invalidation inside updateNSView can be absorbed by its current
+            // layout pass. Publish changed attachments after that update ends.
+            await Task.yield()
+            guard let self else { return }
+            self.hostedLayoutScheduled = false
+            let ids = self.pendingHostedLayoutIDs
+            self.pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
+            for id in ids {
+                guard let index = self.indexByID[id] else { continue }
+                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+            }
+        }
+    }
+#endif
+
     private func applyToStorage(blocks: [RenderedBlock], diffs: [AssemblerDiff], selection: NSRange) -> NSRange {
         if isPaused {
             deferred = DeferredUpdate(blocks: blocks, diffs: diffs)
             return selection.clamped(maxLength: storage.length)
         }
 #if canImport(AppKit)
-        let selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
+        var selection = shouldResetDocument ? NSRange(location: 0, length: 0) : selection
         if shouldResetDocument {
+            pendingHostedLayoutIDs.removeAll(keepingCapacity: true)
+            imagePreviews.removeAll(keepingCapacity: true)
+            imagePreviewDependencies.removeAll(keepingCapacity: true)
+            pendingImagePreviewURLs.removeAll(keepingCapacity: true)
             documentGeneration &+= 1
             onDocumentReset?()
             shouldResetDocument = false
@@ -440,6 +666,7 @@ final class TextKitStreamingBackend {
             hostedTables.removeAll()
             removeAllHostedVectors()
             hostedEmbeddedBlocks.removeAll()
+            clearHostedFiles()
             hostedImages.removeAll()
             removeAllHostedSVGs()
             disposeOpenUIs()
@@ -449,6 +676,7 @@ final class TextKitStreamingBackend {
             deferred = nil
         }
 #if canImport(AppKit)
+        selection = applyPendingFileCardUpdatesToStorage(selection: selection)
         hostedRefreshIDs = diffs.isEmpty ? Set(blocks.map(\.id)) : Set(diffs.flatMap { diff in
             diff.changes.compactMap { change in
                 if case .blockEnded(let id) = change { return id }
@@ -473,9 +701,11 @@ final class TextKitStreamingBackend {
                 blockOffsets = [0]
                 indexByID = [:]
 #if canImport(AppKit)
+                imagePreviewDependencies.removeAll(keepingCapacity: true)
                 hostedTables.removeAll()
                 removeAllHostedVectors()
                 hostedEmbeddedBlocks.removeAll()
+                clearHostedFiles()
                 hostedImages.removeAll()
                 removeAllHostedSVGs()
                 disposeOpenUIs()
@@ -489,9 +719,11 @@ final class TextKitStreamingBackend {
             blockOffsets = [0]
             indexByID = [:]
 #if canImport(AppKit)
+            imagePreviewDependencies.removeAll(keepingCapacity: true)
             hostedTables.removeAll()
             removeAllHostedVectors()
             hostedEmbeddedBlocks.removeAll()
+            clearHostedFiles()
             hostedImages.removeAll()
             removeAllHostedSVGs()
             disposeOpenUIs()
@@ -527,6 +759,12 @@ final class TextKitStreamingBackend {
             if recordMatches(record, block: data.block) { continue }
 #if canImport(AppKit)
             if updateHostedEmbeddedOnly(at: index, block: data.block) || updateHostedSVGOnly(at: index, block: data.block) || updateHostedVectorOnly(at: index, block: data.block) || updateHostedTableOnly(at: index, block: data.block) { continue }
+            if record.mayHostFileCard, !record.fileLinkIsClosed, data.block.snapshot.isClosed,
+               record.nsAttributed.isEqual(to: data.attributed) {
+                records[index].content = data.block.content
+                updateHostedRecord(at: index, block: data.block)
+                continue
+            }
 #endif
 
             let oldLength = record.length
@@ -688,6 +926,16 @@ final class TextKitStreamingBackend {
 #endif
 
         let newAttributed = attributedString(for: block)
+#if canImport(AppKit)
+        // Closure may only make a paragraph eligible for future app metadata.
+        // Preserve native text when recognition has no visible effect.
+        if record.mayHostFileCard, !record.fileLinkIsClosed, block.snapshot.isClosed,
+           record.nsAttributed.isEqual(to: newAttributed) {
+            records[index].content = block.content
+            updateHostedRecord(at: index, block: block)
+            return selection
+        }
+#endif
         let range = rangeForRecord(at: index)
 #if canImport(AppKit)
         // Preserve the already-rendered prefix of an open paragraph/code block.
@@ -735,9 +983,14 @@ final class TextKitStreamingBackend {
         for record in removed {
             indexByID[record.id] = nil
 #if canImport(AppKit)
+            if let url = record.standaloneImageBlock?.images.first?.url {
+                imagePreviewDependencies[url]?.remove(record.id)
+                if imagePreviewDependencies[url]?.isEmpty == true { imagePreviewDependencies[url] = nil }
+            }
             hostedTables.removeValue(forKey: record.id)
             removeHostedVector(for: record.id)
             hostedEmbeddedBlocks.removeValue(forKey: record.id)
+            removeFileCardOccurrence(for: record.id)
             hostedImages.removeValue(forKey: record.id)
             removeHostedSVG(for: record.id)
             hostedOpenUIs.removeValue(forKey: record.id)?.model.dispose()
@@ -771,6 +1024,8 @@ final class TextKitStreamingBackend {
         hostedTables = hostedTables.filter { liveIDs.contains($0.key) }
         for id in hostedVectors.keys.filter({ !liveIDs.contains($0) }) { removeHostedVector(for: id) }
         hostedEmbeddedBlocks = hostedEmbeddedBlocks.filter { liveIDs.contains($0.key) }
+        for id in fileCardCandidates.keys.filter({ !liveIDs.contains($0) }) { removeFileCardOccurrence(for: id) }
+        hostedFiles = hostedFiles.filter { liveIDs.contains($0.key) }
         hostedImages = hostedImages.filter { liveIDs.contains($0.key) }
         for id in hostedSVGs.keys.filter({ !liveIDs.contains($0) }) { removeHostedSVG(for: id) }
         for id in hostedOpenUIs.keys where !liveIDs.contains(id) {
@@ -781,6 +1036,9 @@ final class TextKitStreamingBackend {
     }
 
     private func rebuildRecords(using blockData: [(block: RenderedBlock, attributed: NSAttributedString)]) {
+#if canImport(AppKit)
+        imagePreviewDependencies.removeAll(keepingCapacity: true)
+#endif
         records = blockData.map { BlockRecord(id: $0.block.id, content: $0.block.content, nsAttributed: $0.attributed, length: $0.attributed.length) }
         for index in records.indices { updateHostedRecord(at: index, block: blockData[index].block) }
         indexByID = Dictionary(uniqueKeysWithValues: records.enumerated().map { ($1.id, $0) })
@@ -954,6 +1212,7 @@ final class TextKitStreamingBackend {
         return record.content == block.content && record.table == block.table && record.tableSnapshot == block.snapshot.table
             && record.mermaidDiagram == block.mermaidDiagram && record.vegaLiteChart == block.vegaLiteChart
             && record.embeddedBlock == block.embeddedBlock
+            && (!record.mayHostFileCard || record.fileLinkIsClosed == block.snapshot.isClosed)
             && record.svgGraphic == block.svgGraphic
             && record.openUI == block.openUI
             && ((block.mermaidDiagram == nil && block.vegaLiteChart == nil) || record.vectorIsClosed == block.snapshot.isClosed)
@@ -973,10 +1232,35 @@ final class TextKitStreamingBackend {
         records[index].codeBlockForCopy = block.mermaidDiagram?.svg == nil && block.vegaLiteChart == nil && block.openUI == nil ? block.codeBlock : nil
         records[index].vectorIsClosed = block.snapshot.isClosed
         records[index].embeddedBlock = block.embeddedBlock
+        let oldURL = records[index].standaloneImageBlock?.images.first?.url
+        let standalone = standaloneImageRun(for: block) == nil ? nil : block
+        let newURL = standalone?.images.first?.url
+        if oldURL != newURL {
+            if let oldURL {
+                imagePreviewDependencies[oldURL]?.remove(block.id)
+                if imagePreviewDependencies[oldURL]?.isEmpty == true { imagePreviewDependencies[oldURL] = nil }
+            }
+            if let newURL { imagePreviewDependencies[newURL, default: []].insert(block.id) }
+        }
+        records[index].standaloneImageBlock = standalone
         records[index].imageRuns = block.images.isEmpty ? nil : block.snapshot.inlineRuns
         records[index].imageIsClosed = block.snapshot.isClosed
         records[index].svgGraphic = block.svgGraphic
         records[index].openUI = block.openUI
+        // Only closed paragraphs canonicalize their link source. Tracking the
+        // close bit is constant work while a long label is still streaming.
+        let link = block.snapshot.isClosed ? StandaloneFileLink(snapshot: block.snapshot) : nil
+        records[index].mayHostFileCard = block.kind == .paragraph
+        records[index].fileLinkIsClosed = block.snapshot.isClosed
+        updateFileCardCandidate(for: block, link: link)
+        updateHostedAttachmentRecords(at: index)
+#endif
+    }
+
+#if canImport(AppKit)
+    private func updateHostedAttachmentRecords(at index: Int) {
+        let id = records[index].id
+        let previous = Set(records[index].hostedAttachments.map { $0.attachment.hostedContentID })
         let attributed = records[index].nsAttributed
         var hosted: [HostedRecord] = []
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
@@ -984,15 +1268,20 @@ final class TextKitStreamingBackend {
             let paragraph = attributed.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle
             let indent = max(paragraph?.headIndent ?? 0, paragraph?.firstLineHeadIndent ?? 0)
             hosted.append(HostedRecord(attachment: attachment, offset: range.location, indent: indent))
-            let id = block.id
             attachment.onLayoutInvalidated = { [weak self] _ in
-                guard let self, let index = self.indexByID[id] else { return }
-                self.onHostedContentSizeChanged?(self.rangeForRecord(at: index))
+                guard let self, self.indexByID[id] != nil else { return }
+                // Measurement can change an attachment during its parent's
+                // layout pass, where an immediate invalidation can be absorbed.
+                self.pendingHostedLayoutIDs.insert(id)
+                self.scheduleHostedLayout()
             }
         }
         records[index].hostedAttachments = hosted
-#endif
+        if previous != Set(hosted.map { $0.attachment.hostedContentID }) {
+            pendingHostedLayoutIDs.insert(id)
+        }
     }
+#endif
 
     private func attributedString(for block: RenderedBlock) -> NSAttributedString {
 #if canImport(AppKit)
@@ -1038,8 +1327,6 @@ final class TextKitStreamingBackend {
                         markdown: { model.markdown }) { context in
                             PicoHostedOpenUIView(model: model, context: context)
                         }
-                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    attachment.attachmentCell = nil
                     attachment.seedSizeBeforeViewCreation(CGSize(width: 1, height: model.measuredHeight))
                     model.onHeightChanged = { [weak attachment] in attachment?.invalidateSize() }
                     entry = (model, attachment)
@@ -1080,12 +1367,6 @@ final class TextKitStreamingBackend {
                         PicoHostedMediaView(model: model, context: context)
                     }
                 attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
-                if vector.kind == .vegaLite {
-                    // A nonnil transparent image bootstraps AppKit's lazy view
-                    // provider even before a chart has a vector document.
-                    attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    attachment.attachmentCell = nil
-                }
                 entry = (model, attachment)
                 hostedVectors[block.id] = entry
             }
@@ -1104,6 +1385,16 @@ final class TextKitStreamingBackend {
         }
         removeHostedVector(for: block.id)
         let native = NSAttributedString.picoConverted(from: block.content)
+        if block.snapshot.isClosed, let link = StandaloneFileLink(snapshot: block.snapshot) {
+            let candidate = makeFileCardCandidate(for: block, link: link, native: native)
+            if let card = fileCardAttributedString(for: block.id, candidate: candidate, native: native) {
+                hostedImages.removeValue(forKey: block.id)
+                hostedTables.removeValue(forKey: block.id)
+                return card
+            }
+        } else {
+            hostedFiles.removeValue(forKey: block.id)
+        }
         if let image = hostedImage(for: block, attributed: native) {
             hostedTables.removeValue(forKey: block.id)
             return image
@@ -1163,6 +1454,88 @@ final class TextKitStreamingBackend {
     }
 
 #if canImport(AppKit)
+    private func makeFileCardCandidate(for block: RenderedBlock, link: StandaloneFileLink,
+                                       native: NSAttributedString) -> FileCardCandidate {
+        let font = native.length > 0 ? native.attribute(.font, at: 0, effectiveRange: nil) as? NSFont : nil
+        return FileCardCandidate(link: link, prefix: block.listPlacement.marker.map { $0 + " " } ?? "",
+                                 bodyFontSize: font?.pointSize ?? NSFont.preferredFont(forTextStyle: .body).pointSize)
+    }
+
+    private func updateFileCardCandidate(for block: RenderedBlock, link: StandaloneFileLink?) {
+        if let previous = fileCardCandidates.removeValue(forKey: block.id) {
+            fileCardBlockIDsByURL[previous.link.referenceURL]?.remove(block.id)
+            if fileCardBlockIDsByURL[previous.link.referenceURL]?.isEmpty == true {
+                fileCardBlockIDsByURL[previous.link.referenceURL] = nil
+            }
+        }
+        guard block.snapshot.isClosed, let link else { return }
+        let native = NSAttributedString.picoConverted(from: block.content)
+        fileCardCandidates[block.id] = makeFileCardCandidate(for: block, link: link, native: native)
+        fileCardBlockIDsByURL[link.referenceURL, default: []].insert(block.id)
+    }
+
+    private func fileCardAttributedString(for id: BlockID, candidate: FileCardCandidate,
+                                          native: NSAttributedString) -> NSAttributedString? {
+        guard let file = fileCardsByURL[candidate.link.referenceURL] else {
+            hostedFiles.removeValue(forKey: id)
+            return nil
+        }
+        let entry: FileCardEntry
+        if let existing = hostedFiles[id], existing.referenceURL == candidate.link.referenceURL {
+            existing.model.update(file: file, markdown: candidate.link.markdown, bodyFontSize: candidate.bodyFontSize)
+            entry = existing
+        } else {
+            let model = PicoHostedFileCardModel(file: file, markdown: candidate.link.markdown, bodyFontSize: candidate.bodyFontSize)
+            let attachment = PicoHostedAttachment(interaction: .selectableBlock, markdown: { model.markdown }) { context in
+                PicoHostedFileCardView(model: model, context: context)
+            }
+            attachment.requiresParagraphBreaksForCopy = true
+            attachment.seedSizeBeforeViewCreation(CGSize(width: 1, height: max(72, ceil(candidate.bodyFontSize * 4))))
+            entry = FileCardEntry(referenceURL: candidate.link.referenceURL, model: model, attachment: attachment)
+            hostedFiles[id] = entry
+        }
+        configureFileCardAction(for: id, entry: entry)
+        var attributes = native.length > 0 ? native.attributes(at: 0, effectiveRange: nil) : [:]
+        for key: NSAttributedString.Key in [.link, .toolTip, .underlineStyle, .backgroundColor] {
+            attributes.removeValue(forKey: key)
+        }
+        let result = NSMutableAttributedString(string: candidate.prefix + "\u{FFFC}\n", attributes: attributes)
+        result.addAttribute(.attachment, value: entry.attachment,
+                            range: NSRange(location: candidate.prefix.utf16.count, length: 1))
+        return result
+    }
+
+    private func configureFileCardAction(for id: BlockID, entry: FileCardEntry) {
+        guard fileCardActionHandler != nil else { entry.model.onAction = nil; return }
+        let generation = documentGeneration
+        let referenceURL = entry.referenceURL
+        entry.model.onAction = { [weak self, weak model = entry.model] event in
+            guard let self, let model, self.documentGeneration == generation,
+                  self.hostedFiles[id]?.model === model,
+                  let currentFile = self.fileCardsByURL[referenceURL], currentFile === event.file,
+                  currentFile.state == .ready else { return }
+            self.fileCardActionHandler?(event)
+        }
+    }
+
+    private func removeFileCardOccurrence(for id: BlockID) {
+        hostedFiles.removeValue(forKey: id)
+        pendingFileCardIDs.remove(id)
+        if let candidate = fileCardCandidates.removeValue(forKey: id) {
+            fileCardBlockIDsByURL[candidate.link.referenceURL]?.remove(id)
+            if fileCardBlockIDsByURL[candidate.link.referenceURL]?.isEmpty == true {
+                fileCardBlockIDsByURL[candidate.link.referenceURL] = nil
+            }
+        }
+    }
+
+    private func clearHostedFiles() {
+        hostedFiles.removeAll()
+        fileCardCandidates.removeAll()
+        fileCardBlockIDsByURL.removeAll()
+        pendingFileCardIDs.removeAll()
+    }
+
     private func embeddedAttachment(for id: BlockID, presentation: RenderedEmbeddedBlock) -> PicoHostedAttachment? {
         let entry: EmbeddedEntry
         if let existing = hostedEmbeddedBlocks[id], existing.model.matches(presentation) {
@@ -1177,8 +1550,6 @@ final class TextKitStreamingBackend {
                         PicoHostedEmbeddedBlockView(model: model, context: context)
                     }
                 if model.loadingState != nil {
-                    hosted.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-                    hosted.attachmentCell = nil
                     hosted.seedSizeBeforeViewCreation(CGSize(width: 1, height: PicoEmbeddedLoadingState.height))
                 }
                 attachment = hosted
@@ -1211,33 +1582,30 @@ final class TextKitStreamingBackend {
     /// this an inline image. Reuse the renderer's loaded image and preserve
     /// native list markers, quote bars, paragraph spacing and indentation.
     private func hostedImage(for block: RenderedBlock, attributed: NSAttributedString) -> NSAttributedString? {
-        switch block.kind {
-        case .paragraph, .listItem, .blockquote: break
-        default: return nil
-        }
-        guard block.snapshot.isClosed, block.images.count == 1,
-              let runs = block.snapshot.inlineRuns else { return nil }
-        var imageRun: InlineRun?
-        for run in runs {
-            if run.image != nil {
-                guard imageRun == nil else { return nil }
-                imageRun = run
-            } else if !run.style.isEmpty || run.linkURL != nil || run.math != nil || run.tag != nil
-                        || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return nil
-            }
-        }
-        guard let run = imageRun else { return nil }
+        guard let run = standaloneImageRun(for: block),
+              let source = run.image?.source, let sourceURL = URL(string: source) else { return nil }
+        var attributed = attributed
         var loaded: (attachment: NSTextAttachment, range: NSRange)?
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, range, _ in
             if let attachment = value as? NSTextAttachment, attachment.image != nil {
                 loaded = (attachment, range)
             }
         }
+        if loaded == nil, let preview = imagePreviews[sourceURL] {
+            let attributes = attributed.length > 0 ? attributed.attributes(at: 0, effectiveRange: nil) : [:]
+            let prefix = (block.listItem?.bullet ?? block.listPlacement.marker).map { $0 + " " } ?? ""
+            let result = NSMutableAttributedString(string: prefix + "\u{FFFC}\n", attributes: attributes)
+            let attachment = NSTextAttachment()
+            attachment.image = preview.result.image
+            attachment.bounds.size = preview.result.size ?? preview.result.image.size
+            let range = NSRange(location: prefix.utf16.count, length: 1)
+            result.addAttribute(.attachment, value: attachment, range: range)
+            attributed = result
+            loaded = (attachment, range)
+        }
         guard let loaded, let image = loaded.attachment.image, loaded.range.length == 1 else { return nil }
         let size = loaded.attachment.bounds.size
         guard size.width.isFinite, size.height.isFinite, size.width > 0, size.height > 0 else { return nil }
-        guard let source = run.image?.source, let sourceURL = URL(string: source) else { return nil }
         let markdown = PicoHostedTableMarkdown.inline([run])
         let activation = MarkdownImageActivation(image: image, sourceURL: sourceURL, altText: run.text,
                                                   title: run.image?.title, preferredSize: size, markdown: markdown)
@@ -1255,6 +1623,8 @@ final class TextKitStreamingBackend {
                 markdown: { model.markdownRepresentation() }) { context in
                     PicoHostedMediaView(model: model, context: context)
                 }
+            // Reserve the known image height so a delayed load can mount its lazy view.
+            attachment.seedSizeBeforeViewCreation(size)
             entry = (model, attachment, activation)
         }
         hostedImages[block.id] = entry
@@ -1265,6 +1635,26 @@ final class TextKitStreamingBackend {
             result.addAttributes([.link: link, .toolTip: "Open image"], range: loaded.range)
         }
         return result
+    }
+
+    private func standaloneImageRun(for block: RenderedBlock) -> InlineRun? {
+        switch block.kind {
+        case .paragraph, .listItem, .blockquote: break
+        default: return nil
+        }
+        guard block.snapshot.isClosed, block.images.count == 1,
+              let runs = block.snapshot.inlineRuns else { return nil }
+        var imageRun: InlineRun?
+        for run in runs {
+            if run.image != nil {
+                guard imageRun == nil else { return nil }
+                imageRun = run
+            } else if !run.style.isEmpty || run.linkURL != nil || run.math != nil || run.tag != nil
+                        || !run.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return nil
+            }
+        }
+        return imageRun
     }
 
     /// Keep one attachment while an SVG fence loads, then validate the closed
@@ -1291,11 +1681,6 @@ final class TextKitStreamingBackend {
                     PicoHostedMediaView(model: model, context: context)
                 }
             attachment.accessibilityStatus = { [weak model] in model?.loadingAccessibilityLabel }
-            // A transparent placeholder avoids AppKit's generic file icon
-            // while retaining the nonnil image that bootstraps lazy providers.
-            // The SVG itself is drawn by the hosted vector canvas.
-            attachment.image = NSImage(size: NSSize(width: 1, height: 1), flipped: false) { _ in true }
-            attachment.attachmentCell = nil
             // Reserve the loading row or known vector geometry before lazy
             // TextKit provider creation; a one-point placeholder can otherwise
             // stay collapsed in SwiftUI sizing.
@@ -1521,6 +1906,10 @@ final class TextKitStreamingBackend {
                     hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
                         height: openUI.model.measuredHeight))
                 }
+                if let image = hostedImages[records[index].id], imagePreviews[image.activation.sourceURL] != nil {
+                    hosted.attachment.seedSizeBeforeViewCreation(CGSize(width: availableWidth,
+                        height: image.model.viewportHeight(availableWidth: availableWidth)))
+                }
                 hosted.attachment.update(availableWidth: availableWidth, isSelected: selected)
             }
         }
@@ -1544,9 +1933,11 @@ final class TextKitStreamingBackend {
 
     func hostedOpenUIModel(for id: BlockID) -> PicoHostedOpenUIModel? { hostedOpenUIs[id]?.model }
 
+    func hostedFileCardModel(for id: BlockID) -> PicoHostedFileCardModel? { hostedFiles[id]?.model }
+
     func hostedAttachment(for id: BlockID) -> PicoHostedAttachment? {
         hostedEmbeddedBlocks[id]?.attachment ?? hostedTables[id]?.attachment ?? hostedVectors[id]?.attachment ?? hostedSVGs[id]?.attachment
-            ?? hostedImages[id]?.attachment ?? hostedOpenUIs[id]?.attachment
+            ?? hostedImages[id]?.attachment ?? hostedOpenUIs[id]?.attachment ?? hostedFiles[id]?.attachment
     }
 
     func hostedVectorModel(for id: BlockID) -> PicoHostedVectorModel? {
@@ -1561,6 +1952,9 @@ final class TextKitStreamingBackend {
     /// Returns true when the given blocks differ from the backend's current records
     /// (different count, different IDs, or different content).
     func needsFullApply(for blocks: [RenderedBlock]) -> Bool {
+#if canImport(AppKit)
+        if shouldResetDocument { return true }
+#endif
         guard blocks.count == records.count else { return true }
         for i in blocks.indices {
             if blocks[i].id != records[i].id || !recordMatches(records[i], block: blocks[i]) {
