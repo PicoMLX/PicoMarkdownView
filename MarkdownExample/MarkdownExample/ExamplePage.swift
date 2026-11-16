@@ -35,7 +35,15 @@ struct ExamplePage: Identifiable, Hashable {
                             tagPrefixes: [.mention, .hashtag, .ticker, .paired(open: "[[", close: "]]")])
         ]),
         ExamplePage(name: "Link Context Menus", examples: [MarkdownExample("LinkMenus")])
-    ]
+    ] + fileCardPages
+
+    private static var fileCardPages: [ExamplePage] {
+        #if os(macOS)
+        [ExamplePage(name: "File Cards", examples: [MarkdownExample("FileCards")])]
+        #else
+        []
+        #endif
+    }
 
     private static var chartExamples: [MarkdownExample] {
         var examples = [MarkdownExample("Charts", name: "Examples", reference: "https://vega.github.io/vega-lite/examples/")]

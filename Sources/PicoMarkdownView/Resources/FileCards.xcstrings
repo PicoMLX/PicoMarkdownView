@@ -1,0 +1,83 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Creating…": {
+      "comment": "Status while a file artifact is being created.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating…"
+          }
+        }
+      }
+    },
+    "Ready": {
+      "comment": "Status when a file artifact is available for preview or saving.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "comment": "File-card button that asks the host to preview the file.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        }
+      }
+    },
+    "Download": {
+      "comment": "File-card button that asks the host to save a copy of the file.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        }
+      }
+    },
+    "Preview %@.": {
+      "comment": "File-card preview button help; placeholder is the filename.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview %@."
+          }
+        }
+      }
+    },
+    "Save a copy of %@.": {
+      "comment": "File-card download button help; placeholder is the filename.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save a copy of %@."
+          }
+        }
+      }
+    },
+    "%@ is ready.": {
+      "comment": "Accessibility announcement when a file becomes available; placeholder is its filename.",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is ready."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
