@@ -35,7 +35,7 @@ actor VegaLiteRuntime {
         context.setObject(measure, forKeyedSubscript: "picoVegaMeasureText" as NSString)
         context.evaluateScript(Self.bootstrapScript)
         guard context.exception == nil else { return nil }
-        for name in ["vega-6.2.0.min", "vega-lite-6.5.0.min", "vega-interpreter-1.2.1", "pico-vega-expressions", "pico-vega-lite"] {
+        for name in ["vega-6.4.0.min", "vega-lite-6.5.0.min", "vega-interpreter-2.3.2", "pico-vega-expressions", "pico-vega-lite"] {
             guard let url = Bundle.module.url(forResource: name, withExtension: "js"),
                   let script = try? String(contentsOf: url, encoding: .utf8) else { return nil }
             context.exception = nil

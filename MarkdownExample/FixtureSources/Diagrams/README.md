@@ -14,7 +14,7 @@ a relational data model and task dependencies, respectively.
 
 The original `Diagrams.md` retains all 58 examples across 32 families and is
 still used by `PeleDemoExamplesTests`. Its full gallery is available from the
-Diagrams page. The showcase uses the existing bundled Pele 1.9.1 renderer.
+Diagrams page. The showcase uses the existing bundled Pele 1.13.0 renderer.
 
 Regenerate both media pages and selection manifests with
 `python3 Scripts/export-media-examples.py`; validate offline with `--check`.

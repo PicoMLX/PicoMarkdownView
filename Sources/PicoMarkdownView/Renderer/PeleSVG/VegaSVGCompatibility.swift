@@ -34,7 +34,7 @@ enum VegaSVGCompatibility {
         if element.attributes["stroke"]?.hasPrefix("url(") == true { return false }
         if ["text", "tspan"].contains(element.name), element.attributes["fill"]?.hasPrefix("url(") == true { return false }
         if let mode = element.attributes["spreadMethod"], mode != "pad" { return false }
-        if let limit = element.attributes["stroke-miterlimit"], PeleSVGValue.length(limit) != 10 { return false }
+        if let limit = element.attributes["stroke-miterlimit"], !(PeleSVGValue.length(limit).map { $0 >= 1 } ?? false) { return false }
         if let style = element.attributes["style"] {
             for declaration in style.split(separator: ";") {
                 guard let colon = declaration.firstIndex(of: ":") else { continue }

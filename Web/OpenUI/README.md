@@ -61,8 +61,8 @@ The presentation is stock OpenUI CSS with its light/dark ThemeProvider. It does 
 
 ## Upstream versions and notices
 
-- @openuidev/lang-core and @openuidev/react-lang: 1.0.2
-- @openuidev/react-ui and @openuidev/react-headless: 0.18.1
+- @openuidev/lang-core and @openuidev/react-lang: 1.1.1
+- @openuidev/react-ui and @openuidev/react-headless: 0.18.10
 - React and React DOM: 18.3.1
 - Zustand: 4.5.7
 - Zod: 4.6.7

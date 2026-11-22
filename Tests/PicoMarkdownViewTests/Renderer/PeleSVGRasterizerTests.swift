@@ -726,5 +726,26 @@ struct PeleSVGRasterizerTests {
         #expect(lowerLinePixels > 40, "the second line occupies its own lower baseline after the text transform")
         #expect(firstLineOnly.count(where: { $0.alpha > 80 }) > 40)
     }
+
+    @Test("Vega's inherited root miter limit decides whether a sharp join is mitered or beveled")
+    func vegaMiterLimit() throws {
+        // A 20 degree join needs a miter limit of about 5.76 to keep its tip,
+        // which reaches 11.5 points above the vertex at (50, 20).
+        func chart(limit: String) -> String {
+            """
+            <svg xmlns="http://www.w3.org/2000/svg" width="100" height="60"><g fill="none" stroke-miterlimit="\(limit)">\
+            <path d="M44.71,50L50,20L55.29,50" stroke="#ff0000" stroke-width="4"/></g></svg>
+            """
+        }
+        func tipPixels(_ bitmap: Bitmap) -> Int {
+            (9..<17).reduce(0) { count, y in count + (45..<55).filter { bitmap.pixel($0, y).alpha > 128 }.count }
+        }
+        let mitered = try rasterize(chart(limit: "10"), dialect: .vega)
+        let beveled = try rasterize(chart(limit: "4"), dialect: .vega)
+        #expect(tipPixels(mitered) > 8, "a limit of 10 keeps the miter tip")
+        #expect(tipPixels(beveled) == 0, "Vega's default limit of 4 bevels the same join")
+        #expect(mitered.pixel(53, 40).isOpaqueRed && beveled.pixel(53, 40) == mitered.pixel(53, 40), "the arms are unchanged")
+        #expect(PeleSVGDocument(svg: chart(limit: "0.5"), dialect: .vega) == nil, "limits below 1 are invalid SVG")
+    }
     #endif
 }
