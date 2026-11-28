@@ -1,6 +1,15 @@
 {
-  "originHash" : "13101dcb643bb0fa68b5ab5096621c2ae5d2541e1fd8062b8435ffb1f4fb9495",
+  "originHash" : "15ab8a8a4591f8359c9cf6df31fb05d2f0e013009ff9b84e641538efe69fd087",
   "pins" : [
+    {
+      "identity" : "json-render",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vercel-labs/json-render.git",
+      "state" : {
+        "revision" : "5e99a387536a1528d8113eb929ab4b7e611701ae",
+        "version" : "0.23.1"
+      }
+    },
     {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",

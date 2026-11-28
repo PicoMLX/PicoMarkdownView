@@ -1,7 +1,7 @@
 # Example app
 
 Open `MarkdownExample.xcodeproj` and run the **MarkdownExample** scheme on macOS
-or iOS Simulator. The sidebar has nine feature destinations:
+or iOS Simulator. The sidebar groups samples by feature.
 
 | Destination | Samples |
 | --- | --- |
@@ -11,7 +11,7 @@ or iOS Simulator. The sidebar has nine feature destinations:
 | Images & SVG | Combined offline PngSuite/SVG showcase; focused SVG and network image samples |
 | Charts | Eleven inline-data chart placements and data tables; full offline gallery on macOS |
 | Diagrams | Twelve published Pele examples; full published gallery |
-| OpenUI | Forms, calendar and summary cards; optional HTML previews on macOS |
+| Embedded Views (OpenUI on iOS) | OpenUI forms, calendar and summary cards, plus HTML previews and an interactive JSON Render card on macOS |
 | Tags & Mentions | Tag syntax, callbacks, and fictional user/bot profile previews |
 | Link Context Menus | Inert file/web mock menus on macOS |
 

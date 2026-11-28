@@ -29,7 +29,7 @@ struct ExamplePage: Identifiable, Hashable {
             MarkdownExample("Diagrams-Overview", name: "Examples", reference: "https://pele.run/examples"),
             MarkdownExample("Diagrams", name: "Gallery", reference: "https://pele.run/examples")
         ]),
-        ExamplePage(name: "OpenUI", examples: componentExamples),
+        componentPage,
         ExamplePage(name: "Tags & Mentions", examples: [
             MarkdownExample("Tags", reference: "https://github.com/PicoMLX/PicoMarkdownView",
                             tagPrefixes: [.mention, .hashtag, .ticker, .paired(open: "[[", close: "]]")])
@@ -55,11 +55,18 @@ struct ExamplePage: Identifiable, Hashable {
         return examples
     }
 
-    private static var componentExamples: [MarkdownExample] {
-        var examples = [MarkdownExample("OpenUI", reference: "https://www.openui.com/docs/openui-lang")]
+    private static var componentPage: ExamplePage {
+        let openUI = MarkdownExample("OpenUI", reference: "https://www.openui.com/docs/openui-lang")
         #if os(macOS)
-        examples.append(MarkdownExample("HTMLPreviews", name: "HTML Previews", htmlPreviewsEnabled: true))
+        return ExamplePage(name: "Embedded Views", examples: [
+            openUI,
+            MarkdownExample("HTMLPreviews", name: "HTML Previews", htmlPreviewsEnabled: true),
+            MarkdownExample("JSONRender", name: "JSON Render",
+                            reference: "https://github.com/vercel-labs/json-render/blob/v0.23.1/swift/JSONRender/README.md",
+                            jsonRenderEnabled: true, usesBundledImages: true)
+        ])
+        #else
+        return ExamplePage(name: "OpenUI", examples: [openUI])
         #endif
-        return examples
     }
 }

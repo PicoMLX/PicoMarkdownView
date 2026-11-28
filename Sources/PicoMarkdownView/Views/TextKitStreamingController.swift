@@ -376,6 +376,14 @@ final class TextKitStreamingBackend {
         let attachment: PicoHostedAttachment?
     }
     private var hostedEmbeddedBlocks: [BlockID: EmbeddedEntry] = [:]
+    var visibleInteractiveEmbeddedViews: [NSView] {
+        hostedEmbeddedBlocks.values.compactMap { entry -> NSView? in
+            guard let attachment = entry.attachment, attachment.interaction == .interactive,
+                  let view = attachment.hostingView, view.window != nil,
+                  !view.isHiddenOrHasHiddenAncestor, !view.visibleRect.isEmpty else { return nil }
+            return view
+        }.sorted { $0.convert($0.bounds, to: nil).midY > $1.convert($1.bounds, to: nil).midY }
+    }
     private struct FileCardCandidate {
         let link: StandaloneFileLink
         let prefix: String
@@ -1537,7 +1545,7 @@ final class TextKitStreamingBackend {
             let model = PicoHostedEmbeddedBlockModel(presentation: presentation)
             let attachment: PicoHostedAttachment?
             if model.acceptsPresentation {
-                let hosted = PicoHostedAttachment(interaction: .selectableBlock,
+                let hosted = PicoHostedAttachment(interaction: presentation.renderer.interaction,
                     markdown: { model.markdownRepresentation() }) { context in
                         PicoHostedEmbeddedBlockView(model: model, context: context)
                     }

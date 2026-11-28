@@ -285,6 +285,12 @@ final class StreamingTextKit2View: NSTextView, NSTextLayoutManagerDelegate {
         for button in buttons where !children.contains(where: { ($0 as? NSView) === button }) {
             children.append(button)
         }
+        // NSTextView can omit a hosted SwiftUI subtree from its own AX children.
+        // Include the native elements of interactive embeds already on screen.
+        let embedded = NSAccessibility.unignoredChildren(from: backend.visibleInteractiveEmbeddedViews)
+        for element in embedded where !children.contains(where: { ($0 as AnyObject) === (element as AnyObject) }) {
+            children.append(element)
+        }
         for child in PicoFileCardAccessibility.children(in: self)
             where !children.contains(where: { ($0 as? NSView) === child }) {
             children.append(child)

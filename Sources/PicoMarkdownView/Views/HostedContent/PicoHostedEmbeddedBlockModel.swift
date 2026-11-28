@@ -39,7 +39,8 @@ final class PicoHostedEmbeddedBlockModel {
         guard !didCallFactory else { return }
         didCallFactory = true
         let context = PicoEmbeddedBlockContext(source: candidate.source, kind: candidate.kind,
-                                              bodyFontSize: candidate.bodyFontSize, loadingState: loadingState)
+                                              bodyFontSize: candidate.bodyFontSize, loadingState: loadingState,
+                                              imageProvider: candidate.imageProvider)
         context.update(availableWidth: availableWidth, isSelected: isSelected)
         self.context = context
         content = candidate.renderer.makeView(context)

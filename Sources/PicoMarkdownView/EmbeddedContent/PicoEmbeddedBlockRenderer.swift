@@ -31,15 +31,24 @@ public final class PicoEmbeddedBlockContext {
 
 #if os(macOS)
     package let loadingState: PicoEmbeddedLoadingState?
+    private let imageProvider: (any MarkdownImageProvider)?
 
     init(source: String, kind: PicoEmbeddedBlockSelector, bodyFontSize: CGFloat,
-         loadingState: PicoEmbeddedLoadingState? = nil) {
+         loadingState: PicoEmbeddedLoadingState? = nil, imageProvider: (any MarkdownImageProvider)? = nil) {
         self.loadingState = loadingState
+        self.imageProvider = imageProvider
         self.source = source
         self.kind = kind
         if case let .fencedCode(language) = kind { self.language = language }
         else { self.language = nil }
         self.bodyFontSize = bodyFontSize
+    }
+
+    package func image(for url: URL) async -> MarkdownImageResult? {
+        if let prefetcher = imageProvider as? any MarkdownImagePrefetchingProvider {
+            return await prefetcher.prefetch(url)
+        }
+        return await imageProvider?.image(for: url)
     }
 #else
     init(source: String, kind: PicoEmbeddedBlockSelector, bodyFontSize: CGFloat) {
@@ -69,15 +78,33 @@ public final class PicoEmbeddedBlockContext {
 public struct PicoEmbeddedBlockRenderer: Sendable {
     let identity = UUID()
     public let selectors: [PicoEmbeddedBlockSelector]
+#if os(macOS)
+    let interaction: PicoHostedAttachmentInteraction
+#endif
     /// Package adapters may reserve a source-backed row before the closed factory runs.
     package var showsLoadingPlaceholder = false
     let makeView: @MainActor @Sendable (PicoEmbeddedBlockContext) -> AnyView?
 
     public init(selectors: [PicoEmbeddedBlockSelector],
                 makeView: @escaping @MainActor @Sendable (PicoEmbeddedBlockContext) -> AnyView?) {
+#if os(macOS)
+        self.init(selectors: selectors, interaction: .selectableBlock, makeView: makeView)
+#else
         self.selectors = selectors
         self.makeView = makeView
+#endif
     }
+
+#if os(macOS)
+    /// Choose `.interactive` to let hosted controls receive pointer input.
+    /// Selections spanning the attachment still copy its original source.
+    public init(selectors: [PicoEmbeddedBlockSelector], interaction: PicoHostedAttachmentInteraction,
+                makeView: @escaping @MainActor @Sendable (PicoEmbeddedBlockContext) -> AnyView?) {
+        self.selectors = selectors
+        self.interaction = interaction
+        self.makeView = makeView
+    }
+#endif
 
     func matches(_ kind: BlockKind) -> Bool { selectors.contains { $0.matches(kind) } }
 }
@@ -88,6 +115,10 @@ struct RenderedEmbeddedBlock: Sendable, Equatable {
     let kind: PicoEmbeddedBlockSelector
     let bodyFontSize: CGFloat
     var isClosed = true
+#if os(macOS)
+    // Like the renderer, this is fixed for the lifetime of the document model.
+    var imageProvider: (any MarkdownImageProvider)? = nil
+#endif
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.renderer.identity == rhs.renderer.identity && lhs.source == rhs.source
