@@ -1,6 +1,6 @@
 {
   "upstream": "https://pele.run/examples",
-  "renderer": "Pele 1.9.1 (as identified by the existing bundled renderer)",
+  "renderer": "Pele 1.13.0 (as identified by the existing bundled renderer)",
   "sourceCorpus": "MarkdownExample/MarkdownExample/markdown files/Diagrams.md",
   "sourceCorpusCommit": "178cfbbed06b5fa890eed4b49be7dc66f9d6c33a",
   "sourceCorpusSHA256": "2f2bf24d93e9167c4a2809915f5b5c9e918644aadc3b2fb830d534af988679b0",

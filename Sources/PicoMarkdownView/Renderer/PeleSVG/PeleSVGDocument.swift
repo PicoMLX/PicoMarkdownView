@@ -250,6 +250,9 @@ struct PeleSVGStyle {
     var dashOffset: CGFloat = 0
     var lineCap: CGLineCap = .butt
     var lineJoin: CGLineJoin = .miter
+    /// CoreGraphics' default, which this renderer always used. SVG's initial
+    /// value is 4; Vega 6.3 and later write that value on its root group.
+    var miterLimit: CGFloat = 10
     var fillOpacity: CGFloat = 1
     var strokeOpacity: CGFloat = 1
     var color: CGColor = PeleSVGValue.black
@@ -275,7 +278,7 @@ struct PeleSVGStyle {
 
     private static let presentationAttributes: Set<String> = [
         "fill", "fill-opacity", "stroke", "stroke-width", "stroke-dasharray", "stroke-dashoffset",
-        "stroke-linecap", "stroke-linejoin", "stroke-opacity", "opacity", "color",
+        "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-opacity", "opacity", "color",
         "font-family", "font-size", "font-weight", "font-style", "font", "text-decoration",
         "text-anchor", "letter-spacing", "word-spacing", "baseline-shift", "rx", "ry", "stop-color", "stop-opacity"
     ]
@@ -341,6 +344,8 @@ struct PeleSVGStyle {
             case "bevel": lineJoin = .bevel
             default: lineJoin = .miter
             }
+        case "stroke-miterlimit":
+            if let limit = PeleSVGValue.length(value), limit >= 1 { miterLimit = limit }
         case "fill-opacity":
             if let alpha = PeleSVGValue.fraction(value) { fillOpacity = min(max(alpha, 0), 1) }
         case "stroke-opacity":

@@ -10,8 +10,8 @@
 # Usage: Scripts/bundle-pele.sh
 set -euo pipefail
 
-PELE_VERSION="1.9.1"
-PELE_SHA256="fc7e0ee2d0c6118d7dd2622e47fa90206723ca40dcd8e0d29127118736e48d15"
+PELE_VERSION="1.13.0"
+PELE_SHA256="00f879d86c5a6ece897ef70e18fd228a9952bba338a0cb1293b373900d7414bd"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"

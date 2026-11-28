@@ -242,6 +242,7 @@ extension PeleSVGDocument {
             context.setLineWidth(style.strokeWidth)
             context.setLineCap(style.lineCap)
             context.setLineJoin(style.lineJoin)
+            context.setMiterLimit(style.miterLimit)
             context.setLineDash(phase: style.dashOffset, lengths: style.dashes)
             context.addPath(path)
             strokeCurrentPath(in: context, color: color, strokesAsFills: strokesAsFills)

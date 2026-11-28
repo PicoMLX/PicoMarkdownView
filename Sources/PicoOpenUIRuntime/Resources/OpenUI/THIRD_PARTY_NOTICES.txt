@@ -182,7 +182,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
-## @openuidev/lang-core 1.0.2
+## @openuidev/lang-core 1.1.1
 License: MIT
 
 LICENSE
@@ -238,7 +238,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-## @openuidev/react-headless 0.18.1
+## @openuidev/react-headless 0.18.10
 License: MIT
 
 LICENSE
@@ -266,7 +266,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-## @openuidev/react-lang 1.0.2
+## @openuidev/react-lang 1.1.1
 License: MIT
 
 LICENSE
@@ -294,7 +294,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 
-## @openuidev/react-ui 0.18.1
+## @openuidev/react-ui 0.18.10
 License: MIT
 
 LICENSE
